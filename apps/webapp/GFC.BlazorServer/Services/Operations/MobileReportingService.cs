@@ -62,21 +62,11 @@ public class MobileReportingService : IMobileReportingService
             data.LottoOpeningCash = await GetCarryoverCashAsync(date, shiftType);
         }
 
-        // Lock Logic (Simplified for DTO)
+        // Time lock removed at user request to allow editing regardless of shift age
         if (data.ExistingEntryFound)
         {
             var createdBy = barEntry?.CreatedBy ?? lottoEntry?.CreatedBy;
-            var createdTime = barEntry?.CreatedAt ?? lottoEntry?.CreatedDate ?? DateTime.UtcNow;
-            
-            // Logic moved from Razor component
-            bool hasActualData = (barEntry != null && (barEntry.TotalSales > 0 || (barEntry.TotalHours ?? 0) > 0)) ||
-                                 (lottoEntry != null && (lottoEntry.TotalSales > 0 || lottoEntry.TotalPayouts > 0));
-
-            if (hasActualData && createdTime < DateTime.UtcNow.AddHours(-1))
-            {
-                data.IsLocked = true;
-                data.LockOwner = createdBy;
-            }
+            data.LockOwner = createdBy;
         }
 
         return data;

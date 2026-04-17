@@ -418,31 +418,24 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         // This stops the "spinning" UI by allowing the layout to react to the state change.
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
 
-        // 5. [OPTIMISTIC] Clean browser storage in the background.
-        // We don't await this because if the SignalR circuit is busy (deadlocked by another circuit),
-        // we shouldn't block the entire logout redirect.
-        _ = Task.Run(async () => 
+        // 5. [CRITICAL] Clean browser storage.
+        // We await this to ensure the cookie/token is GONE before any redirection occurs.
+        try 
         {
-            try 
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                
-                // We attempt to clear localStorage and cookies. If the circuit dies or is too busy,
-                // the /login page's own OnInitialized will handle the fallback cleanup later.
-                try {
-                    await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-                    await _jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "gfc_session_active");
-                    await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
-                    await _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';");
-                } catch { }
-            }
-            catch (Exception ex)
-            {
-                // Silently fail - browser-side cleanup is best-effort here.
-                // The next login attempt will overwrite these values anyway.
-                _logger.LogDebug("Optimistic JS Logout cleanup failed (expected on disconnect): {Message}", ex.Message);
-            }
-        });
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            
+            // We attempt to clear localStorage and cookies. 
+            await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+            await _jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "gfc_session_active");
+            
+            // Clear cookie multiple ways to be safe
+            await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+            await _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("JS Logout cleanup failed (expected on disconnect): {Message}", ex.Message);
+        }
     }
 
     public async Task RefreshUserAsync()

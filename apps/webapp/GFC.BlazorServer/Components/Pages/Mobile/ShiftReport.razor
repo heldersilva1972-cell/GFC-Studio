@@ -10,7 +10,7 @@
 @inject IMobileReportingService ReportingService
 @inject IJSRuntime JSRuntime
 @inject IVersionService VersionService
-@inject AuthenticationStateProvider AuthStateProvider
+@inject CustomAuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>End of Shift | GFC Mobile</PageTitle>
@@ -409,11 +409,14 @@
                                             <i class="bi bi-shop me-2"></i> Downstairs Bar
                                         </div>
                                         <div class="d-flex gap-4 justify-content-center w-100 max-w-600">
-                                            <button class='shift-choice-btn-tactile animate-bounce-in @(!_dayMainSubmitted ? "pulse-attention" : "completed-btn")' style='opacity: @(IsDayLocked ? "0.4" : "1"); cursor: @(IsDayLocked ? "not-allowed" : "pointer")' disabled="@IsDayLocked" @onclick='() => SetShift("Day")'>
+                                            <button class='shift-choice-btn-tactile animate-bounce-in @(!_dayMainSubmitted ? "pulse-attention" : "completed-btn")' style='opacity: 1; cursor: pointer' @onclick='() => SetShift("Day")'>
                                                 @if (_dayMainSubmitted) {
                                                     <div class="completed-badge"><i class="bi bi-check-circle-fill"></i></div>
                                                 } else if (_dayMainHasData) {
                                                     <div class="status-indicator-dot warning"></div>
+                                                }
+                                                @if (IsDayLocked) {
+                                                    <div class="view-only-badge"><i class="bi bi-eye-fill"></i> VIEW ONLY</div>
                                                 }
                                                 <i class="bi bi-sun-fill @(_dayMainSubmitted ? "text-success" : "text-warning")"></i>
                                                 <span class="btn-label-text">Day Shift</span>
@@ -427,11 +430,14 @@
                                                     }
                                                 </div>
                                             </button>
-                                            <button class='shift-choice-btn-tactile animate-bounce-in @(!_nightMainSubmitted ? "pulse-attention" : "completed-btn")' style='animation-delay: 0.1s; opacity: @(IsNightLocked ? "0.4" : "1"); cursor: @(IsNightLocked ? "not-allowed" : "pointer")' disabled="@IsNightLocked" @onclick='() => SetShift("Night")'>
+                                            <button class='shift-choice-btn-tactile animate-bounce-in @(!_nightMainSubmitted ? "pulse-attention" : "completed-btn")' style='animation-delay: 0.1s; opacity: 1; cursor: pointer' @onclick='() => SetShift("Night")'>
                                                 @if (_nightMainSubmitted) {
                                                     <div class="completed-badge"><i class="bi bi-check-circle-fill"></i></div>
                                                 } else if (_nightMainHasData) {
                                                     <div class="status-indicator-dot warning"></div>
+                                                }
+                                                @if (IsNightLocked) {
+                                                    <div class="view-only-badge"><i class="bi bi-eye-fill"></i> VIEW ONLY</div>
                                                 }
                                                 <i class="bi bi-moon-stars-fill @(_nightMainSubmitted ? "text-success" : "text-primary")"></i>
                                                 <span class="btn-label-text">Night Shift</span>
@@ -460,9 +466,12 @@
                                         <div class="text-uppercase fw-black text-muted small letter-spacing-2 opacity-75">
                                             <i class="bi bi-building-up me-2 text-indigo"></i> Rental Hall / Upstairs
                                         </div>
-                                        <button class='shift-choice-btn-tactile animate-bounce-in upstairs-btn-theme w-100 max-w-400 @(!_hallSubmitted ? "pulse-attention" : "completed-btn")' style='animation-delay: 0.2s; opacity: @(IsHallLocked ? "0.4" : "1"); cursor: @(IsHallLocked ? "not-allowed" : "pointer")' disabled="@IsHallLocked" @onclick="ExecuteToggleRentalHall">
+                                        <button class='shift-choice-btn-tactile animate-bounce-in upstairs-btn-theme w-100 max-w-400 @(!_hallSubmitted ? "pulse-attention" : "completed-btn")' style='animation-delay: 0.2s; opacity: 1; cursor: pointer' @onclick="ExecuteToggleRentalHall">
                                             @if (_hallSubmitted) {
                                                 <div class="completed-badge"><i class="bi bi-check-circle-fill"></i></div>
+                                            }
+                                            @if (IsHallLocked) {
+                                                <div class="view-only-badge"><i class="bi bi-eye-fill"></i> VIEW ONLY</div>
                                             }
                                             <i class="bi bi-building-up @(_hallSubmitted ? "text-success" : "text-indigo")"></i>
                                             <span class="btn-label-text">Upstairs Bar Entry</span>
@@ -740,9 +749,8 @@
                                       SubmitDisabled="@(IsSubmitting || IsLocked)"
                                       PulseSubmit="@(IsReadyToSubmit && !Submitted && !IsLocked)" />
 
-                        @if (ExistingEntryFound && !IsLocked) {
-                            <p class="text-center mt-2 mb-0 small text-success fw-bold"><i class="bi bi-clock-history"></i> Still editable for 1 hour after entry.</p>
-                        }
+                        @* 1-hour window message removed at user request *@
+
                     </div>
                 }
             </div>
@@ -1517,6 +1525,25 @@
         box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
         z-index: 10;
         animation: animate-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .view-only-badge {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(100, 116, 139, 0.9);
+        color: white;
+        font-size: 0.55rem;
+        font-weight: 900;
+        padding: 4px 10px;
+        border-radius: 50px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        z-index: 10;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
     .shift-btn-status-footer {
@@ -2415,11 +2442,10 @@
         ShiftType = type;
         await CheckExisting();
 
-        if (IsLocked) {
-             ShiftType = null; 
-        } else {
-             _ = CheckForLocalDraft();
-        }
+        // Self-Correction Window logic removed for unrestricted entry
+        // IsLocked is now calculated in CheckExisting based on ownership
+        _ = CheckForLocalDraft();
+        
         StateHasChanged();
     }
 
@@ -2470,7 +2496,9 @@
                 _originalTotalHours = TotalHours;
                 _originalNotes = Notes;
 
-                IsLocked = data.IsLocked;
+                // Ownership-based Lock: Locked if exists AND user is not owner AND user is not admin
+                IsLocked = (data.ExistingEntryFound && CurrentUser != null && !CurrentUser.IsAdmin && data.LockOwner != CurrentUser.Username);
+                
                 _lockOwner = data.LockOwner;
                 _lastSyncedAt = DateTime.Now; // Mark initial load as a sync point
             }
@@ -2514,9 +2542,10 @@
         _hasLocalChanges = false;
         StateHasChanged();
         
-        // Let user move on immediately
-        await Task.Delay(1500);
-        Navigation.NavigateTo("/mobile");
+        // Let user move on immediately by logging out properly
+        await Task.Delay(2500);
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
     }
     private async Task HandleBackToSelection() {
         if (HasUnsavedChanges) {
@@ -2597,7 +2626,10 @@
         _onModalConfirm?.Invoke();
     }
 
-    private void HandleCancel() => Navigation.NavigateTo("/mobile");
+    private async Task HandleCancel() {
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
 
     private async Task HandleManualLogout()
     {
