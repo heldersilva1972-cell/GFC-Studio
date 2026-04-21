@@ -1,6 +1,7 @@
 extern alias IPNetwork2Alias;
 
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -260,3 +261,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

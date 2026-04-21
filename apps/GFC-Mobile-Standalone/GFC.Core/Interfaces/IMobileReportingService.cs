@@ -1,0 +1,30 @@
+using GFC.Core.Models;
+using GFC.Core.DTOs;
+
+namespace GFC.Core.Interfaces;
+
+public interface IMobileReportingService
+{
+    Task<MobileShiftData> GetShiftReportDataAsync(DateTime date, string shiftType, bool isRental);
+    Task<bool> SaveShiftReportAsync(MobileShiftData data, string username);
+    Task<decimal> GetCarryoverCashAsync(DateTime date, string shiftType);
+    Task<decimal> GetCumulativeBagDebtAsync(DateTime date);
+    Task<bool> SubmitFinalReportAsync(MobileShiftData data, string username);
+    Task<DailyShiftSummary> GetDailySummaryAsync(DateTime date);
+    Task<string> GetServerVersionAsync();
+}
+
+public class DailyShiftSummary
+{
+    public ShiftStatus Day { get; set; } = new();
+    public ShiftStatus Night { get; set; } = new();
+    public ShiftStatus Hall { get; set; } = new();
+}
+
+public class ShiftStatus
+{
+    public bool Submitted { get; set; }
+    public bool HasData { get; set; }
+    public string Closer { get; set; }
+    public bool Modified { get; set; }
+}

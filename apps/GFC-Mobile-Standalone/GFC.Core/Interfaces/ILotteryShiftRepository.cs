@@ -1,0 +1,20 @@
+using GFC.Core.Models;
+
+namespace GFC.Core.Interfaces
+{
+    public interface ILotteryShiftRepository
+    {
+        LotteryShift? GetById(int shiftId);
+        LotteryShift? GetDuplicateShift(string employeeName, DateTime date);
+        List<LotteryShift> GetByDateRange(DateTime startDate, DateTime endDate);
+        List<LotteryShift> GetByEmployee(string employeeName, DateTime? startDate = null, DateTime? endDate = null);
+        List<LotteryShift> GetAll();
+        int Create(LotteryShift shift);
+        void Update(LotteryShift shift);
+        void Delete(int shiftId);
+        List<LotteryShift> GetUnreconciled();
+        bool Exists(int shiftId);
+        List<(string Username, string FullName)> GetEmployeeMetadata();
+        void UpdateBarSaleOwner(DateTime date, string shiftType, string oldUsername, string newUsername);
+    }
+}

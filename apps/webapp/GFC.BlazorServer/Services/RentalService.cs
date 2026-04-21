@@ -1,6 +1,7 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -431,3 +432,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

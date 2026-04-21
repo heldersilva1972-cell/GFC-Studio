@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using System;
@@ -185,3 +186,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

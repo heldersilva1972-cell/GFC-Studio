@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
@@ -394,3 +395,5 @@ namespace GFC.BlazorServer.Services.Camera
         }
     }
 }
+
+

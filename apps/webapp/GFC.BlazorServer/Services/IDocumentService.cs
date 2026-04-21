@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components.Forms;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -13,3 +14,5 @@ namespace GFC.BlazorServer.Services
         Task DeleteDocumentAsync(int id);
     }
 }
+
+

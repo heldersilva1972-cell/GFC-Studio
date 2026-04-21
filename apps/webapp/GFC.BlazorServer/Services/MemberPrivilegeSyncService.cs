@@ -1,9 +1,11 @@
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Models;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -202,3 +204,5 @@ public class MemberPrivilegeSyncService : IMemberPrivilegeSyncService
         return result;
     }
 }
+
+

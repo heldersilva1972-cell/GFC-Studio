@@ -1,4 +1,5 @@
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Interfaces;
 using GFC.Core.Services;
@@ -200,3 +201,5 @@ public class DuesState
     public bool PreviousYearPaid { get; set; }
     public List<DuesPayment> AllPayments { get; set; } = new();
 }
+
+

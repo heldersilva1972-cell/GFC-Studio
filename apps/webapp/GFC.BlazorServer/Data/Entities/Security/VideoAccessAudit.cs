@@ -3,6 +3,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Data.Entities.Security
 {
@@ -50,3 +51,5 @@ namespace GFC.BlazorServer.Data.Entities.Security
         public string Notes { get; set; }
     }
 }
+
+

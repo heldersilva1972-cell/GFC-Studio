@@ -4,6 +4,7 @@
 // Run `pwsh bin/Debug/netX/playwright.ps1 install` in the project directory.
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using HtmlAgilityPack;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Playwright;
@@ -262,3 +263,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

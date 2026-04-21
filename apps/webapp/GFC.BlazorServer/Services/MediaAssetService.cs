@@ -1,6 +1,7 @@
 // [VERIFIED FIX + DIAGNOSTICS]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
@@ -191,3 +192,5 @@ namespace GFC.BlazorServer.Services
         public async Task DeleteAssetAsync(int id) => await DeleteMediaAssetAsync(id);
     }
 }
+
+

@@ -1,5 +1,6 @@
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -77,3 +78,5 @@ namespace GFC.BlazorServer.Controllers
         public int Count { get; set; }
     }
 }
+
+

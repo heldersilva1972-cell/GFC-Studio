@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
@@ -10,3 +11,5 @@ namespace GFC.BlazorServer.Services
         Task<SeoSettings> SaveSeoSettingsAsync(SeoSettings settings);
     }
 }
+
+

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -824,3 +825,5 @@ public class ReimbursementRequestDto
 {
     public string? Notes { get; set; }
 }
+
+

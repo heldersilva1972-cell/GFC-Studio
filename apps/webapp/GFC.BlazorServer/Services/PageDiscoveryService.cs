@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Components;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 
 namespace GFC.BlazorServer.Services;
@@ -317,3 +318,5 @@ public class PageDiscoveryService
         return $"{GetFriendlyPageName(type.Name)} page";
     }
 }
+
+

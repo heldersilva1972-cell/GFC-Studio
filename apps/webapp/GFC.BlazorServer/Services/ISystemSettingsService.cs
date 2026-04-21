@@ -1,3 +1,4 @@
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services;
@@ -34,4 +35,6 @@ public interface IBlazorSystemSettingsService
     /// </summary>
     Task<bool> GetSafeModeEnabledAsync();
 }
+
+
 

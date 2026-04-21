@@ -1,5 +1,6 @@
 using GFC.BlazorServer.Configuration;
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Models;
 using GFC.BlazorServer.Services;
@@ -663,3 +664,5 @@ public class RealControllerClient : IControllerClient
         }
     }
 }
+
+

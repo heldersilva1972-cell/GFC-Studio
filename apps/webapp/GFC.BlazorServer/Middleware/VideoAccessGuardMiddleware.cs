@@ -1,6 +1,7 @@
 // [NEW]
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -147,3 +148,5 @@ namespace GFC.BlazorServer.Middleware
         }
     }
 }
+
+

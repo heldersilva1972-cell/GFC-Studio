@@ -4,9 +4,11 @@ using GFC.Core.BusinessRules;
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using GFC.BlazorServer.Services;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using CoreDuesPayment = GFC.Core.Models.DuesPayment;
 
@@ -668,4 +670,6 @@ public class DashboardMetricsService : IDashboardMetricsService
         return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
     }
 }
+
+
 

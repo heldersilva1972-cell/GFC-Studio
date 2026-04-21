@@ -1,5 +1,6 @@
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services.DataProtection;
 
@@ -77,3 +78,5 @@ public class DataProtectionService : IDataProtectionService
         return settings.LastRestoreTestUtc;
     }
 }
+
+

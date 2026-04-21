@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services
 {
@@ -19,3 +20,5 @@ namespace GFC.BlazorServer.Services
         Task<StudioLock> GetLockAsync(int pageId);
     }
 }
+
+

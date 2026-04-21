@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Controllers;
 
@@ -111,3 +112,5 @@ public class AnalyticsController : ControllerBase
         public int AdditionalSeconds { get; set; }
     }
 }
+
+

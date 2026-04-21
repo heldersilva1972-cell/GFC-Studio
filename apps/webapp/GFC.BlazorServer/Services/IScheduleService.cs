@@ -1,3 +1,4 @@
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Models;
 
@@ -30,4 +31,6 @@ public interface IScheduleService
     Task<TimeScheduleCompiledDto> CompileForControllerAsync(int controllerId, CancellationToken cancellationToken = default);
     Task<bool> SyncToControllerAsync(int controllerId, uint controllerSerialNumber, CancellationToken cancellationToken = default);
 }
+
+
 

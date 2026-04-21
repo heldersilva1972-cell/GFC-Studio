@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Data.Entities;
 
@@ -44,3 +45,5 @@ public class UserPasskey
 
     public Guid? AAGUID { get; set; }
 }
+
+

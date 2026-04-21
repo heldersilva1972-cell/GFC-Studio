@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services.Core;
@@ -12,3 +13,5 @@ public interface ICardReaderProfileService
 
     string? ParseCardFromRaw(string rawInput, CardReaderProfile profile, out string debugInfo);
 }
+
+

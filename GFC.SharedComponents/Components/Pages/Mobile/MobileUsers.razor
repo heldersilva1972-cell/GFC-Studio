@@ -1,0 +1,1007 @@
+@page "/mobile/users"
+@using Microsoft.AspNetCore.Authorization
+
+@using GFC.Core.Interfaces
+@using GFC.Core.DTOs
+@using GFC.Core.Models
+@using GFC.Core.Models.Security
+
+.Vpn
+@inject IUserManagementService UserService
+@inject IVpnConfigurationService VpnService
+@inject IDeviceTrustService TrustService
+@inject IDeviceInviteService InviteService
+@inject IUrlHelperService UrlHelper
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject IToastService Toast
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Users | GFC</PageTitle>
+
+<div class="mobile-page-container">
+    <!-- HEADER -->
+    <div class="sticky-top bg-white border-bottom shadow-sm">
+        <div class="container py-3 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-icon-round" @onclick="GoBack">
+                    <i class="bi bi-arrow-left fs-4"></i>
+                </button>
+                <h5 class="mb-0 fw-bold">User Management</h5>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary-soft btn-sm rounded-pill px-3 fw-bold shadow-sm" @onclick="OpenAddModal">
+                    <i class="bi bi-person-plus-fill me-1"></i> Add
+                </button>
+                <button class="btn btn-warning-soft btn-sm rounded-pill px-3 fw-bold shadow-sm" @onclick="ToggleQuickOnboard">
+                    <i class="bi @(_showQuickOnboard ? "bi-x-lg" : "bi-lightning-charge-fill") me-1"></i> Quick
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QUICK ONBOARD SECTION (Expandable) -->
+    @if (_showQuickOnboard)
+    {
+        <div class="quick-onboard-section animate-entrance bg-warning bg-opacity-10 p-4 border-bottom shadow-sm">
+            <div class="container">
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <div class="bg-warning rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                        <i class="bi bi-lightning-charge-fill text-white small"></i>
+                    </div>
+                    <h6 class="fw-bold mb-0">Quick Onboard User</h6>
+                </div>
+                
+                <div class="form-group mb-3">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">1. Onboarding Mode</label>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "Mobile" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("Mobile")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-phone fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">Mobile</span>
+                            </button>
+                        </div>
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "Station" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("Station")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-display fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">Station</span>
+                            </button>
+                        </div>
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "PIN" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("PIN")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-shield-lock-fill fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">PIN Set</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_onboardMode != "Station")
+                {
+                    <div class="form-group mb-3 animate-slide-up">
+                        <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">2. Target User</label>
+                        <select class="form-select border-0 shadow-sm py-2 rounded-4" @bind="_selectedUserId">
+                            <option value="0">Choose user...</option>
+                            @foreach (var user in _users.OrderBy(u => u.Username))
+                            {
+                                <option value="@user.UserId">@user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_onboardMode == "PIN")
+                    {
+                        <div class="form-group mb-3 animate-slide-up">
+                            <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">3. Target Station (Required)</label>
+                            <select class="form-select border-0 shadow-sm py-2 rounded-4" @bind="_selectedStationId">
+                                <option value="0">Choose shared station...</option>
+                                @foreach (var station in _activeStations)
+                                {
+                                    <option value="@station.Id">@(string.IsNullOrEmpty(station.StationName) ? $"Unnamed Station ({station.IpAddress})" : station.StationName)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="alert alert-info border-0 rounded-4 x-small mb-3 animate-fade-in shadow-sm">
+                            <i class="bi bi-info-circle-fill me-2"></i>
+                            <strong>PIN Setup Only:</strong> The user will set their passcode on the selected station. <strong>No device</strong> will be linked.
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="form-group mb-3 animate-slide-up">
+                        <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">2. Station Identity Setup</label>
+                        <input type="text" class="form-control border-0 shadow-sm py-3 rounded-4" 
+                               placeholder="e.g. Lobby PC, Back Bar Tablet..." 
+                               @bind="_targetStationName" 
+                               disabled="@(!string.IsNullOrEmpty(_inviteLink))" />
+                    </div>
+
+                    <div class="alert alert-primary border-0 rounded-4 x-small mb-3 animate-slide-up shadow-sm">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        <strong>Station mode</strong> authorizes the <strong>entire device</strong>. Shared stations usually sit at the lobby or bar. Access users must still use their individual PINs to access features.
+                    </div>
+                }
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-warning py-3 fw-bold rounded-4 shadow-sm" 
+                            @onclick="GenerateInvite" 
+                            disabled="@(_generating || (_onboardMode != "Station" && _selectedUserId == 0) || (_onboardMode == "PIN" && _selectedStationId == 0) || (_onboardMode == "Station" && string.IsNullOrWhiteSpace(_targetStationName)) || !string.IsNullOrEmpty(_inviteLink))">
+                        @if (_generating) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        else { <i class="bi bi-link-45deg me-1"></i> }
+                        Generate Setup Link
+                    </button>
+                    
+                    @if (!string.IsNullOrEmpty(_inviteLink))
+                    {
+                        <div class="invite-result-card animate-entrance mt-3 p-3 bg-white rounded-4 border border-warning border-opacity-50 shadow">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <span class="x-small fw-bold text-warning-emphasis">LINK READY</span>
+                                <button class="btn btn-sm btn-link text-muted p-0" @onclick="() => _showQr = !_showQr">
+                                    <i class="bi @(_showQr ? "bi-keyboard" : "bi-qr-code") me-1"></i> @(_showQr ? "Hide QR" : "Show QR")
+                                </button>
+                            </div>
+
+                            @if (_showQr)
+                            {
+                                <div class="text-center py-2 animate-entrance">
+                                    <img src="@($"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={Uri.EscapeDataString(_inviteLink)}")" 
+                                         alt="Setup QR Code" class="img-fluid rounded border p-2 bg-white" style="max-height: 150px;" />
+                                    <div class="mt-2 text-primary fw-bold x-small">Scan on target device</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="mb-3 text-center p-2 bg-light rounded-4 border border-dashed">
+                                    <div class="x-small text-muted text-uppercase fw-bold mb-1">Manual Setup Code</div>
+                                    <div class="h4 fw-black mb-0 letter-spacing-2 text-primary">@(_inviteToken?.Substring(0, 8).ToUpper() ?? "------")</div>
+                                </div>
+
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control form-control-sm bg-light border-0 x-small" value="@_inviteLink" readonly />
+                                    <button class="btn btn-primary btn-sm px-3" @onclick="CopyInvite">
+                                        <i class="bi @(_copied ? "bi-check-lg" : "bi-clipboard")"></i>
+                                    </button>
+                                </div>
+                            }
+                            
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-primary-soft w-100 rounded-pill fw-bold py-2" @onclick="LaunchSetupNow">
+                                    <i class="bi bi-box-arrow-up-right me-2"></i>Launch on this Station
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary w-100 rounded-pill mt-1" @onclick="ResetInvite">Start Over</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- MAIN SCROLLABLE CONTENT -->
+    <main class="page-scroll-area flex-grow-1">
+        <div class="container py-4">
+
+
+            <!-- USER LIST -->
+            @if (_loading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary opacity-50"></div>
+                </div>
+            }
+            else if (_users.Any())
+            {
+                <div class="user-list d-flex flex-column gap-3">
+                    @foreach (var user in _users.OrderBy(u => u.Username))
+                    {
+                        <div class="user-mobile-card animate-entrance stagger-1 @(!user.IsActive ? "inactive" : "")">
+                            <div class="d-flex align-items-center justify-content-between p-3" @onclick="() => ToggleUserExpansion(user.UserId)">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="user-icon @(user.IsAdmin ? "admin" : user.IsDirector ? "director" : "bartender")">
+                                        <i class="bi @(user.IsAdmin ? "bi-shield-fill-check" : user.IsDirector ? "bi-person-badge-fill" : "bi-cup-straw")"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold d-flex align-items-center gap-2">
+                                            @user.Username
+                                            @if (user.IsAdmin) { <span class="badge-mini admin">Admin</span> }
+                                            else if (user.IsDirector) { <span class="badge-mini director">Director</span> }
+                                            else { <span class="badge-mini bartender">Bartender</span> }
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(user.MemberName))
+                                        {
+                                            <div class="x-small text-muted">@user.MemberName</div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="status-dot @(user.IsActive ? "active" : "inactive")"></div>
+                                    <i class="bi bi-chevron-right text-muted transition-icon @(_expandedUserId == user.UserId ? "rotate-90" : "")"></i>
+                                </div>
+                            </div>
+
+                            @if (_expandedUserId == user.UserId)
+                            {
+                                <div class="card-details animate-slide-down border-top p-3 bg-light bg-opacity-50">
+                                    <div class="row g-3">
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary btn-sm w-100 rounded-pill py-2 shadow-sm" @onclick="() => OpenRoleModal(user)" disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi bi-shield-lock me-1"></i> Roles & Access
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-info btn-sm w-100 rounded-pill py-2" @onclick="() => ResetUserDevices(user)" disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi bi-device-ssd me-1"></i> Revoke
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn @(user.IsActive ? "btn-outline-danger" : "btn-success") btn-sm w-100 rounded-pill py-2" 
+                                                    @onclick="() => ToggleUserStatus(user)" disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi @(user.IsActive ? "bi-person-x" : "bi-person-check") me-1"></i> 
+                                                @(user.IsActive ? "Deactivate" : "Activate")
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                             <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2" 
+                                                    @onclick="() => ConfirmDeleteUser(user)" 
+                                                    disabled="@(user.Username.ToLower() == "admin" || user.UserId == _currentUserId)">
+                                                <i class="bi bi-trash me-1"></i> Delete
+                                            </button>
+                                        </div>
+                                        @if (user.Username.ToLower() == "admin")
+                                        {
+                                            <div class="col-12 text-center">
+                                                <span class="x-small text-muted italic">Primary Administrator cannot be modified.</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state text-center py-5">
+                    <i class="bi bi-people display-1 text-muted opacity-25"></i>
+                    <p class="mt-3 text-muted">No users found matching your search.</p>
+                </div>
+            }
+        </div>
+    </main>
+</div>
+
+<!-- ROLE EDIT DRAWER/MODAL (Simplified for mobile) -->
+@if (_showRoleModal && _selectedUser != null)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-2">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0">Adjust User Roles</h5>
+                    <button class="btn-close" @onclick="CloseModals"></button>
+                </div>
+                <div class="user-preview d-flex align-items-center gap-3 p-3 bg-light rounded-4">
+                    <div class="bg-primary rounded-circle text-white d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
+                        <i class="bi bi-person-fill fs-4"></i>
+                    </div>
+                    <div style="flex-grow: 1;">
+                        <div class="fw-bold fs-5">@(_selectedUser?.Username)</div>
+                        <div class="x-small text-muted">Manage system-level access and individual tools</div>
+                    </div>
+                    @if (_selectedUser?.IsActive == true)
+                    {
+                        <span class="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-3">Active</span>
+                    }
+                </div>
+            </div>
+            
+            <div class="drawer-body p-4">
+                <div class="role-options d-flex flex-column gap-3">
+                    <div class="role-option p-3 rounded-4 border @(_newIsAdmin ? "border-primary bg-primary bg-opacity-10" : "")" 
+                         @onclick="() => SetRole(true, false)">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <h6 class="fw-bold mb-0">System Administrator</h6>
+                            @if (_newIsAdmin) { <i class="bi bi-check-circle-fill text-primary"></i> }
+                        </div>
+                        <p class="x-small text-muted mb-0">Full access to all settings, users, and hardware controls.</p>
+                    </div>
+
+
+                    <div class="role-option p-3 rounded-4 border @(!_newIsAdmin && !_newIsDirector ? "border-secondary bg-light" : "")" 
+                         @onclick="() => SetRole(false, false)">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <h6 class="fw-bold mb-0">Regular Staff</h6>
+                            @if (!_newIsAdmin && !_newIsDirector) { <i class="bi bi-check-circle-fill text-secondary"></i> }
+                        </div>
+                        <p class="x-small text-muted mb-0">Limited access to specific shift-related tools only.</p>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info mt-4 x-small rounded-4 border-0 mb-4">
+                    <i class="bi bi-info-circle me-2"></i> Role changes take effect on the user's next login or session refresh.
+                </div>
+
+                <!-- NEW: Page-Level Permissions section -->
+                <div class="page-permissions-section">
+                    <div class="section-title d-flex align-items-center gap-2 mb-3">
+                        <div class="line flex-grow-1 bg-light" style="height: 1px;"></div>
+                        <div class="text-uppercase x-small fw-bold text-muted letter-spacing-1">Page Access</div>
+                        <div class="line flex-grow-1 bg-light" style="height: 1px;"></div>
+                    </div>
+
+                    @if (_newIsAdmin)
+                    {
+                        <div class="alert alert-warning x-small rounded-4 border-0 mb-0">
+                            <i class="bi bi-shield-check me-2"></i> <strong>Full Access Enabled:</strong> Administrators have access to all system pages automatically.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var category in _pagesByCategory.Keys)
+                        {
+                            @* [POLICY] Only show MOBILE permissions for regular active members *@
+                            if (!_newIsAdmin && !_newIsDirector && category.ToUpper() != "MOBILE")
+                            {
+                                continue;
+                            }
+
+                            <div class="category-group mb-3">
+                                <h6 class="text-primary small fw-bold mb-2 ps-1">@category</h6>
+                                <div class="bg-light bg-opacity-50 rounded-4 border px-3 py-1">
+                                    @foreach (var appPage in _pagesByCategory[category])
+                                    {
+                                        <div class="d-flex align-items-center justify-content-between py-2 @(appPage != _pagesByCategory[category].Last() ? "border-bottom" : "")">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <i class="bi bi-file-earmark-lock2 text-muted x-small"></i>
+                                                <span class="small">@GetFriendlyPageName(appPage.PageName)</span>
+                                            </div>
+                                            <div class="form-check form-switch m-0">
+                                                <input class="form-check-input" type="checkbox" 
+                                                       checked="@_selectedPermissions.Contains(appPage.PageId)"
+                                                       @onchange="(e) => TogglePermission(appPage.PageId, (bool)e.Value!)" />
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            <div class="drawer-footer p-4 pt-0">
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold" @onclick="SaveUserChanges" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Save Role Access
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ADD USER DRAWER -->
+@if (_showAddModal)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-2">
+                <div class="d-flex justify-content-between align-items-center mb-0">
+                    <h5 class="fw-bold mb-0">Add New User</h5>
+                    <button class="btn-close" @onclick="CloseModals"></button>
+                </div>
+            </div>
+            
+            <div class="drawer-body p-4">
+                @if (!string.IsNullOrEmpty(_addModalError))
+                {
+                    <div class="alert alert-danger x-small rounded-4 mb-3 border-0">
+                        <i class="bi bi-exclamation-triangle me-2"></i>@_addModalError
+                    </div>
+                }
+
+                <div class="form-group mb-4">
+                    <label class="form-label x-small fw-bold text-primary text-uppercase mb-2">Directors</label>
+                    <select class="form-select border-0 bg-light py-2 rounded-4 shadow-sm" 
+                            @bind="_newUserForm.MemberId" @bind:after="OnMemberSelected">
+                        <option value="">-- Select Director --</option>
+                        @foreach (var member in _availableDirectors.Where(m => !IsMemberTaken(m.MemberId)))
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group mb-4">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Active Members</label>
+                    <select class="form-select border-0 bg-light py-2 rounded-4 shadow-sm" 
+                            @bind="_newUserForm.MemberId" @bind:after="OnMemberSelected">
+                        <option value="">-- Select Active Member --</option>
+                        @foreach (var member in _availableMembers.Where(m => !IsMemberTaken(m.MemberId)))
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
+                    <div class="mt-2 text-muted x-small italic text-center">
+                        Username will be auto-generated from member name
+                    </div>
+                </div>
+
+                <div class="roles-selection mt-4">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-3">Roles & Status</label>
+                    <div class="bg-light bg-opacity-50 rounded-4 border p-3">
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center mb-3 p-0">
+                            <label class="form-check-label small" for="addAdminCheck">
+                                <i class="bi bi-shield-fill-check text-warning me-2"></i>Administrator
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" @bind="_newUserForm.IsAdmin" id="addAdminCheck" />
+                        </div>
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center mb-0 p-0">
+                            <label class="form-check-label small" for="addActiveCheck">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>Active Account
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" @bind="_newUserForm.IsActive" id="addActiveCheck" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drawer-footer p-4 pt-0">
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow" @onclick="SaveNewUser" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    <i class="bi bi-check-lg me-1"></i>Create User
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- DELETE CONFIRMATION DRAWER -->
+@if (_showDeleteConfirm && _userToDelete != null)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-0 text-center">
+                 <div class="mx-auto bg-danger bg-opacity-10 text-danger rounded-circle d-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                    <i class="bi bi-exclamation-triangle-fill fs-3"></i>
+                </div>
+                <h5 class="fw-bold text-danger mb-2">Delete User?</h5>
+                <p class="text-muted small mb-0">
+                    Are you sure you want to delete <strong>@_userToDelete.Username</strong>? This action cannot be undone.
+                </p>
+                @if (_userToDelete.IsDirector)
+                {
+                     <div class="alert alert-warning x-small border-0 rounded-4 mt-3 mb-0 text-start">
+                        <i class="bi bi-info-circle-fill me-1"></i> <strong>Director Account:</strong> Deleting this user will only remove their login access. Their Board Member record remains in the database.
+                    </div>
+                }
+            </div>
+            
+            <div class="drawer-footer p-4">
+                <div class="d-grid gap-3">
+                    <button class="btn btn-danger py-3 rounded-pill fw-bold shadow-sm" @onclick="ExecuteDeleteUser" disabled="@_saving">
+                        @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        Yes, Delete User
+                    </button>
+                     <button class="btn btn-outline-secondary py-3 rounded-pill fw-bold" @onclick="CloseModals" disabled="@_saving">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .mobile-page-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+        z-index: 1050;
+    }
+
+    .page-scroll-area {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 20px;
+    }
+
+    .btn-icon-round {
+        width: 40px; height: 40px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        background: transparent; border: none;
+        color: var(--app-primary, #4f46e5);
+    }
+    .btn-icon-round:active { background: rgba(0,0,0,0.05); }
+
+    .btn-primary-soft { background: rgba(79, 70, 229, 0.1); color: #4f46e5; border: none; }
+    .btn-warning-soft { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: none; }
+    .bg-primary-soft { background: rgba(79, 70, 229, 0.1); color: #4f46e5; }
+    .bg-success-soft { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+    .bg-warning-soft { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    .bg-info-soft { background: rgba(6, 182, 212, 0.1); color: #06b6d4; }
+
+    .stat-bubble {
+        min-width: 85px; padding: 12px; border-radius: 20px;
+        text-align: center; flex-shrink: 0;
+    }
+    .stat-bubble .val { font-size: 1.25rem; font-weight: 800; line-height: 1; margin-bottom: 2px; }
+    .stat-bubble .lab { font-size: 0.65rem; font-weight: 600; text-uppercase: uppercase; opacity: 0.8; }
+
+    .search-input-group {
+        background: white; border-radius: 20px;
+        display: flex; align-items: center; padding: 4px 12px;
+    }
+    .search-input-group i { color: #adb5bd; }
+
+    .user-mobile-card {
+        background: white; border-radius: 20px;
+        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.01), 0 2px 4px -1px rgba(0,0,0,0.01);
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+    .user-mobile-card.inactive { opacity: 0.7; }
+
+    .user-icon {
+        width: 44px; height: 44px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.25rem;
+    }
+    .user-icon.admin { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    .user-icon.director { background: rgba(6, 182, 212, 0.1); color: #06b6d4; }
+    .user-icon.regular { background: rgba(79, 70, 229, 0.1); color: #4f46e5; }
+    .user-icon.bartender { background: rgba(100, 116, 139, 0.1); color: #475569; }
+
+    .badge-mini {
+        font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px;
+    }
+    .badge-mini.admin { background: #fef3c7; color: #92400e; }
+    .badge-mini.director { background: #e0f2fe; color: #075985; }
+    .badge-mini.bartender { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .status-dot.active { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+    .status-dot.inactive { background: #adb5bd; }
+
+    .transition-icon { transition: transform 0.2s ease; display: inline-block; }
+    .rotate-90 { transform: rotate(90deg); }
+
+    .mobile-drawer-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.4); 
+        display: flex; align-items: flex-end; z-index: 2000;
+    }
+    .mobile-drawer {
+        width: 100%; background: white;
+        border-top-left-radius: 30px; border-top-right-radius: 30px;
+        max-height: 90vh; overflow-y: auto;
+    }
+
+    .animate-slide-up { animation: slideUp 0.3s ease-out; }
+    .animate-slide-down { animation: slideDown 0.2s ease-out; }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+
+    @@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    @@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .scroll-hide::-webkit-scrollbar { display: none; }
+    .scroll-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+    .x-small { font-size: 0.7rem; }
+</style>
+
+@code {
+    private List<UserListItemDto> _users = new();
+    private bool _loading = true;
+    private string _searchQuery = "";
+    private int? _expandedUserId;
+
+    // Quick Onboard State
+    private bool _showQuickOnboard;
+    private string _onboardMode = "Mobile"; // Mobile, Station, PIN
+    private int _selectedUserId;
+    private string _targetStationName = "";
+    private string _inviteLink = "";
+    private string _inviteToken = "";
+    private int _selectedStationId;
+    private List<TrustedDevice> _activeStations = new();
+    private bool _generating;
+    private bool _showQr;
+    private bool _copied;
+
+    // Permissions State
+    private List<AppPage> _allPages = new();
+    private Dictionary<string, List<AppPage>> _pagesByCategory = new();
+    private HashSet<int> _selectedPermissions = new();
+
+    // Add User State
+    private bool _showAddModal;
+    private List<ActiveMemberDto> _availableMembers = new();
+    private List<ActiveMemberDto> _availableDirectors = new();
+    private UserFormModel _newUserForm = new();
+    private string _addModalError = "";
+
+    // Actions State
+    private bool _showRoleModal;
+    private UserListItemDto? _selectedUser;
+    private bool _newIsAdmin;
+    private bool _newIsDirector;
+    private bool _saving;
+
+    private int _currentUserId;
+    private bool _showDeleteConfirm;
+    private UserListItemDto? _userToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _activeStations = await TrustService.GetAllActiveStationsAsync();
+             var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+             if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid))
+             {
+                 _currentUserId = uid;
+                 _selectedUserId = uid; // Default selection
+             }
+             await LoadUsers();
+        }
+    }
+
+    private async Task LoadUsers()
+    {
+        _loading = true;
+        _users = await Task.Run(() => UserService.GetAllUsers());
+        
+        // Load pages for the permission manager
+        _allPages = await Task.Run(() => UserService.GetActivePages());
+        _pagesByCategory = _allPages
+            .Where(p => !p.PageRoute.StartsWith("/setup/") && p.PageRoute != "/mobile" && p.PageRoute != "/hub")
+            .GroupBy(p => p.Category ?? "DASHBOARD")
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.PageName).ToList());
+
+        // Load available members and directors for creation
+        _availableDirectors = await Task.Run(() => UserService.GetEligibleDirectorsForUserCreation());
+        _availableMembers = await Task.Run(() => UserService.GetEligibleMembersForUserCreation());
+
+        _loading = false;
+    }
+
+    private void OpenAddModal()
+    {
+        _newUserForm = new UserFormModel();
+        _addModalError = "";
+        _showAddModal = true;
+    }
+
+    private async Task OnMemberSelected()
+    {
+        if (string.IsNullOrEmpty(_newUserForm.MemberId)) return;
+        if (int.TryParse(_newUserForm.MemberId, out var memberId))
+        {
+            try
+            {
+                var username = await Task.Run(() => UserService.GenerateUsernameFromMember(memberId));
+                _newUserForm.Username = username;
+            }
+            catch (Exception ex)
+            {
+                _addModalError = ex.Message;
+            }
+        }
+    }
+
+    private async Task SaveNewUser()
+    {
+        if (string.IsNullOrWhiteSpace(_newUserForm.Username))
+        {
+            _addModalError = "Username is required.";
+            return;
+        }
+
+        _saving = true;
+        _addModalError = "";
+        try
+        {
+            int? memberId = string.IsNullOrEmpty(_newUserForm.MemberId) ? null : int.Parse(_newUserForm.MemberId);
+            
+            // Create user (Passcode will be set during device setup)
+            var userId = UserService.CreateUser(
+                _newUserForm.Username,
+                "", // Initial password placeholder
+                _newUserForm.IsAdmin,
+                memberId,
+                _newUserForm.Notes,
+                "admin",
+                passwordChangeRequired: true
+            );
+
+            // Set role and isActive if repo supports directly (Update to sync)
+            UserService.UpdateUser(userId, _newUserForm.Username, null, memberId, _newUserForm.Notes, null, _newUserForm.IsAdmin, _newUserForm.IsActive);
+
+            Toast.ShowSuccess($"User '{_newUserForm.Username}' created successfully.");
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            _addModalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private IEnumerable<UserListItemDto> FilteredUsers => _users
+        .Where(u => string.IsNullOrEmpty(_searchQuery) || 
+                    u.Username.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    (u.MemberName?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+    
+    private bool IsMemberTaken(int memberId)
+    {
+        // Hide members who already have a user account
+        return _users.Any(u => u.MemberId == memberId);
+    }
+
+    private void ToggleUserExpansion(int userId)
+    {
+        if (_expandedUserId == userId) _expandedUserId = null;
+        else _expandedUserId = userId;
+    }
+
+    private void ToggleQuickOnboard()
+    {
+        _showQuickOnboard = !_showQuickOnboard;
+        if (!_showQuickOnboard) ResetInvite();
+    }
+
+    private void SetOnboardMode(string mode)
+    {
+        _onboardMode = mode;
+        ResetInvite();
+    }
+
+    private async Task GenerateInvite()
+    {
+        _generating = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var currentUserId = 0;
+            var userIdClaim = authState.User.FindFirst("UserId") ?? authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null) int.TryParse(userIdClaim.Value, out currentUserId);
+
+            bool isStation = _onboardMode == "Station";
+            bool isPinOnly = _onboardMode == "PIN";
+
+            // Final safeguard for station mode: Use the current admin as the initiator
+            int targetUserId = isStation ? currentUserId : _selectedUserId;
+            if (targetUserId == 0) return;
+
+            // Generate the modern DeviceInviteToken (24 hour expiry for mobile generated links)
+            _inviteToken = await InviteService.CreateInviteTokenAsync(targetUserId, isStation ? _targetStationName : _onboardMode, 24, isPinOnly ? _selectedStationId : null);
+            var baseUrl = await UrlHelper.GetBaseUrlAsync();
+            
+            // Fix: Use the correct activation route used by the system
+            var stationSfx = isStation ? "&station=true" : "";
+            var pinSfx = isPinOnly ? "&pinOnly=true" : "";
+            _inviteLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={_inviteToken}{stationSfx}{pinSfx}&native=true";
+            _showQr = true;
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to generate access link: {ex.Message}");
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+
+    private async Task LaunchSetupNow()
+    {
+        if (string.IsNullOrEmpty(_inviteLink)) return;
+        await JS.InvokeVoidAsync("open", _inviteLink, "_blank");
+    }
+
+    private async Task CopyInvite()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _inviteLink);
+        _copied = true;
+        Toast.ShowSuccess("Link copied to clipboard");
+        await Task.Delay(2000);
+        _copied = false;
+    }
+
+    private void ResetInvite()
+    {
+        _inviteLink = "";
+        _inviteToken = "";
+        _selectedUserId = 0;
+        _targetStationName = "";
+        _showQr = false;
+        _copied = false;
+    }
+
+    private async Task ResetUserDevices(UserListItemDto user)
+    {
+        if (user.Username.ToLower() == "admin") return;
+        
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to revoke ALL devices and tokens for {user.Username}?");
+        if (!confirmed) return;
+
+        try
+        {
+            await TrustService.ResetMobileSetupAsync(user.UserId);
+            Toast.ShowSuccess($"Devices revoked for {user.Username}");
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to revoke devices: {ex.Message}");
+        }
+    }
+
+    private async Task ToggleUserStatus(UserListItemDto user)
+    {
+        if (user.Username.ToLower() == "admin") return;
+
+        var newStatus = !user.IsActive;
+        try
+        {
+            UserService.UpdateUser(user.UserId, user.Username, null, user.MemberId, user.Notes, null, user.IsAdmin, newStatus);
+            await LoadUsers(); // Reload to reflect changes
+            Toast.ShowSuccess($"User {(newStatus ? "Activated" : "Deactivated")}");
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to update status: {ex.Message}");
+        }
+    }
+
+    private async Task OpenRoleModal(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _newIsAdmin = user.IsAdmin;
+        _newIsDirector = user.IsDirector;
+        
+        // Load individual permissions
+        var perms = await Task.Run(() => UserService.GetUserPagePermissions(user.UserId));
+        _selectedPermissions = perms.Select(p => p.PageId).ToHashSet();
+        
+        _showRoleModal = true;
+    }
+
+    private void CloseModals()
+    {
+        _showRoleModal = false;
+        _showAddModal = false;
+        _showDeleteConfirm = false;
+        _selectedUser = null;
+        _userToDelete = null;
+    }
+
+    private void ConfirmDeleteUser(UserListItemDto user)
+    {
+        if (user.Username.ToLowerInvariant() == "admin")
+        {
+            Toast.ShowWarning("The primary 'admin' account cannot be deleted.");
+            return;
+        }
+        
+        if (user.UserId == _currentUserId)
+        {
+            Toast.ShowWarning("You cannot delete your own account.");
+            return;
+        }
+
+        _userToDelete = user;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task ExecuteDeleteUser()
+    {
+        if (_userToDelete == null) return;
+        
+        _saving = true;
+        try
+        {
+            await UserService.DeleteUserAsync(_userToDelete.UserId);
+            Toast.ShowSuccess($"User '{_userToDelete.Username}' has been deleted.");
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to delete user: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    public class UserFormModel
+    {
+        public string Username { get; set; } = "";
+        public string? MemberId { get; set; }
+        public bool IsAdmin { get; set; }
+        public bool IsDirector { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string? Notes { get; set; }
+    }
+
+    private void SetRole(bool isAdmin, bool isDirector)
+    {
+        if (_selectedUser == null || _selectedUser.Username.ToLower() == "admin") return;
+        _newIsAdmin = isAdmin;
+        _newIsDirector = isDirector;
+        
+        // If becoming admin, we don't need to check individual permissions as they are granted * wildcard
+        if (isAdmin)
+        {
+            // Optional: reset permissions to clean state or keep them
+        }
+    }
+
+    private void TogglePermission(int pageId, bool enabled)
+    {
+        if (enabled) _selectedPermissions.Add(pageId);
+        else _selectedPermissions.Remove(pageId);
+    }
+
+    private async Task SaveUserChanges()
+    {
+        if (_selectedUser == null || _selectedUser.Username.ToLower() == "admin") return;
+        _saving = true;
+        try
+        {
+            UserService.UpdateUser(_selectedUser.UserId, _selectedUser.Username, null, _selectedUser.MemberId, _selectedUser.Notes, null, _newIsAdmin, _selectedUser.IsActive);
+            
+            // Save page level permissions
+            UserService.SetUserPagePermissions(_selectedUser.UserId, _selectedPermissions.ToList(), "admin");
+            
+            Toast.ShowSuccess("User role and permissions updated");
+            await LoadUsers(); // Refresh list
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to save: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private string GetFriendlyPageName(string dbName)
+    {
+        return dbName switch 
+        {
+            "Mobile Analytics" => "Income charts",
+            "Mobile Dues" => "Dues & Payments",
+            "Mobile Inventory" => "Liquor inventory manager",
+            "Mobile Key Cards" => "Key Cards", 
+            "Mobile Sales" => "End of shift sales",
+            // "Mobile User Management" matches already
+            // "Shift Sales Alert" matches already
+            _ => dbName
+        };
+    }
+
+    private void GoBack() => Navigation.NavigateTo("/mobile");
+}

@@ -13,6 +13,7 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -325,3 +326,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

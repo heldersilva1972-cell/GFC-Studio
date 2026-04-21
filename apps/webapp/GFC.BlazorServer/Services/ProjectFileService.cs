@@ -1,5 +1,6 @@
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Text.Json;
 using System.Text;
 
@@ -130,3 +131,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -19,3 +20,5 @@ namespace GFC.BlazorServer.Services
         Task<HallRentalInquiry> SaveRentalInquiryForLaterAsync(string formData, string email);
     }
 }
+
+

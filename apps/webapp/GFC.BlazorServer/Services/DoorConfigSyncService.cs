@@ -1,4 +1,5 @@
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.BlazorServer.Services.Models;
@@ -112,3 +113,5 @@ public class DoorConfigSyncService
         }
     }
 }
+
+

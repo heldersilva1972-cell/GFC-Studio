@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.DTOs;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -33,3 +34,5 @@ namespace GFC.BlazorServer.Services
         Task<string> CleanupDuplicateEventsAsync();
     }
 }
+
+

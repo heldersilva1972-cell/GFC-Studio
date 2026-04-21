@@ -1,11 +1,11 @@
 using GFC.BlazorServer.Data;
-using GFC.BlazorServer.Data.Entities;
+using GFC.Core.Models;
 using GFC.Core.Interfaces;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
 using GFC.Core.Enums;
-using GFC.Core.Models;
 
 namespace GFC.BlazorServer.Services;
 
@@ -94,6 +94,8 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
     }
 
     public async Task<SystemSettings> GetSystemSettingsAsync() => await GetAsync();
+    public async Task<SystemSettings> GetSettingsAsync() => await GetAsync();
+    public async Task SaveSettingsAsync(SystemSettings settings) => await UpdateAsync(settings);
 
     public async Task<int> GetTrustedDeviceDurationDaysAsync()
     {

@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Hubs
 {
@@ -18,3 +19,5 @@ namespace GFC.BlazorServer.Hubs
         }
     }
 }
+
+

@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services.Vpn;
 
@@ -75,3 +76,5 @@ public interface IVpnConfigurationService
 }
 
 public record OnboardingTokenResult(int UserId, bool IsStation);
+
+

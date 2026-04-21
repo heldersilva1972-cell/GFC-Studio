@@ -1,6 +1,7 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -176,3 +177,5 @@ namespace GFC.BlazorServer.Controllers
         }
     }
 }
+
+

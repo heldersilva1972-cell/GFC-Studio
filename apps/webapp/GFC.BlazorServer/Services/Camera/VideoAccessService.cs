@@ -2,6 +2,7 @@
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Hubs;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -202,3 +203,5 @@ namespace GFC.BlazorServer.Services.Camera
         #endregion
     }
 }
+
+

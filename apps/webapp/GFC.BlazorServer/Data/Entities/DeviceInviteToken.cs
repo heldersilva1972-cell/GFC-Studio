@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Data.Entities;
 
@@ -40,3 +41,5 @@ public class DeviceInviteToken
 
     public bool IsValid => !IsRevoked && UsedAtUtc == null && ExpiresAtUtc > DateTime.UtcNow;
 }
+
+

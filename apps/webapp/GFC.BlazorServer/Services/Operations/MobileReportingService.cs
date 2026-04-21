@@ -1,8 +1,10 @@
 using GFC.Core.Interfaces;
 using GFC.Core.DTOs;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Data;
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -219,3 +221,5 @@ public class MobileReportingService : IMobileReportingService
         return Task.FromResult(_versionService.GetFullVersion());
     }
 }
+
+

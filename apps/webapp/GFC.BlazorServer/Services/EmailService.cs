@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Mail;
 using GFC.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services;
 
@@ -72,3 +73,5 @@ public class EmailService : IEmailService
         }
     }
 }
+
+

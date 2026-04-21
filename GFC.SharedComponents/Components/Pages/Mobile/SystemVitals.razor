@@ -1,0 +1,316 @@
+@page "/mobile/system/stats"
+@using Microsoft.AspNetCore.Authorization
+
+@using GFC.Core.Models
+@using GFC.Core.Models.Diagnostics
+@inject IDiagnosticsService DiagnosticsService
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>System Vitals | GFC</PageTitle>
+
+<div class="vitals-container">
+    <header class="vitals-header p-4">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-back" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-arrow-left"></i>
+            </button>
+            <h4 class="fw-bold mb-0">System Vitals</h4>
+        </div>
+    </header>
+
+    @if (_metrics == null)
+    {
+        <div class="d-flex flex-column align-items-center justify-content-center py-5">
+            <div class="spinner-premium mb-3"></div>
+            <p class="text-muted small animate-pulse">Scanning infrastructure...</p>
+        </div>
+    }
+    else
+    {
+        <main class="vitals-content p-4 animate-fade-in">
+            <!-- DISK STORAGE -->
+            <section class="vitals-section mb-4">
+                <div class="section-label mb-3">
+                    <i class="bi bi-hdd-fill me-2"></i> SERVER STORAGE
+                </div>
+                <div class="vitals-card p-4 shadow-sm">
+                    <div class="d-flex justify-content-between align-items-end mb-2">
+                        <div>
+                            <span class="display-value">@_metrics.Performance.FreeDiskSpaceGb</span>
+                            <span class="unit-label">GB FREE</span>
+                        </div>
+                        <div class="text-end">
+                            <span class="small text-muted">Total: @_metrics.Performance.TotalDiskSpaceGb GB</span>
+                        </div>
+                    </div>
+                    
+                    <div class="usage-bar-container mb-3">
+                        <div class="usage-bar @GetStorageColorClass()" style="width: @_metrics.Performance.DiskUsagePercentage%"></div>
+                    </div>
+
+                    <div class="d-flex justify-content-between small text-muted">
+                        <span>Used: @Math.Round(_metrics.Performance.TotalDiskSpaceGb - _metrics.Performance.FreeDiskSpaceGb, 2) GB</span>
+                        <span>@_metrics.Performance.DiskUsagePercentage% Full</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- DATABASE SIZE -->
+            <section class="vitals-section mb-4">
+                <div class="section-label mb-3">
+                    <i class="bi bi-database-fill me-2"></i> DATABASE SIZE
+                </div>
+                <div class="vitals-card p-4 shadow-sm">
+                    <div class="text-center py-2">
+                        <div class="db-icon-box mx-auto mb-3">
+                            <i class="bi bi-server"></i>
+                        </div>
+                        <h2 class="fw-bold mb-1">@FormatBytes(_metrics.DatabaseHealth.DatabaseSizeBytes)</h2>
+                        <p class="text-muted small mb-3">@_metrics.DatabaseHealth.DatabaseName on @_metrics.DatabaseHealth.ServerName</p>
+
+                        @if (_metrics.DatabaseHealth.LastBackupDate.HasValue)
+                        {
+                            <div class="last-backup-badge px-3 py-2">
+                                <i class="bi bi-shield-check me-2"></i>
+                                LAST BACKUP: @FormatTimeAgo(_metrics.DatabaseHealth.LastBackupDate.Value)
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="last-backup-badge alert-danger px-3 py-2">
+                                <i class="bi bi-shield-x me-2"></i>
+                                NO BACKUP HISTORY FOUND
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            <!-- SERVER RESOURCES -->
+            <section class="vitals-section mb-4">
+                <div class="section-label mb-3">
+                    <i class="bi bi-cpu-fill me-2"></i> RESOURCES
+                </div>
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="vitals-card p-3 shadow-sm text-center">
+                            <p class="text-muted x-small mb-1">CPU LOAD</p>
+                            <h4 class="fw-bold mb-0">@_metrics.Performance.CpuUsage%</h4>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="vitals-card p-3 shadow-sm text-center">
+                            <p class="text-muted x-small mb-1">MEMORY (RAM)</p>
+                            <h4 class="fw-bold mb-0">@_metrics.Performance.MemoryUsagePercentage%</h4>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- UPTIME -->
+            <div class="uptime-badge mt-4">
+                <i class="bi bi-clock-history me-2"></i>
+                SERVER UPTIME: @FormatUptime(_metrics.Uptime)
+            </div>
+            
+            <div class="text-center mt-5 pt-3">
+                <button class="btn btn-refresh shadow-sm" @onclick="RefreshMetrics">
+                    <i class="bi bi-arrow-clockwise me-2"></i> Refresh Stats
+                </button>
+            </div>
+        </main>
+    }
+</div>
+
+<style>
+    .vitals-container {
+        min-height: 100vh;
+        background: #f8fafc;
+        padding-bottom: 60px;
+    }
+
+    .vitals-header {
+        background: white;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .btn-back {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+    }
+
+    .vitals-card {
+        background: white;
+        border-radius: 20px;
+        border: 1px solid #f1f5f9;
+    }
+
+    .section-label {
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: #64748b;
+        letter-spacing: 1px;
+    }
+
+    .display-value {
+        font-size: 2.2rem;
+        font-weight: 900;
+        color: #0f172a;
+    }
+
+    .unit-label {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #64748b;
+        margin-left: 4px;
+    }
+
+    .usage-bar-container {
+        height: 12px;
+        background: #f1f5f9;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .usage-bar {
+        height: 100%;
+        border-radius: 6px;
+        transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .bar-healthy { background: linear-gradient(90deg, #10b981, #34d399); }
+    .bar-warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .bar-danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+    .db-icon-box {
+        width: 60px;
+        height: 60px;
+        background: rgba(79, 70, 229, 0.1);
+        color: #4f46e5;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.8rem;
+    }
+
+    .x-small { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.5px; }
+
+    .uptime-badge {
+        background: #0f172a;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        text-align: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+
+    .btn-refresh {
+        background: white;
+        border: 1px solid #e2e8f0;
+        color: #64748b;
+        padding: 10px 24px;
+        border-radius: 100px;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+    .last-backup-badge {
+        display: inline-flex;
+        align-items: center;
+        background: #f0fdf4;
+        color: #166534;
+        border: 1px solid #dcfce7;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+    }
+
+    .last-backup-badge.alert-danger {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fee2e2;
+    }
+
+    .spinner-premium {
+        width: 48px; height: 48px; border-radius: 50%;
+        background: radial-gradient(farthest-side, #4f46e5 94%, #0000) top/6px 6px no-repeat,
+                    conic-gradient(#0000 30%, #4f46e5);
+        -webkit-mask: radial-gradient(farthest-side, #0000 calc(100% - 7px), #000 0);
+        animation: spin 1s infinite linear;
+    }
+
+    @@keyframes spin { 100% { transform: rotate(360deg); } }
+    @@keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .animate-pulse { animation: pulse 2s infinite ease-in-out; }
+    .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+
+@code {
+    private SystemDiagnosticsInfo? _metrics;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshMetrics();
+    }
+
+    private async Task RefreshMetrics()
+    {
+        _metrics = null;
+        StateHasChanged();
+        await Task.Delay(300); // Visual breathing room
+        _metrics = await DiagnosticsService.GetDiagnosticsAsync();
+        StateHasChanged();
+    }
+
+    private string GetStorageColorClass()
+    {
+        var percent = _metrics?.Performance.DiskUsagePercentage ?? 0;
+        if (percent > 90) return "bar-danger";
+        if (percent > 75) return "bar-warning";
+        return "bar-healthy";
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] Suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i;
+        double dblSByte = bytes;
+        for (i = 0; i < Suffix.Length && bytes >= 1024; i++, bytes /= 1024)
+        {
+            dblSByte = bytes / 1024.0;
+        }
+
+        // Fix for small values
+        if (i == 0) return $"{bytes} B";
+
+        return $"{dblSByte:0.##} {Suffix[i]}";
+    }
+
+    private string FormatUptime(TimeSpan uptime)
+    {
+        if (uptime.TotalDays >= 1)
+            return $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m";
+        return $"{uptime.Hours}h {uptime.Minutes}m";
+    }
+
+    private string FormatTimeAgo(DateTime dt)
+    {
+        var span = DateTime.Now - dt;
+        if (span.TotalDays > 1) return $"{(int)span.TotalDays} days ago";
+        if (span.TotalHours > 1) return $"{(int)span.TotalHours} hours ago";
+        if (span.TotalMinutes > 1) return $"{(int)span.TotalMinutes} mins ago";
+        return "Just now";
+    }
+}

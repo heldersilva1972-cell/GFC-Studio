@@ -1,4 +1,5 @@
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -84,3 +85,5 @@ namespace GFC.BlazorServer.Utilities
         }
     }
 }
+
+

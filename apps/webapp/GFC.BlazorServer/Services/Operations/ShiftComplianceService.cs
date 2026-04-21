@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Interfaces;
 using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
@@ -92,3 +93,5 @@ public class ShiftComplianceService : IShiftComplianceService
         return false;
     }
 }
+
+

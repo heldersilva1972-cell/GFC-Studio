@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using GFC.BlazorServer.Data;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services
 {
@@ -65,3 +66,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

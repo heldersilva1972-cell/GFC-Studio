@@ -1,0 +1,249 @@
+                var serverVersion = await ReportingService.GetServerVersionAsync();
+                _hasUpdate = serverVersion != VersionService.GetFullVersion();
+            } catch { }
+
+            Loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyBusinessDayLogic()
+    {
+        var now = DateTime.Now;
+        if (now.Hour < 5) ReportDate = DateTime.Today.AddDays(-1);
+    }
+
+    private async Task OnDateChanged(ChangeEventArgs e)
+    {
+        if (e.Value != null && DateTime.TryParse(e.Value.ToString(), out var newDate))
+        {
+            ReportDate = newDate;
+        }
+
+        Loading = true;
+        StateHasChanged();
+        try {
+            _currentBuffer = "";
+            await UpdateShiftAvailability();
+            await CheckExisting();
+        } finally {
+            Loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetShift(string type)
+    {
+        _lockErrorMessage = null;
+        _showValidation = false;
+        _activeField = null;
+        _currentBuffer = "";
+        
+        ShiftType = type;
+        await CheckExisting();
+
+        // Self-Correction Window logic removed for unrestricted entry
+        // IsLocked is now calculated in CheckExisting based on ownership
+        _ = CheckForLocalDraft();
+        
+        StateHasChanged();
+    }
+
+    private async Task ExecuteToggleRentalHall()
+    {
+        IsRentalHall = !IsRentalHall;
+        _lockErrorMessage = null;
+        _showValidation = false;
+        _activeField = null;
+        _currentBuffer = "";
+        ShiftType = IsRentalHall ? "Hall" : null;
+        await CheckExisting();
+        StateHasChanged();
+    }
+
+    // Checks whether a shift entry already exists for the selected date/type via the API
+    private async Task CheckExisting()
+    {
+        if (string.IsNullOrEmpty(ShiftType)) return;
+        try
+        {
+            var data = await ReportingService.GetShiftReportDataAsync(ReportDate, ShiftType, IsRentalHall);
+            ExistingEntryFound = data != null && data.ExistingEntryFound;
+            
+            // HYDRATE UI FIELDS
+            if (data != null)
+            {
+                BarSales = data.BarSales;
+                TotalHours = data.TotalHours;
+                LottoSales = data.LottoSales;
+                LottoCashes = data.LottoCashes;
+                LottoInstantTickets = data.LottoInstantTickets;
+                LottoNetDue = data.LottoNetDue;
+                LottoBackupBag = data.LottoBackupBag;
+                LottoCashCounted = data.LottoCashCounted;
+                LottoOpeningCash = data.LottoOpeningCash;
+                Notes = data.Notes;
+
+                // Track original values for change detection
+                _originalBarSales = BarSales;
+                _originalLottoSales = LottoSales;
+                _originalLottoCashes = LottoCashes;
+                _originalLottoInstantTickets = LottoInstantTickets;
+                _originalLottoNetDue = LottoNetDue;
+                _originalLottoOpeningCash = LottoOpeningCash;
+                _originalLottoBackupBag = LottoBackupBag;
+                _originalLottoCashCounted = LottoCashCounted;
+                _originalTotalHours = TotalHours;
+                _originalNotes = Notes;
+
+                // Ownership-based Lock: Locked if exists AND user is not owner AND user is not admin
+                IsLocked = (data.ExistingEntryFound && CurrentUser != null && !CurrentUser.IsAdmin && data.LockOwner != CurrentUser.Username);
+                
+                _lockOwner = data.LockOwner;
+                _lastSyncedAt = DateTime.Now; // Mark initial load as a sync point
+            }
+        }
+        catch
+        {
+            ExistingEntryFound = false;
+            IsLocked = false;
+        }
+    }
+
+    // Called from the distribution slip modal "Money placed correctly" button — proceeds to submit
+    private async Task HandleSubmit() 
+    {
+        _showDistributionSlip = false;
+        IsSubmitting = true;
+        StateHasChanged();
+        
+        // Final background save attempt
+        _ = SilentSave();
+        
+        // NO-GUESS WORKFLOW: We show success immediately because the data is safe LOCALLY.
+        // We mark it in local storage so the Hub can finish the cloud sync silently.
+        try {
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
+            if (!string.IsNullOrEmpty(json)) {
+                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var outboxItem = new {
+                    Data = root,
+                    IsPendingSubmission = true,
+                    Timestamp = DateTime.UtcNow
+                };
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
+            }
+        } catch { }
+        
+        IsSubmitting = false;
+        Submitted = true;
+        _hasLocalChanges = false;
+        StateHasChanged();
+        
+        // Let user move on immediately by logging out properly
+        await Task.Delay(2500);
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+    private async Task HandleBackToSelection() {
+        if (HasUnsavedChanges) {
+             _modalTitle = "Unsaved Work";
+             _modalMessage = "You have entered data in this shift. Leaving now will lose progress since the last save. Exit?";
+             _onModalConfirm = () => { ResetSelection(); StateHasChanged(); };
+             _showUnsavedModal = true;
+             return;
+        }
+        ResetSelection();
+        await UpdateShiftAvailability();
+        StateHasChanged();
+    }
+
+    private void ResetSelection()
+    {
+        ShiftType = null; IsRentalHall = false; BarSales = null; TotalHours = null; 
+        LottoSales = null; LottoCashes = null; LottoInstantTickets = null; LottoNetDue = null; 
+        LottoBackupBag = 0; LottoCashCounted = null; Notes = null; ExistingEntryFound = false; IsLocked = false;
+    }
+
+    private async Task UpdateShiftAvailability()
+    {
+        try
+        {
+            var summary = await ReportingService.GetDailySummaryAsync(ReportDate);
+            _lastSyncedAt = DateTime.Now;
+            _syncStatus = "Synced";
+            
+            _dayMainSubmitted = summary.Day.Submitted;
+            _dayMainHasData = summary.Day.HasData;
+            _dayMainModified = summary.Day.Modified;
+            _dayCloser = summary.Day.Closer;
+
+            _nightMainSubmitted = summary.Night.Submitted;
+            _nightMainHasData = summary.Night.HasData;
+            _nightMainModified = summary.Night.Modified;
+            _nightCloser = summary.Night.Closer;
+
+            _hallSubmitted = summary.Hall.Submitted;
+            _hallModified = summary.Hall.Modified;
+            _hallCloser = summary.Hall.Closer;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating shift availability: {ex.Message}");
+        }
+    }
+
+    private void SetLottoSign(int sign) {
+        if (LottoNetDue == null) return;
+        LottoNetDue = Math.Abs(LottoNetDue.Value) * sign;
+        _lottoSignConfirmed = true;
+        _ = AutoSave();
+        StateHasChanged();
+    }
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (HasUnsavedChanges)
+        {
+            context.PreventNavigation();
+            _pendingNavigationUrl = context.TargetLocation;
+            _modalTitle = "Unsaved Changes";
+            _modalMessage = "You have sales data in progress. Leaving now will permanently discard your work.";
+            _onModalConfirm = () => {
+                Submitted = true;
+                Navigation.NavigateTo(_pendingNavigationUrl ?? "/mobile");
+            };
+            _showUnsavedModal = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ProceedWithAction()
+    {
+        _showUnsavedModal = false;
+        _onModalConfirm?.Invoke();
+    }
+
+    private async Task HandleCancel() {
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    private async Task HandleManualLogout()
+    {
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    private async Task ToggleGuidedMode() {
+        _isGuidedMode = !_isGuidedMode;
+        try {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "GFC_GuidedMode_Preference", _isGuidedMode.ToString());
+        } catch { }
+    }
+}
+
+}
+
+}

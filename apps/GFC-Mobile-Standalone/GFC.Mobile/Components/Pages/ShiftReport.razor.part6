@@ -1,0 +1,400 @@
+    private void PrevField() {
+        var fields = IsRentalHall 
+            ? new[] { "Hours", "BarSales" }
+            : new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" };
+            
+        var idx = Array.IndexOf(fields, _activeField);
+        if (idx > 0) ActivateField(fields[idx - 1]);
+    }
+
+    private void TogglePolarity() {
+        if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
+        
+        switch(_activeField) {
+            case "Hours": TotalHours = -(TotalHours ?? 0); break;
+            case "BarSales": BarSales = -(BarSales ?? 0); break;
+            case "LottoOpeningCash": LottoOpeningCash = -(LottoOpeningCash ?? 0); break;
+            case "LottoSales": LottoSales = -(LottoSales ?? 0); break;
+            case "LottoCashes": LottoCashes = -(LottoCashes ?? 0); break;
+            case "LottoInstantTickets": LottoInstantTickets = -(LottoInstantTickets ?? 0); break;
+            case "LottoBackupBag": LottoBackupBag = -(LottoBackupBag ?? 0); break;
+            case "LottoCashCounted": LottoCashCounted = -(LottoCashCounted ?? 0); break;
+            case "LottoNetDue": LottoNetDue = -(LottoNetDue ?? 0); break;
+        }
+        _currentBuffer = ""; 
+        _ = DebouncedAutoSave();
+        StateHasChanged();
+    }
+
+    private void UpdateFieldValue(string field, decimal? val) {
+        switch(field) {
+            case "Hours": TotalHours = val; break;
+            case "BarSales": BarSales = val; break;
+            case "LottoOpeningCash": LottoOpeningCash = val; break;
+            case "LottoSales": LottoSales = val; break;
+            case "LottoCashes": LottoCashes = val; break;
+            case "LottoInstantTickets": LottoInstantTickets = val; break;
+            case "LottoBackupBag": LottoBackupBag = val; break;
+            case "LottoCashCounted": LottoCashCounted = val; break;
+            case "LottoNetDue": LottoNetDue = (LottoNetDue < 0) ? -(val ?? 0) : val; break;
+            case "RescueSales": _prevDaySales = val ?? 0; break;
+            case "RescueCashes": _prevDayCashes = val ?? 0; break;
+            case "RescueTickets": _prevDayTickets = val ?? 0; break;
+        }
+
+        // [OFFLINE MIRROR] Save to localStorage immediately on every change
+        _hasLocalChanges = true;
+        _syncStatus = "Saving...";
+        _ = MirrorToLocalStorage();
+        
+        StateHasChanged(); // Instant UI Response
+    }
+
+    private async Task MirrorToLocalStorage() {
+        try {
+            var data = new {
+                Date = ReportDate, Shift = ShiftType,
+                BarSales, LottoSales, LottoCashes, LottoInstantTickets, LottoNetDue,
+                LottoOpeningCash, LottoBackupBag, LottoCashCounted, TotalHours, Notes,
+                Timestamp = DateTime.UtcNow
+            };
+            var json = global::System.Text.Json.JsonSerializer.Serialize(data);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", json);
+        } catch { }
+    }
+
+    private async Task DebouncedAutoSave() {
+        _autoSaveCts?.Cancel();
+        _autoSaveCts = new global::System.Threading.CancellationTokenSource();
+        var token = _autoSaveCts.Token;
+
+        try {
+            await Task.Delay(800, token); // Wait for 800ms of typing inactivity
+            if (!token.IsCancellationRequested) {
+                await AutoSave();
+                _syncStatus = "Synced";
+                await InvokeAsync(StateHasChanged);
+            }
+        } catch (TaskCanceledException) { }
+    }
+
+    private async Task AutoSave() {
+        // Implementation of auto-save to DB
+        // For now, we reuse the HandleSubmit logic but without the redirect
+        await SilentSave();
+    }
+
+    private async Task SilentSave() {
+        if (IsLocked || IsSubmitting) return;
+
+        // PREVENTION: Use a lock to ensure rapid keystrokes don't trigger multiple parallel saves
+        if (!await _saveLock.WaitAsync(0)) return; 
+
+        _isSaving = true;
+        _syncStatus = "Saving...";
+        StateHasChanged();
+
+        try {
+            var data = new MobileShiftData {
+                Date = ReportDate,
+                ShiftType = ShiftType,
+                IsRentalHall = IsRentalHall,
+                BarSales = BarSales,
+                TotalHours = TotalHours,
+                LottoSales = LottoSales,
+                LottoCashes = LottoCashes,
+                LottoInstantTickets = LottoInstantTickets,
+                LottoNetDue = LottoNetDue,
+                LottoBackupBag = LottoBackupBag,
+                LottoCashCounted = LottoCashCounted,
+                LottoOpeningCash = LottoOpeningCash,
+                Notes = Notes
+            };
+
+            await ReportingService.SaveShiftReportAsync(data, _currentUsername);
+            _syncStatus = "Synced";
+            _lastSyncedAt = DateTime.Now;
+            // Refresh selection status labels
+            await UpdateShiftAvailability();
+        } catch {
+            _syncStatus = "Pending Sync...";
+        } finally {
+            _isSaving = false;
+            _saveLock.Release();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleFinalConfirm() {
+        bool lottoIncomplete = !IsRentalHall && (
+            LottoSales == null || 
+            LottoCashes == null || 
+            LottoNetDue == null || 
+            LottoInstantTickets == null ||
+            LottoOpeningCash == null ||
+            LottoCashCounted == null
+        );
+
+        bool barHoursIncomplete = !IsRentalHall && (TotalHours == null || TotalHours <= 0);
+        bool barSalesIncomplete = BarSales == null || BarSales <= 0;
+
+        if (barHoursIncomplete || barSalesIncomplete || lottoIncomplete) {
+            _validationError = "Required fields are missing. Please enter values for all boxes (even if zero).";
+            _showValidation = true;
+
+            // Auto-Focus the first field that needs attention
+            if (TotalHours == null || TotalHours <= 0) ActivateField("Hours");
+            else if (BarSales == null || BarSales <= 0) ActivateField("BarSales");
+            else if (!IsRentalHall) {
+                if (LottoOpeningCash == null) ActivateField("LottoOpeningCash");
+                else if (LottoSales == null) ActivateField("LottoSales");
+                else if (LottoCashes == null) ActivateField("LottoCashes");
+                else if (LottoNetDue == null) ActivateField("LottoNetDue");
+                else if (LottoInstantTickets == null) ActivateField("LottoInstantTickets");
+                else if (LottoCashCounted == null) ActivateField("LottoCashCounted");
+            }
+
+            return;
+        }
+        // ZERO VALUE AUDIT (Safety Check)
+        var zeros = new List<(string Id, string Label)>();
+        if (!IsRentalHall) {
+            if ((LottoOpeningCash ?? 0) == 0) zeros.Add(("LottoOpeningCash", "Beginning Drawer Cash"));
+            if ((LottoSales ?? 0) == 0) zeros.Add(("LottoSales", "Net Sales"));
+            if ((LottoCashes ?? 0) == 0) zeros.Add(("LottoCashes", "Cashes"));
+            if ((LottoNetDue ?? 0) == 0) zeros.Add(("LottoNetDue", "Net Due"));
+            if ((LottoInstantTickets ?? 0) == 0) zeros.Add(("LottoInstantTickets", "Instant Tickets"));
+            if ((LottoCashCounted ?? 0) == 0) zeros.Add(("LottoCashCounted", "Total Cash Counted"));
+        }
+        
+        if (zeros.Any()) {
+            _zeroWarningList = zeros;
+            _zeroFields = zeros.Select(z => z.Label).ToList();
+            _showZeroConfirmation = true;
+            _showFocusModal = false;
+            return;
+        }
+
+        ProceedToSubmitConfirm();
+    }
+
+    private void GoBackToFixZeros() {
+        _showZeroConfirmation = false;
+        if (_zeroWarningList.Any()) {
+            ActivateField(_zeroWarningList.First().Id);
+        }
+    }
+
+    private void ProceedToSubmitConfirm() {
+        _showZeroConfirmation = false;
+        _showFocusModal = false;
+        _showSubmitConfirm = true;
+    }
+
+    private async Task ProceedWithSubmit() {
+        _showSubmitConfirm = false;
+        
+        // NEW STEP: If it's the Night shift and there is cash logic to handle, 
+        // show the dedicated slip before finalizing the DB entry and logout.
+        if (ShiftType == "Night" && (LottoEnvelopeAmount > 0 || LottoBagRefill > 0))
+        {
+            _showDistributionSlip = true;
+            return;
+        }
+
+        await HandleSubmit();
+    }
+
+    private bool _dayMainSubmitted;
+    private bool _dayMainHasData;
+    private bool _dayMainModified;
+    private string? _dayCloser;
+    private bool _nightMainSubmitted;
+    private bool _nightMainHasData;
+    private bool _nightMainModified;
+    private string? _nightCloser;
+    private bool _hallSubmitted;
+    private bool _hallModified;
+    private string? _hallCloser;
+
+    private bool _isCircutAlive = true;
+    private System.Threading.Timer? _heartbeatTimer;
+
+    // Original values for tracking changes
+    private decimal? _originalBarSales;
+    private decimal? _originalLottoSales;
+    private decimal? _originalLottoCashes;
+    private decimal? _originalLottoInstantTickets;
+    private decimal? _originalLottoNetDue;
+    private decimal? _originalLottoOpeningCash;
+    private decimal? _originalLottoBackupBag;
+    private decimal? _originalLottoCashCounted;
+    private decimal? _originalTotalHours;
+    private string? _originalNotes;
+
+    private bool HasUnsavedChanges => 
+        !Loading && !Submitted && !string.IsNullOrEmpty(ShiftType) &&
+        ((BarSales ?? 0) != (_originalBarSales ?? 0) ||
+         (LottoSales ?? 0) != (_originalLottoSales ?? 0) ||
+         (LottoCashes ?? 0) != (_originalLottoCashes ?? 0) ||
+         (LottoInstantTickets ?? 0) != (_originalLottoInstantTickets ?? 0) ||
+         (LottoNetDue ?? 0) != (_originalLottoNetDue ?? 0) ||
+         (LottoOpeningCash ?? 0) != (_originalLottoOpeningCash ?? 0) ||
+         (LottoBackupBag ?? 0) != (_originalLottoBackupBag ?? 0) ||
+         (LottoCashCounted ?? 0) != (_originalLottoCashCounted ?? 0) ||
+         (TotalHours ?? 0) != (_originalTotalHours ?? 0) ||
+         (Notes ?? "") != (_originalNotes ?? ""));
+
+    // Shift Delta Tracking (for cumulative machine reports)
+    private decimal _prevDaySales { get; set; } = 0;
+    private decimal _prevDayCashes { get; set; } = 0;
+    private decimal _prevDayTickets { get; set; } = 0;
+    private decimal _prevDayNetDue { get; set; } = 0; 
+    private decimal _prevDayBag { get; set; } = 0;
+
+    // Math Logic
+    private decimal LottoDrawerValue {
+        get {
+            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
+            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
+            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0) - LottoBagRefill;
+        }
+    }
+
+    private decimal LottoNetMade {
+        get {
+            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
+            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
+            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            return salesActivity - cashesActivity - ticketsActivity;
+        }
+    }
+
+    private decimal LottoSalesActivity => (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
+    private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
+    
+    // NIGHT SHIFT RECONCILIATION MATH
+    private decimal LottoTotalDrop => Math.Max(0, (LottoCashCounted ?? 0) - 1200);
+    private decimal TotalBagIOU => _totalBagDebt + (ShiftType == "Night" ? (LottoBackupBag ?? 0) : 0);
+    private decimal LottoBagRefill => (ShiftType == "Day") ? 0 : Math.Min(LottoTotalDrop, TotalBagIOU);
+
+    private decimal LottoEnvelopeAmount {
+        get {
+            if (ShiftType == "Day") return 0; 
+            return LottoTotalDrop - LottoBagRefill;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try 
+            {
+                var savedPreference = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "GFC_GuidedMode_Preference");
+                if (savedPreference != null && bool.TryParse(savedPreference, out bool pref))
+                {
+                    _isGuidedMode = pref;
+                    StateHasChanged();
+                }
+            }
+            catch { /* Device interop silent fail */ }
+
+            _ = CheckForLocalDraft();
+        }
+    }
+
+    private async Task CheckForLocalDraft() {
+        if (string.IsNullOrEmpty(ShiftType)) return;
+        try {
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
+            if (!string.IsNullOrEmpty(json)) {
+                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("Timestamp", out var tsProp)) {
+                    var ts = tsProp.GetDateTime();
+                    if ((DateTime.UtcNow - ts).TotalHours < 4) { 
+                        _localDraft = json; 
+                        _showRecoveryModal = true;
+                        StateHasChanged();
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    private async Task RestoreFromLocal() {
+        if (string.IsNullOrEmpty(_localDraft)) return;
+        try {
+            using var doc = global::System.Text.Json.JsonDocument.Parse(_localDraft);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("BarSales", out global::System.Text.Json.JsonElement bar)) BarSales = bar.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : bar.GetDecimal();
+            if (root.TryGetProperty("LottoSales", out global::System.Text.Json.JsonElement ls)) LottoSales = ls.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : ls.GetDecimal();
+            if (root.TryGetProperty("LottoCashes", out global::System.Text.Json.JsonElement lc)) LottoCashes = lc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lc.GetDecimal();
+            if (root.TryGetProperty("LottoInstantTickets", out global::System.Text.Json.JsonElement lit)) LottoInstantTickets = lit.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lit.GetDecimal();
+            if (root.TryGetProperty("LottoNetDue", out global::System.Text.Json.JsonElement lnd)) LottoNetDue = lnd.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lnd.GetDecimal();
+            if (root.TryGetProperty("LottoOpeningCash", out global::System.Text.Json.JsonElement loc)) LottoOpeningCash = loc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : loc.GetDecimal();
+            if (root.TryGetProperty("LottoBackupBag", out global::System.Text.Json.JsonElement lbb)) LottoBackupBag = lbb.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lbb.GetDecimal();
+            if (root.TryGetProperty("LottoCashCounted", out global::System.Text.Json.JsonElement lcc)) LottoCashCounted = lcc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lcc.GetDecimal();
+            if (root.TryGetProperty("TotalHours", out global::System.Text.Json.JsonElement h)) TotalHours = h.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : h.GetDecimal();
+            if (root.TryGetProperty("Notes", out global::System.Text.Json.JsonElement n)) Notes = n.GetString();
+            _showRecoveryModal = false;
+            _syncStatus = "Recovered";
+            _hasLocalChanges = true;
+            _ = AutoSave();
+            StateHasChanged();
+        } catch { }
+    }
+
+    private async Task DiscardLocalDraft() {
+        try {
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+            _showRecoveryModal = false;
+            StateHasChanged();
+        } catch { }
+    }
+
+    private string? _lastProcessedQueryDate;
+    private string? _lastProcessedQueryShift;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initialized || QueryDate != _lastProcessedQueryDate || QueryShift != _lastProcessedQueryShift)
+        {
+            _initialized = true;
+            _lastProcessedQueryDate = QueryDate;
+            _lastProcessedQueryShift = QueryShift;
+
+            if (!string.IsNullOrEmpty(QueryDate) && DateTime.TryParse(QueryDate, out var qDate))
+            {
+                ReportDate = qDate;
+                if (!string.IsNullOrEmpty(QueryShift))
+                {
+                    ShiftType = QueryShift;
+                }
+            }
+            else
+            {
+                ApplyBusinessDayLogic();
+            }
+
+            // [FIX] Populate CurrentUser for locking logic
+            try {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User;
+                if (user.Identity?.IsAuthenticated == true) {
+                    CurrentUser = new GFC.Core.Models.AppUser {
+                        Username = user.Identity.Name,
+                        IsAdmin = user.IsInRole("Admin") || user.IsInRole("Manager")
+                    };
+                }
+            } catch { }
+
+            await UpdateShiftAvailability();
+            await CheckExisting();
+
+            // [VERSION CHECK] - No guessing!
+            try {

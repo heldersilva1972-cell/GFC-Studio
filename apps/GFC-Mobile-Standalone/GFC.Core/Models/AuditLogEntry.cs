@@ -1,0 +1,19 @@
+using System; 
+
+namespace GFC.Core.Models;
+
+public class AuditLogEntry
+{
+    public int AuditLogId { get; set; }
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+    public int? PerformedByUserId { get; set; }
+    public AppUser? PerformedBy { get; set; }
+    public int? TargetUserId { get; set; }
+    public int? TargetMemberId { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? Details { get; set; }
+    public string? PageUrl { get; set; }
+    public int DurationSeconds { get; set; }
+    public string? IpAddress { get; set; }
+    public string? DeviceToken { get; set; }
+}

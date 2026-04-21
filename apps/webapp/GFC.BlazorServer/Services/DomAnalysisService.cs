@@ -1,6 +1,7 @@
 // [NEW]
 using AngleSharp.Dom;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -108,3 +109,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

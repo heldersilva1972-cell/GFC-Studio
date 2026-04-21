@@ -1,6 +1,7 @@
 // [NEW]
 using GFC.BlazorServer.Services;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -26,3 +27,5 @@ namespace GFC.BlazorServer.Controllers
         }
     }
 }
+
+

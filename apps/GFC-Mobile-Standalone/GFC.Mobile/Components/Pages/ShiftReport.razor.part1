@@ -1,0 +1,389 @@
+@page "/mobile/shift-report"
+
+@using GFC.Mobile.Components.Shared
+
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+@inject NavigationManager Navigation
+@inject IMobileReportingService ReportingService
+@inject IJSRuntime JSRuntime
+@inject IVersionService VersionService
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>End of Shift | GFC Mobile</PageTitle>
+
+<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" />
+
+<div class="tablet-body p-0 m-0">
+<div class="glass-page-container mobile-version">
+    <NavigationLock ConfirmExternalNavigation="@HasUnsavedChanges" OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
+    <style>
+        /* HARD TABLET-ONLY OVERRIDES: Nuking all phone-sized logic */
+        .glass-page-container.mobile-version { 
+            max-width: none !important; 
+            width: 100% !important; 
+            margin: 0 !important; 
+            padding: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        .page-content-wrapper { 
+            max-width: none !important; 
+            width: 100% !important; 
+            margin: 0 !important; 
+            padding: 0 !important;
+        }
+        /* Lock the viewport for touch devices */
+        body { width: 100vw !important; height: 100vh !important; margin: 0 !important; padding: 0 !important; }
+        
+        /* HARD SNAP: No gap between sticky header and first card */
+        .viewport-sticky-header + .tablet-body { margin-top: 0 !important; padding-top: 0 !important; }
+        .glass-page-container { margin-top: 0 !important; padding-top: 0 !important; }
+        .page-content-wrapper { margin-top: 0 !important; padding-top: 0 !important; }
+        
+        .tablet-grid-single {
+            grid-template-columns: 1fr !important;
+        }
+    </style>
+    
+    @if (Submitted && !IsSubmitting)
+    {
+        <div class="glass-modal-overlay success-overlay">
+            <div class="glass-modal-card animate-zoom-in">
+                <div class="glass-modal-header-icon success">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-2">REPORT SECURED</h3>
+                <p class="text-muted mb-4 px-3">Shift data successfully recorded. Returning to portal...</p>
+                <div class="d-flex justify-content-center">
+                    <div class="spinner-border text-success spinner-border-sm" role="status"></div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showZeroConfirmation)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px;">
+                <div class="glass-modal-header-icon warning mb-3 animate-bounce-in" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.2);">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">Zero Values Detected</h3>
+                <p class="text-muted small mb-3 px-3">You have entered <strong>$0.00</strong> for the following fields. Is this correct?</p>
+                
+                <div class="text-start bg-light rounded-4 p-3 mb-4 mx-2 border">
+                    @foreach (var field in _zeroFields)
+                    {
+                        <div class="d-flex align-items-center mb-1 text-danger fw-bold" style="font-size: 0.8rem;">
+                            <i class="bi bi-dot fs-4"></i> @field
+                        </div>
+                    }
+                </div>
+
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm text-white" @onclick="ProceedToSubmitConfirm">
+                        YES, THESE ARE CORRECT
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border" @onclick="GoBackToFixZeros">
+                        GO BACK & FIX
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showSubmitConfirm)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px; overflow: visible;">
+                <div class="premium-success-wrapper position-relative">
+                    <div class="success-ripple"></div>
+                    <svg class="checkmark-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                        <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                        <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                    </svg>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">ALL ENTRIES COMPLETE</h3>
+                <p class="text-muted small mb-4 px-3">Your report is ready to be secured. Click below to submit or return to edit.</p>
+                
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="ProceedWithSubmit">
+                        <i class="bi bi-send-check-fill me-2"></i> CONFIRM & SUBMIT
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-4 rounded-pill fw-bold text-muted border-0" @onclick="() => _showSubmitConfirm = false" style="font-size: 0.8rem; letter-spacing: 0.05em;">
+                        BACK TO EDIT
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showUnsavedModal)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in">
+                <div class="glass-modal-header-icon warning">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-2 text-uppercase">@_modalTitle</h3>
+                <p class="text-muted mb-4 px-3">@_modalMessage</p>
+                <div class="glass-modal-actions">
+                    <button type="button" class="btn-modal btn-modal-stay" @onclick="() => _showUnsavedModal = false">
+                        STAY HERE
+                    </button>
+                    <button type="button" class="btn-modal btn-modal-leave" @onclick="ProceedWithAction">
+                        DISCARD & CONTINUE
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showRecoveryModal)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in">
+                <div class="glass-modal-header-icon primary">
+                    <i class="bi bi-cloud-download-fill"></i>
+                </div>
+                <h2 class="fw-black text-dark mb-1 text-uppercase">RESTORE DRAFT?</h2>
+                <p class="text-muted small mb-4 px-3">We found a newer unsaved draft on this phone. Would you like to restore your progress?</p>
+                <div class="d-flex flex-column gap-2 px-3">
+                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="RestoreFromLocal">
+                        <i class="bi bi-check2-circle me-2"></i> RESTORE MY WORK
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border-0" @onclick="DiscardLocalDraft">
+                        DISCARD & START FRESH
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showDistributionSlip)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px; border: 3px solid #0d6efd;">
+                <div class="glass-modal-header-icon success mb-3" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd; border-color: #0d6efd;">
+                    <i class="bi bi-cash-stack"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">💵 End-of-Shift Envelope Cash</h3>
+                <p class="text-muted small mb-4">Please pull the following amounts from the drawer now.</p>
+                
+                <div class="bg-light rounded-4 p-4 mb-4 border text-start shadow-inner">
+                    @if (LottoBagRefill > 0)
+                    {
+                        <div class="math-row mb-3 pb-2 border-bottom">
+                            <div class="d-flex flex-column">
+                                <span class="fw-black text-dark text-uppercase small opacity-75">Money to be returned:</span>
+                                <span class="text-muted small">Place this back into the money backup bag.</span>
+                                @if (_debtBreakdown.Count > 0)
+                                {
+                                    <div class="mt-2 p-2 bg-white rounded border border-info border-opacity-25" style="font-size: 0.65rem;">
+                                        <div class="fw-bold text-info mb-1"><i class="bi bi-info-circle me-1"></i>Bag Debt History:</div>
+                                        @foreach (var item in _debtBreakdown)
+                                        {
+                                            <div class="d-flex justify-content-between text-muted">
+                                                <span>@item.Date.ToString("MMM d") (@item.Shift)</span>
+                                                <span class="fw-bold">@item.Amount.ToString("C2")</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <span class="fw-black text-dark fs-4">@(LottoBagRefill.ToString("C2"))</span>
+                        </div>
+                    }
+
+                        <div class="d-flex flex-column">
+                            <span class="fw-black text-primary text-uppercase small">Deposit amount:</span>
+                            <span class="text-primary fw-bold" style="font-size: 0.75rem;">PLACE THIS IN THE ENVELOPE</span>
+                        </div>
+                        <span class="fw-black text-primary fs-2">@(LottoEnvelopeAmount.ToString("C2"))</span>
+                    </div>
+
+                    <div class="text-center mt-3 pt-3 border-top border-dark border-opacity-10 d-flex justify-content-between align-items-center">
+                         <div class="d-flex flex-column text-start">
+                             <span class="fw-bold small text-uppercase opacity-75"><i class="bi bi-bank me-2"></i>Ending drawer cash:</span>
+                             <span class="text-muted fw-bold" style="font-size: 0.65rem;">PLACE THIS BACK IN THE LOTTERY DRAWER</span>
+                         </div>
+                         <span class="fw-black text-dark fs-5">$1,200.00</span>
+                    </div>
+
+                <div class="alert alert-info py-2 px-3 mb-4 rounded-pill border-2 d-flex align-items-center justify-content-center">
+                    <span class="fw-black text-primary text-uppercase" style="font-size: 0.7rem;">Envelope total: @(LottoEnvelopeAmount.ToString("C2")) ONLY</span>
+                </div>
+
+                <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="HandleSubmit">
+                    <i class="bi bi-check2-all me-2"></i> MONEY PLACED CORRECTLY
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_showFocusModal && !string.IsNullOrEmpty(_activeField))
+    {
+        var guide = GetFocusGuide();
+        <div class="focus-modal-wrapper">
+            <div @key="_activeField" class="glass-modal-card animate-guide-switch text-start shadow-2xl border-0" style="max-width: 500px; border-radius: 24px; background: white; border: 2px solid #e2e8f0 !important;">
+                <!-- HEADER AREA -->
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="modal-guide-icon @guide.Theme">
+                            <i class="bi @guide.Icon"></i>
+                        </div>
+                        <div>
+                            <h2 class="fw-black text-dark mb-0 text-uppercase" style="font-size: 1.2rem; letter-spacing: -0.02em;">@guide.Title</h2>
+                            <span class="badge bg-light text-muted border rounded-pill px-3 py-1 fw-bold" style="font-size: 0.6rem;">SOURCE: @guide.Source</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-link text-muted p-0 border-0" @onclick="() => _showFocusModal = false" style="font-size: 1.5rem; line-height: 1;">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+
+                <!-- MAIN INSTRUCTION -->
+                <div class="instruction-box p-3 rounded-4 mb-3" style="background: #f8fafc; border: 2px solid @(guide.Theme == "danger" ? "#ef4444" : guide.Theme == "warning" ? "#f59e0b" : "#0d6efd");">
+                    <p class="fw-black text-dark mb-1" style="font-size: 1.05rem; line-height: 1.3; color: #1e293b !important;">@guide.Instruction</p>
+                    @if (!string.IsNullOrEmpty(guide.SubInstruction))
+                    {
+                        <p class="text-muted mb-0 fw-bold" style="font-size: 0.8rem; opacity: 0.7;">@guide.SubInstruction</p>
+                    }
+                </div>
+
+                <!-- LIVE DISPLAY -->
+                <div class="display-box mb-4 p-3 rounded-4 text-center shadow-inner" style="background: #f8fafc; border: 2px solid #e2e8f0;">
+                    <div class="text-uppercase fw-black text-muted opacity-50 mb-1" style="font-size: 0.6rem; letter-spacing: 0.1em;">Current Entry</div>
+                    <div class="d-flex align-items-center justify-content-center">
+                        @if (_activeField != "Hours") { <span class="fs-2 fw-black text-muted me-2">$</span> }
+                        <div class="fw-black text-primary display-text" style="font-size: 3.5rem; line-height: 1;">
+                            @GetInputDisplay(_activeField)
+                            @if (string.IsNullOrEmpty(_currentBuffer)) { <span class="opacity-25">0.00</span> }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ACTIONS -->
+                <div class="row g-2">
+                    <div class="col-4">
+                        <button class="btn btn-light border w-100 py-3 rounded-pill fw-black text-muted" @onclick="() => _showFocusModal = false" style="font-size: 0.8rem;">
+                             CLOSE
+                        </button>
+                    </div>
+                    <div class="col-8">
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm d-flex align-items-center justify-content-center gap-2" @onclick="NextField">
+                            NEXT ENTRY <i class="bi bi-arrow-right-circle-fill fs-5"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="page-content-wrapper">
+
+        @if (Submitted)
+        {
+            <div class="p-4 text-center mt-5">
+                <div class="success-icon-box mb-4 mx-auto shadow-lg">
+                    <i class="bi bi-check2-circle"></i>
+                </div>
+                <h2 class="fw-black mb-2">Report Secured!</h2>
+                <p class="text-muted mb-5">Your end-of-shift data has been successfully recorded in the audit logs.</p>
+                <div class="d-grid gap-3">
+                    <button class="btn btn-primary rounded-pill py-3 fw-bold shadow" @onclick="HandleCancel">
+                        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+                    </button>
+                    <button class="btn btn-link text-muted text-decoration-none small" @onclick="() => Submitted = false">
+                        <i class="bi bi-pencil-square me-1"></i> Edit Shift Report
+                    </button>
+                </div>
+            </div>
+        }
+        else if (Loading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 mt-5">
+                <div class="loader-ring mb-3"></div>
+                <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Loading Shift State...</span>
+            </div>
+        }
+        else
+        {
+            <!-- TOP FULL-WIDTH HEADER (ABSOLUTE SNAP) -->
+            <div class="col-12 mb-2 p-1 animate-slide-up" style="margin-top: 0px !important; padding-top: 0px !important;">
+                <div class="tablet-header-pill shadow-lg d-flex align-items-center justify-content-between px-3">
+                    <!-- LEFT SIDE: NAV & DATE -->
+                    <div class="d-flex align-items-center gap-3">
+                        @if (!string.IsNullOrEmpty(ShiftType)) {
+                            <button class="btn btn-choice-outline py-2 px-3 fw-black" @onclick="HandleBackToSelection">
+                                <i class="bi bi-arrow-left me-1"></i> BACK
+                            </button>
+                        } else {
+                            <button class="btn btn-choice-outline py-2 px-3 fw-black" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                                <i class="bi bi-arrow-left me-1"></i> BACK
+                            </button>
+                        }
+                        
+                        <div class="d-flex align-items-center bg-white rounded-pill px-3 py-1 border shadow-sm">
+                            <div class="me-3">
+                                <label class="d-block mb-0 text-uppercase fw-bold text-muted" style="font-size: 0.55rem; letter-spacing: 0.05em;">Report Date</label>
+                                <input type="date" class="border-0 p-0 fw-black text-primary" style="font-size: 0.85rem; outline: none;" 
+                                       value="@ReportDate.ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
+                            </div>
+                            <div class="badge bg-primary rounded-pill px-3 py-2 fw-black text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+                                @ReportDate.DayOfWeek
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-3 bg-white rounded-pill px-3 py-1 border shadow-sm cursor-pointer @(_isGuidedMode ? "border-primary" : "")" @onclick="ToggleGuidedMode">
+                            <span class="fw-black text-muted mb-0" style="font-size: 0.65rem; letter-spacing: 0.05em; margin-right: 5px;">GUIDE</span>
+                            <div class="form-check form-switch p-0 m-0 d-flex align-items-center">
+                                <input class="form-check-input mt-0 cursor-pointer" type="checkbox" role="switch" checked="@_isGuidedMode" style="width: 38px; height: 18px; margin-left: 0;">
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT SIDE: TOTAL METRIC -->
+                    @if (!string.IsNullOrEmpty(ShiftType) && ShiftType != "Hall")
+                    {
+                        @if (ShiftType == "Night")
+                        {
+                            // Night: always show envelope pill — pulses when there's an amount to pull
+                            <div class="final-envelope-card-pill shadow-sm animate-bounce-in d-flex align-items-center @(LottoEnvelopeAmount > 0 ? "has-value" : "")">
+                                <div class="px-3">
+                                    <label class="d-block mb-0 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 0.1em; opacity: 0.8;">Envelope Amount</label>
+                                    <div class="fw-black" style="font-size: 1.1rem; line-height: 1;">
+                                        @(LottoEnvelopeAmount.ToString("C2"))
+                                    </div>
+                                </div>
+                                <div class="pill-icon-box">
+                                    <i class="bi bi-envelope-check-fill fs-5"></i>
+                                </div>
+                            </div>
+                        }
+                        else if (ShiftType == "Day" && (LottoNetMade != 0 || BarSales != null))
+                        {
+                            // Day: show combined net total (no envelope pulled)
+                            <div class="final-envelope-card-pill shadow-sm animate-bounce-in d-flex align-items-center">
+                                <div class="px-3">
+                                    <label class="d-block mb-0 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 0.1em; opacity: 0.8;">Day Total</label>
+                                    <div class="fw-black" style="font-size: 1.1rem; line-height: 1;">
+                                        @((LottoNetMade + (decimal)(BarSales ?? 0)).ToString("C2"))
+                                    </div>
+                                </div>
+                                <div class="pill-icon-box">
+                                    <i class="bi bi-cash-stack fs-5"></i>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+                
+            <!-- MAIN WORKSPACE: 2 COLUMNS -->
+            <div class="tablet-grid @(string.IsNullOrEmpty(ShiftType) ? "tablet-grid-single" : "")">

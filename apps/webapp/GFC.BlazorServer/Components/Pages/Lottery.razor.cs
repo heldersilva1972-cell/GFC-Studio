@@ -1,6 +1,7 @@
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.JSInterop;
@@ -945,3 +946,5 @@ namespace GFC.BlazorServer.Components.Pages
         }
     }
 }
+
+

@@ -1,3 +1,4 @@
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Data.Repositories;
@@ -52,3 +53,5 @@ public interface IUserNotificationPreferencesRepository
     /// </summary>
     Task<bool> HasAnyNotificationsEnabledAsync(int userId);
 }
+
+

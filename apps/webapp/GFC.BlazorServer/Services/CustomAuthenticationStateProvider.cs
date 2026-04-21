@@ -4,6 +4,7 @@ using System.Security.Claims;
 using GFC.BlazorServer.Auth;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.JSInterop;
@@ -571,3 +572,5 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         };
     }
 }
+
+

@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Services
 {
@@ -9,3 +10,5 @@ namespace GFC.BlazorServer.Services
         Task CreateRedirectAsync(string oldUrl, string newUrlSlug);
     }
 }
+
+

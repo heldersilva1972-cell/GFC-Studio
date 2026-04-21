@@ -1,6 +1,7 @@
 // [NEW]
 using GFC.BlazorServer.Services;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
@@ -114,3 +115,5 @@ namespace GFC.BlazorServer.Controllers
         }
     }
 }
+
+

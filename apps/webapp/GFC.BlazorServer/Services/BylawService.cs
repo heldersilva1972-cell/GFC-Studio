@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using GFC.BlazorServer.Data;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Services;
@@ -99,3 +100,5 @@ public class BylawService : IBylawService
         return doc;
     }
 }
+
+

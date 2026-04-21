@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using GFC.BlazorServer.Connectors.Mengqi.Protocol;
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 
 namespace GFC.BlazorServer.Diagnostics
@@ -55,3 +56,5 @@ namespace GFC.BlazorServer.Diagnostics
         }
     }
 }
+
+

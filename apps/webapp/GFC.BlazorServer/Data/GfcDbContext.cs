@@ -1,10 +1,10 @@
 // [MODIFIED]
 using System.Threading;
 using System.Threading.Tasks;
-using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
 using GFC.Core.Models.Security;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Data;
@@ -23,7 +23,7 @@ public class GfcDbContext : DbContext
     public DbSet<ControllerCommandInfo> ControllerCommandInfos => Set<ControllerCommandInfo>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
     public DbSet<SpecialEvent> SpecialEvents => Set<SpecialEvent>();
-    public DbSet<GFC.BlazorServer.Data.Entities.TimeProfile> TimeProfiles => Set<GFC.BlazorServer.Data.Entities.TimeProfile>();
+    public DbSet<TimeProfile> TimeProfiles => Set<TimeProfile>();
     public DbSet<TimeProfileInterval> TimeProfileIntervals => Set<TimeProfileInterval>();
     public DbSet<ControllerTimeProfileLink> ControllerTimeProfileLinks => Set<ControllerTimeProfileLink>();
     public DbSet<TaskEntry> TaskEntries => Set<TaskEntry>();
@@ -36,7 +36,7 @@ public class GfcDbContext : DbContext
     public DbSet<CardReaderProfile> CardReaderProfiles => Set<CardReaderProfile>();
     public DbSet<SystemSettings> SystemSettings => Set<SystemSettings>();
     public DbSet<GFC.BlazorServer.Data.Entities.MemberDoorAccess> MemberDoorAccesses => Set<GFC.BlazorServer.Data.Entities.MemberDoorAccess>();
-    public DbSet<GFC.BlazorServer.Data.Entities.DuesPayment> DuesPayments => Set<GFC.BlazorServer.Data.Entities.DuesPayment>();
+    public DbSet<DuesPayment> DuesPayments => Set<DuesPayment>();
     public DbSet<Waiver> Waivers => Set<Waiver>();
     public DbSet<GFC.BlazorServer.Data.Entities.NPQueueEntry> NPQueueEntries => Set<GFC.BlazorServer.Data.Entities.NPQueueEntry>();
     public DbSet<KeyHistory> KeyHistories => Set<KeyHistory>();
@@ -171,7 +171,7 @@ public class GfcDbContext : DbContext
         // Standard "Gold Standard" Query Filter for Soft Deletes
         modelBuilder.Entity<Member>().HasQueryFilter(m => !m.IsDeleted);
         modelBuilder.Entity<BarSaleEntry>().HasQueryFilter(b => !b.IsDeleted);
-        modelBuilder.Entity<GFC.BlazorServer.Data.Entities.DuesPayment>().HasQueryFilter(d => !d.IsDeleted);
+        modelBuilder.Entity<DuesPayment>().HasQueryFilter(d => !d.IsDeleted);
         modelBuilder.Entity<StaffShift>().HasQueryFilter(s => !s.IsDeleted);
         modelBuilder.Entity<ShiftReport>().HasQueryFilter(s => !s.IsDeleted);
         modelBuilder.Entity<ClubEvent>().HasQueryFilter(e => !e.IsDeleted);
@@ -211,7 +211,7 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<ControllerCommandInfo>()
             .HasData(GetCommandSeedData());
 
-        modelBuilder.Entity<GFC.BlazorServer.Data.Entities.TimeProfile>(entity =>
+        modelBuilder.Entity<TimeProfile>(entity =>
         {
             entity.ToTable("TimeProfiles");
             entity.HasMany(t => t.Intervals)
@@ -387,7 +387,7 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        modelBuilder.Entity<GFC.BlazorServer.Data.Entities.DuesPayment>(entity =>
+        modelBuilder.Entity<DuesPayment>(entity =>
         {
             entity.ToTable("DuesPayments");
             entity.HasKey(d => new { d.MemberId, d.Year });

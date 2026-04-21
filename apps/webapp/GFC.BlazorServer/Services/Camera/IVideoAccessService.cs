@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System;
@@ -32,3 +33,5 @@ namespace GFC.BlazorServer.Services.Camera
         Task UpdateSecurityAlertStatusAsync(int alertId, string newStatus, int updatingUserId);
     }
 }
+
+

@@ -1,0 +1,221 @@
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Mobile.Auth
+@inject NavigationManager Navigation
+@inject IUserUsageService UsageService
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
+
+<nav class="app-nav-bar animate-entrance">
+    <div class="container nav-tabs-container">
+        @* SLOT 1: HOME (Always Fixed) *@
+        <button class="nav-tab-item @GetActiveClass("Home")" style="border: none; background: none;" @onclick='() => NavigateTo("/", "Home")'>
+            <i class="bi bi-grid@(_activeTab == "Home" ? "-fill" : "")"></i>
+            <span class="small" style="font-size: 0.65rem; font-weight: 600;">Home</span>
+        </button>
+
+        @* SLOT 2 *@
+        @RenderSlot(_slot2)
+
+        @* SLOT 3 *@
+        @RenderSlot(_slot3)
+
+        @* SLOT 4 *@
+        @RenderSlot(_slot4)
+    </div>
+</nav>
+
+<style>
+    .app-nav-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 70px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(15px);
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+        padding-bottom: env(safe-area-inset-bottom);
+        z-index: 2000;
+        box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.04);
+        display: flex;
+        align-items: center;
+    }
+    .nav-tabs-container {
+        display: flex;
+        height: 70px;
+        align-items: center;
+        justify-content: space-around;
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    .nav-tab-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        color: #64748b !important;
+        text-decoration: none;
+        transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        padding: 10px;
+        flex: 1;
+    }
+    .nav-tab-item span {
+        color: #64748b !important;
+        font-weight: 600 !important;
+    }
+    .nav-tab-item i {
+        font-size: 1.4rem;
+        transition: transform 0.3s;
+        color: #64748b !important;
+    }
+    .nav-tab-item.active {
+        color: #2563eb !important;
+    }
+    .nav-tab-item.active span,
+    .nav-tab-item.active i {
+        color: #2563eb !important;
+    }
+    .nav-tab-item.active i {
+        transform: translateY(-2px);
+    }
+    .nav-tab-item.active::after {
+        content: '';
+        position: absolute;
+        bottom: 4px;
+        width: 4px;
+        height: 4px;
+        background: #2563eb;
+        border-radius: 50%;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string ActiveTab { get; set; } = "Home";
+
+    private string _activeTab => ActiveTab; 
+    private NavItem? _slot2;
+    private NavItem? _slot3;
+    private NavItem? _slot4;
+
+    private class NavItem
+    {
+        public string Label { get; set; }
+        public string Icon { get; set; }
+        public string? ActiveIcon { get; set; } 
+        public string Route { get; set; }
+        public string Identifier { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNavItems();
+    }
+
+    private async Task LoadNavItems()
+    {
+        var user = AuthStateProvider.GetCurrentUser();
+        if (user == null) return;
+
+        HashSet<string> permittedRoutes = new();
+        if (user.IsAdmin)
+        {
+            permittedRoutes.Add("ALL");
+        }
+        else
+        {
+            var permissions = UserService.GetUserPagePermissions(user.UserId);
+            permittedRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+        }
+
+        bool CanAccess(string feature)
+        {
+            if (feature == "Home") return true;
+            if (permittedRoutes.Contains("ALL")) return true;
+
+            return feature switch
+            {
+                "End of shift sales" => permittedRoutes.Contains("mobile/shift-report"),
+                "income charts" => permittedRoutes.Contains("mobile/analytics"),
+                "Key Cards" => permittedRoutes.Contains("mobile/keycards"),
+                "Dues" => permittedRoutes.Contains("mobile/dues"),
+                _ => false
+            };
+        }
+
+        var topPages = await UsageService.GetTopUsedPagesAsync(user.UserId, 10);
+        var defaultPriority = new List<string> 
+        { 
+            "End of shift sales", 
+            "income charts", 
+            "Key Cards", 
+            "Dues", 
+        };
+
+        var candidateIds = new List<string>(topPages);
+        foreach (var def in defaultPriority)
+        {
+            if (!candidateIds.Contains(def)) candidateIds.Add(def);
+        }
+
+        var finalSlots = new List<NavItem>();
+        foreach (var id in candidateIds)
+        {
+            if (finalSlots.Count >= 3) break; 
+            if (id != "Hub" && id != "Home" && CanAccess(id))
+            {
+                finalSlots.Add(GetDefinition(id));
+            }
+        }
+
+        if (finalSlots.Count > 0) _slot2 = finalSlots[0];
+        if (finalSlots.Count > 1) _slot3 = finalSlots[1];
+        if (finalSlots.Count > 2) _slot4 = finalSlots[2];
+        
+        StateHasChanged();
+    }
+
+    private void NavigateTo(string route, string identifier) => Navigation.NavigateTo(route);
+    private string GetActiveClass(string identifier) => _activeTab == identifier ? "active" : "";
+
+    private RenderFragment RenderSlot(NavItem? item) => builder =>
+    {
+        if (item == null) return;
+        
+        bool isActive = _activeTab == item.Identifier;
+        string iconClass = isActive ? (item.ActiveIcon ?? item.Icon + "-fill") : item.Icon;
+        
+        builder.OpenElement(0, "button");
+        builder.AddAttribute(1, "class", $"nav-tab-item {GetActiveClass(item.Identifier)}");
+        builder.AddAttribute(2, "style", "border: none; background: none;");
+        builder.AddAttribute(3, "onclick", EventCallback.Factory.Create(this, () => NavigateTo(item.Route, item.Identifier)));
+        
+        builder.OpenElement(4, "i");
+        builder.AddAttribute(5, "class", iconClass); 
+        builder.CloseElement(); 
+
+        builder.OpenElement(6, "span");
+        builder.AddAttribute(7, "class", "small");
+        builder.AddAttribute(8, "style", "font-size: 0.65rem; font-weight: 600;");
+        builder.AddContent(9, item.Label);
+        builder.CloseElement(); 
+
+        builder.CloseElement(); 
+    };
+
+    private NavItem GetDefinition(string identifier)
+    {
+        return identifier switch
+        {
+            "End of shift sales" => new NavItem { Label = "Reports", Icon = "bi bi-calendar-check", ActiveIcon = "bi bi-calendar-check-fill", Route = "/shift-report", Identifier = "End of shift sales" },
+            "income charts" => new NavItem { Label = "Charts", Icon = "bi bi-graph-up-arrow", ActiveIcon = "bi bi-graph-up-arrow-fill", Route = "/analytics", Identifier = "income charts" },
+            "Key Cards" => new NavItem { Label = "Keypads", Icon = "bi bi-credit-card", ActiveIcon = "bi bi-credit-card-fill", Route = "/keycards", Identifier = "Key Cards" },
+            "Dues" => new NavItem { Label = "Dues", Icon = "bi bi-cash-stack", ActiveIcon = "bi bi-cash-stack", Route = "/dues", Identifier = "Dues" },
+            _ => new NavItem { Label = identifier, Icon = "bi bi-app", ActiveIcon = "bi bi-app-indicator", Route = "/", Identifier = identifier }
+        };
+    }
+}

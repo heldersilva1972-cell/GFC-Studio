@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components;
 
 namespace GFC.BlazorServer.Components.Shared
@@ -18,3 +19,5 @@ namespace GFC.BlazorServer.Components.Shared
         }
     }
 }
+
+

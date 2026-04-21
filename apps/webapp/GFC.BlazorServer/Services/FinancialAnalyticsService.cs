@@ -1,5 +1,6 @@
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using System.Data;
@@ -879,4 +880,6 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+
 

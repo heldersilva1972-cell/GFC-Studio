@@ -1,3 +1,4 @@
+using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services.Models;
 
@@ -12,4 +13,6 @@ public interface IDoorConfigService
     ExtendedDoorConfigWriteDto MapToWriteDto(IEnumerable<DoorConfig> configs);
     List<DoorConfig> MapFromReadDto(ExtendedConfigDto dto, IEnumerable<Door> doors);
 }
+
+
 

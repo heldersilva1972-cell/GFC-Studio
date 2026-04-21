@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Data;
 using Microsoft.Extensions.Logging;
 
@@ -100,3 +101,5 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+

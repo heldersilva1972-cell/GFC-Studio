@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -20,3 +21,5 @@ namespace GFC.BlazorServer.Services.Camera
         Task<string> GetSecureStreamUrlAsync(int cameraId);
     }
 }
+
+

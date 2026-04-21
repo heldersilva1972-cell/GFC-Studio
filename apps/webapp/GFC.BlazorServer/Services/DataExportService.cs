@@ -2,6 +2,7 @@ using OfficeOpenXml;
 using OfficeOpenXml.Style;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.DTOs;
 using GFC.Data;
 using GFC.BlazorServer.Data;
@@ -1067,4 +1068,6 @@ namespace GFC.BlazorServer.Services
         }
     }
 }
+
+
 
