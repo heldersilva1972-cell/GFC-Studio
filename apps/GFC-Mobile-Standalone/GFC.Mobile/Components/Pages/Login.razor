@@ -1,0 +1,317 @@
+@page "/login"
+@using GFC.Mobile.Auth
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.Models.Security
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@inject IDeviceTrustService DeviceTrustService
+@inject IUserManagementService UserManagementService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+
+<style>
+    .connection-status {
+        font-size: 0.8rem;
+        padding: 4px 12px;
+        border-radius: 12px;
+        margin-top: 8px;
+        display: inline-block;
+    }
+    .connection-status.checking { background: #e9ecef; color: #495057; }
+    .connection-status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    
+    .spinner-tiny {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border: 2px solid #ccc;
+        border-top-color: #333;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        vertical-align: middle;
+        margin-right: 5px;
+    }
+</style>
+
+<PageTitle>Login - GFC Mobile</PageTitle>
+
+<div class="login-wrapper">
+    <div class="login-card">
+        <div class="login-header text-center mb-4">
+            <div class="logo-circle mb-3">
+                <i class="bi bi-shield-lock-fill text-primary"></i>
+            </div>
+            <h2>GFC Mobile</h2>
+            <p class="text-muted small">Secure Access Portal</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger px-3 py-2 rounded-3 mb-4 animate-shake" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@_error
+            </div>
+        }
+
+        @if (_isStationMode && _loginMode == LoginMode.FastGrid && !_showConfirmation)
+        {
+            <div class="fast-login-grid w-100">
+                <h6 class="text-center mb-3 opacity-75">SELECT USER</h6>
+                <div class="user-grid">
+                    @foreach (var user in _fastLoginUsers)
+                    {
+                        <button class="user-btn" @onclick="() => ConfirmUser(user)">
+                            <div class="user-name">@user.Username</div>
+                        </button>
+                    }
+                </div>
+                <div class="text-center mt-3">
+                    <button class="btn btn-link btn-sm text-muted" @onclick='() => SetMode(LoginMode.PassCode)'>
+                        Manual Login
+                    </button>
+                </div>
+            </div>
+        }
+        else if (_showConfirmation && _confirmingUser != null)
+        {
+             <div class="text-center p-3">
+                <h4 class="mb-4">Logging in as <strong>@_confirmingUser.Username</strong>?</h4>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary py-3" @onclick="ProceedToLogin">Yes, Continue</button>
+                    <button class="btn btn-outline-secondary" @onclick="CancelConfirmation">Cancel</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <EditForm Model="_model" OnValidSubmit="HandleLoginAsync" class="login-form">
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control form-control-lg bg-light" @bind="_model.Username" placeholder="Enter username" />
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label">Passcode</label>
+                    <input type="password" inputmode="numeric" class="form-control form-control-lg bg-light text-center ls-wide" @bind="_model.Password" placeholder="••••••" />
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm py-3" disabled="@_isSubmitting">
+                        @if (_isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>Validating...</span>
+                        }
+                        else
+                        {
+                            <span>Sign In</span>
+                        }
+                    </button>
+                </div>
+                
+                @if (_isStationMode && _fastLoginUsers.Any())
+                {
+                    <div class="text-center mt-3">
+                        <button type="button" class="btn btn-link btn-sm text-muted" @onclick='() => SetMode(LoginMode.FastGrid)'>
+                            Back to User List
+                        </button>
+                    </div>
+                }
+            </EditForm>
+        }
+    </div>
+</div>
+
+<style>
+    .login-wrapper {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        padding: 20px;
+    }
+
+    .login-card {
+        width: 100%;
+        max-width: 400px;
+        background: white;
+        border-radius: 24px;
+        padding: 32px;
+        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+    }
+
+    .logo-circle {
+        width: 64px;
+        height: 64px;
+        background: #eff6ff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+        font-size: 2rem;
+    }
+
+    .form-control {
+        border: 2px solid #f1f5f9;
+        transition: border-color 0.2s;
+    }
+
+    .form-control:focus {
+        border-color: #3b82f6;
+        box-shadow: none;
+    }
+
+    .ls-wide {
+        letter-spacing: 0.5rem;
+    }
+
+    /* Fast Grid */
+    .user-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .user-btn {
+        background: #f1f5f9;
+        border: none;
+        border-radius: 12px;
+        padding: 20px 10px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+
+    .user-btn:hover {
+        background: #e2e8f0;
+        transform: translateY(-2px);
+    }
+
+    .animate-shake {
+        animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @@keyframes shake {
+        10%, 90% { transform: translate3d(-1px, 0, 0); }
+        20%, 80% { transform: translate3d(2px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+        40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+</style>
+
+@code {
+    private LoginModel _model = new();
+    private bool _isSubmitting = false;
+    private string? _error;
+    private bool _isStationMode = false;
+    private LoginMode _loginMode = LoginMode.PassCode;
+    private List<UserListItemDto> _fastLoginUsers = new();
+    private UserListItemDto? _confirmingUser = null;
+    private bool _showConfirmation = false;
+    private bool _isCheckingConnection = true;
+    private bool _serverReachable = true;
+
+    private enum LoginMode { PassCode, FastGrid }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try {
+            _isCheckingConnection = true;
+            // Ping health endpoint on the API server, not the PWA host
+            var response = await Http.GetAsync($"{Http.BaseAddress}health");
+            _serverReachable = response.IsSuccessStatusCode;
+        } catch {
+            _serverReachable = false;
+        } finally {
+            _isCheckingConnection = false;
+        }
+
+        try {
+            // Check station identity cookie
+            var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+            if (!string.IsNullOrEmpty(stationToken))
+            {
+                var station = await DeviceTrustService.GetDeviceByTokenAsync(stationToken);
+                if (station != null && station.IsStation)
+                {
+                    _isStationMode = true;
+                    if (station.LoginMode == "FastGrid" && !string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+                    {
+                        _loginMode = LoginMode.FastGrid;
+                        var ids = station.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
+                        var allUsers = await UserManagementService.GetUsersAsync();
+                        _fastLoginUsers = allUsers.Where(u => ids.Contains(u.UserId)).ToList();
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    private async Task HandleLoginAsync()
+    {
+        _error = null;
+        _isSubmitting = true;
+        try {
+            var result = await AuthStateProvider.LoginAsync(_model.Username, _model.Password, true);
+            if (result.Success)
+            {
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                _error = "Invalid credentials";
+            }
+        } catch (Exception ex) {
+            if (ex.Message.Contains("Failed to fetch"))
+            {
+                _error = "Connection blocked by browser. Please use HTTP instead of HTTPS for both App and Server, or check CORS settings.";
+            }
+            else
+            {
+                _error = $"Sign in error: {ex.Message}";
+            }
+            Console.WriteLine($"[LOGIN EXCEPTION] {ex}");
+        } finally {
+            _isSubmitting = false;
+        }
+    }
+
+    private void ConfirmUser(UserListItemDto user)
+    {
+        _confirmingUser = user;
+        _showConfirmation = true;
+    }
+
+    private void CancelConfirmation()
+    {
+        _showConfirmation = false;
+        _confirmingUser = null;
+    }
+
+    private async Task ProceedToLogin()
+    {
+        if (_confirmingUser == null) return;
+        
+        // On stations, we try auto-login if the device trust allows it
+        // OR we just populate the username and ask for passcode
+        _model.Username = _confirmingUser.Username;
+        _loginMode = LoginMode.PassCode;
+        _showConfirmation = false;
+    }
+
+    private void SetMode(LoginMode mode)
+    {
+        _loginMode = mode;
+        _error = null;
+    }
+
+    public class LoginModel
+    {
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}

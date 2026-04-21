@@ -1,11 +1,13 @@
 using GFC.Core.DTOs;
 using GFC.Core.Models;
+using System.Threading.Tasks;
 
 namespace GFC.Core.Interfaces;
 
 public interface IUserManagementService
 {
     List<UserListItemDto> GetAllUsers();
+    Task<List<UserListItemDto>> GetUsersAsync();
     List<ActiveMemberDto> GetEligibleDirectorsForUserCreation();
     List<ActiveMemberDto> GetEligibleMembersForUserCreation(); // Returns active members not in directors list
     AppUser? GetUser(int userId);

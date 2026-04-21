@@ -10,11 +10,30 @@ public class MobileReportingController : ControllerBase
 {
     private readonly IMobileReportingService _reportingService;
     private readonly IVersionService _versionService;
+    private readonly IDeviceTrustService _deviceTrustService;
 
-    public MobileReportingController(IMobileReportingService reportingService, IVersionService versionService)
+    public MobileReportingController(
+        IMobileReportingService reportingService, 
+        IVersionService versionService,
+        IDeviceTrustService deviceTrustService)
     {
         _reportingService = reportingService;
         _versionService = versionService;
+        _deviceTrustService = deviceTrustService;
+    }
+
+    [HttpGet("device")]
+    public async Task<IActionResult> GetDevice(string token)
+    {
+        var device = await _deviceTrustService.GetDeviceByTokenAsync(token);
+        return device != null ? Ok(device) : NotFound();
+    }
+
+    [HttpGet("device/auto-login")]
+    public async Task<IActionResult> AutoLogin(string token, string username)
+    {
+        var userId = await _deviceTrustService.ValidateStationAutoLoginAsync(token, username);
+        return userId != null ? Ok(userId) : Unauthorized();
     }
 
     [HttpGet("version")]

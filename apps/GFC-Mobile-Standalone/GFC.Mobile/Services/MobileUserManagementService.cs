@@ -38,6 +38,13 @@ public class MobileUserManagementService : IUserManagementService
     // IMPLEMENTING ALL INTERFACE MEMBERS TO SATISFY COMPILER (NO GUESSING)
     // We throw NotImplementedException for members not physically used by the mobile pages
     
+    public async Task<List<UserListItemDto>> GetUsersAsync()
+    {
+        try {
+            return await _http.GetFromJsonAsync<List<UserListItemDto>>("/api/mobile-auth/users") ?? new List<UserListItemDto>();
+        } catch { return new List<UserListItemDto>(); }
+    }
+
     public List<UserListItemDto> GetAllUsers() => throw new NotImplementedException();
     public List<ActiveMemberDto> GetEligibleDirectorsForUserCreation() => throw new NotImplementedException();
     public List<ActiveMemberDto> GetEligibleMembersForUserCreation() => throw new NotImplementedException();

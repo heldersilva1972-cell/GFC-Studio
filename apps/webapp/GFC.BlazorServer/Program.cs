@@ -101,15 +101,11 @@ public class Program
         // Add CORS for Next.js frontend and Onboarding Gateway
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("AllowNextJs", policy =>
-            {
-                policy.WithOrigins(
-                        "http://localhost:3000",
-                        "https://setup.gfc.lovanow.com") // Onboarding gateway
-                      .AllowAnyMethod()
-                      .AllowAnyHeader()
-                      .AllowCredentials();
-            });
+            options.AddPolicy("AllowNextJs",
+                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215")
+                                  .AllowAnyMethod()
+                                  .AllowAnyHeader()
+                                  .AllowCredentials());
         });
         
         // Add Rate Limiting for Onboarding API

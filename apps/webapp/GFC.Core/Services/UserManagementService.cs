@@ -112,6 +112,11 @@ public class UserManagementService : IUserManagementService
         _userPermissionsCache.Clear();
     }
 
+    public async Task<List<UserListItemDto>> GetUsersAsync()
+    {
+        return await Task.FromResult(GetAllUsers());
+    }
+
     public List<UserListItemDto> GetAllUsers()
     {
         var users = _userRepository.GetAllUsers();
