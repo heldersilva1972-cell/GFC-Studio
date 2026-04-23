@@ -1,37 +1,20 @@
 // [REFRESHED]
 using GFC.Core.Models;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace GFC.Core.Interfaces;
 
 public interface IAuthenticationService
 {
-    Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false);
-    Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null);
-    Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
-    Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null);
-    Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null);
-    Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null);
+    Task<GFC.Core.Models.GfcLoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false);
+    Task<GFC.Core.Models.GfcLoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null);
+    Task<GFC.Core.Models.GfcLoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
+    Task<GFC.Core.Models.GfcLoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null);
+    Task<GFC.Core.Models.GfcLoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null);
+    Task<GFC.Core.Models.GfcLoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null);
     MfaSetupInfo GenerateMfaSetup(AppUser user);
     Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();
     Task<AppUser?> RefreshCurrentUserAsync();
-}
-
-public enum LoginResultCode
-{
-    Success,
-    InvalidCredentials,
-    AccountLockedOrDisabled,
-    MfaRequired,
-    Error
-}
-
-public class LoginResult
-{
-    public LoginResultCode Code { get; set; }
-    public bool Success => Code == LoginResultCode.Success;
-    public AppUser? User { get; set; }
-    public bool PasswordChangeRequired { get; set; }
-    public string? ErrorMessageForLog { get; set; }
-    public string? DeviceToken { get; set; }
 }

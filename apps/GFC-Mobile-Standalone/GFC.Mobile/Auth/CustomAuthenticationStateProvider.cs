@@ -5,6 +5,7 @@ using Microsoft.JSInterop;
 using GFC.Core.Models;
 using GFC.Core.Interfaces;
 using System.Net.Http.Json;
+using GFC.Mobile.Services;
 
 namespace GFC.Mobile.Auth;
 
@@ -12,13 +13,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
 {
     private readonly IJSRuntime _jsRuntime;
     private readonly HttpClient _httpClient;
+    private readonly IUserManagementService _userService;
     private const string LocalStorageKey = "gfc_auth_state";
     private AppUser? _currentUser;
 
-    public CustomAuthenticationStateProvider(IJSRuntime jsRuntime, HttpClient httpClient)
+    public CustomAuthenticationStateProvider(IJSRuntime jsRuntime, HttpClient httpClient, IUserManagementService userService)
     {
         _jsRuntime = jsRuntime;
         _httpClient = httpClient;
+        _userService = userService;
     }
 
     public AppUser? GetCurrentUser() => _currentUser;
@@ -52,10 +55,18 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
             if (authData?.User == null || (authData.ExpiresAt.HasValue && authData.ExpiresAt < DateTime.UtcNow))
             {
                 _currentUser = null;
+                (_userService as MobileUserManagementService)?.ClearPermissionCache();
                 return CreateAnonymous();
             }
 
             _currentUser = authData.User;
+            
+            // Restore permissions to service cache
+            if (authData.Permissions != null)
+            {
+                (_userService as MobileUserManagementService)?.UpdateCachedPermissions(authData.Permissions);
+            }
+
             return CreateStateFromUser(_currentUser, "LocalStorageAuth", authData.Token, authData.CreatedAt);
         }
         catch (Exception ex)
@@ -79,51 +90,58 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
         return new AuthenticationState(new ClaimsPrincipal(identity));
     }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, bool rememberDevice)
+    public async Task<GFC.Core.Models.GfcLoginResult> LoginAsync(string username, string password, bool rememberDevice)
     {
         var request = new { Username = username, Password = password, RememberDevice = rememberDevice };
         var response = await _httpClient.PostAsJsonAsync("/api/mobile-auth/login", request);
         
         if (response.IsSuccessStatusCode)
         {
-            var result = await response.Content.ReadFromJsonAsync<LoginResult>();
+            var result = await response.Content.ReadFromJsonAsync<GFC.Core.Models.GfcLoginResult>();
             if (result != null && result.Success && result.User != null)
             {
                 await CompleteLoginAsync(result);
                 return result;
             }
-            return result ?? new LoginResult { Code = LoginResultCode.Error };
+            return result ?? new GFC.Core.Models.GfcLoginResult { Code = GFC.Core.Models.LoginResultCode.Error };
         }
         
-        return new LoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Server error during login." };
+        return new GFC.Core.Models.GfcLoginResult { Code = GFC.Core.Models.LoginResultCode.Error, ErrorMessageForLog = "Server error during login." };
     }
 
-    public async Task<LoginResult> LoginWithUserAsync(int userId)
+    public async Task<GFC.Core.Models.GfcLoginResult> LoginWithUserAsync(int userId)
     {
         var response = await _httpClient.PostAsJsonAsync("/api/mobile-auth/login-user", userId);
         if (response.IsSuccessStatusCode)
         {
-            var result = await response.Content.ReadFromJsonAsync<LoginResult>();
+            var result = await response.Content.ReadFromJsonAsync<GFC.Core.Models.GfcLoginResult>();
             if (result != null && result.Success)
             {
                 await CompleteLoginAsync(result);
                 return result;
             }
         }
-        return new LoginResult { Code = LoginResultCode.Error };
+        return new GFC.Core.Models.GfcLoginResult { Code = GFC.Core.Models.LoginResultCode.Error };
     }
 
-    private async Task CompleteLoginAsync(LoginResult result)
+    private async Task CompleteLoginAsync(GFC.Core.Models.GfcLoginResult result)
     {
         var authData = new AuthData 
         { 
             User = result.User!, 
             Token = result.DeviceToken ?? "session",
+            Permissions = result.Permissions,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(30)
         };
         
         _currentUser = result.User;
+        
+        // Update user service cache immediately
+        if (result.Permissions != null)
+        {
+            (_userService as MobileUserManagementService)?.UpdateCachedPermissions(result.Permissions);
+        }
         
         await _jsRuntime.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, JsonSerializer.Serialize(authData));
         
@@ -138,14 +156,25 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
 
     public async Task LogoutAsync(string? token = null)
     {
-        var deviceToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-        await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", deviceToken);
+        try
+        {
+            var deviceToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            if (!string.IsNullOrEmpty(deviceToken))
+            {
+                await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", deviceToken);
+            }
+        }
+        catch
+        {
+            // Ignore network errors on logout. We still want to clear the local session.
+        }
 
         _currentUser = null;
         await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", LocalStorageKey);
         await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
         await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
         
+        (_userService as MobileUserManagementService)?.ClearPermissionCache();
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
     
@@ -160,12 +189,10 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
                 var response = await _httpClient.GetAsync($"/api/mobile-auth/user?token={authData.Token}");
                 if (response.IsSuccessStatusCode)
                 {
-                    var user = await response.Content.ReadFromJsonAsync<AppUser>();
-                    if (user != null)
+                    var result = await response.Content.ReadFromJsonAsync<GFC.Core.Models.GfcLoginResult>();
+                    if (result != null && result.Success && result.User != null)
                     {
-                        _currentUser = user;
-                        authData.User = user;
-                        await _jsRuntime.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, JsonSerializer.Serialize(authData));
+                        await CompleteLoginAsync(result);
                     }
                 }
             }
@@ -185,6 +212,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
     {
         public AppUser? User { get; set; }
         public string? Token { get; set; }
+        public List<GFC.Core.DTOs.MobilePermissionDto>? Permissions { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? ExpiresAt { get; set; }
     }

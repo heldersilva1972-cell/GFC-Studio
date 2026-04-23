@@ -107,7 +107,7 @@ public class MobileSyncController : ControllerBase
     [HttpGet("version")]
     public IActionResult GetVersion()
     {
-        return Ok("1.5.2-Production");
+        return Ok("GFC Mobile Revision 1.5.2 (Dynamic Sync)");
     }
 
     /// <summary>

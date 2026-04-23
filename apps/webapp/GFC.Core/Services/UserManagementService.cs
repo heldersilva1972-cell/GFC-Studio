@@ -20,7 +20,7 @@ public class UserManagementService : IUserManagementService
     
     // PERFORMANCE CACHE: Persists across circuits (Static)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<UserPagePermission>> _userPermissionsCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<GFC.Core.DTOs.MobilePermissionDto>> _userPermissionsCache = new();
 
     public UserManagementService(
         IUserRepository userRepository,
@@ -545,12 +545,23 @@ public class UserManagementService : IUserManagementService
         return _pagePermissionRepository.GetActivePages().ToList();
     }
 
-    public List<UserPagePermission> GetUserPagePermissions(int userId)
+    public List<GFC.Core.DTOs.MobilePermissionDto> GetUserPagePermissions(int userId)
     {
         if (_userPermissionsCache.TryGetValue(userId, out var cached))
             return cached;
 
-        var permissions = _pagePermissionRepository.GetUserPermissions(userId).ToList();
+        var rawPermissions = _pagePermissionRepository.GetUserPermissions(userId).ToList();
+        var permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
+        {
+            PageId = p.Page?.PageId ?? 0,
+            PageName = p.Page?.PageName ?? "Unknown",
+            PageRoute = p.Page?.PageRoute ?? "",
+            Category = p.Page?.Category,
+            CanAccess = p.CanAccess,
+            CanEdit = p.CanEdit,
+            ReceivePush = p.ReceivePush
+        }).ToList();
+
         _userPermissionsCache.TryAdd(userId, permissions);
         return permissions;
     }
@@ -572,8 +583,7 @@ public class UserManagementService : IUserManagementService
             // 2. Load all permitted routes for this user into memory once
             var permissions = GetUserPagePermissions(userId);
             routes = permissions
-                .Where(p => p.Page != null)
-                .Select(p => p.Page!.PageRoute.TrimStart('/').ToLowerInvariant())
+                .Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant())
                 .ToHashSet();
             
             _permissionCache.TryAdd(userId, routes);
@@ -619,15 +629,14 @@ public class UserManagementService : IUserManagementService
         _userPermissionsCache.TryRemove(userId, out _);
     }
 
-    public UserPagePermission? GetUserPagePermission(int userId, string pageRoute)
+    public GFC.Core.DTOs.MobilePermissionDto? GetUserPagePermission(int userId, string pageRoute)
     {
         var permissions = GetUserPagePermissions(userId);
         var normalized = pageRoute.TrimStart('/').ToLowerInvariant();
         
         return permissions.FirstOrDefault(p => 
-            p.Page != null && 
-            (p.Page.PageRoute.TrimStart('/').ToLowerInvariant() == normalized || 
-             p.Page.PageRoute.ToLowerInvariant() == pageRoute.ToLowerInvariant()));
+            p.PageRoute.TrimStart('/').ToLowerInvariant() == normalized || 
+            p.PageRoute.ToLowerInvariant() == pageRoute.ToLowerInvariant());
     }
 
 

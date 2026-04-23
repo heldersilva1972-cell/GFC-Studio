@@ -121,16 +121,71 @@
                         {
                             @if (category.ToUpper() == "MOBILE" || category.ToUpper() == "MOBILE APPS")
                             {
-                                <div class="alert alert-info py-2 px-3 mb-3 border-0 rounded-3 d-flex align-items-center" style="font-size: 0.8rem; background: rgba(13, 110, 253, 0.05); color: var(--app-primary);">
-                                    <i class="bi bi-info-circle-fill me-2"></i>
-                                    <span>GFC Portal Home access is automatically granted when any tool is selected.</span>
+                                var hubPage = filteredCategories[category].FirstOrDefault(p => {
+                                    var r = (p.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+                                    if (!string.IsNullOrEmpty(r) && !r.StartsWith("/")) r = "/" + r;
+                                    return r == "/mobile" || r == "/hub";
+                                });
+                                
+                                <div class="master-access-panel p-3 mb-3 rounded-3 border d-flex flex-column gap-3" style="background: rgba(13, 110, 253, 0.03); border-color: rgba(13, 110, 253, 0.1) !important;">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="p-3 rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+                                                <i class="bi bi-phone-vibrate fs-4"></i>
+                                            </div>
+                                            <div>
+                                                <h6 class="mb-0 fw-bold text-primary" style="letter-spacing: 0.05em;">MOBILE APP ACCESS</h6>
+                                                <div class="text-muted small">Master key for all mobile applications</div>
+                                            </div>
+                                        </div>
+                                        @if (hubPage != null)
+                                        {
+                                            <div class="modern-switch @(SelectedPageIds.Contains(hubPage.PageId) ? "checked" : "")" 
+                                                 @onclick="() => TogglePage(hubPage)"
+                                                 style="transform: scale(1.2);"></div>
+                                        }
+                                    </div>
+                                    <div class="alert alert-info py-2 px-3 mb-0 border-0 rounded-3 d-flex align-items-center" style="font-size: 0.85rem; background: rgba(13, 110, 253, 0.08); color: var(--app-primary); border-left: 4px solid var(--app-primary) !important;">
+                                        <i class="bi bi-info-circle-fill me-2 fs-5"></i>
+                                        <span><strong>REQUIRED:</strong> Enabling this switch is the <u>only way</u> to make this user appear on the GFC Mobile login grid.</span>
+                                    </div>
                                 </div>
+
+                                if (hubPage != null && !SelectedPageIds.Contains(hubPage.PageId))
+                                {
+                                    <div class="text-center p-5 bg-light rounded-4 border border-dashed mb-4" style="background: #fdfdfd !important;">
+                                        <div class="bg-white rounded-circle shadow-sm d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                            <i class="bi bi-shield-lock text-muted" style="font-size: 2.5rem;"></i>
+                                        </div>
+                                        <h5 class="fw-bold text-dark">Mobile Permissions Locked</h5>
+                                        <p class="text-muted mb-0 mx-auto" style="max-width: 300px;">Enable <strong>Mobile App Access</strong> above to manage specific tool permissions for this user.</p>
+                                    </div>
+                                }
                             }
 
                             <div class="row g-3">
                                 @foreach (var appPage in filteredCategories[category])
                                 {
+                                    // 1. Skip the Hub page (Master Switch) - already shown at top
+                                    var r = (appPage.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+                                    if (!string.IsNullOrEmpty(r) && !r.StartsWith("/")) r = "/" + r;
+                                    if (r == "/mobile" || r == "/hub") continue;
+                                    
+                                    // 2. Skip sub-pages (liquor hub handles these)
                                     if ((appPage.PageRoute ?? "").ToLower().StartsWith("/mobile/liquor/hub/")) continue;
+
+                                    // 3. ABSOLUTE LOCKDOWN: Hide ONLY mobile tools if the Hub is off
+                                    // This check MUST only apply to the mobile category
+                                    if (category.ToUpper() == "MOBILE" || category.ToUpper() == "MOBILE APPS")
+                                    {
+                                        var hubPageId = AllPages.FirstOrDefault(p => {
+                                            var hr = (p.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+                                            if (!string.IsNullOrEmpty(hr) && !hr.StartsWith("/")) hr = "/" + hr;
+                                            return hr == "/mobile" || hr == "/hub";
+                                        })?.PageId ?? -1;
+                                        
+                                        if (!SelectedPageIds.Contains(hubPageId)) continue;
+                                    }
 
                                     <div class="col-md-6 col-lg-4">
                                         <div class="card h-100 permission-card @(SelectedPageIds.Contains(appPage.PageId) ? "granted" : "")"
@@ -458,10 +513,9 @@
         var route = (page.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
         if (!string.IsNullOrEmpty(route) && !route.StartsWith("/")) route = "/" + route;
 
-        // Filter by known variations of the hub route
-        if (route == "/mobile" || route == "/hub") return true;
-
-        // Filter by common name tokens to handle naming inconsistencies
+        // [MOD] Stop hiding the /mobile and /hub routes so they can be used as Master Switches
+                                        // if (route == "/mobile" || route == "/hub") return true; 
+                                        // Filter by common name tokens to handle naming inconsistencies
         var name = (page.PageName ?? "").ToLower();
         if (name.Contains("staff portal hub") || name.Contains("portal hub")) return true;
 
@@ -564,29 +618,8 @@
                 }
             }
 
-            // [AUTO-GRANT] If any mobile page is selected, automatically add the main portal routes
-            var mobilePagesSelected = AllPages
-                .Where(p => SelectedPageIds.Contains(p.PageId) && (p.PageRoute ?? "").ToLower().Contains("mobile/"))
-                .Any();
-                
-            if (mobilePagesSelected)
-            {
-                // Add the "/mobile" route
-                var mobileHubPage = AllPages.FirstOrDefault(p => (p.PageRoute ?? "").Trim().ToLower().TrimEnd('/') == "/mobile");
-                if (mobileHubPage != null) SelectedPageIds.Add(mobileHubPage.PageId);
-                
-                // [NEW] If any liquor module is selected, auto-grant the liquor hub
-                var liquorSubPageSelected = AllPages.Any(p => SelectedPageIds.Contains(p.PageId) && (p.PageRoute ?? "").ToLower().StartsWith("/mobile/liquor/hub/"));
-                if (liquorSubPageSelected)
-                {
-                    var liquorHubPage = AllPages.FirstOrDefault(p => (p.PageRoute ?? "").Trim().ToLower().TrimEnd('/') == "/mobile/liquor/hub");
-                    if (liquorHubPage != null) SelectedPageIds.Add(liquorHubPage.PageId);
-                }
-
-                // Also add "/hub" just in case legacy routes are being used
-                var legacyHubPage = AllPages.FirstOrDefault(p => (p.PageRoute ?? "").Trim().ToLower().TrimEnd('/') == "/hub");
-                if (legacyHubPage != null) SelectedPageIds.Add(legacyHubPage.PageId);
-            }
+            // [MOD] Removed AUTO-GRANT logic. Mobile Hub must be explicitly selected by the admin.
+            // This ensures the Mobile PWA login grid only shows users where access was manually granted.
 
             await Task.Run(() => UserService.SetUserPagePermissions(
                 UserId, 

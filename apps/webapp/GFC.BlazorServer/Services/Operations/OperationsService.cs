@@ -52,7 +52,8 @@ namespace GFC.BlazorServer.Services.Operations
             {
                 EnvironmentName = _environment.EnvironmentName,
                 AppVersion = GetType().Assembly.GetName().Version?.ToString() ?? "Unknown",
-                BuildDate = File.GetLastWriteTimeUtc(GetType().Assembly.Location)
+                BuildDate = File.GetLastWriteTimeUtc(GetType().Assembly.Location),
+                IsHealthy = true // Default to true
             };
 
             // Database Connectivity
@@ -60,8 +61,12 @@ namespace GFC.BlazorServer.Services.Operations
             {
                 using var db = await _dbFactory.CreateDbContextAsync();
                 info.DatabaseConnected = await db.Database.CanConnectAsync();
+                if (!info.DatabaseConnected) info.IsHealthy = false;
             }
-            catch { info.DatabaseConnected = false; }
+            catch { 
+                info.DatabaseConnected = false; 
+                info.IsHealthy = false; 
+            }
 
             // System Load
             try 

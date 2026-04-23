@@ -91,6 +91,17 @@ public class Program
             options.KnownProxies.Clear();
         });
 
+        // [CORS] Allow Mobile App (WASM) to talk to this API
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("MobileAppPolicy", policy =>
+            {
+                policy.WithOrigins("http://localhost:7128", "https://localhost:7128")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod();
+            });
+        });
+
         // [HTTPS FIX] Enforce Secure Cookies
         builder.Services.ConfigureApplicationCookie(options =>
         {
@@ -98,11 +109,11 @@ public class Program
             options.Cookie.SameSite = SameSiteMode.Lax;
         });
 
-        // Add CORS for Next.js frontend and Onboarding Gateway
+        // Add CORS for Next.js frontend, Mobile PWA, and Onboarding Gateway
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("AllowNextJs",
-                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215")
+                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215", "https://localhost:7157", "https://localhost:7178", "http://localhost:7178", "https://localhost:7179", "http://localhost:7179")
                                   .AllowAnyMethod()
                                   .AllowAnyHeader()
                                   .AllowCredentials());
@@ -422,6 +433,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         
         // Enable CORS
         app.UseCors("AllowNextJs");
+        app.UseCors("MobileAppPolicy");
 
         // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
         // if (app.Environment.IsDevelopment())

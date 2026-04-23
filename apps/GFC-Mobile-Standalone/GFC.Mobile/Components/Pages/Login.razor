@@ -12,6 +12,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
+@implements IDisposable
 
 <style>
     .connection-status {
@@ -39,14 +40,11 @@
 
 <PageTitle>Login - GFC Mobile</PageTitle>
 
-<div class="login-wrapper">
+<div class="login-container">
     <div class="login-card">
         <div class="login-header text-center mb-4">
-            <div class="logo-circle mb-3">
-                <i class="bi bi-shield-lock-fill text-primary"></i>
-            </div>
-            <h2>GFC Mobile</h2>
-            <p class="text-muted small">Secure Access Portal</p>
+            <h1 class="text-white fw-bold mb-2">GFC Mobile</h1>
+            <p class="text-white-50">Please sign in to continue</p>
         </div>
 
         @if (!string.IsNullOrEmpty(_error))
@@ -56,50 +54,71 @@
             </div>
         }
 
-        @if (_isStationMode && _loginMode == LoginMode.FastGrid && !_showConfirmation)
+        @if (_loginMode == LoginMode.FastGrid && !_showConfirmation)
         {
-            <div class="fast-login-grid w-100">
-                <h6 class="text-center mb-3 opacity-75">SELECT USER</h6>
+            <div class="fast-login-grid w-100 animate-fade-in">
+                <h6 class="text-white text-center mb-3 text-uppercase ls-1 fw-bold opacity-75">Select Your Identity</h6>
                 <div class="user-grid">
-                    @foreach (var user in _fastLoginUsers)
+                    @if (!_fastLoginUsers.Any())
                     {
-                        <button class="user-btn" @onclick="() => ConfirmUser(user)">
-                            <div class="user-name">@user.Username</div>
-                        </button>
+                        <div class="col-span-2 text-center py-4">
+                            <i class="bi bi-person-x text-white-50" style="font-size: 2rem;"></i>
+                            <p class="text-white-50 mt-2 small">No mobile-authorized users found.<br/>Please connect to the server to download identities.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var user in _fastLoginUsers)
+                        {
+                            <button class="user-btn" @onclick="() => ConfirmUser(user)">
+                                <div class="user-name">@user.Username</div>
+                            </button>
+                        }
                     }
                 </div>
-                <div class="text-center mt-3">
-                    <button class="btn btn-link btn-sm text-muted" @onclick='() => SetMode(LoginMode.PassCode)'>
-                        Manual Login
+                <div class="text-center mt-4 border-top border-white border-opacity-10 pt-3">
+                    <button class="btn btn-link btn-sm text-white-50 text-decoration-none" @onclick='() => SetMode(LoginMode.PassCode)'>
+                        <i class="bi bi-keyboard me-1"></i> Manual Login
                     </button>
                 </div>
             </div>
         }
         else if (_showConfirmation && _confirmingUser != null)
         {
-             <div class="text-center p-3">
+             <div class="text-center p-3 text-white">
                 <h4 class="mb-4">Logging in as <strong>@_confirmingUser.Username</strong>?</h4>
                 <div class="d-grid gap-2">
-                    <button class="btn btn-primary py-3" @onclick="ProceedToLogin">Yes, Continue</button>
-                    <button class="btn btn-outline-secondary" @onclick="CancelConfirmation">Cancel</button>
+                    <button class="btn btn-primary py-3" @onclick="ProceedToLogin" disabled="@_isSubmitting">
+                        @if (_isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>Authenticating...</span>
+                        }
+                        else
+                        {
+                            <span>Yes, Continue</span>
+                        }
+                    </button>
+                    <button class="btn btn-outline-light" @onclick="CancelConfirmation" disabled="@_isSubmitting">Cancel</button>
                 </div>
             </div>
         }
         else
         {
             <EditForm Model="_model" OnValidSubmit="HandleLoginAsync" class="login-form">
+                <DataAnnotationsValidator />
                 <div class="mb-3">
-                    <label class="form-label">Username</label>
-                    <input type="text" class="form-control form-control-lg bg-light" @bind="_model.Username" placeholder="Enter username" />
+                    <label class="form-label" for="username">Username</label>
+                    <InputText id="username" @bind-Value="_model.Username" class="form-control form-control-lg" placeholder="Enter username" autocomplete="username" />
                 </div>
                 
                 <div class="mb-4">
-                    <label class="form-label">Passcode</label>
-                    <input type="password" inputmode="numeric" class="form-control form-control-lg bg-light text-center ls-wide" @bind="_model.Password" placeholder="••••••" />
+                    <label class="form-label" for="password">Passcode</label>
+                    <InputText id="password" type="password" @bind-Value="_model.Password" class="form-control form-control-lg ls-wide text-center fw-bold" placeholder="••••••" autocomplete="current-password" />
                 </div>
 
                 <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg shadow-sm py-3" disabled="@_isSubmitting">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm py-3 fw-bold text-uppercase ls-1" disabled="@_isSubmitting">
                         @if (_isSubmitting)
                         {
                             <span class="spinner-border spinner-border-sm me-2"></span>
@@ -112,10 +131,10 @@
                     </button>
                 </div>
                 
-                @if (_isStationMode && _fastLoginUsers.Any())
+                @if (_fastLoginUsers.Any() || _loginMode == LoginMode.PassCode)
                 {
                     <div class="text-center mt-3">
-                        <button type="button" class="btn btn-link btn-sm text-muted" @onclick='() => SetMode(LoginMode.FastGrid)'>
+                        <button type="button" class="btn btn-link btn-sm text-white-50" @onclick='() => SetMode(LoginMode.FastGrid)'>
                             Back to User List
                         </button>
                     </div>
@@ -123,51 +142,61 @@
             </EditForm>
         }
     </div>
+    <div class="text-center mt-3 opacity-50">
+        <small class="text-white">Revision: @VersionService.GetRevision()</small>
+    </div>
 </div>
 
 <style>
-    .login-wrapper {
-        min-height: 100vh;
+    .login-container {
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: #f8fafc;
-        padding: 20px;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        padding: 1.5rem;
     }
 
     .login-card {
+        background: rgba(15, 23, 42, 0.9);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 2rem;
+        padding: 2.5rem 2rem;
         width: 100%;
-        max-width: 400px;
-        background: white;
-        border-radius: 24px;
-        padding: 32px;
-        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+        max-width: 450px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
 
-    .logo-circle {
-        width: 64px;
-        height: 64px;
-        background: #eff6ff;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 0 auto;
-        font-size: 2rem;
+    .login-card .form-label {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        margin-bottom: 0.5rem !important;
+        display: block !important;
     }
 
-    .form-control {
-        border: 2px solid #f1f5f9;
-        transition: border-color 0.2s;
+    .login-card .form-control {
+        background: #f8fafc !important;
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 0.75rem !important;
+        padding: 0.75rem 1rem !important;
+        font-size: 1rem !important;
+        color: #1e293b !important;
     }
 
-    .form-control:focus {
-        border-color: #3b82f6;
-        box-shadow: none;
+    .login-card .btn-primary {
+        background: #3b82f6 !important;
+        border: none !important;
+        border-radius: 0.75rem !important;
     }
 
     .ls-wide {
-        letter-spacing: 0.5rem;
+        letter-spacing: 0.4rem;
+    }
+    .ls-1 {
+        letter-spacing: 1px;
     }
 
     /* Fast Grid */
@@ -175,20 +204,46 @@
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
+        max-height: 400px;
+        overflow-y: auto;
+        padding-bottom: 0.5rem;
+    }
+    
+    .col-span-2 {
+        grid-column: span 2;
     }
 
     .user-btn {
-        background: #f1f5f9;
-        border: none;
+        background: #312e81; /* Indigo-900 */
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 12px;
         padding: 20px 10px;
-        font-weight: 600;
-        transition: all 0.2s;
+        color: white;
+        font-weight: 700;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
     .user-btn:hover {
-        background: #e2e8f0;
+        background: #4338ca; /* Indigo-700 */
         transform: translateY(-2px);
+        border-color: #6366f1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+    }
+    
+    .user-name {
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 0.85rem;
+    }
+
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-in;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
     .animate-shake {
@@ -204,11 +259,12 @@
 </style>
 
 @code {
+    [Inject] private IVersionService VersionService { get; set; } = default!;
     private LoginModel _model = new();
     private bool _isSubmitting = false;
     private string? _error;
     private bool _isStationMode = false;
-    private LoginMode _loginMode = LoginMode.PassCode;
+    private LoginMode _loginMode = LoginMode.FastGrid;
     private List<UserListItemDto> _fastLoginUsers = new();
     private UserListItemDto? _confirmingUser = null;
     private bool _showConfirmation = false;
@@ -219,18 +275,23 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try {
-            _isCheckingConnection = true;
-            // Ping health endpoint on the API server, not the PWA host
-            var response = await Http.GetAsync($"{Http.BaseAddress}health");
-            _serverReachable = response.IsSuccessStatusCode;
-        } catch {
-            _serverReachable = false;
-        } finally {
-            _isCheckingConnection = false;
-        }
+        // Fire and forget connection check to avoid blocking the UI
+        _ = CheckConnectionAsync();
 
         try {
+            // ALWAYS fetch users for mobile login
+            var allUsers = await UserManagementService.GetUsersAsync();
+            _fastLoginUsers = allUsers.Where(u => u.IsActive).ToList();
+            
+            // Subscribe to automatic background updates (Reconciliation Logic)
+            if (UserManagementService is GFC.Mobile.Services.MobileUserManagementService mobileService)
+            {
+                mobileService.OnUsersUpdated += HandleUsersUpdated;
+            }
+
+            // Default to FastGrid unless Station Mode overrides it
+            _loginMode = LoginMode.FastGrid;
+
             // Check station identity cookie
             var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
             if (!string.IsNullOrEmpty(stationToken))
@@ -239,16 +300,49 @@
                 if (station != null && station.IsStation)
                 {
                     _isStationMode = true;
-                    if (station.LoginMode == "FastGrid" && !string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+                    if (!string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
                     {
-                        _loginMode = LoginMode.FastGrid;
                         var ids = station.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
-                        var allUsers = await UserManagementService.GetUsersAsync();
-                        _fastLoginUsers = allUsers.Where(u => ids.Contains(u.UserId)).ToList();
+                        _fastLoginUsers = allUsers.Where(u => ids.Contains(u.UserId) && u.IsActive).ToList();
                     }
                 }
             }
         } catch { }
+    }
+
+    private async void HandleUsersUpdated()
+    {
+        try {
+            // Get the fresh list from the service (re-fetch from updated cache)
+            var allUsers = await UserManagementService.GetUsersAsync();
+            _fastLoginUsers = allUsers.Where(u => u.IsActive).ToList();
+            await InvokeAsync(StateHasChanged);
+        } catch { }
+    }
+
+    public void Dispose()
+    {
+        // Cleanup subscription
+        if (UserManagementService is GFC.Mobile.Services.MobileUserManagementService mobileService)
+        {
+            mobileService.OnUsersUpdated -= HandleUsersUpdated;
+        }
+    }
+
+
+    private async Task CheckConnectionAsync()
+    {
+        try {
+            _isCheckingConnection = true;
+            await InvokeAsync(StateHasChanged);
+            var response = await Http.GetAsync($"{Http.BaseAddress}api/health");
+            _serverReachable = response.IsSuccessStatusCode;
+        } catch {
+            _serverReachable = false;
+        } finally {
+            _isCheckingConnection = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task HandleLoginAsync()
@@ -296,11 +390,28 @@
     {
         if (_confirmingUser == null) return;
         
-        // On stations, we try auto-login if the device trust allows it
-        // OR we just populate the username and ask for passcode
-        _model.Username = _confirmingUser.Username;
-        _loginMode = LoginMode.PassCode;
-        _showConfirmation = false;
+        _isSubmitting = true;
+        _error = null;
+        
+        try {
+            var result = await AuthStateProvider.LoginWithUserAsync(_confirmingUser.UserId);
+            if (result.Success)
+            {
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                _error = "Login failed. Please try manual login.";
+                _loginMode = LoginMode.PassCode;
+                _model.Username = _confirmingUser.Username;
+                _showConfirmation = false;
+            }
+        } catch (Exception ex) {
+            _error = $"Login error: {ex.Message}";
+            _showConfirmation = false;
+        } finally {
+            _isSubmitting = false;
+        }
     }
 
     private void SetMode(LoginMode mode)

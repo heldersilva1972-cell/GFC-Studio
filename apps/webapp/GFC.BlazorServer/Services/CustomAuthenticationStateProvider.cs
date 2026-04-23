@@ -311,7 +311,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return new ClaimsPrincipal(identity);
     }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, bool rememberDevice, string? ipAddress = null)
+    public async Task<GFC.Core.Models.GfcLoginResult> LoginAsync(string username, string password, bool rememberDevice, string? ipAddress = null)
     {
         var result = await _authenticationService.LoginAsync(username, password, ipAddress, rememberDevice);
         if (result.Success)
@@ -323,7 +323,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return result;
     }
 
-    public async Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
+    public async Task<GFC.Core.Models.GfcLoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
     {
         var result = await _authenticationService.LoginWithDeviceTokenAsync(token, ipAddress);
         if (result.Success)
@@ -335,7 +335,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return result;
     }
 
-    public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
+    public async Task<GfcLoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
     {
         var result = await _authenticationService.VerifyMfaCodeAsync(userId, code, ipAddress);
         if (result.Success)
@@ -347,7 +347,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return result;
     }
 
-    public async Task<LoginResult> LoginWithMfaSuccessAsync(int userId, bool rememberDevice, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithMfaSuccessAsync(int userId, bool rememberDevice, string? ipAddress = null)
     {
         var result = await _authenticationService.FinalizeMfaLoginAsync(userId, rememberDevice, ipAddress);
         if (result.Success)
@@ -359,7 +359,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return result;
     }
 
-    public async Task<LoginResult> LoginWithUserAsync(int userId, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithUserAsync(int userId, string? ipAddress = null)
     {
         var result = await _authenticationService.LoginMagicLinkAsync(userId, ipAddress);
         if (result.Success)
@@ -371,7 +371,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return result;
     }
 
-    public async Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
     {
         var result = await _authenticationService.LoginWithPasskeyAsync(username, ipAddress);
         if (result.Success)

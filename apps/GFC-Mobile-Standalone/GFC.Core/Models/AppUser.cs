@@ -33,3 +33,16 @@ public class AppUser
     public string? SocialSecurityNumber { get; set; }
 }
 
+public enum LoginResultCode { Success, InvalidCredentials, AccountLockedOrDisabled, MfaRequired, Error } 
+
+public class GfcLoginResult 
+{ 
+    public LoginResultCode Code { get; set; } 
+    public bool Success => Code == LoginResultCode.Success; 
+    public AppUser? User { get; set; } 
+    public bool PasswordChangeRequired { get; set; } 
+    public string? ErrorMessageForLog { get; set; } 
+    public string? DeviceToken { get; set; } 
+    public List<GFC.Core.DTOs.MobilePermissionDto>? Permissions { get; set; } 
+    public List<string>? AllowedRoutes { get; set; } 
+}

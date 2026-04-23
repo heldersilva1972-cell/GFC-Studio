@@ -1,0 +1,127 @@
+@inject ConnectivityService Connectivity
+@inject MobileReportingService ReportingService
+@implements IDisposable
+
+<div class="sync-status-bar @(Connectivity.IsOnline ? "online" : "offline")">
+    <div class="sync-dot"></div>
+    <span class="sync-label">
+        @if (!Connectivity.IsOnline)
+        {
+            <span>Offline</span>
+        }
+        else if (_pendingCount > 0)
+        {
+            <span>Syncing @_pendingCount item@(_pendingCount == 1 ? "" : "s")...</span>
+        }
+        else if (_justSynced)
+        {
+            <span>Synced ✓</span>
+        }
+        else
+        {
+            <span>Online</span>
+        }
+    </span>
+
+    @if (_pendingCount > 0)
+    {
+        <span class="sync-pending-badge">@_pendingCount pending</span>
+    }
+</div>
+
+@code {
+    private int _pendingCount;
+    private bool _justSynced;
+    private System.Threading.Timer? _clearTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connectivity.ConnectivityChanged += OnConnectivityChanged;
+        ReportingService.OutboxChanged   += OnOutboxChanged;
+        _pendingCount = await ReportingService.GetPendingCountAsync();
+    }
+
+    private void OnConnectivityChanged(bool isOnline)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnOutboxChanged()
+    {
+        _pendingCount = ReportingService.PendingCount;
+
+        if (_pendingCount == 0)
+        {
+            _justSynced = true;
+            // Clear "Synced ✓" after 3 seconds
+            _clearTimer?.Dispose();
+            _clearTimer = new System.Threading.Timer(_ =>
+            {
+                _justSynced = false;
+                InvokeAsync(StateHasChanged);
+            }, null, 3000, Timeout.Infinite);
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        ReportingService.OutboxChanged   -= OnOutboxChanged;
+        _clearTimer?.Dispose();
+    }
+}
+
+<style>
+    .sync-status-bar {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .sync-status-bar.online {
+        background: rgba(25, 135, 84, 0.1);
+        color: #198754;
+    }
+
+    .sync-status-bar.offline {
+        background: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        animation: pulse-offline 2s ease-in-out infinite;
+    }
+
+    .sync-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .online .sync-dot {
+        background: #198754;
+    }
+
+    .offline .sync-dot {
+        background: #dc3545;
+    }
+
+    .sync-pending-badge {
+        background: #ffc107;
+        color: #000;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 0.65rem;
+    }
+
+    @@keyframes pulse-offline {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.6; }
+    }
+</style>

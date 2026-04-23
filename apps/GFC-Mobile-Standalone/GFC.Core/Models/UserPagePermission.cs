@@ -16,6 +16,7 @@ public class UserPagePermission
     public int UserId { get; set; }
 
     [ForeignKey("UserId")]
+    [System.Text.Json.Serialization.JsonIgnore]
     public AppUser User { get; set; }
 
     [Required]

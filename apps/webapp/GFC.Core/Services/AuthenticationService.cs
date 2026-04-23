@@ -20,6 +20,8 @@ public class AuthenticationService : IAuthenticationService
     private readonly IEncryptionService _encryptionService;
     private readonly ITrustedDeviceRepository _trustedDeviceRepository;
     private readonly ISystemSettingsService _systemSettingsService;
+    private readonly IUserManagementService _userManagementService;
+    private readonly IPagePermissionRepository _pagePermissionRepository;
     private AppUser? _currentUser;
 
     public AuthenticationService(
@@ -29,7 +31,9 @@ public class AuthenticationService : IAuthenticationService
         IAuditLogger auditLogger,
         IEncryptionService encryptionService,
         ITrustedDeviceRepository trustedDeviceRepository,
-        ISystemSettingsService systemSettingsService)
+        ISystemSettingsService systemSettingsService,
+        IUserManagementService userManagementService,
+        IPagePermissionRepository pagePermissionRepository)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _loginHistoryRepository = loginHistoryRepository ?? throw new ArgumentNullException(nameof(loginHistoryRepository));
@@ -38,9 +42,11 @@ public class AuthenticationService : IAuthenticationService
         _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
         _trustedDeviceRepository = trustedDeviceRepository ?? throw new ArgumentNullException(nameof(trustedDeviceRepository));
         _systemSettingsService = systemSettingsService ?? throw new ArgumentNullException(nameof(systemSettingsService));
+        _userManagementService = userManagementService ?? throw new ArgumentNullException(nameof(userManagementService));
+        _pagePermissionRepository = pagePermissionRepository ?? throw new ArgumentNullException(nameof(pagePermissionRepository));
     }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false)
+    public async Task<GfcLoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false)
     {
         username = username?.Trim() ?? string.Empty;
         _currentUser = null;
@@ -108,7 +114,7 @@ public class AuthenticationService : IAuthenticationService
             var isMfaGloballyEnabled = await _systemSettingsService.GetEnableTwoFactorAuthAsync();
             if (user.MfaEnabled && isMfaGloballyEnabled)
             {
-                return new LoginResult
+                return new GfcLoginResult
                 {
                     Code = LoginResultCode.MfaRequired,
                     User = user
@@ -136,13 +142,13 @@ public class AuthenticationService : IAuthenticationService
 
             _auditLogger.Log(AuditLogActions.LoginSuccessPassword, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
-            return new LoginResult
+            return PopulatePermissions(new GfcLoginResult
             {
                 Code = LoginResultCode.Success,
                 User = user,
                 PasswordChangeRequired = user.PasswordChangeRequired,
                 DeviceToken = deviceToken
-            };
+            });
         }
         catch (Exception ex)
         {
@@ -153,7 +159,7 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    public async Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
     {
         _currentUser = null;
         if (string.IsNullOrWhiteSpace(token))
@@ -218,16 +224,16 @@ public class AuthenticationService : IAuthenticationService
 
         await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Login via device token successful");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = trustedDevice.DeviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false)
+    public async Task<GfcLoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false)
     {
         var user = _userRepository.GetById(userId);
 
@@ -259,16 +265,16 @@ public class AuthenticationService : IAuthenticationService
             deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
         }
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null)
     {
         _currentUser = null;
         var user = _userRepository.GetById(userId);
@@ -303,16 +309,16 @@ public class AuthenticationService : IAuthenticationService
         // [NEW] Magic Link logins on mobile must also return a device token for trust
         var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "MagicLink");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
     {
         _currentUser = null;
         var user = _userRepository.GetByUsername(username);
@@ -333,16 +339,16 @@ public class AuthenticationService : IAuthenticationService
         // [NEW] Passkey logins on mobile must also return a device token for trust
         var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "Passkey");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
+    public async Task<GfcLoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
     {
         var user = _userRepository.GetById(userId);
         if (user == null || !user.IsActive)
@@ -360,13 +366,13 @@ public class AuthenticationService : IAuthenticationService
             deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
         }
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
     public async Task LogoutAsync(string? deviceToken = null)
@@ -473,9 +479,9 @@ public class AuthenticationService : IAuthenticationService
         await Task.CompletedTask;
     }
 
-    private static LoginResult CreateFailure(LoginResultCode code, string? reason)
+    private static GfcLoginResult CreateFailure(LoginResultCode code, string? reason)
     {
-        return new LoginResult
+        return new GfcLoginResult
         {
             Code = code,
             ErrorMessageForLog = reason
@@ -544,6 +550,35 @@ public class AuthenticationService : IAuthenticationService
 
         await _trustedDeviceRepository.CreateAsync(newDevice);
         return token;
+    }
+
+    private GfcLoginResult PopulatePermissions(GfcLoginResult result)
+    {
+        if (result.Success && result.User != null)
+        {
+            try
+            {
+                // [FIX] Map to lightweight DTOs to guarantee serialization success, filtering ONLY granted permissions.
+                var rawPermissions = _pagePermissionRepository.GetUserPermissions(result.User.UserId).Where(p => p.CanAccess).ToList();
+                result.Permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
+                {
+                    PageName = p.Page?.PageName ?? "Unknown",
+                    PageRoute = p.Page?.PageRoute ?? "",
+                    Category = p.Page?.Category,
+                    CanAccess = p.CanAccess,
+                    CanEdit = p.CanEdit
+                }).ToList();
+
+                result.AllowedRoutes = result.Permissions
+                    .Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant())
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to populate permissions for user {UserId}", result.User.UserId);
+            }
+        }
+        return result;
     }
 
     private static string GenerateSecureToken()

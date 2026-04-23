@@ -1,0 +1,685 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.Core.DTOs
+@using GFC.Pos.Terminal.Services
+@using global::System.Text.Json
+@using Microsoft.AspNetCore.Components
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject IPosTerminalService PosService
+@inject Blazored.Toast.Services.IToastService Toast
+@inject ConnectivityService Connectivity
+@implements IDisposable
+@attribute [AllowAnonymous]
+
+<PageTitle>GFC Terminal #1</PageTitle>
+
+<div class="pos-container">
+    <header class="pos-header">
+        <div class="d-flex align-items-center">
+            <button class="btn-back" @onclick="GoBack">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <span class="brand-text">GFC</span>
+            <span class="terminal-id">@TerminalName.ToUpper()</span>
+        </div>
+        
+        <div class="pos-status">
+            <div class="status-pill @(Connectivity.IsOnline ? "online" : "offline")">
+                <i class="bi @(Connectivity.IsOnline ? "bi-wifi" : "bi-wifi-off")"></i>
+                <span>@(Connectivity.IsOnline ? "ONLINE" : "OFFLINE")</span>
+            </div>
+
+            @if (PendingSyncSales.Any())
+            {
+                <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
+                    <i class="bi bi-cloud-arrow-up-fill"></i>
+                    <span>@PendingSyncSales.Count PENDING SYNC</span>
+                </div>
+            }
+            else
+            {
+                <div class="sync-pill success">
+                    <i class="bi bi-cloud-check-fill"></i>
+                    <span>SYNCED</span>
+                </div>
+            }
+
+            @if (forceTrainingMode)
+            {
+                <div class="status-pill training">
+                    <i class="bi bi-lightning-fill"></i>
+                    <span>TRAINING MODE</span>
+                </div>
+            }
+        </div>
+
+        <div class="header-actions">
+            <button class="btn-no-sale" @onclick="HandleNoSale">
+                <i class="bi bi-door-open-fill"></i>
+                <span>NO SALE</span>
+            </button>
+            <button class="btn-settings-icon" @onclick="() => showSettingsModal = true">
+                <i class="bi bi-gear-fill @(forceTrainingMode ? "text-danger" : "")"></i>
+            </button>
+            <button class="btn-shift" @onclick='() => { _inventoryPullDraft.Clear(); _currentCloseOutStep = CloseOutStep.PromptInventory; }'>
+                <i class="bi bi-door-closed"></i>
+                <span>CLOSE SHIFT OUT</span>
+            </button>
+        </div>
+    </header>
+
+    @if (showSettingsModal)
+    {
+        <div class="shift-overlay">
+            <div class="settings-card shadow-lg">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-black mb-0">POS SETTINGS</h3>
+                    <button class="btn btn-light rounded-circle" @onclick="() => showSettingsModal = false">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                
+                <div class="mb-4">
+                    <h6 class="text-muted small fw-bold text-uppercase mb-3">Unit Configuration</h6>
+                    <div class="p-3 bg-light rounded-4 mb-3">
+                        <label class="small text-muted mb-2 d-block ms-1">Station Name</label>
+                        <input type="text" class="form-control form-control-lg border-0 shadow-sm rounded-3" 
+                               @bind="TerminalName" @bind:after="SaveTerminalName" 
+                               placeholder="e.g. Main Bar" />
+                    </div>
+
+                    <h6 class="text-muted small fw-bold text-uppercase mb-3">Operational Training Mode</h6>
+                    <div class="p-3 bg-light rounded-4 mb-2">
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center">
+                            <label class="form-check-label fw-bold mb-0" for="forceTrainingSwitch">
+                                Enable Training Mode
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" id="forceTrainingSwitch" 
+                                   checked="@forceTrainingMode" 
+                                   @onchange="(e) => ToggleTrainingMode(e.Value)" 
+                                   style="width: 3.5rem; height: 1.75rem;">
+                        </div>
+                    </div>
+
+                    @if (forceTrainingMode)
+                    {
+                        <div class="p-3 bg-light rounded-4 mb-2 animate__animated animate__fadeIn">
+                            <div class="form-check form-switch d-flex justify-content-between align-items-center">
+                                <label class="form-check-label fw-bold mb-0" for="allowHardwareSwitch">
+                                    Allow Hardware Practice
+                                </label>
+                                <input class="form-check-input ms-0" type="checkbox" id="allowHardwareSwitch" 
+                                       checked="@allowHardwareInTraining"
+                                       @onchange="(e) => ToggleHardwarePractice(e.Value)"
+                                       style="width: 3.5rem; height: 1.75rem;">
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="text-muted small fw-bold text-uppercase mb-3">POS History & Auditing</h6>
+                    <button class="btn-complete py-3 fw-bold d-flex align-items-center justify-content-center shadow-sm" 
+                            @onclick='() => Navigation.NavigateTo("/z-reports")'>
+                        <i class="bi bi-clock-history me-2"></i> VIEW SHIFT AUDIT LOG
+                    </button>
+                    <p class="text-muted small mt-2 ms-2">View permanent records of all previous Z-Reports.</p>
+                </div>
+
+                <button class="btn-complete py-3 fw-black" @onclick="() => showSettingsModal = false">
+                    CLOSE SETTINGS
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_currentCloseOutStep != CloseOutStep.None)
+    {
+        <div class="shift-overlay">
+            <div class="settings-card shadow-lg @(_currentCloseOutStep == CloseOutStep.Selection ? "w-100 mx-5" : "")">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-black mb-0">SHIFT CLOSE-OUT</h3>
+                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" @onclick="() => _currentCloseOutStep = CloseOutStep.None">CANCEL</button>
+                </div>
+                
+                @if (_currentCloseOutStep == CloseOutStep.PromptInventory)
+                {
+                    <div class="text-center py-5">
+                        <h4 class="mb-5 fw-black">Was any liquor taken from inventory?</h4>
+                        <div class="d-grid gap-3 d-sm-flex justify-content-center">
+                            <button class="btn btn-light btn-lg px-5 py-4 rounded-pill fw-black flex-grow-1" @onclick="() => _currentCloseOutStep = CloseOutStep.PromptZ">NO</button>
+                            <button class="btn-complete px-5 py-4 fw-black flex-grow-1" @onclick="() => _currentCloseOutStep = CloseOutStep.Selection">YES</button>
+                        </div>
+                    </div>
+                }
+                else if (_currentCloseOutStep == CloseOutStep.ReviewDraft)
+                {
+                    <div class="text-center py-4">
+                        <h3 class="fw-black mb-3">REVIEW PREVIOUS SELECTION</h3>
+                        <p class="text-muted fw-bold small text-uppercase mb-4">You previously selected bottles but did not finish.</p>
+                        <div class="bg-light p-3 rounded-4 mb-4 text-start" style="max-height: 200px; overflow-y: auto;">
+                            @foreach (var draft in _inventoryPullDraft)
+                            {
+                                var item = DbItems.FirstOrDefault(i => i.Id == draft.Key);
+                                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                    <span class="fw-bold">@item?.Name</span>
+                                    <span class="badge bg-primary rounded-pill">x@(draft.Value)</span>
+                                </div>
+                            }
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn-complete py-3 fw-black" @onclick="() => _currentCloseOutStep = CloseOutStep.PromptZ">YES, CORRECT</button>
+                            <button class="btn btn-outline-secondary rounded-pill py-2 fw-bold" @onclick="() => _currentCloseOutStep = CloseOutStep.Selection">NO, CORRECT IT</button>
+                            <button class="btn btn-outline-danger rounded-pill py-2 fw-bold" @onclick="() => { _inventoryPullDraft.Clear(); _currentCloseOutStep = CloseOutStep.PromptInventory; }">REMOVE ALL</button>
+                        </div>
+                    </div>
+                }
+                else if (_currentCloseOutStep == CloseOutStep.Selection)
+                {
+                    <div class="inventory-selection-area">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="fw-black mb-0 text-uppercase">Select Bottles Removed</h5>
+                            <span class="badge bg-primary border">@_inventoryPullDraft.Values.Sum() SELECTED</span>
+                        </div>
+                        <div class="selection-grid mb-4" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; max-height: 50vh; overflow-y: auto; background: #f1f5f9; padding: 10px; border-radius: 20px;">
+                            @foreach (var item in DbItems.Where(i => i.Category == "LIQUOR").OrderBy(i => i.Name))
+                            {
+                                bool isSelected = _inventoryPullDraft.ContainsKey(item.Id);
+                                <div class="selection-tile @(isSelected ? "active" : "")" @onclick="() => AddToDraft(item.Id)" style="cursor: pointer; height: 90px; background: white; border: 2px solid #e2e8f0; border-radius: 16px; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+                                    <div class="tile-name" style="font-weight: 950; font-size: 0.85rem; text-align: center; line-height: 1.1; text-transform: uppercase;">@item.Name</div>
+                                    @if (isSelected)
+                                    {
+                                        <div class="tile-count" style="position: absolute; top: -10px; right: -10px; background: #1e3a8a; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 950; border: 3px solid white;">@_inventoryPullDraft[item.Id]</div>
+                                        <button class="btn-tile-minus" @onclick:stopPropagation="true" @onclick="() => RemoveFromDraft(item.Id)" style="position: absolute; bottom: 5px; right: 5px; background: none; border: none; color: #ef4444; font-size: 1.4rem;">
+                                            <i class="bi bi-dash-circle-fill"></i>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black" style="background: #1e3a8a; font-size: 1.5rem;" @onclick="() => _currentCloseOutStep = CloseOutStep.PromptZ">
+                            SAVE SELECTION
+                        </button>
+                    </div>
+                }
+                else if (_currentCloseOutStep == CloseOutStep.PromptZ)
+                {
+                    <div class="text-center py-5">
+                        <h3 class="fw-black mb-2">Print Z-Report?</h3>
+                        <p class="text-muted small fw-bold text-uppercase mb-5">Finalizing totals and inventory removal...</p>
+                        <div class="d-grid gap-3">
+                            <button class="btn btn-success btn-lg py-4 rounded-4 fw-black" style="background: #166534; font-size: 1.5rem;" @onclick="() => ProcessZOut(true)">YES, PRINT & CLOSE</button>
+                            <button class="btn btn-light btn-lg py-3 rounded-4 fw-bold" style="color: #991b1b;" @onclick="() => _currentCloseOutStep = CloseOutStep.None">CANCEL</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <main class="pos-workspace">
+        <section class="pos-catalog">
+            <div class="catalog-filters d-flex justify-content-between align-items-center w-100 mb-4 pe-2">
+                <div class="d-flex gap-2 flex-wrap">
+                    @foreach (var cat in Categories)
+                    {
+                        var isDarts = cat == "DARTS CLUB ROUND";
+                        var shouldHighlightDarts = isDarts && isDartsModeActive;
+                        <button class="filter-pill @(ActiveCategory == cat || shouldHighlightDarts ? "active" : "") @(isDarts ? "filter-pill--darts" : "")" 
+                                @onclick='() => HandleCategoryClick(cat)'>@cat</button>
+                    }
+                </div>
+                <button class="btn-no-sale shadow-sm" @onclick="HandleNoSale">
+                    <i class="bi bi-unlock-fill"></i> NO SALE
+                </button>
+            </div>
+
+            <div class="product-grid">
+                @if (ActiveCategory == "TOKENS")
+                {
+                    @foreach (var token in DbTokens)
+                    {
+                        <button class="product-card token-card" @onclick="() => AddTokenToCart(token)" style="border-left: 10px solid @token.ColorHex">
+                            <span class="item-name">@token.Name</span>
+                            <span class="item-price">BUY @token.SalePrice.ToString("C")</span>
+                        </button>
+                    }
+                }
+                else
+                {
+                    @foreach (var item in FilteredItems)
+                    {
+                        <button class="product-card" @onclick="() => AddToCart(item)">
+                            <span class="item-name">@item.Name</span>
+                            <span class="item-price">$@item.Price.ToString("F2")</span>
+                        </button>
+                    }
+                }
+            </div>
+        </section>
+
+        <aside class="pos-speed-bar">
+            <div class="speed-bar-header">
+                <i class="bi bi-fire text-orange"></i>
+                <span class="letter-spacing-1">POPULAR</span>
+            </div>
+            <div class="speed-items">
+                @{ int rank = 1; }
+                @foreach (var item in PopularItems.Take(8))
+                {
+                    var currentRank = rank++;
+                    <button class="speed-pill rank-@currentRank" @onclick="() => AddToCart(item)" style="--rank-delay: @(currentRank * 0.05)s">
+                        @if (currentRank == 1) { <div class="rank-badge"><i class="bi bi-trophy-fill"></i></div> }
+                        <div class="pill-name">@item.Name</div>
+                    </button>
+                }
+            </div>
+        </aside>
+
+        <aside class="pos-cart">
+            <div class="cart-header">
+                <div class="d-flex align-items-center">
+                    <h3 class="fw-black m-0">ACTIVE ORDER</h3>
+                    <span class="items-count">@CartItems.Sum(x => x.Quantity) ITEMS</span>
+                </div>
+                <button class="btn-clear-header" @onclick="ClearCart">
+                    <i class="bi bi-trash3-fill"></i> CLEAR
+                </button>
+            </div>
+
+            <div id="cartItemsList" class="cart-items">
+                @if (CartItems.Count == 0)
+                {
+                    <div class="text-center py-5 opacity-25">
+                        <i class="bi bi-cart3 fs-1 d-block mb-2"></i>
+                        <p class="fw-bold">No Items Selected</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var item in CartItems)
+                    {
+                        <div class="cart-item-pill animate__animated animate__fadeInRight animate__faster">
+                            <div class="item-info">
+                                <div class="qty-badge">@item.Quantity<small>x</small></div>
+                                <div class="name">@item.Name</div>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <span class="price-tag">$@((item.Price * item.Quantity).ToString("N2"))</span>
+                                <button class="btn-remove" @onclick="() => RemoveItem(item)">
+                                    <i class="bi bi-dash-circle-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="cart-footer">
+                <div class="grand-total-pill">
+                    <span class="label-total">TOTAL DUE</span>
+                    <span class="value">$@Subtotal.ToString("N2")</span>
+                </div>
+
+                <div class="checkout-btns-group" style="display: flex; gap: 10px;">
+                    <button class="btn-redeem @(CartItems.Count == 0 ? "disabled" : "")" 
+                            style="flex: 1; background: #fff; border: 2.5px solid var(--pos-navy); color: var(--pos-navy); font-weight: 950; border-radius: 50px; padding: 1rem;"
+                            disabled="@(CartItems.Count == 0)"
+                            @onclick="() => showRedeemOverlay = true">
+                        <i class="bi bi-ticket-perforated me-2"></i> REDEEM
+                    </button>
+                    <button class="btn-checkout @(CartItems.Count == 0 ? "disabled" : "")" 
+                            style="flex: 2;"
+                            disabled="@(CartItems.Count == 0)"
+                            @onclick="Checkout">
+                        <i class="bi bi-wallet2 me-2"></i> CHECKOUT
+                    </button>
+                </div>
+            </div>
+        </aside>
+    </main>
+</div>
+
+@* Overlays *@
+@if (showSuccessOverlay)
+{
+    <div class="shift-overlay no-backdrop">
+        <div class="success-splash">
+            <div class="icon-circle">
+                <i class="bi bi-check-lg"></i>
+            </div>
+            <h2 class="fw-black mt-3">TRANSACTION COMPLETE</h2>
+        </div>
+    </div>
+}
+
+@if (showCloseOutSuccessOverlay)
+{
+    <div class="shift-overlay no-backdrop" style="z-index: 5000;">
+        <div class="success-splash animate__animated animate__zoomIn" style="border-color: #1e3a8a;">
+            <div class="icon-circle" style="background: #1e3a8a;">
+                <i class="bi bi-shield-check"></i>
+            </div>
+            <h2 class="fw-black mt-3" style="color: #1e3a8a;">SHIFT SUCCESSFULLY CLOSED</h2>
+        </div>
+    </div>
+}
+
+@if (showRedeemOverlay)
+{
+    <div class="shift-overlay">
+        <div class="redeem-modal shadow-lg">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="fw-black mb-0">REDEEM TOKENS</h2>
+                <button class="btn btn-light rounded-circle" @onclick="() => showRedeemOverlay = false"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="row row-cols-2 g-3 mb-4">
+                @foreach (var token in DbTokens)
+                {
+                    <div class="col">
+                        <button class="token-redeem-btn w-100 h-100" @onclick="() => ApplyTokenRedemption(token)" style="border-top: 8px solid @token.ColorHex">
+                            <span class="fw-black">@token.Name</span>
+                            <span class="badge bg-light text-primary border">Redeem One</span>
+                        </button>
+                    </div>
+                }
+            </div>
+            <button class="btn btn-secondary w-100 rounded-pill py-3 fw-black" @onclick="() => showRedeemOverlay = false">CANCEL</button>
+        </div>
+    </div>
+}
+
+@if (ShowCheckoutOverlay)
+{
+    <div class="shift-overlay">
+        <div class="checkout-card animate__animated animate__zoomIn animate__faster">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <button class="btn-settings-icon" @onclick="() => ShowCheckoutOverlay = false">
+                    <i class="bi bi-chevron-left fs-3"></i>
+                </button>
+                <div class="cash-display-box flex-grow-1 mx-3">
+                    <span class="currency">$</span>
+                    <span class="value">@CashInputString</span>
+                </div>
+            </div>
+
+            <div class="checkout-summary-grid">
+                <div class="summary-pill total">
+                    <div class="label-total">TOTAL DUE</div>
+                    <div class="value">$@Subtotal.ToString("N2")</div>
+                </div>
+                <div class="summary-pill change @(CashReceived.HasValue && CashReceived.Value >= Subtotal ? "visible animate__animated animate__pulse animate__infinite" : "")">
+                    <div class="label-total">@(CashReceived.HasValue && CashReceived.Value >= Subtotal ? "CHANGE DUE" : "REMAINING")</div>
+                    <div class="value">$@Math.Abs(ChangeDue).ToString("N2")</div>
+                </div>
+            </div>
+
+            <div class="checkout-main-grid">
+                <div class="numpad-container">
+                    @foreach (var k in new[] { "7", "8", "9", "4", "5", "6", "1", "2", "3", ".", "0", "BACK" })
+                    {
+                        <button class="numpad-btn" @onclick='() => HandleNumPad(k)'>
+                            @if (k == "BACK") { <i class="bi bi-backspace-fill"></i> } else { @k }
+                        </button>
+                    }
+                </div>
+                <div class="quick-cash-column">
+                    <button class="btn-quick-cash" @onclick='() => SetCashReceived(Subtotal)'>EXACT</button>
+                    <button class="btn-quick-cash" @onclick="() => SetCashReceived(5)">$5</button>
+                    <button class="btn-quick-cash" @onclick="() => SetCashReceived(10)">$10</button>
+                    <button class="btn-quick-cash" @onclick="() => SetCashReceived(20)">$20</button>
+                    <button class="btn-quick-cash" @onclick="() => SetCashReceived(50)">$50</button>
+                    <button class="btn-quick-cash" @onclick="() => SetCashReceived(100)">$100</button>
+                </div>
+            </div>
+
+            <div class="checkout-button-group">
+                <button class="btn-complete" @onclick="FinalizeSale">COMPLETE TRANSACTION</button>
+                <button class="btn-add-more" @onclick="() => ShowCheckoutOverlay = false">UPDATE ORDER</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showNoticeModal)
+{
+    <div class="shift-overlay no-backdrop" style="z-index: 9999;">
+        <div class="notice-modal animate__animated animate__fadeInUp">
+            <div class="notice-icon-circle @(_noticeType == "warning" ? "bg-amber" : "bg-blue")">
+                <i class="bi @(_noticeType == "warning" ? "bi-exclamation-triangle-fill" : "bi-info-circle-fill")"></i>
+            </div>
+            <h3 class="fw-black mt-3 text-uppercase">@_noticeTitle</h3>
+            <p class="text-muted fw-bold mb-4 px-3">@_noticeMessage</p>
+            <div class="d-flex gap-3 px-2">
+                @if (_noticeType == "dual") { <button class="btn btn-outline-secondary w-50 py-3 rounded-pill fw-bold" @onclick="() => _showNoticeModal = false">CANCEL</button> <button class="btn btn-primary w-50 py-3 rounded-pill fw-bold shadow-sm" @onclick="OnNoticeConfirm">YES, PROCEED</button> }
+                else { <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => _showNoticeModal = false">OK, GOT IT</button> }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string CurrentUserName = "ADMIN";
+    private string TerminalName = "TERMINAL 1";
+    private List<PosSaleDto> PendingSyncSales = new();
+    
+    private List<ProductItem> DbItems = new();
+    private List<string> Categories = new();
+    private List<PosToken> DbTokens = new();
+    private List<ProductItem> CartItems = new();
+    private decimal Subtotal => CartItems.Sum(x => x.Price * x.Quantity);
+    
+    private string ActiveCategory = "BEER";
+    private bool forceTrainingMode = false;
+    private bool allowHardwareInTraining = false;
+    private bool showSettingsModal = false;
+    private bool ShowCheckoutOverlay = false;
+    private bool showRedeemOverlay = false;
+    private bool showSuccessOverlay = false;
+    private bool showCloseOutSuccessOverlay = false;
+    private bool isDartsModeActive = false;
+
+    private decimal? CashReceived = null;
+    private string CashInputString = "";
+    private decimal ChangeDue => (CashReceived ?? 0) - Subtotal;
+
+    private Dictionary<int, int> ItemFrequency = new();
+    private List<int> SpeedBarItemIds = new();
+    private IEnumerable<ProductItem> PopularItems => SpeedBarItemIds.Select(id => DbItems.FirstOrDefault(x => x.Id == id)).Where(x => x != null);
+
+    private IEnumerable<ProductItem> FilteredItems => (ActiveCategory == "DARTS CLUB ROUND"
+        ? DbItems.Where(i => i.Category == "BEER" || i.Category == "LIQUOR")
+        : DbItems.Where(x => !string.IsNullOrWhiteSpace(x.Category) && x.Category.Trim().Equals(ActiveCategory.Trim(), StringComparison.OrdinalIgnoreCase)))
+        .GroupBy(x => x.Name).Select(g => g.First())
+        .OrderBy(x => x.Name);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTerminalName();
+        await RefreshData();
+        
+        var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
+        if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
+        
+        var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
+        if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
+
+        Connectivity.ConnectivityChanged += OnConnectivityChanged;
+    }
+
+    private void OnConnectivityChanged(bool isOnline)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Connectivity.ConnectivityChanged -= OnConnectivityChanged;
+    }
+
+    private async Task RefreshData()
+    {
+        var menu = await PosService.GetMenuAsync();
+        if (menu != null)
+        {
+            Categories = menu.Categories;
+            DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
+            DbTokens = menu.Tokens;
+            if (DateTime.Now.DayOfWeek == DayOfWeek.Thursday || forceTrainingMode)
+                if (!Categories.Contains("DARTS CLUB ROUND")) Categories.Add("DARTS CLUB ROUND");
+            if (!Categories.Contains(ActiveCategory)) ActiveCategory = Categories.FirstOrDefault() ?? "BEER";
+        }
+    }
+
+    private void UpdateSpeedBar()
+    {
+        SpeedBarItemIds = ItemFrequency.OrderByDescending(x => x.Value).Select(x => x.Key).Take(8).ToList();
+        StateHasChanged();
+    }
+
+    private async Task HandleCategoryClick(string cat)
+    {
+        if (cat == "DARTS CLUB ROUND")
+        {
+            if (isDartsModeActive) ClearCart();
+            else {
+                var existing = await PosService.GetDartsRoundTodayAsync(TerminalName);
+                if (existing != null) ShowNotice("Round Already Submitted", "A club round has already been submitted today. Correct it?", "dual", () => LoadDartsRoundForCorrection(existing));
+                else ActivateDartsMode();
+            }
+        } else { ActiveCategory = cat; }
+    }
+
+    private void ActivateDartsMode()
+    {
+        isDartsModeActive = true; 
+        ActiveCategory = "DARTS CLUB ROUND";
+        if (CartItems.Any()) {
+            int removedFood = CartItems.RemoveAll(i => i.Category == "FOOD");
+            if (removedFood > 0) ShowNotice("Items Removed", "Food items are not allowed in Darts Rounds.", "warning");
+            foreach (var item in CartItems.Where(i => i.Price > 0)) {
+                if (item.Category == "BEER" || item.Category == "LIQUOR") {
+                    item.Price = 0; if (!item.Name.Contains("(DARTS)")) item.Name += " (DARTS)";
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private Guid? _correctingSaleId = null;
+    private void LoadDartsRoundForCorrection(PosSaleDto sale) { _correctingSaleId = sale.Id; isDartsModeActive = true; ActiveCategory = "DARTS CLUB ROUND"; CartItems = JsonSerializer.Deserialize<List<ProductItem>>(sale.ItemsJson) ?? new(); StateHasChanged(); }
+
+    private async Task AddToCart(ProductItem item)
+    {
+        if (isDartsModeActive && item.Category == "FOOD") { ShowNotice("Strict Rule", "Food is not allowed in Darts Club Rounds.", "warning"); return; }
+        var isDartComp = isDartsModeActive;
+        var price = isDartComp ? 0 : item.Price;
+        var name = isDartComp && !item.Name.Contains("(DARTS)") ? $"{item.Name} (DARTS)" : item.Name;
+        var existing = CartItems.FirstOrDefault(x => x.Id == item.Id && x.Price == price && x.Name == name);
+        if (existing != null) existing.Quantity++;
+        else CartItems.Add(new ProductItem { Id = item.Id, Name = name, Price = price, Category = item.Category, Quantity = 1 });
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("eval", "var el = document.getElementById('cartItemsList'); if(el) el.scrollTop = el.scrollHeight;");
+    }
+
+    private void AddTokenToCart(PosToken token)
+    {
+        var price = isDartsModeActive ? 0 : token.SalePrice;
+        var name = isDartsModeActive ? $"{token.Name} (TOKEN) (DARTS)" : $"{token.Name} (TOKEN)";
+        var existing = CartItems.FirstOrDefault(x => x.Id == -token.Id && x.Price == price);
+        if (existing != null) existing.Quantity++;
+        else CartItems.Add(new ProductItem { Id = -token.Id, Name = name, Price = price, Category = "TOKENS", Quantity = 1 });
+    }
+
+    private void ApplyTokenRedemption(PosToken token)
+    {
+        var eligibleIds = token.EligibleItemIds.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToList();
+        var itemToZero = CartItems.FirstOrDefault(i => eligibleIds.Contains(i.Id) && i.Price > 0);
+        if (itemToZero != null) {
+            if (itemToZero.Quantity > 1) { itemToZero.Quantity--; CartItems.Add(new ProductItem { Id = itemToZero.Id, Name = $"{itemToZero.Name} (TOKEN)", Price = 0, Category = itemToZero.Category, Quantity = 1 }); }
+            else { itemToZero.Name = $"{itemToZero.Name} (TOKEN)"; itemToZero.Price = 0; }
+            showRedeemOverlay = false;
+        } else { ShowNotice("Missing Item", "No qualifying item found in cart.", "warning"); }
+    }
+
+    private void RemoveItem(ProductItem item) { if (item.Quantity > 1) item.Quantity--; else CartItems.Remove(item); }
+    private void ClearCart() { CartItems.Clear(); isDartsModeActive = false; UpdateSpeedBar(); }
+    private async Task Checkout() { if (Subtotal == 0) await FinalizeSale(); else { CashInputString = ""; CashReceived = null; ShowCheckoutOverlay = true; } }
+
+    private decimal ShiftCashTotal = 0;
+    private async Task FinalizeSale()
+    {
+        var payment = CashReceived.HasValue ? "CASH" : (Subtotal == 0 ? "TOKEN/COMP" : "OTHER");
+        var sale = new PosSaleDto
+        {
+            Id = _correctingSaleId ?? Guid.NewGuid(),
+            Timestamp = DateTime.Now,
+            TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
+            TotalAmount = Subtotal,
+            BartenderName = CurrentUserName,
+            PaymentType = payment,
+            ItemsJson = JsonSerializer.Serialize(CartItems)
+        };
+        
+        if (!forceTrainingMode) {
+            await PosService.SaveSaleAsync(sale);
+            if (payment == "CASH") ShiftCashTotal += Subtotal;
+            foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) {
+                if (!ItemFrequency.ContainsKey(ci.Id)) ItemFrequency[ci.Id] = 0;
+                ItemFrequency[ci.Id] += ci.Quantity;
+            }
+        }
+        
+        ClearCart(); _correctingSaleId = null; ShowCheckoutOverlay = false; CashReceived = null; CashInputString = "";
+        showSuccessOverlay = true; StateHasChanged(); await Task.Delay(1000); showSuccessOverlay = false;
+        UpdateSpeedBar(); StateHasChanged();
+    }
+
+    private async Task HandleNoSale()
+    {
+        if (!forceTrainingMode) {
+            var noSale = new PosSaleDto { TerminalName = TerminalName, TotalAmount = 0, Timestamp = DateTime.Now, ItemsJson = "[{\"Name\": \"NO SALE (Drawer Open)\", \"Quantity\": 1, \"Price\": 0}]", PaymentType = "NO SALE" };
+            await PosService.SaveSaleAsync(noSale);
+        }
+        ClearCart(); Toast.ShowInfo("Drawer Opened");
+    }
+
+    private enum CloseOutStep { None, PromptInventory, ReviewDraft, Selection, PromptZ }
+    private CloseOutStep _currentCloseOutStep = CloseOutStep.None;
+    private Dictionary<int, int> _inventoryPullDraft = new();
+    private void StartCloseOutWorkflow() => _currentCloseOutStep = _inventoryPullDraft.Any() ? CloseOutStep.ReviewDraft : CloseOutStep.PromptInventory;
+    private void AddToDraft(int id) { if (_inventoryPullDraft.ContainsKey(id)) _inventoryPullDraft[id]++; else _inventoryPullDraft[id] = 1; }
+    private void RemoveFromDraft(int id) { if (_inventoryPullDraft.ContainsKey(id) && _inventoryPullDraft[id] > 1) _inventoryPullDraft[id]--; else _inventoryPullDraft.Remove(id); }
+    private async Task ProcessZOut(bool print)
+    {
+        if (!forceTrainingMode) {
+            var lastTime = await PosService.GetLastZTimeAsync(TerminalName);
+            var z = new PosZReportDto { 
+                Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
+                CashTotal = ShiftCashTotal, TotalGrossSales = 0, 
+                InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
+                SalesSummaryJson = "{}" // Server calculates the full summary now
+            };
+            await PosService.SaveZReportAsync(z);
+        }
+        _inventoryPullDraft.Clear(); ShiftCashTotal = 0; _currentCloseOutStep = CloseOutStep.None;
+        showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
+    }
+
+    private void HandleNumPad(string k) { if (k == "CLEAR") CashInputString = ""; else if (k == "BACK") { if (CashInputString.Length > 0) CashInputString = CashInputString[..^1]; } else { if (CashInputString.Contains(".") && CashInputString.Split('.')[1].Length >= 2) return; CashInputString += k; } if (decimal.TryParse(CashInputString, out var v)) CashReceived = v; else CashReceived = null; }
+    private void SetCashReceived(decimal a) { CashReceived = Math.Round(a, 2); CashInputString = CashReceived.Value.ToString("F2"); }
+    private async Task SaveTerminalName() => await JSRuntime.InvokeVoidAsync("localStorage.setItem", "GfcPos_TerminalName", TerminalName);
+    private async Task LoadTerminalName() { TerminalName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "GfcPos_TerminalName") ?? "TERMINAL 1"; }
+    private async Task ToggleTrainingMode(object? val) { if (val is bool isChecked) { forceTrainingMode = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_training_mode", forceTrainingMode.ToString().ToLower()); await RefreshData(); } }
+    private async Task ToggleHardwarePractice(object? val) { if (val is bool isChecked) { allowHardwareInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_hardware_practice", allowHardwareInTraining.ToString().ToLower()); } }
+
+    private bool _showNoticeModal = false; private string _noticeTitle = "", _noticeMessage = "", _noticeType = "info"; private Action? _onConfirm;
+    private void ShowNotice(string t, string m, string type, Action? c = null) { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _showNoticeModal = true; StateHasChanged(); }
+    private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
+    private void GoBack() => Navigation.NavigateTo("/");
+
+    public class ProductItem { public int Id { get; set; } public string Name { get; set; } = ""; public decimal Price { get; set; } public int Quantity { get; set; } = 1; public string Category { get; set; } = "MISC"; }
+}

@@ -20,6 +20,7 @@ public class AuthenticationService : IAuthenticationService
     private readonly IEncryptionService _encryptionService;
     private readonly ITrustedDeviceRepository _trustedDeviceRepository;
     private readonly ISystemSettingsService _systemSettingsService;
+    private readonly IUserManagementService _userManagementService;
     private AppUser? _currentUser;
 
     public AuthenticationService(
@@ -29,7 +30,8 @@ public class AuthenticationService : IAuthenticationService
         IAuditLogger auditLogger,
         IEncryptionService encryptionService,
         ITrustedDeviceRepository trustedDeviceRepository,
-        ISystemSettingsService systemSettingsService)
+        ISystemSettingsService systemSettingsService,
+        IUserManagementService userManagementService)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _loginHistoryRepository = loginHistoryRepository ?? throw new ArgumentNullException(nameof(loginHistoryRepository));
@@ -38,9 +40,10 @@ public class AuthenticationService : IAuthenticationService
         _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
         _trustedDeviceRepository = trustedDeviceRepository ?? throw new ArgumentNullException(nameof(trustedDeviceRepository));
         _systemSettingsService = systemSettingsService ?? throw new ArgumentNullException(nameof(systemSettingsService));
+        _userManagementService = userManagementService ?? throw new ArgumentNullException(nameof(userManagementService));
     }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false)
+    public async Task<GfcLoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false)
     {
         username = username?.Trim() ?? string.Empty;
         _currentUser = null;
@@ -78,14 +81,8 @@ public class AuthenticationService : IAuthenticationService
                 return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
             }
 
-            // [REMOVED] Safe Mode check removed to prevent crash if SystemSettings missing
-            // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
-            // { ... }
-
-            // [FIX] Perform standard password/passcode verification for ALL users including admin
             bool isPasswordCorrect = PasswordHelper.VerifyPassword(password, user.PasswordHash);
 
-            // [NEW] If password fails, check if they entered their PassCode/PIN
             if (!isPasswordCorrect && !string.IsNullOrEmpty(user.PassCodeHash))
             {
                 isPasswordCorrect = PasswordHelper.VerifyPassword(password, user.PassCodeHash);
@@ -104,11 +101,10 @@ public class AuthenticationService : IAuthenticationService
                 return CreateFailure(LoginResultCode.InvalidCredentials, reason);
             }
 
-            // MFA Check: Only trigger if BOTH the global master switch and the per-user flag are enabled
             var isMfaGloballyEnabled = await _systemSettingsService.GetEnableTwoFactorAuthAsync();
             if (user.MfaEnabled && isMfaGloballyEnabled)
             {
-                return new LoginResult
+                return new GfcLoginResult
                 {
                     Code = LoginResultCode.MfaRequired,
                     User = user
@@ -136,13 +132,13 @@ public class AuthenticationService : IAuthenticationService
 
             _auditLogger.Log(AuditLogActions.LoginSuccessPassword, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
-            return new LoginResult
+            return PopulatePermissions(new GfcLoginResult
             {
                 Code = LoginResultCode.Success,
                 User = user,
                 PasswordChangeRequired = user.PasswordChangeRequired,
                 DeviceToken = deviceToken
-            };
+            });
         }
         catch (Exception ex)
         {
@@ -153,7 +149,7 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    public async Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
     {
         _currentUser = null;
         if (string.IsNullOrWhiteSpace(token))
@@ -167,13 +163,9 @@ public class AuthenticationService : IAuthenticationService
         {
             string reason = trustedDevice == null ? "Device token not found" : (trustedDevice.IsRevoked ? "Device was revoked" : "Device token expired");
             await SafeLogLogin(null, trustedDevice?.UserId, false, ipAddress, reason);
-            
-            // [FIX] DO NOT delete the token immediately. This prevents accidental logout loops during network flickers.
             return CreateFailure(LoginResultCode.InvalidCredentials, reason);
         }
 
-        // [STATION MODE] Machine is trusted, but USER is not authenticated.
-        // Station tokens allow the 'Access Shield' to pass, but do NOT provide auto-login identity.
         if (trustedDevice.IsStation)
         {
             return CreateFailure(LoginResultCode.InvalidCredentials, "Station Mode: Manual login required.");
@@ -185,7 +177,6 @@ public class AuthenticationService : IAuthenticationService
             string reason = user == null ? "User not found for token" : "User for token is inactive";
             await SafeLogLogin(user?.Username, trustedDevice.UserId, false, ipAddress, reason);
             
-            // [SECURITY FIX] If user is deleted, revoke the orphaned token immediately
             if (user == null)
             {
                 trustedDevice.IsRevoked = true;
@@ -195,12 +186,8 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 
-        // [REMOVED] Safe Mode check removed
-        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
-
         _currentUser = user;
         
-        // [PERFORMANCE] Update Session Timing in background to prevent blocking the UI rendering path
         _ = Task.Run(async () =>
         {
             try
@@ -218,16 +205,16 @@ public class AuthenticationService : IAuthenticationService
 
         await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Login via device token successful");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = trustedDevice.DeviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false)
+    public async Task<GfcLoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false)
     {
         var user = _userRepository.GetById(userId);
 
@@ -235,9 +222,6 @@ public class AuthenticationService : IAuthenticationService
         {
             return CreateFailure(LoginResultCode.Error, "MFA not enabled for user");
         }
-
-        // [REMOVED] Safe Mode check removed
-        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
 
         var tfa = new TwoFactorAuthenticator();
         var decryptedSecretKey = _encryptionService.Decrypt(user.MfaSecretKey);
@@ -259,16 +243,16 @@ public class AuthenticationService : IAuthenticationService
             deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
         }
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null)
     {
         _currentUser = null;
         var user = _userRepository.GetById(userId);
@@ -281,38 +265,24 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 
-        // [REMOVED] Safe Mode check removed
-        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
-
-        if (user.MfaEnabled)
-        {
-            // Requirement didn't explicitly say MFA skips for Magic Link, but usually Magic Link implies strict identity verification via email. 
-            // However, usually MFA is 2nd factor. 
-            // "Validation: must exist, not used, not expired. If valid: Log user in."
-            // So implicit bypass of password. If MFA is enabled, we might still want it. 
-            // But prompt says: "If valid: Log user in... redirect to Dashboard."
-            // Simple approach: Magic Link acts as strong auth. 
-        }
-
         _currentUser = user;
         _userRepository.UpdateLastLogin(user.UserId, DateTime.UtcNow);
         await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Magic Link login successful");
         
         _auditLogger.Log(AuditLogActions.LoginSuccessMagicLink, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
-        // [NEW] Magic Link logins on mobile must also return a device token for trust
         var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "MagicLink");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
+    public async Task<GfcLoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
     {
         _currentUser = null;
         var user = _userRepository.GetByUsername(username);
@@ -330,19 +300,18 @@ public class AuthenticationService : IAuthenticationService
         
         _auditLogger.Log(AuditLogActions.LoginSuccessPasskey, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
-        // [NEW] Passkey logins on mobile must also return a device token for trust
         var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "Passkey");
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
-    public async Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
+    public async Task<GfcLoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
     {
         var user = _userRepository.GetById(userId);
         if (user == null || !user.IsActive)
@@ -360,27 +329,22 @@ public class AuthenticationService : IAuthenticationService
             deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
         }
 
-        return new LoginResult
+        return PopulatePermissions(new GfcLoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
-        };
+        });
     }
 
     public async Task LogoutAsync(string? deviceToken = null)
     {
-        // [MODIFIED] Properly revoke the device trust token on logout.
-        // This ensures the token can no longer be used for auto-login,
-        // fixing the infinite login loop reported by users.
         if (!string.IsNullOrEmpty(deviceToken))
         {
             var device = await _trustedDeviceRepository.GetByTokenAsync(deviceToken);
             if (device != null && !device.IsStation)
             {
-                // [FIX] Revoke the session token unconditionally on logout, 
-                // UNLESS it is a permanent Station Identity token.
                 device.IsRevoked = true;
                 await _trustedDeviceRepository.UpdateAsync(device);
                 _logger.LogInformation("Revoked user session token {Token} during logout.", deviceToken);
@@ -407,9 +371,6 @@ public class AuthenticationService : IAuthenticationService
             }
             else if (refreshedUser == null)
             {
-                // [FIX] Verify if user is truly gone by trying one more time or checking specific Repo state
-                // For now, we only clear if we get a null BACK (which repository returns on error too, sadly)
-                // We will trust the Repo for now but log it.
                 _logger.LogWarning("RefreshCurrentUserAsync: User {UserId} not found or inactive. Clearing session.", _currentUser.UserId);
                 _currentUser = null;
             }
@@ -443,13 +404,10 @@ public class AuthenticationService : IAuthenticationService
 
     private async Task SafeLogLogin(string? username, int? userId, bool success, string? ipAddress, string? failureReason)
     {
-        // [PERFORMANCE] Fire-and-forget: Move DB logging to a background thread
-        // This prevents the login process from hanging while waiting for audit log persistence.
         _ = Task.Run(() =>
         {
             try
             {
-                // Capture local copies of parameters to prevent closure/disposal issues
                 var history = new LoginHistory
                 {
                     UserId = userId,
@@ -464,8 +422,6 @@ public class AuthenticationService : IAuthenticationService
             }
             catch (Exception ex)
             {
-                // We cannot use _logger here easily if scoped, so we use Console.Error as last resort
-                // for background logging failures.
                 Console.Error.WriteLine($"[AuthService] Critical: Background login logging failed: {ex.Message}");
             }
         });
@@ -473,63 +429,40 @@ public class AuthenticationService : IAuthenticationService
         await Task.CompletedTask;
     }
 
-    private static LoginResult CreateFailure(LoginResultCode code, string? reason)
+    private static GfcLoginResult CreateFailure(LoginResultCode code, string? reason)
     {
-        return new LoginResult
+        return new GfcLoginResult
         {
             Code = code,
             ErrorMessageForLog = reason
         };
     }
 
-    private async Task<(string, DateTime)> RotateDeviceTokenAsync(TrustedDevice trustedDevice)
+    private GfcLoginResult PopulatePermissions(GfcLoginResult result)
     {
-        var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
-
-        trustedDevice.LastUsedUtc = DateTime.UtcNow;
-        trustedDevice.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
-        trustedDevice.DeviceToken = GenerateSecureToken();
-
-        await _trustedDeviceRepository.UpdateAsync(trustedDevice);
-
-        return (trustedDevice.DeviceToken, trustedDevice.ExpiresAtUtc);
+        if (result.User == null) return result;
+        
+        try 
+        {
+            var permissions = _userManagementService.GetUserPagePermissions(result.User.UserId);
+            result.Permissions = permissions;
+            
+            result.AllowedRoutes = permissions
+                .Where(p => p.CanAccess && !string.IsNullOrEmpty(p.PageRoute))
+                .Select(p => p.PageRoute)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to populate permissions for user {UserId} during login", result.User.UserId);
+        }
+        
+        return result;
     }
 
     private async Task<string?> GenerateAndSaveDeviceTokenAsync(int userId, string? ipAddress, string? userAgent)
     {
         var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
-
-        // [AUTO-CLEANUP] Smart Platform Rotation in AuthenticationService
-        var existingDevices = await _trustedDeviceRepository.GetActiveDevicesForUserAsync(userId);
-        
-        // Use the same smart platform detection as DeviceTrustService
-        var appPlatform = userAgent?.Contains("Android") == true ? "Android" : 
-                         userAgent?.Contains("iPhone") == true ? "iPhone" : "Browser";
-
-        var duplicates = existingDevices.Where(d => 
-            !d.IsStation && // Don't auto-revoke stations
-            (
-                (appPlatform == "Android" && d.UserAgent?.Contains("Android") == true) ||
-                (appPlatform == "iPhone" && d.UserAgent?.Contains("iPhone") == true) ||
-                (appPlatform == "Browser" && d.UserAgent?.Contains("Android") != true && d.UserAgent?.Contains("iPhone") != true)
-            )
-        ).ToList();
-
-        // [FIX] Allow multiple active sessions to prevent shared stations from logging each other out
-        // Only clean up oldest sessions when they exceed 10 concurrent sessions for this platform
-        if (duplicates.Count >= 10)
-        {
-            var toRevoke = duplicates.OrderByDescending(d => d.LastUsedUtc).Skip(9).ToList();
-            foreach (var dev in toRevoke)
-            {
-                dev.IsRevoked = true;
-                await _trustedDeviceRepository.UpdateAsync(dev);
-            }
-            
-            _logger.LogInformation("Auto-cleanup (AuthService): Revoked {Count} stale {Type} sessions for user {UserId}.", 
-                toRevoke.Count, appPlatform, userId);
-        }
-
         var token = GenerateSecureToken();
         var newDevice = new TrustedDevice
         {

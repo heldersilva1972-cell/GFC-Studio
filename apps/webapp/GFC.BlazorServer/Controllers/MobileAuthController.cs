@@ -3,6 +3,7 @@ using GFC.Core.Models;
 using GFC.Core.DTOs;
 using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 
@@ -15,26 +16,60 @@ public class MobileAuthController : ControllerBase
 {
     private readonly CustomAuthenticationStateProvider _authStateProvider;
     private readonly IUserManagementService _userManagementService;
+    private readonly IPagePermissionRepository _pagePermissionRepository;
     private readonly ILogger<MobileAuthController> _logger;
 
     public MobileAuthController(
         AuthenticationStateProvider authStateProvider,
         IUserManagementService userManagementService,
+        IPagePermissionRepository pagePermissionRepository,
         ILogger<MobileAuthController> logger)
     {
         _authStateProvider = (CustomAuthenticationStateProvider)authStateProvider;
         _userManagementService = userManagementService;
+        _pagePermissionRepository = pagePermissionRepository;
         _logger = logger;
     }
 
     [HttpGet("users")]
+    [AllowAnonymous]
     public ActionResult<List<UserListItemDto>> GetUsers()
     {
-        return _userManagementService.GetAllUsers();
+        try
+        {
+            var allUsers = _userManagementService.GetAllUsers();
+            var mobileUsers = new List<UserListItemDto>();
+
+            foreach (var userDto in allUsers)
+            {
+                var user = _userManagementService.GetUser(userDto.UserId);
+                if (user == null || !user.IsActive) continue;
+
+                var permissions = _userManagementService.GetUserPagePermissions(user.UserId);
+                
+                // Authoritative Master-Switch Filter
+                bool hasMobileAccess = permissions.Any(p => 
+                    p.CanAccess && 
+                    !string.IsNullOrEmpty(p.PageRoute) && 
+                    (p.PageRoute.Trim('/').ToLower() == "mobile" || p.PageRoute.Trim('/').ToLower() == "hub"));
+
+                if (hasMobileAccess)
+                {
+                    mobileUsers.Add(userDto);
+                }
+            }
+
+            return Ok(mobileUsers.OrderBy(u => u.Username).ToList());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch mobile users");
+            return StatusCode(500, "Internal Server Error");
+        }
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<LoginResult>> Login([FromBody] LoginRequest request)
+    public async Task<ActionResult<GFC.Core.Models.GfcLoginResult>> Login([FromBody] LoginRequest request)
     {
         try
         {
@@ -49,7 +84,7 @@ public class MobileAuthController : ControllerBase
     }
 
     [HttpPost("login-token")]
-    public async Task<ActionResult<LoginResult>> LoginWithToken([FromBody] string token)
+    public async Task<ActionResult<GFC.Core.Models.GfcLoginResult>> LoginWithToken([FromBody] string token)
     {
         try
         {
@@ -63,6 +98,21 @@ public class MobileAuthController : ControllerBase
         }
     }
 
+    [HttpPost("login-user")]
+    public async Task<ActionResult<GFC.Core.Models.GfcLoginResult>> LoginWithUser([FromBody] int userId)
+    {
+        try
+        {
+            var result = await _authStateProvider.LoginWithUserAsync(userId);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Mobile simple user login failed for ID {UserId}", userId);
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
+
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] string? token)
     {
@@ -71,7 +121,7 @@ public class MobileAuthController : ControllerBase
     }
 
     [HttpGet("user")]
-    public async Task<ActionResult<AppUser>> GetCurrentUser([FromQuery] string? token)
+    public async Task<ActionResult<GFC.Core.Models.GfcLoginResult>> GetCurrentUser([FromQuery] string? token)
     {
         // If a token is provided, we can simulate the login context for this request
         if (!string.IsNullOrEmpty(token))
@@ -81,7 +131,44 @@ public class MobileAuthController : ControllerBase
         }
         
         var user = _authStateProvider.GetCurrentUser();
-        return user != null ? Ok(user) : Unauthorized();
+        if (user == null) return Unauthorized();
+
+        // [CRITICAL FIX] Fetch DIRECTLY from repository and map to DTOs, filtering ONLY granted permissions.
+        var rawPermissions = _pagePermissionRepository.GetUserPermissions(user.UserId).Where(p => p.CanAccess).ToList();
+        var permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
+        {
+            PageName = p.Page?.PageName ?? "Unknown",
+            PageRoute = p.Page?.PageRoute ?? "",
+            Category = p.Page?.Category,
+            CanAccess = p.CanAccess,
+            CanEdit = p.CanEdit
+        }).ToList();
+        
+        return Ok(new GFC.Core.Models.GfcLoginResult
+        {
+            Code = GFC.Core.Models.LoginResultCode.Success,
+            User = user,
+            Permissions = permissions,
+            AllowedRoutes = permissions
+                .Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant())
+                .ToList()
+        });
+    }
+
+    [HttpGet("permissions/{userId}")]
+    public ActionResult<List<UserPagePermission>> GetPermissions(int userId)
+    {
+        try
+        {
+            // [CRITICAL FIX] Hit repository directly
+            var permissions = _pagePermissionRepository.GetUserPermissions(userId).ToList();
+            return Ok(permissions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get permissions for user {UserId}", userId);
+            return StatusCode(500, "Internal Server Error");
+        }
     }
 }
 

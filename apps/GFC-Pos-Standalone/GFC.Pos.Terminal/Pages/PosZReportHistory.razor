@@ -1,0 +1,232 @@
+@page "/z-reports"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.DTOs
+@using GFC.Core.Interfaces
+@using GFC.Pos.Terminal.Services
+@using global::System.Text.Json
+@inject IPosTerminalService PosService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@attribute [AllowAnonymous]
+
+<PageTitle>GFC | POS Z-Report History</PageTitle>
+
+<style>
+    .history-card { background: white; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); overflow: hidden; }
+    .history-header { background: #1e3a8a; color: white; padding: 2rem; }
+    .history-table th { font-weight: 950; text-transform: uppercase; font-size: 0.75rem; color: #64748b; border-top: none; }
+    .history-table td { vertical-align: middle; font-weight: 800; padding: 1rem 0.75rem; }
+    .badge-cash { background: #dcfce7; color: #166534; border-radius: 50px; padding: 4px 12px; font-size: 0.8rem; }
+    .badge-card { background: #eff6ff; color: #1e40af; border-radius: 50px; padding: 4px 12px; font-size: 0.8rem; }
+    .btn-view { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 8px 16px; font-weight: 900; font-size: 0.8rem; color: #475569; transition: all 0.2s; }
+    .btn-view:hover { background: #1e3a8a; color: white; border-color: #1e3a8a; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .detail-card { background: white; width: 600px; max-height: 90vh; border-radius: 30px; overflow: hidden; display: flex; flex-direction: column; }
+    .detail-body { overflow-y: auto; padding: 2rem; }
+</style>
+
+<div class="container-fluid py-4" style="background: #f1f5f9; min-height: 100vh;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <button class="btn btn-light rounded-circle me-3 shadow-sm border" @onclick="GoBack" title="Go Back">
+                <i class="bi bi-chevron-left fs-5"></i>
+            </button>
+            <div>
+                <h1 class="fw-black mb-1">TERMINAL AUDIT</h1>
+                <p class="text-muted fw-bold">Permanent history of all POS Shift Close-outs (Z-Reports)</p>
+            </div>
+        </div>
+        <button class="btn btn-primary rounded-pill px-4 py-3 fw-bold shadow-sm" @onclick='() => Navigation.NavigateTo("/")'>
+            <i class="bi bi-arrow-left me-2"></i> RETURN TO TERMINAL
+        </button>
+    </div>
+
+    <div class="history-card">
+        <div class="p-0">
+            <table class="table history-table mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">DATE & TIME</th>
+                        <th>TERMINAL</th>
+                        <th>BARTENDER</th>
+                        <th class="text-end">GROSS SALES</th>
+                        <th class="text-center pe-4">ACTION</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_reports == null)
+                    {
+                        <tr><td colspan="5" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>
+                    }
+                    else if (!_reports.Any())
+                    {
+                        <tr><td colspan="5" class="text-center py-5 text-muted fw-bold">No Z-Reports found in the history log.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var r in _reports)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex flex-column">
+                                        <span class="fw-black">@r.Timestamp.ToString("MMM dd, yyyy")</span>
+                                        <small class="text-muted fw-bold">@r.Timestamp.ToString("h:mm tt")</small>
+                                    </div>
+                                </td>
+                                <td><span class="badge bg-light text-dark border fw-black">@r.TerminalName</span></td>
+                                <td>@r.BartenderName</td>
+                                <td class="text-end fw-black text-primary p-3" style="font-size: 1.1rem;">$@r.TotalGrossSales.ToString("N2")</td>
+                                <td class="text-center pe-4">
+                                    <button class="btn-view" @onclick="() => _selectedReport = r">VIEW AUDIT</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_selectedReport != null)
+{
+    <div class="modal-overlay" @onclick="() => _selectedReport = null">
+        <div class="detail-card shadow-lg" @onclick:stopPropagation>
+            <div class="history-header">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="text-white">
+                        <h6 class="text-uppercase fw-black opacity-75 mb-1 text-white">End of Shift Z Report</h6>
+                        <h2 class="fw-black mb-0 text-white">@_selectedReport.TerminalName.ToUpper()</h2>
+                        <h5 class="fw-black text-warning">BY: @_selectedReport.BartenderName.ToUpper()</h5>
+                        <p class="mb-0 opacity-75 fw-bold text-white">@_selectedReport.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</p>
+                    </div>
+                    <button class="btn btn-link text-white p-0" @onclick="() => _selectedReport = null">
+                        <i class="bi bi-x-lg fs-4"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="detail-body px-4">
+                <!-- TOP STATS -->
+                <div class="row g-3 mb-4">
+                    <div class="col-12">
+                        <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-primary">
+                            <label class="text-muted small fw-bold d-block mb-1">TOTAL GROSS SALES</label>
+                            <span class="fs-2 fw-black text-primary">$@_selectedReport.TotalGrossSales.ToString("N2")</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SALES SUMMARY -->
+                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                    <i class="bi bi-receipt me-2"></i> POS Sales Activity
+                </h6>
+                <div class="border rounded-4 overflow-hidden mb-5 bg-white shadow-sm">
+                    <table class="table mb-0 table-sm">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-3 py-2 border-0 small">Item Name</th>
+                                <th class="text-center py-2 border-0 small">Sold</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var sales = ParseSummary(_selectedReport.SalesSummaryJson);
+                                if (!sales.Any())
+                                {
+                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
+                                }
+                                else
+                                {
+                                    foreach (var item in sales.OrderByDescending(x => x.Value))
+                                    {
+                                        <tr>
+                                            <td class="ps-3 py-2 fw-bold text-dark small">@item.Key.ToUpper()</td>
+                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@item.Value</span></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- INVENTORY LOG -->
+                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                    <i class="bi bi-box-seam me-2"></i> Inventory Removal Log
+                </h6>
+                <div class="border rounded-4 overflow-hidden bg-white shadow-sm">
+                    <table class="table mb-0 table-sm">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-3 py-2 border-0 small">Bottle Name</th>
+                                <th class="text-center py-2 border-0 small">Pulled</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var pulls = ParsePulls(_selectedReport.InventoryPullsJson);
+                                if (!pulls.Any())
+                                {
+                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No inventory recorded for this shift.</td></tr>
+                                }
+                                else
+                                {
+                                    foreach (var pull in pulls)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 py-2 fw-bold text-dark small">@GetItemName(pull.Key).ToUpper()</td>
+                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-bold" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@pull.Value</span></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="mt-5 pt-3 border-top text-center">
+                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold mb-3 shadow-sm" @onclick="() => _selectedReport = null">DONE</button>
+                    <p class="text-muted small fw-bold mb-0">This is a permanent system record. It cannot be modified or deleted.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PosZReportDto>? _reports;
+    private PosZReportDto? _selectedReport;
+    private Dictionary<int, string> _itemNames = new();
+    private string TerminalName = "TERMINAL 1";
+
+    private void GoBack() => Navigation.NavigateTo("/");
+
+    protected override async Task OnInitializedAsync()
+    {
+        TerminalName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "GfcPos_TerminalName") ?? "TERMINAL 1";
+        _reports = await PosService.GetZReportsAsync(TerminalName);
+        
+        // Fetch menu to get item names for pulling
+        var menu = await PosService.GetMenuAsync();
+        if (menu != null)
+        {
+            _itemNames = menu.Items.ToDictionary(x => x.Id, x => x.Name);
+        }
+    }
+
+    private Dictionary<string, int> ParseSummary(string json)
+    {
+        try { return JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private Dictionary<int, int> ParsePulls(string json)
+    {
+        try { return JsonSerializer.Deserialize<Dictionary<int, int>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private string GetItemName(int id) => _itemNames.ContainsKey(id) ? _itemNames[id] : $"Liquor ID: {id}";
+}
