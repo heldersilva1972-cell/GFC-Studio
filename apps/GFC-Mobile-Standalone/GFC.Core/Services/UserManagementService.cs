@@ -18,6 +18,8 @@ public class UserManagementService : IUserManagementService
     private readonly IBoardTermConfirmationService _boardTermConfirmationService;
     private readonly IDeviceTrustService _deviceTrustService; // [FIX] Now using Core Interface
     
+    public event Action? PermissionsUpdated;
+
     // PERFORMANCE CACHE: Persists across circuits (Static)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<GFC.Core.DTOs.MobilePermissionDto>> _userPermissionsCache = new();

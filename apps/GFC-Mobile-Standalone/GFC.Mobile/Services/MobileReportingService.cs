@@ -16,7 +16,7 @@ public class MobileReportingService : IMobileReportingService
 {
     private readonly HttpClient _http;
     private readonly IJSRuntime _js;
-    private readonly ConnectivityService _connectivity;
+    private readonly IConnectivityService _connectivity;
 
     private const string OutboxKey = "gfc_mobile_outbox";
     private const int MaxAttempts = 5;
@@ -27,39 +27,59 @@ public class MobileReportingService : IMobileReportingService
 
     public int PendingCount { get; private set; }
 
-    public MobileReportingService(HttpClient http, IJSRuntime js, ConnectivityService connectivity)
+    private readonly SemaphoreSlim _syncLock = new(1, 1);
+    private readonly Timer _syncTimer;
+
+    public MobileReportingService(HttpClient http, IJSRuntime js, IConnectivityService connectivity)
     {
         _http = http;
         _js = js;
         _connectivity = connectivity;
 
-        // Auto-flush when connectivity is restored
-        _connectivity.ConnectivityChanged += async isOnline =>
-        {
-            if (isOnline) await FlushOutboxAsync();
-        };
+        // [SYNC HEARTBEAT] Check for trapped data every 30 seconds
+        _syncTimer = new Timer(async _ => await SafeFlushAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task SafeFlushAsync()
+    {
+        if (!await _syncLock.WaitAsync(0)) return;
+        try { await FlushOutboxAsync(); }
+        finally { _syncLock.Release(); }
     }
 
     // ─── READ OPERATIONS (try server, fall back to nothing — reads don't go in outbox) ───
 
     public async Task<MobileShiftData> GetShiftReportDataAsync(DateTime date, string shiftType, bool isRental)
     {
+        // 1. Instant Local Vault Read (Offline-First)
+        var key = $"gfc_outbox_{date:yyyy-MM-dd}_{shiftType}";
+        try {
+            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", key);
+            if (!string.IsNullOrEmpty(json)) {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                return JsonSerializer.Deserialize<MobileShiftData>(json, options) ?? new();
+            }
+        } catch { }
+
+        // 2. Server Fetch (Only if online)
         try
         {
+            if (!await _connectivity.GateAsync("GetShiftReportData"))
+                return new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
+
             var url = $"/api/mobile-reporting/data?date={date:yyyy-MM-dd}&shiftType={shiftType}&isRental={isRental}";
             var data = await _http.GetFromJsonAsync<MobileShiftData>(url);
             return data ?? new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
         }
-        catch
-        {
-            return new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
-        }
+        catch { return new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental }; }
     }
 
     public async Task<decimal> GetCarryoverCashAsync(DateTime date, string shiftType)
     {
         try
         {
+            if (!await _connectivity.GateAsync("GetCarryoverCash")) return 1200;
+
             var url = $"/api/mobile-reporting/carryover?date={date:yyyy-MM-dd}&shiftType={shiftType}";
             return await _http.GetFromJsonAsync<decimal>(url);
         }
@@ -70,6 +90,7 @@ public class MobileReportingService : IMobileReportingService
     {
         try
         {
+            if (!await _connectivity.GateAsync("GetBagDebt")) return 0;
             var url = $"/api/mobile-reporting/bag-debt?date={date:yyyy-MM-dd}";
             return await _http.GetFromJsonAsync<decimal>(url);
         }
@@ -80,6 +101,7 @@ public class MobileReportingService : IMobileReportingService
     {
         try
         {
+            if (!await _connectivity.GateAsync("GetDailySummary")) return new DailyShiftSummary();
             var url = $"/api/mobile-reporting/summary?date={date:yyyy-MM-dd}";
             return await _http.GetFromJsonAsync<DailyShiftSummary>(url) ?? new DailyShiftSummary();
         }
@@ -88,8 +110,11 @@ public class MobileReportingService : IMobileReportingService
 
     public async Task<string> GetServerVersionAsync()
     {
-        try { return await _http.GetStringAsync("/api/mobile-reporting/version"); }
-        catch { return "GFC Mobile Revision 1.5.2 (Dynamic Sync)"; }
+        try { 
+            if (!await _connectivity.GateAsync("GetVersion")) return "Offline";
+            return await _http.GetStringAsync("/api/mobile-reporting/version"); 
+        }
+        catch { return "GFC Mobile Revision 2.1.32 (Hardened Sync)"; }
     }
 
     // ─── WRITE OPERATIONS (outbox-first) ─────────────────────────────────────────────────
@@ -100,8 +125,7 @@ public class MobileReportingService : IMobileReportingService
         await EnqueueAsync("SaveShiftReport", data);
 
         // Non-blocking background flush — user doesn't wait
-        if (_connectivity.IsOnline)
-            _ = FlushOutboxAsync();
+        _ = FlushOutboxAsync();
 
         return true; // Always succeeds locally
     }
@@ -149,63 +173,96 @@ public class MobileReportingService : IMobileReportingService
         all.Add(entry);
         await SaveOutboxAsync(all);
         PendingCount = all.Count;
+        // Sync Hardening Phase - Revision 2.1.32
         OutboxChanged?.Invoke();
     }
 
     public async Task FlushOutboxAsync()
     {
+        if (!_connectivity.IsOnline) return;
+
+        // 1. Process Legacy List-based Outbox (Old Delivery Method)
         var all = await LoadOutboxAsync();
-        if (!all.Any()) return;
-
-        var remaining = new List<OutboxEntry>();
-
-        foreach (var entry in all)
-        {
-            // Discard entries older than MaxRetentionDays
-            if ((DateTime.UtcNow - entry.SavedAt).TotalDays > MaxRetentionDays)
-            {
-                Console.WriteLine($"[Outbox] Discarding expired entry {entry.Id} (>{MaxRetentionDays} days old)");
-                continue;
+        if (all.Any()) {
+            var remaining = new List<OutboxEntry>();
+            foreach (var entry in all) {
+                try {
+                    var data = JsonSerializer.Deserialize<MobileShiftData>(entry.Payload);
+                    if (data == null) continue;
+                    var endpoint = entry.Type == "SubmitShiftReport" ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
+                    var resp = await _http.PostAsJsonAsync($"{endpoint}?username={data.ModifiedBy}", data);
+                    if (!resp.IsSuccessStatusCode) remaining.Add(entry);
+                } catch { remaining.Add(entry); }
             }
-
-            if (entry.Attempts >= MaxAttempts)
-            {
-                Console.WriteLine($"[Outbox] Giving up on {entry.Id} after {MaxAttempts} attempts");
-                continue;
-            }
-
-            try
-            {
-                var data = JsonSerializer.Deserialize<MobileShiftData>(entry.Payload);
-                if (data == null) continue;
-
-                var endpoint = entry.Type == "SubmitShiftReport"
-                    ? $"/api/mobile-reporting/submit?username={data.ModifiedBy}"
-                    : $"/api/mobile-reporting/save?username={data.ModifiedBy}";
-
-                var resp = await _http.PostAsJsonAsync(endpoint, data);
-
-                if (resp.IsSuccessStatusCode)
-                {
-                    Console.WriteLine($"[Outbox] ✓ Synced {entry.Type} entry {entry.Id}");
-                    entry.SyncedAt = DateTime.UtcNow;
-                    // Don't keep — it's been synced
-                }
-                else
-                {
-                    entry.Attempts++;
-                    remaining.Add(entry);
-                }
-            }
-            catch
-            {
-                entry.Attempts++;
-                remaining.Add(entry);
-            }
+            await SaveOutboxAsync(remaining);
         }
 
-        await SaveOutboxAsync(remaining);
-        PendingCount = remaining.Count;
+        // 2. [GLOBAL VAULT SWEEP] Process Individual-key Reports (Revision 2.1.30)
+        try {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            
+            if (vaultItems.ValueKind == JsonValueKind.Array) {
+                int count = vaultItems.GetArrayLength();
+                if (count > 0) Console.WriteLine($"[SYNC TRACE] Found {count} potential items in vault.");
+                
+                foreach (var item in vaultItems.EnumerateArray()) {
+                    try {
+                        var key = item.GetProperty("key").GetString();
+                        
+                        if (key != null && key.StartsWith("gfc_outbox_")) {
+                            Console.WriteLine($"[SYNC TRACE] Found pending report: {key}");
+                            var dataElement = item.GetProperty("data");
+                            
+                            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                            var data = JsonSerializer.Deserialize<MobileShiftData>(dataElement.GetRawText(), options);
+                            
+                            if (data != null) {
+                                var user = string.IsNullOrEmpty(data.ModifiedBy) ? "System.Outbox" : data.ModifiedBy;
+                                
+                                // Determine endpoint based on data status
+                                var isSubmit = string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase);
+                                var endpoint = isSubmit ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
+                                
+                                Console.WriteLine($"[SYNC TRACE] Attempting delivery for {data.Date:yyyy-MM-dd} {data.ShiftType} as {user} to {endpoint}");
+                                
+                                var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data);
+                                
+                                if (resp.IsSuccessStatusCode) {
+                                    Console.WriteLine($"[SYNC TRACE] ✓ SUCCESS: {key} delivered.");
+                                    await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                    OutboxChanged?.Invoke();
+                                } else {
+                                    Console.WriteLine($"[SYNC TRACE] ✗ FAILED: {key} (Status: {resp.StatusCode})");
+                                    if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) {
+                                        Console.WriteLine("[SYNC TRACE] !!! Unauthorized. Stopping sync loop.");
+                                        return; // Stop processing the rest of the vault if auth is dead
+                                    }
+                                }
+                            } else {
+                                Console.WriteLine($"[SYNC TRACE] ! SKIP: Could not deserialize data for {key}");
+                            }
+                        }
+                    } catch (Exception loopEx) {
+                        Console.WriteLine($"[SYNC TRACE] Error processing individual vault item: {loopEx.Message}");
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            Console.WriteLine($"[SYNC TRACE] !!! CRITICAL ERROR during vault sweep: {ex.Message}");
+        }
+
+        // 3. Update Pending Count
+        var legacyCount = (await LoadOutboxAsync()).Count;
+        var vaultItemsRaw = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+        int vaultCount = 0;
+        if (vaultItemsRaw.ValueKind == JsonValueKind.Array) {
+            foreach (var item in vaultItemsRaw.EnumerateArray()) {
+                var k = item.GetProperty("key").GetString();
+                if (k != null && k.StartsWith("gfc_outbox_")) vaultCount++;
+            }
+        }
+        
+        PendingCount = legacyCount + vaultCount;
         OutboxChanged?.Invoke();
     }
 
@@ -220,7 +277,8 @@ public class MobileReportingService : IMobileReportingService
     {
         try
         {
-            var json = await _js.InvokeAsync<string>("localStorage.getItem", OutboxKey);
+            // [VAULT FIX] Read outbox from the persistent IndexedDB vault, not localStorage
+            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", OutboxKey);
             return string.IsNullOrEmpty(json)
                 ? new List<OutboxEntry>()
                 : JsonSerializer.Deserialize<List<OutboxEntry>>(json) ?? new List<OutboxEntry>();
@@ -232,7 +290,8 @@ public class MobileReportingService : IMobileReportingService
     {
         try
         {
-            await _js.InvokeVoidAsync("localStorage.setItem", OutboxKey, JsonSerializer.Serialize(entries));
+            // [VAULT FIX] Save to IndexedDB using the flattened handshake bridge
+            await _js.InvokeVoidAsync("window.gfcSetAsync", OutboxKey, entries);
         }
         catch (Exception ex)
         {

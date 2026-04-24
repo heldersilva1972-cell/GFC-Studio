@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>GFC Mobile | GFC</title>
+    <title>GFC Mobile Hub</title>
     <base href="/" />
     
     <!-- SYSTEM FONTS AND ASSETS (NO GUESSING) -->
@@ -19,9 +19,17 @@
     <link rel="stylesheet" href="css/mobile-modern.css" />
     <link rel="stylesheet" href="css/app.css" />
     <link href="GFC.Mobile.styles.css" rel="stylesheet" />
-    <link href="/manifest.webmanifest?v=2" rel="manifest" />
+    <link rel="apple-touch-icon" sizes="512x512" href="gfc-mobile-v5-512.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="gfc-mobile-v5-192.png" />
     
-    <link rel="icon" type="image/png" href="favicon.png" />
+    <!-- BRANDING ASSETS (NO GUESSING) -->
+    <meta name="apple-mobile-web-app-title" content="GFC Mobile" />
+    <meta name="application-name" content="GFC Mobile" />
+    <meta name="msapplication-TileImage" content="gfc-mobile-v5-512.png" />
+    <meta name="msapplication-TileColor" content="#4f46e5" />
+    <link href="/manifest.webmanifest?v=10" rel="manifest" />
+    
+    <link rel="icon" type="image/png" href="gfc-favicon-v5.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#f1f5f9" />
 
@@ -42,21 +50,35 @@
         body { background-color: var(--bg-primary); margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
         .gfc-loader-container {
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            height: 100vh; background-color: #f1f5f9; color: #2563eb;
+            height: 100vh; background-color: #f1f5f9; color: #4f46e5;
+        }
+        .mobile-label {
+            position: absolute;
+            bottom: -22px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.85rem;
+            font-weight: 900;
+            color: #4f46e5;
+            text-transform: uppercase;
+            letter-spacing: 0.2rem;
+            opacity: 0.9;
         }
         .gfc-logo-pulse {
+            position: relative;
             width: 120px; height: 120px;
-            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-            border-radius: 30px; display: flex; justify-content: center; align-items: center;
-            font-size: 3rem; font-weight: 800; color: white;
-            box-shadow: 0 0 30px rgba(37, 99, 235, 0.4);
-            animation: gfc-pulse 2s infinite ease-in-out;
-            margin-bottom: 24px; font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            border-radius: 32px; display: flex; justify-content: center; align-items: center;
+            font-size: 3.2rem; font-weight: 900; color: white;
+            box-shadow: 0 10px 40px rgba(79, 70, 229, 0.4);
+            animation: gfc-pulse 2.2s infinite ease-in-out;
+            margin-bottom: 40px; font-family: 'Outfit', sans-serif;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         @keyframes gfc-pulse {
-            0% { transform: scale(1); box-shadow: 0 0 30px rgba(37, 99, 235, 0.4); }
-            50% { transform: scale(1.05); box-shadow: 0 0 50px rgba(124, 58, 237, 0.6); }
-            100% { transform: scale(1); box-shadow: 0 0 30px rgba(37, 99, 235, 0.4); }
+            0% { transform: scale(1); box-shadow: 0 10px 40px rgba(79, 70, 229, 0.4); }
+            50% { transform: scale(1.04); box-shadow: 0 15px 60px rgba(124, 58, 237, 0.6); }
+            100% { transform: scale(1); box-shadow: 0 10px 40px rgba(79, 70, 229, 0.4); }
         }
         .loading-text { letter-spacing: 0.2rem; text-transform: uppercase; font-size: 0.8rem; font-weight: 800; color: #64748b; opacity: 0.8; }
     </style>
@@ -65,8 +87,11 @@
 <body>
     <div id="app">
         <div class="gfc-loader-container">
-            <div class="gfc-logo-pulse">GFC</div>
-            <div class="loading-text">Initializing Secure Tunnel</div>
+            <div class="gfc-logo-pulse">
+                GFC
+                <span class="mobile-label">Mobile</span>
+            </div>
+            <div class="loading-text">Establishing Secure Connection</div>
         </div>
     </div>
 
@@ -102,6 +127,76 @@
             return document.cookie.split(';').some((item) => item.trim().startsWith(name + '='));
         };
         
+        window.getAllStorageKeys = function() {
+            return Object.keys(localStorage);
+        };
+
+        // [UI-THREAD OFFLOAD] Initialize Background Persistence Worker
+        const gfcWorker = new Worker('gfc-storage-worker.js');
+        const pendingRequests = new Map();
+
+        gfcWorker.onmessage = (e) => {
+            const { action, key, value } = e.data;
+            if (action === "getAll_result") {
+                const resolve = pendingRequests.get("getAll");
+                if (resolve) {
+                    pendingRequests.delete("getAll");
+                    resolve(value);
+                }
+            } else if (action === "get_result") {
+                const resolve = pendingRequests.get("get_" + key);
+                if (resolve) {
+                    pendingRequests.delete("get_" + key);
+                    resolve(typeof value === "string" ? value : JSON.stringify(value));
+                }
+            } else if (action === "set_result") {
+                const resolve = pendingRequests.get("set_" + key);
+                if (resolve) {
+                    pendingRequests.delete("set_" + key);
+                    resolve(true);
+                }
+            }
+        };
+
+        window.gfcSetAsync = (key, value) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("set_" + key);
+                reject("gfcSetAsync Timeout");
+            }, 5000);
+            pendingRequests.set("set_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'set', key, value });
+        });
+        
+        window.gfcGetAsync = (key) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("get_" + key);
+                resolve(null); // Resolve with null on timeout to allow app to continue
+            }, 5000);
+            pendingRequests.set("get_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'get', key });
+        });
+        
+        window.gfcGetAllAsync = () => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("getAll");
+                resolve("[]");
+            }, 10000);
+            pendingRequests.set("getAll", (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'getAll' });
+        });
+
+        window.gfcRemoveAsync = (key) => {
+            gfcWorker.postMessage({ action: 'remove', key });
+        };
+
+        window.getGfcOutboxItems = async function() {
+            return await window.gfcGetAllAsync();
+        };
+
+        window.getGfcItemAsync = async function(key) {
+            return await window.gfcGetAsync(key);
+        };
+
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/service-worker.js');
         }

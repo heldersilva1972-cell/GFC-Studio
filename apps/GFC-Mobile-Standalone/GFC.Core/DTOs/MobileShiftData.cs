@@ -20,10 +20,22 @@ public class MobileShiftData
     public decimal? LottoBackupBag { get; set; }
     public decimal? LottoCashCounted { get; set; }
     
+    // Previous Shift Data (for Night shift delta calculation)
+    public decimal? PrevDaySales { get; set; }
+    public decimal? PrevDayCashes { get; set; }
+    public decimal? PrevDayTickets { get; set; }
+    
+    // Calculated Totals for Audit
+
+    public decimal? EnvelopeAmount { get; set; }
+    public decimal? BagRefillAmount { get; set; }
+
+    
     // Metadata/Status
     public string Status { get; set; } = "Draft";
     public string? ModifiedBy { get; set; }
     public bool IsLocked { get; set; }
     public string? LockOwner { get; set; }
     public bool ExistingEntryFound { get; set; }
+    public DateTime? Timestamp { get; set; }
 }

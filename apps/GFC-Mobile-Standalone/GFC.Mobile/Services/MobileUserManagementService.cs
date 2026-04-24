@@ -17,6 +17,9 @@ public class MobileUserManagementService : IUserManagementService
     private bool _isRevalidating = false;
 
     public event Action? OnUsersUpdated;
+    public event Action? PermissionsUpdated;
+
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public MobileUserManagementService(HttpClient http, Microsoft.JSInterop.IJSRuntime jsRuntime)
     {
@@ -47,17 +50,29 @@ public class MobileUserManagementService : IUserManagementService
     {
         try
         {
-            var json = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", new object[] { "gfc_auth_state" });
+            var json = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
             if (!string.IsNullOrEmpty(json))
             {
-                using var doc = System.Text.Json.JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("Permissions", out var permsElement))
+                try 
                 {
-                    var perms = System.Text.Json.JsonSerializer.Deserialize<List<GFC.Core.DTOs.MobilePermissionDto>>(permsElement.GetRawText());
-                    if (perms != null)
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    JsonElement permsElement;
+                    bool hasPerms = doc.RootElement.TryGetProperty("Permissions", out permsElement) || 
+                                   doc.RootElement.TryGetProperty("permissions", out permsElement);
+
+                    if (hasPerms)
                     {
-                        _cachedPermissions = perms;
+                        var perms = System.Text.Json.JsonSerializer.Deserialize<List<GFC.Core.DTOs.MobilePermissionDto>>(permsElement.GetRawText(), JsonOptions);
+                        if (perms != null)
+                        {
+                            UpdateCachedPermissions(perms);
+                            return;
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Service] Local permission load failed: {ex.Message}");
                 }
             }
         }
@@ -67,14 +82,42 @@ public class MobileUserManagementService : IUserManagementService
         }
     }
 
+    public async Task<List<GFC.Core.DTOs.MobilePermissionDto>> GetCachedPermissionsForUserAsync(int userId)
+    {
+        try
+        {
+            var key = $"gfc_perms_{userId}";
+            var json = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", key);
+            if (!string.IsNullOrEmpty(json))
+            {
+                return JsonSerializer.Deserialize<List<GFC.Core.DTOs.MobilePermissionDto>>(json, JsonOptions) ?? new();
+            }
+        }
+        catch { }
+        return new();
+    }
+
+    public async Task SavePermissionsToCacheAsync(int userId, List<GFC.Core.DTOs.MobilePermissionDto> perms)
+    {
+        try
+        {
+            var key = $"gfc_perms_{userId}";
+            var json = JsonSerializer.Serialize(perms);
+            await _jsRuntime.InvokeVoidAsync("localStorage.setItem", key, json);
+        }
+        catch { }
+    }
+
     public void UpdateCachedPermissions(List<GFC.Core.DTOs.MobilePermissionDto> permissions)
     {
         _cachedPermissions = permissions ?? new List<GFC.Core.DTOs.MobilePermissionDto>();
+        PermissionsUpdated?.Invoke();
     }
 
     public void ClearPermissionCache()
     {
         _cachedPermissions = new List<GFC.Core.DTOs.MobilePermissionDto>();
+        PermissionsUpdated?.Invoke();
     }
 
     public GFC.Core.DTOs.MobilePermissionDto? GetUserPagePermission(int userId, string pageRoute)
@@ -116,7 +159,7 @@ public class MobileUserManagementService : IUserManagementService
             var cachedJson = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", UserCacheKey);
             if (!string.IsNullOrEmpty(cachedJson))
             {
-                localUsers = JsonSerializer.Deserialize<List<UserListItemDto>>(cachedJson) ?? new List<UserListItemDto>();
+                localUsers = JsonSerializer.Deserialize<List<UserListItemDto>>(cachedJson, JsonOptions) ?? new List<UserListItemDto>();
             }
         } catch { }
 

@@ -70,7 +70,9 @@ public class MobileReportingController : ControllerBase
     [HttpPost("submit")]
     public async Task<IActionResult> Submit([FromQuery] string username, [FromBody] MobileShiftData data)
     {
+        Console.WriteLine($"[API] Mobile Submit request received for {data.Date:yyyy-MM-dd} {data.ShiftType} from {username}");
         var result = await _reportingService.SubmitFinalReportAsync(data, username);
+        Console.WriteLine($"[API] Mobile Submit result: {result}");
         return result ? Ok() : BadRequest();
     }
 

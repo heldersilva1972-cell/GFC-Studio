@@ -2,55 +2,91 @@ using Microsoft.JSInterop;
 
 namespace GFC.Mobile.Services;
 
-/// <summary>
-/// Detects real-time online/offline state via browser events.
-/// Register as Singleton so all components share one instance.
-/// </summary>
-public class ConnectivityService : IAsyncDisposable
+public interface IConnectivityService
+{
+    bool IsOnline { get; }
+    bool IsHardwareOnline { get; }
+    bool IsServerReachable { get; }
+    event Action<bool>? ConnectivityChanged;
+    Task InitializeAsync();
+    Task DisposeAsync();
+    Task<bool> CanReachableServerAsync();
+    Task<bool> GateAsync(string actionName);
+}
+
+public class MobileConnectivityService : IConnectivityService
 {
     private readonly IJSRuntime _js;
-    private DotNetObjectReference<ConnectivityService>? _selfRef;
+    private readonly HttpClient _http;
+    private bool _isOnline = true;
+    private bool _isHardwareOnline = true;
+    private bool _isServerReachable = true;
 
-    public bool IsOnline { get; private set; } = true;
-
-    /// <summary>Fires whenever connectivity changes. Parameter is the new IsOnline value.</summary>
-    public event Action<bool>? ConnectivityChanged;
-
-    public ConnectivityService(IJSRuntime js)
+    public MobileConnectivityService(IJSRuntime js, HttpClient http)
     {
         _js = js;
+        _http = http;
     }
 
-    /// <summary>
-    /// Must be called once (e.g. from App.razor or MainLayout OnAfterRenderAsync)
-    /// to register the browser online/offline event listeners.
-    /// </summary>
-    public async Task InitializeAsync()
+    public bool IsOnline => _isOnline;
+    public bool IsHardwareOnline => _isHardwareOnline;
+    public bool IsServerReachable => _isServerReachable;
+
+    public async Task<bool> CanReachableServerAsync()
     {
         try
         {
-            _selfRef = DotNetObjectReference.Create(this);
-            IsOnline = await _js.InvokeAsync<bool>("GfcConnectivity.isOnline");
-            await _js.InvokeVoidAsync("GfcConnectivity.initialize", _selfRef);
+            // 1. Instant Hardware Check
+            _isHardwareOnline = await _js.InvokeAsync<bool>("eval", "navigator.onLine");
+            if (!_isHardwareOnline) 
+            {
+                _isServerReachable = false;
+                _isOnline = false;
+                return false;
+            }
+
+            // 2. Real API Heartbeat (with Cache Buster)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var timestamp = DateTime.Now.Ticks;
+            var response = await _http.GetAsync($"api/health?t={timestamp}", cts.Token);
+            
+            _isServerReachable = response.IsSuccessStatusCode;
+            _isOnline = _isServerReachable;
+            return _isOnline;
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"[Connectivity] Init failed: {ex.Message}");
+            _isServerReachable = false;
+            _isOnline = false;
+            return false;
         }
     }
 
-    [JSInvokable]
-    public void OnConnectivityChanged(bool isOnline)
+    public event Action<bool>? ConnectivityChanged;
+
+    public async Task InitializeAsync()
     {
-        if (IsOnline == isOnline) return;
-        IsOnline = isOnline;
-        Console.WriteLine($"[Connectivity] Status changed → {(isOnline ? "ONLINE" : "OFFLINE")}");
-        ConnectivityChanged?.Invoke(isOnline);
+        _ = Task.Run(async () => {
+            while (true) {
+                var prev = _isOnline;
+                await CanReachableServerAsync();
+                if (prev != _isOnline) ConnectivityChanged?.Invoke(_isOnline);
+                await Task.Delay(5000); // Faster updates for the new dual UI
+            }
+        });
     }
 
-    public async ValueTask DisposeAsync()
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    public async Task<bool> GateAsync(string actionName)
     {
-        try { await _js.InvokeVoidAsync("GfcConnectivity.dispose"); } catch { }
-        _selfRef?.Dispose();
+        // Zero 'Failed to fetch' strategy: Never even start the request if offline
+        var reachable = await CanReachableServerAsync();
+        if (!reachable)
+        {
+            Console.WriteLine($"[CONNECTIVITY GUARD] Blocking '{actionName}' - Offline state detected.");
+            return false;
+        }
+        return true;
     }
 }

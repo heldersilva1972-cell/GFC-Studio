@@ -8,6 +8,7 @@ public interface IUserManagementService
 {
     List<UserListItemDto> GetAllUsers();
     Task<List<UserListItemDto>> GetUsersAsync();
+    event Action? PermissionsUpdated;
     List<ActiveMemberDto> GetEligibleDirectorsForUserCreation();
     List<ActiveMemberDto> GetEligibleMembersForUserCreation(); // Returns active members not in directors list
     AppUser? GetUser(int userId);

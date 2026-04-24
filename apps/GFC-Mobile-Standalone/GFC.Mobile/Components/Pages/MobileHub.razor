@@ -6,15 +6,18 @@
 @inject NavigationManager Navigation
 @inject ICustomAuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
+@implements IDisposable
 @inject IShiftComplianceService ShiftComplianceService
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
 @using GFC.Mobile.Components.Shared
+@using System.Text.Json
 @attribute [Authorize]
 
 <PageTitle>GFC Portal | GFC</PageTitle>
 
-<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" />
+<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" Username="@Username" />
+
 
 <div class="mobile-hub-container">
     <!-- SCROLLABLE CONTENT -->
@@ -402,39 +405,42 @@
             
             if (currentAppUser != null) 
             {
-                // Step 1: Read permissions from localStorage IMMEDIATELY (no network, no re-render triggers).
-                // This gets the hub visible and usable right away.
+                // [NEW] Subscribe to updates so if background load finishes, we re-render
+                UserService.PermissionsUpdated += OnPermissionsUpdated;
+
+                // Step 1: Read permissions from localStorage IMMEDIATELY
                 var localAuth = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
 
-                if (string.IsNullOrEmpty(localAuth)) 
-                    _debugInfo = "EMPTY";
-                else if (!localAuth.Contains("Permissions"))
-                    _debugInfo = "NO_PERMS_KEY";
-                else if (localAuth.Length < 100)
-                    _debugInfo = "SHORT_" + localAuth.Length;
-                else
-                    _debugInfo = "OK_" + localAuth.Length;
-
-                if (!string.IsNullOrEmpty(localAuth) && localAuth.Contains("Permissions"))
+                if (!string.IsNullOrEmpty(localAuth))
                 {
                     try
                     {
                         using var doc = System.Text.Json.JsonDocument.Parse(localAuth);
-                        if (doc.RootElement.TryGetProperty("Permissions", out var permsEl))
+                        // Check for both PascalCase and camelCase
+                        JsonElement permsEl;
+                        bool hasPerms = doc.RootElement.TryGetProperty("Permissions", out permsEl) || 
+                                       doc.RootElement.TryGetProperty("permissions", out permsEl);
+
+                        if (hasPerms)
                         {
-                            var perms = System.Text.Json.JsonSerializer.Deserialize<List<GFC.Core.DTOs.MobilePermissionDto>>(permsEl.GetRawText());
+                            var perms = System.Text.Json.JsonSerializer.Deserialize<List<GFC.Core.DTOs.MobilePermissionDto>>(permsEl.GetRawText(), 
+                                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            
                             if (perms != null && perms.Count > 0)
                             {
                                 (UserService as GFC.Mobile.Services.MobileUserManagementService)?.UpdateCachedPermissions(perms);
-                                Console.WriteLine($"[HUB] Loaded {perms.Count} permissions from localStorage.");
+                                _debugInfo = "OK_" + perms.Count;
                             }
+                            else _debugInfo = "EMPTY_PERMS";
                         }
+                        else _debugInfo = "NO_PERMS_KEY";
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[HUB] Permission pre-warm failed: {ex.Message}");
+                        _debugInfo = "PARSE_FAIL: " + ex.Message;
                     }
                 }
+                else _debugInfo = "NO_AUTH_DATA";
 
                 _userPermissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
                 UserRoutes = _userPermissions.Where(p => p.CanAccess).Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant()).ToHashSet();
@@ -446,16 +452,21 @@
             }
             
             
-            if (HasAccessTo("Shift Sales Alert"))
-            {
-                await LoadDismissedShifts();
-                _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
-                _lastSyncedAt = DateTime.Now;
-                _syncStatus = "Synced";
-            }
-            
             _isCircutAlive = true;
             IsLoading = false; 
+
+            // [PROGRESSIVE LOAD] Load alerts in the background so the Portal icons show up instantly
+            if (HasAccessTo("Shift Sales Alert"))
+            {
+                _syncStatus = "Checking Server...";
+                _ = Task.Run(async () => {
+                    await LoadDismissedShifts();
+                    _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
+                    _lastSyncedAt = DateTime.Now;
+                    _syncStatus = "Synced";
+                    await InvokeAsync(StateHasChanged);
+                });
+            }
         }
 
         // 2. Background refresh disabled to prevent reload loop
@@ -533,8 +544,11 @@
             if (result?.Permissions == null) return;
 
             // Update the service cache directly — no auth state notification
-            (UserService as GFC.Mobile.Services.MobileUserManagementService)
-                ?.UpdateCachedPermissions(result.Permissions);
+            var mobileService = UserService as GFC.Mobile.Services.MobileUserManagementService;
+            mobileService?.UpdateCachedPermissions(result.Permissions);
+
+            // [NEW] Also update the per-user VAULT so offline login gets these too
+            _ = mobileService?.SavePermissionsToCacheAsync(userId, result.Permissions);
 
             // Write back to localStorage for next load
             var newAuthData = new
@@ -566,6 +580,22 @@
         {
             Console.WriteLine($"[HUB] Background permission refresh failed: {ex.Message}");
         }
+    }
+
+    private void OnPermissionsUpdated()
+    {
+        var currentAppUser = (AuthStateProvider as GFC.Mobile.Auth.CustomAuthenticationStateProvider)?.GetCurrentUser();
+        if (currentAppUser != null)
+        {
+            _userPermissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
+            UserRoutes = _userPermissions.Where(p => p.CanAccess).Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant()).ToHashSet();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        UserService.PermissionsUpdated -= OnPermissionsUpdated;
     }
 
     private async Task ReloadSessionAsync()
@@ -682,11 +712,11 @@
             await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
             await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
             await Task.Delay(100);
-            Navigation.NavigateTo("/login", forceLoad: true);
+            Navigation.NavigateTo("/login");
         }
         catch
         {
-            Navigation.NavigateTo("/login", forceLoad: true);
+            Navigation.NavigateTo("/login");
         }
     }
 }

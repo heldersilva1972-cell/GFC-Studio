@@ -10,21 +10,40 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Read API URL from appsettings.json or fallback to the main GFC server port
-var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://localhost:7073/"; 
-if (builder.HostEnvironment.IsDevelopment() && string.IsNullOrEmpty(builder.Configuration["ApiBaseUrl"]))
+// Smart API Resolver: Prioritize config, then auto-detect if on a remote server, then fallback to localhost dev port
+var apiBaseUrl = builder.Configuration["ApiBaseUrl"];
+if (string.IsNullOrEmpty(apiBaseUrl))
 {
-    // Ensure we hit the BlazorServer API, not the WASM host
-    apiBaseUrl = "https://localhost:7073/"; 
+    var currentUri = new Uri(builder.HostEnvironment.BaseAddress);
+    if (!currentUri.Host.Contains("localhost") && !currentUri.Host.Contains("127.0.0.1"))
+    {
+        // We are on a remote server (e.g. your-gfc-site.com). 
+        // Point the API to the root of the current host.
+        apiBaseUrl = $"{currentUri.Scheme}://{currentUri.Host}";
+        if (!currentUri.IsDefaultPort) apiBaseUrl += $":{currentUri.Port}";
+        apiBaseUrl += "/";
+    }
+    else
+    {
+        // We are developing locally.
+        apiBaseUrl = "https://localhost:7073/"; 
+    }
 }
+Console.WriteLine($"[GFC BOOT] API Target: {apiBaseUrl}");
 
-builder.Services.AddScoped(sp => new HttpClient { 
-    BaseAddress = new Uri(apiBaseUrl),
-    Timeout = TimeSpan.FromSeconds(2) // Prevent hanging if server is down
-});
+// --- HTTP INTERCEPTORS ---
+builder.Services.AddTransient<MobileAuthenticationHandler>();
+
+builder.Services.AddHttpClient("GFC_API", (sp, client) => {
+    client.BaseAddress = new Uri(apiBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(15);
+}).AddHttpMessageHandler<MobileAuthenticationHandler>();
+
+// Provide the default HttpClient from the factory
+builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("GFC_API"));
 
 // --- GFC Mobile Bridge Services ---
-builder.Services.AddSingleton<ConnectivityService>();          // Singleton: shared online/offline state
+builder.Services.AddScoped<IConnectivityService, MobileConnectivityService>();
 builder.Services.AddScoped<MobileReportingService>();          // Scoped (= singleton in WASM): shared outbox + sync events
 builder.Services.AddScoped<IMobileReportingService>(sp => sp.GetRequiredService<MobileReportingService>());
 builder.Services.AddScoped<IVersionService, VersionService>();

@@ -16,11 +16,10 @@ public class MobileShiftComplianceService : IShiftComplianceService
     {
         try
         {
-            return await _http.GetFromJsonAsync<List<MissingShiftAlert>>($"/api/sync/compliance/missing?lookbackDays={lookbackDays}") ?? new();
+            // [HARDENING] Check connectivity first to prevent hanging the Portal UI
+            using var cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<List<MissingShiftAlert>>($"/api/sync/compliance/missing?lookbackDays={lookbackDays}", cts.Token) ?? new();
         }
-        catch
-        {
-            return new List<MissingShiftAlert>();
-        }
+        catch { return new List<MissingShiftAlert>(); }
     }
 }

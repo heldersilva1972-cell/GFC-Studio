@@ -70,8 +70,15 @@
                     {
                         @foreach (var user in _fastLoginUsers)
                         {
-                            <button class="user-btn" @onclick="() => ConfirmUser(user)">
-                                <div class="user-name">@user.Username</div>
+                            <button class="user-btn" @onclick="() => ProceedToLogin(user)" disabled="@_isSubmitting">
+                                @if (_isSubmitting && _confirmingUser?.UserId == user.UserId)
+                                {
+                                    <div class="spinner-border spinner-border-sm"></div>
+                                }
+                                else
+                                {
+                                    <div class="user-name">@user.Username</div>
+                                }
                             </button>
                         }
                     }
@@ -80,26 +87,6 @@
                     <button class="btn btn-link btn-sm text-white-50 text-decoration-none" @onclick='() => SetMode(LoginMode.PassCode)'>
                         <i class="bi bi-keyboard me-1"></i> Manual Login
                     </button>
-                </div>
-            </div>
-        }
-        else if (_showConfirmation && _confirmingUser != null)
-        {
-             <div class="text-center p-3 text-white">
-                <h4 class="mb-4">Logging in as <strong>@_confirmingUser.Username</strong>?</h4>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-primary py-3" @onclick="ProceedToLogin" disabled="@_isSubmitting">
-                        @if (_isSubmitting)
-                        {
-                            <span class="spinner-border spinner-border-sm me-2"></span>
-                            <span>Authenticating...</span>
-                        }
-                        else
-                        {
-                            <span>Yes, Continue</span>
-                        }
-                    </button>
-                    <button class="btn btn-outline-light" @onclick="CancelConfirmation" disabled="@_isSubmitting">Cancel</button>
                 </div>
             </div>
         }
@@ -313,10 +300,16 @@
     private async void HandleUsersUpdated()
     {
         try {
-            // Get the fresh list from the service (re-fetch from updated cache)
             var allUsers = await UserManagementService.GetUsersAsync();
-            _fastLoginUsers = allUsers.Where(u => u.IsActive).ToList();
-            await InvokeAsync(StateHasChanged);
+            var activeUsers = allUsers.Where(u => u.IsActive).ToList();
+            
+            // [UX FIX] Only re-render if the user list has actually changed.
+            // This prevents "flickering" that steals clicks during background sync.
+            if (_fastLoginUsers.Count != activeUsers.Count || !_fastLoginUsers.All(u => activeUsers.Any(a => a.UserId == u.UserId)))
+            {
+                _fastLoginUsers = activeUsers;
+                await InvokeAsync(StateHasChanged);
+            }
         } catch { }
     }
 
@@ -374,27 +367,17 @@
         }
     }
 
-    private void ConfirmUser(UserListItemDto user)
+    private async Task ProceedToLogin(UserListItemDto user)
     {
-        _confirmingUser = user;
-        _showConfirmation = true;
-    }
-
-    private void CancelConfirmation()
-    {
-        _showConfirmation = false;
-        _confirmingUser = null;
-    }
-
-    private async Task ProceedToLogin()
-    {
-        if (_confirmingUser == null) return;
+        if (_isSubmitting || user == null) return;
         
+        _confirmingUser = user;
         _isSubmitting = true;
         _error = null;
+        StateHasChanged();
         
         try {
-            var result = await AuthStateProvider.LoginWithUserAsync(_confirmingUser.UserId);
+            var result = await AuthStateProvider.LoginWithUserAsync(user.UserId);
             if (result.Success)
             {
                 Navigation.NavigateTo("/");
@@ -403,14 +386,13 @@
             {
                 _error = "Login failed. Please try manual login.";
                 _loginMode = LoginMode.PassCode;
-                _model.Username = _confirmingUser.Username;
-                _showConfirmation = false;
+                _model.Username = user.Username;
             }
         } catch (Exception ex) {
             _error = $"Login error: {ex.Message}";
-            _showConfirmation = false;
         } finally {
             _isSubmitting = false;
+            StateHasChanged();
         }
     }
 

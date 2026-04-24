@@ -16,7 +16,8 @@
 
 <PageTitle>End of Shift | GFC Mobile</PageTitle>
 
-<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" />
+<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" Username="@_currentUsername" />
+
 
 <div class="tablet-body p-0 m-0">
 <div class="glass-page-container mobile-version">
@@ -50,22 +51,7 @@
         }
     </style>
     
-    @if (Submitted && !IsSubmitting)
-    {
-        <div class="glass-modal-overlay success-overlay">
-            <div class="glass-modal-card animate-zoom-in">
-                <div class="glass-modal-header-icon success">
-                    <i class="bi bi-check-circle-fill"></i>
-                </div>
-                <h3 class="fw-black text-dark mb-2">REPORT SECURED</h3>
-                <p class="text-muted mb-1 px-3">Saved successfully to this device.</p>
-                <p class="text-muted small mb-4 px-3 opacity-75">Syncing to server in background...</p>
-                <div class="d-flex justify-content-center">
-                    <div class="spinner-border text-success spinner-border-sm" role="status"></div>
-                </div>
-            </div>
-        </div>
-    }
+
 
     @if (_showZeroConfirmation)
     {
@@ -124,43 +110,70 @@
         </div>
     }
 
-    @if (_showUnsavedModal)
+    @if (Submitted && _showSuccessSplash)
     {
-        <div class="glass-modal-overlay">
-            <div class="glass-modal-card animate-zoom-in">
-                <div class="glass-modal-header-icon warning">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
+        <div class="glass-modal-overlay" style="z-index: 9999;">
+            <div class="glass-modal-card animate-zoom-in text-center p-5" style="max-width: 500px; background: white; border-radius: 32px;">
+                <div class="success-icon mb-4 animate-bounce-in">
+                    <i class="bi bi-check-circle-fill" style="font-size: 5rem; color: #10b981;"></i>
                 </div>
-                <h3 class="fw-black text-dark mb-2 text-uppercase">@_modalTitle</h3>
-                <p class="text-muted mb-4 px-3">@_modalMessage</p>
-                <div class="glass-modal-actions">
-                    <button type="button" class="btn-modal btn-modal-stay" @onclick="() => _showUnsavedModal = false">
-                        STAY HERE
-                    </button>
-                    <button type="button" class="btn-modal btn-modal-leave" @onclick="ProceedWithAction">
-                        DISCARD & CONTINUE
-                    </button>
+                <h2 class="fw-black text-dark mb-2">Report Submitted Successfully</h2>
+                <p class="text-muted mb-4">The shift sales data for <strong>@ReportDate.ToShortDateString() (@ShiftType)</strong> has been recorded and synced.</p>
+                
+                <div class="row g-3 mb-5">
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded-3">
+                            <div class="text-muted extra-small fw-black text-uppercase mb-1">Bar Sales</div>
+                            <div class="fw-black text-dark">@BarSales?.ToString("C2")</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded-3">
+                            <div class="text-muted extra-small fw-black text-uppercase mb-1">Hours</div>
+                            <div class="fw-black text-dark">@TotalHours</div>
+                        </div>
+                    </div>
+                    @if (!IsRentalHall)
+                    {
+                        <div class="col-6">
+                            <div class="p-3 bg-light rounded-3">
+                                <div class="text-muted extra-small fw-black text-uppercase mb-1">Lotto Sales</div>
+                                <div class="fw-black text-dark">@LottoSales?.ToString("C2")</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-3 bg-light rounded-3">
+                                <div class="text-muted extra-small fw-black text-uppercase mb-1">Variance</div>
+                                <div class="fw-black @(LottoDiscrepancy < 0 ? "text-danger" : "text-success")">@LottoDiscrepancy.ToString("C2")</div>
+                            </div>
+                        </div>
+                    }
                 </div>
+
+                <button class="btn btn-primary btn-lg rounded-pill px-5 fw-black shadow" @onclick='() => Navigation.NavigateTo("/mobile/hub")'>RETURN TO HUB</button>
             </div>
         </div>
     }
 
-    @if (_showRecoveryModal)
+
+    @if (_showHoursConfirmation)
     {
         <div class="glass-modal-overlay">
-            <div class="glass-modal-card animate-zoom-in">
-                <div class="glass-modal-header-icon primary">
-                    <i class="bi bi-cloud-download-fill"></i>
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px;">
+                <div class="glass-modal-header-icon warning mb-3 animate-bounce-in" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.2);">
+                    <i class="bi bi-clock-history"></i>
                 </div>
-                <h2 class="fw-black text-dark mb-1 text-uppercase">RESTORE DRAFT?</h2>
-                <p class="text-muted small mb-4 px-3">We found a newer unsaved draft on this phone. Would you like to restore your progress?</p>
-                <div class="d-flex flex-column gap-2 px-3">
-                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="RestoreFromLocal">
-                        <i class="bi bi-check2-circle me-2"></i> RESTORE MY WORK
+                <h3 class="fw-black text-dark mb-1 text-uppercase">High Hours Warning</h3>
+                <p class="text-muted small mb-4 px-3">You have entered <strong>@TotalHours</strong> hours worked. This is unusually high for a single shift. Is this correct?</p>
+                
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm text-white" @onclick="ConfirmHours">
+                        YES, HOURS ARE CORRECT
                     </button>
-                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border-0" @onclick="DiscardLocalDraft">
-                        DISCARD & START FRESH
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border" @onclick='() => { _showHoursConfirmation = false; _hoursConfirmed = false; ActivateField("Hours"); }'>
+                        GO BACK & EDIT
                     </button>
+
                 </div>
             </div>
         </div>
@@ -277,7 +290,7 @@
                         </button>
                     </div>
                     <div class="col-8">
-                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm d-flex align-items-center justify-content-center gap-2" @onclick="NextField">
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm d-flex align-items-center justify-content-center gap-2" @onclick="HandleNext">
                             NEXT ENTRY <i class="bi bi-arrow-right-circle-fill fs-5"></i>
                         </button>
                     </div>
@@ -297,7 +310,7 @@
                 <h2 class="fw-black mb-2">Report Secured!</h2>
                 <p class="text-muted mb-5">Your end-of-shift data has been successfully recorded in the audit logs.</p>
                 <div class="d-grid gap-3">
-                    <button class="btn btn-primary rounded-pill py-3 fw-bold shadow" @onclick="HandleCancel">
+                    <button type="button" class="btn btn-primary rounded-pill py-3 fw-black w-100" @onclick="HandleCancel">
                         <i class="bi bi-speedometer2 me-2"></i> Dashboard
                     </button>
                     <button class="btn btn-link text-muted text-decoration-none small" @onclick="() => Submitted = false">
@@ -670,7 +683,7 @@
                     <div class="tablet-col-right">
                         @if (!IsRentalHall)
                         {
-                            <div class="sim-res-card-unified shadow-lg mb-1 @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")" style="min-height: auto;">
+                            <div class="sim-res-card-unified shadow-lg mb-2 @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")">
                                 <div class="summary-header" style="font-size: 0.65rem; white-space: nowrap; padding: 2px;">
                                     <i class="bi bi-calculator-fill me-2 opacity-50"></i> LOTTERY SUMMARY
                                 </div>
@@ -712,9 +725,9 @@
                                          <span class="small fw-bold fs-6">@((LottoCashCounted ?? 0).ToString("C2"))</span>
                                      </div>
                                  </div>
-                                 <div class="variance-footer-banner py-2 shadow-sm @(LottoDiscrepancy == 0 ? "bg-success" : "bg-danger")" style="display: block !important; border-bottom-left-radius: 22px; border-bottom-right-radius: 22px;">
-                                     <div class="v-label fw-black mb-0" style="font-size: 0.65rem;">LOTTERY VARIANCE</div>
-                                     <div class="v-value fs-2 fw-black text-white">@((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + Math.Abs(LottoDiscrepancy).ToString("C2")))</div>
+                                 <div class="variance-footer-banner py-2 shadow-sm @(LottoDiscrepancy == 0 ? "bg-success" : "bg-danger")">
+                                     <div class="v-label fw-black text-uppercase mb-0" style="font-size: 0.6rem; opacity: 0.9;">@(LottoDiscrepancy == 0 ? "LOTTERY BALANCED" : (LottoDiscrepancy > 0 ? "LOTTERY OVER" : "LOTTERY SHORT"))</div>
+                                     <div class="v-value fs-3 fw-black text-white" style="line-height: 1;">@((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + Math.Abs(LottoDiscrepancy).ToString("C2")))</div>
                                  </div>
                             </div>
 
@@ -745,11 +758,11 @@
 
                         <MobileKeypad OnKeyPressed="KeyPressed" 
                                       OnBackspacePressed="BackspaceCurrentField" 
-                                      OnNextPressed="NextField" 
+                                      OnNextPressed="HandleNext" 
                                       OnSubmitPressed="HandleFinalConfirm"
-                                      Disabled="@ShouldShowSignConfirmation"
-                                      SubmitDisabled="@(IsSubmitting || IsLocked)"
-                                      PulseSubmit="@(IsReadyToSubmit && !Submitted && !IsLocked)" />
+                                      Disabled="false"
+                                      SubmitDisabled="@(IsSubmitting || IsLocked || ShouldShowSignConfirmation)"
+                                      PulseSubmit="@(IsReadyToSubmit && !Submitted && !IsLocked && _lottoSignConfirmed)" />
 
                         @* 1-hour window message removed at user request *@
 
@@ -928,6 +941,7 @@
         border-radius: 24px;
         display: flex;
         flex-direction: column;
+        overflow: hidden; /* Added to clip the footer banner corners */
         transition: all 0.3s ease;
     }
     .summary-header { background: rgba(0,0,0,0.03); padding: 8px; font-weight: 900; font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; border-bottom: 1px solid var(--glass-border); }
@@ -1733,6 +1747,14 @@
     @@keyframes ripple-out {
         0% { transform: scale(1); opacity: 0.5; }
         100% { transform: scale(1.8); opacity: 0; }
+    button, .btn, .key-btn, .user-btn, .nav-btn, .field-card {
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent;
+        transform: translateZ(0); /* Force GPU acceleration */
+    button, .btn, .key-btn, .user-btn, .nav-btn, .field-card {
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent;
+        transform: translateZ(0); /* Force GPU acceleration */
     }
 </style>
 
@@ -1778,7 +1800,6 @@
     private string? _validationError { get; set; }
     private string? _lockErrorMessage { get; set; }
     private bool _showValidation = false;
-    private bool _showUnsavedModal = false;
     private bool _showHudMath = false;
     private bool _showSubmitConfirm = false;
     private bool _showZeroConfirmation = false;
@@ -1792,8 +1813,6 @@
     private Action? _onModalConfirm;
 
     private string? _pendingNavigationUrl;
-    private string _modalTitle = "Unsaved Changes";
-    private string _modalMessage = "You have entered data. Leaving now will lose your progress.";
 
     private string? _activeField = null; // No default focus until user picks a field
     private string _currentBuffer = "";
@@ -1809,6 +1828,11 @@
     private decimal _totalBagDebt = 0; // Cumulative debt to bag from previous shifts + current day shift
     private bool _rescueMode = false; // True if Night is missing Day's starting data
     private List<(DateTime Date, string Shift, decimal Amount)> _debtBreakdown = new(); // Breakdown of unpaid bag debt
+    private bool dayPending, nightPending, hallPending;
+    private bool _showHoursConfirmation = false;
+    private bool _showSuccessSplash = false;
+    private bool _hoursConfirmed = false;
+
     private string? _selectedWorker;
     private string? _lockOwner;
     private GFC.Core.Models.AppUser? CurrentUser { get; set; }
@@ -1858,10 +1882,22 @@
 
     private void ActivateField(string field) {
         if (IsLocked) return;
-        
+
+        // [UX FIX] If we are leaving the Hours field for another field, validate the threshold
+        if (_activeField == "Hours" && field != "Hours" && TotalHours > 10 && !_hoursConfirmed) {
+            _pendingFieldActivation = field;
+            _showHoursConfirmation = true;
+            return;
+        }
+
         // Only block jumping to other fields if the sign confirmation prompt is actually active and blocking the screen
         if (ShouldShowSignConfirmation) {
             return; 
+        }
+
+        // [EXTREME PERFORMANCE] Sync to local storage only when LEAVING a field.
+        if (!string.IsNullOrEmpty(_activeField) && _activeField != field) {
+             _ = MirrorToLocalStorage(); 
         }
 
         _activeField = field;
@@ -1904,11 +1940,14 @@
         
         if (decimal.TryParse(_currentBuffer, out decimal val)) {
             if (_activeField == "LottoNetDue") {
-                // Neutral zero doesn't need a sign confirmation
-                _lottoSignConfirmed = (val == 0); 
+                // Neutral zero doesn't need a sign confirmation, but any non-zero value RESETs confirmation
+                // to force an explicit choice from the user.
+                if (val != 0) _lottoSignConfirmed = false;
+                else _lottoSignConfirmed = true; 
             }
             UpdateFieldValue(_activeField, val);
-            _ = DebouncedAutoSave();
+            StateHasChanged(); 
+            _ = DebouncedMirrorToLocalStorage(1000);
         }
     }
 
@@ -1977,10 +2016,30 @@
     private void ClearCurrentField() {
         _currentBuffer = "";
         UpdateFieldValue(_activeField, null);
-        _ = DebouncedAutoSave();
+        _ = DebouncedMirrorToLocalStorage();
     }
 
-    private void NextField() {
+    private async Task HandleNext() {
+        if (IsLocked || IsSubmitting) return;
+
+        // [SAFETY GATE] Force sign selection for Net Due before allowing 'Next'
+        if (_activeField == "LottoNetDue" && !_lottoSignConfirmed) {
+            _validationError = "Please select Positive (+) or Negative (-)";
+            _showValidation = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        // [UX FIX] Validate hours threshold before allowing movement to next field
+        if (_activeField == "Hours" && TotalHours > 10 && !_hoursConfirmed) {
+            _pendingAction = HandleNext; // Save the action to resume after confirmation
+            _showHoursConfirmation = true;
+            return;
+        }
+
+        // [EXTREME PERFORMANCE] Sync to local storage on exit
+        _ = MirrorToLocalStorage();
+
         var fields = IsRentalHall 
             ? new[] { "BarSales" }
             : new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" };
@@ -2020,7 +2079,7 @@
             case "LottoNetDue": LottoNetDue = -(LottoNetDue ?? 0); break;
         }
         _currentBuffer = ""; 
-        _ = DebouncedAutoSave();
+        _ = DebouncedMirrorToLocalStorage();
         StateHasChanged();
     }
 
@@ -2040,25 +2099,51 @@
             case "RescueTickets": _prevDayTickets = val ?? 0; break;
         }
 
-        // [OFFLINE MIRROR] Save to localStorage immediately on every change
+        // PROACTIVE LABOR VALIDATION RESET
+        if (field == "Hours") {
+             // If they edit the number, they must re-confirm when they try to leave the field
+             _hoursConfirmed = false; 
+        }
+
+        // [EXTREME PERFORMANCE] Zero work here. Typing must be 100% fluid.
         _hasLocalChanges = true;
-        _syncStatus = "Saving...";
-        _ = MirrorToLocalStorage();
-        
-        StateHasChanged(); // Instant UI Response
+    }
+    
+    private bool _shouldRender = true;
+    protected override bool ShouldRender() => _shouldRender;
+
+    private global::System.Threading.CancellationTokenSource? _localMirrorCts;
+    private readonly global::System.Threading.SemaphoreSlim _localLock = new(1, 1);
+
+    private async Task DebouncedMirrorToLocalStorage(int delayMs = 250) {
+        _localMirrorCts?.Cancel();
+        _localMirrorCts = new global::System.Threading.CancellationTokenSource();
+        var token = _localMirrorCts.Token;
+        try {
+            await Task.Delay(delayMs, token); 
+            _ = Task.Run(async () => await MirrorToLocalStorage(token), token);
+        } catch (TaskCanceledException) { }
     }
 
-    private async Task MirrorToLocalStorage() {
+    private async Task MirrorToLocalStorage(global::System.Threading.CancellationToken ct = default) {
+        if (!await _localLock.WaitAsync(0, ct)) return; 
         try {
+            if (ct.IsCancellationRequested) return;
             var data = new {
                 Date = ReportDate, Shift = ShiftType,
                 BarSales, LottoSales, LottoCashes, LottoInstantTickets, LottoNetDue,
                 LottoOpeningCash, LottoBackupBag, LottoCashCounted, TotalHours, Notes,
+                EnvelopeAmount = LottoEnvelopeAmount,
+                BagRefillAmount = LottoBagRefill,
+                Status = Submitted ? "Submitted" : "Draft",
                 Timestamp = DateTime.UtcNow
             };
-            var json = global::System.Text.Json.JsonSerializer.Serialize(data);
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", json);
-        } catch { }
+            // [UI-THREAD OFFLOAD] Pass raw object to Worker.
+            // Serialization happens off-thread in gfc-storage-worker.js
+            await JSRuntime.InvokeVoidAsync("window.saveGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", data);
+        } catch { } finally {
+            _localLock.Release();
+        }
     }
 
     private async Task DebouncedAutoSave() {
@@ -2106,14 +2191,30 @@
                 LottoBackupBag = LottoBackupBag,
                 LottoCashCounted = LottoCashCounted,
                 LottoOpeningCash = LottoOpeningCash,
+                EnvelopeAmount = LottoEnvelopeAmount,
+                BagRefillAmount = LottoBagRefill,
+                Status = Submitted ? "Submitted" : "Draft",
                 Notes = Notes
             };
 
             await ReportingService.SaveShiftReportAsync(data, _currentUsername);
+
             _syncStatus = "Synced";
             _lastSyncedAt = DateTime.Now;
-            // Refresh selection status labels
-            await UpdateShiftAvailability();
+
+            // [FIX] Update change tracking baseline on SUCCESS so the "Unsaved" warning goes away
+            _originalBarSales = BarSales;
+            _originalTotalHours = TotalHours;
+            _originalLottoSales = LottoSales;
+            _originalLottoCashes = LottoCashes;
+            _originalLottoInstantTickets = LottoInstantTickets;
+            _originalLottoNetDue = LottoNetDue;
+            _originalLottoBackupBag = LottoBackupBag;
+            _originalLottoCashCounted = LottoCashCounted;
+            _originalNotes = Notes;
+
+            // [PERFORMANCE] Fire and forget the status refresh so it doesn't block the UI
+            _ = Task.Run(async () => await UpdateShiftAvailability());
         } catch {
             _syncStatus = "Pending Sync...";
         } finally {
@@ -2122,6 +2223,29 @@
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    private void ConfirmHours()
+    {
+        _showHoursConfirmation = false;
+        _hoursConfirmed = true;
+        
+        // RESUME PENDING ACTION
+        if (_pendingAction != null) {
+            var action = _pendingAction;
+            _pendingAction = null;
+            _ = action();
+        } else if (!string.IsNullOrEmpty(_pendingFieldActivation)) {
+            var field = _pendingFieldActivation;
+            _pendingFieldActivation = null;
+            ActivateField(field);
+        } else {
+            StateHasChanged();
+        }
+    }
+
+    private Func<Task>? _pendingAction;
+    private string? _pendingFieldActivation;
+
 
     private async Task HandleFinalConfirm() {
         bool lottoIncomplete = !IsRentalHall && (
@@ -2137,8 +2261,9 @@
         bool barSalesIncomplete = BarSales == null || BarSales <= 0;
 
         if (barHoursIncomplete || barSalesIncomplete || lottoIncomplete) {
-            _validationError = "Required fields are missing. Please enter values for all boxes (even if zero).";
+            _validationError = "Required fields are missing or invalid. Please ensure Bar Sales and Hours are greater than 0.";
             _showValidation = true;
+
 
             // Auto-Focus the first field that needs attention
             if (TotalHours == null || TotalHours <= 0) ActivateField("Hours");
@@ -2152,6 +2277,13 @@
                 else if (LottoCashCounted == null) ActivateField("LottoCashCounted");
             }
 
+            return;
+        }
+
+        // EXCESSIVE HOURS CHECK (Parity fix)
+        if (TotalHours > 10 && !_hoursConfirmed) {
+            _showHoursConfirmation = true;
+            _showFocusModal = false;
             return;
         }
         // ZERO VALUE AUDIT (Safety Check)
@@ -2256,7 +2388,8 @@
             decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
             decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
             decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
-            return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0) - LottoBagRefill;
+            // Variance calculation should not include the settlement (Refill/Envelope)
+            return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0);
         }
     }
 
@@ -2306,21 +2439,117 @@
     private async Task CheckForLocalDraft() {
         if (string.IsNullOrEmpty(ShiftType)) return;
         try {
-            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
-            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
-            if (!string.IsNullOrEmpty(json)) {
-                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("Timestamp", out var tsProp)) {
-                    var ts = tsProp.GetDateTime();
-                    if ((DateTime.UtcNow - ts).TotalHours < 4) { 
-                        _localDraft = json; 
-                        _showRecoveryModal = true;
-                        StateHasChanged();
+            var draftKey = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            Console.WriteLine($"[DEBUG] Looking for key: {draftKey}");
+            
+            // [DEBUG] Enumerating all vault keys to identify discrepancies
+            try {
+                var allItems = await JSRuntime.InvokeAsync<global::System.Text.Json.JsonElement>("window.gfcGetAllAsync");
+                if (allItems.ValueKind == global::System.Text.Json.JsonValueKind.Array) {
+                    Console.WriteLine("[DEBUG] Available Vault Keys:");
+                    foreach (var item in allItems.EnumerateArray()) {
+                        if (item.TryGetProperty("key", out var keyProp)) {
+                            Console.WriteLine($"  - {keyProp.GetString()}");
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                Console.WriteLine($"[DEBUG] Failed to enumerate keys: {ex.Message}");
+            }
+
+            // 1. Check for active Draft
+            var json = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", draftKey);
+            
+            // 2. [LOCAL-MASTER] If no draft, check the Outbox for a pending submission for this report
+            if (string.IsNullOrEmpty(json)) {
+                Console.WriteLine($"[DEBUG] No direct draft found for {draftKey}. Scanning Outbox...");
+                var outboxJson = await JSRuntime.InvokeAsync<string>("window.getGfcOutboxItems");
+                if (!string.IsNullOrEmpty(outboxJson)) {
+                    using var outboxDoc = global::System.Text.Json.JsonDocument.Parse(outboxJson);
+                    foreach (var item in outboxDoc.RootElement.EnumerateArray()) {
+                        if (item.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                        
+                        var data = item.GetProperty("data");
+                        if (data.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                        
+                        DateTime? itemDate = null;
+                        string? itemShift = null;
+
+                        foreach (var prop in data.EnumerateObject()) {
+                            if (prop.Name.Equals("Date", StringComparison.OrdinalIgnoreCase)) {
+                                if (prop.Value.ValueKind == global::System.Text.Json.JsonValueKind.String) {
+                                    if (DateTime.TryParse(prop.Value.GetString(), out var d)) itemDate = d;
+                                }
+                            }
+                            if (prop.Name.Equals("ShiftType", StringComparison.OrdinalIgnoreCase)) itemShift = prop.Value.GetString();
+                        }
+
+                        Console.WriteLine($"[DEBUG] Outbox Entry: Date={itemDate:yyyy-MM-dd}, Shift={itemShift}");
+
+                        if (itemDate?.Date == ReportDate.Date && itemShift == ShiftType) {
+                            Console.WriteLine($"[DEBUG] MATCH FOUND! Hydrating UI for {ReportDate:yyyy-MM-dd} {ShiftType}");
+                            json = data.GetRawText();
+                            break;
+                        }
                     }
                 }
             }
-        } catch { }
+
+            if (string.IsNullOrEmpty(json)) {
+                Console.WriteLine($"[DEBUG] Hydration failed: No key match found for {draftKey} in Drafts or Outbox.");
+            }
+
+            if (!string.IsNullOrEmpty(json)) {
+                try {
+                    // [HYDRATION HARDENING] Use case-insensitive mapping and allow string-to-number conversion
+                    var options = new global::System.Text.Json.JsonSerializerOptions { 
+                        PropertyNameCaseInsensitive = true,
+                        NumberHandling = global::System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+                    };
+                    
+                    var recovered = global::System.Text.Json.JsonSerializer.Deserialize<MobileShiftData>(json, options);
+
+                    if (recovered != null) {
+                        Console.WriteLine($"[GFC HYDRATION] Successfully recovered record for {recovered.Date:yyyy-MM-dd} {recovered.ShiftType}");
+                        
+                        // Atomic state assignment from recovered DTO
+                        BarSales = recovered.BarSales;
+                        TotalHours = recovered.TotalHours;
+                        LottoOpeningCash = recovered.LottoOpeningCash;
+                        LottoSales = recovered.LottoSales;
+                        LottoCashes = recovered.LottoCashes;
+                        LottoInstantTickets = recovered.LottoInstantTickets;
+                        LottoNetDue = recovered.LottoNetDue;
+                        LottoBackupBag = recovered.LottoBackupBag;
+                        LottoCashCounted = recovered.LottoCashCounted;
+                        LottoCashCounted = recovered.LottoCashCounted;
+                        
+                        // Metadata state
+                        _hasLocalChanges = true; 
+                        Notes = recovered.Notes;
+                        
+                        // Restore metadata state
+                        _hasLocalChanges = true; 
+                        _syncStatus = "Recovered from local vault";
+                        _lottoSignConfirmed = (recovered.LottoNetDue != null && recovered.LottoNetDue != 0);
+                        
+                        StateHasChanged();
+                    } else {
+                        Console.WriteLine("[GFC HYDRATION] WARNING: Deserialization returned null for key: " + draftKey);
+                    }
+                } catch (Exception ex) {
+                    Console.WriteLine($"[GFC HYDRATION] CRITICAL FAILURE: {ex.Message}");
+                    // Fall back to manual parsing if total failure occurs
+                    try {
+                        using var doc = global::System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("BarSales", out var bs)) BarSales = bs.GetDecimal();
+                        // ... additional fallback if needed ...
+                    } catch { }
+                }
+            }
+        } catch (Exception ex) {
+            Console.WriteLine($"[CRITICAL] Vault hydration failed: {ex.Message}");
+        }
     }
 
     private async Task RestoreFromLocal() {
@@ -2399,14 +2628,20 @@
                 return;
             }
 
-            await UpdateShiftAvailability();
+            // PROGRESSIVE INITIALIZATION: 
+            // 1. Critical Path: Load local data instantly
             await CheckExisting();
+            Loading = false;
+            StateHasChanged();
 
-            // [VERSION CHECK] - No guessing!
-            try {
-                var serverVersion = await ReportingService.GetServerVersionAsync();
-                _hasUpdate = serverVersion != VersionService.GetFullVersion();
-            } catch { }
+            // 2. Background Path: Load metadata from server without blocking the UI
+            _ = UpdateShiftAvailability();
+            _ = ReportingService.GetServerVersionAsync().ContinueWith(t => {
+                if (t.IsCompletedSuccessfully && t.Result != "Offline") {
+                    _hasUpdate = t.Result != VersionService.GetFullVersion();
+                    InvokeAsync(StateHasChanged);
+                }
+            });
 
             Loading = false;
             StateHasChanged();
@@ -2488,7 +2723,11 @@
                 LottoBackupBag = data.LottoBackupBag;
                 LottoCashCounted = data.LottoCashCounted;
                 LottoOpeningCash = data.LottoOpeningCash;
+                _prevDaySales = data.PrevDaySales ?? 0;
+                _prevDayCashes = data.PrevDayCashes ?? 0;
+                _prevDayTickets = data.PrevDayTickets ?? 0;
                 Notes = data.Notes;
+
 
                 // Track original values for change detection
                 _originalBarSales = BarSales;
@@ -2523,43 +2762,88 @@
         IsSubmitting = true;
         StateHasChanged();
         
-        // Final background save attempt
-        _ = SilentSave();
-        
-        // NO-GUESS WORKFLOW: We show success immediately because the data is safe LOCALLY.
-        // We mark it in local storage so the Hub can finish the cloud sync silently.
-        try {
-            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
-            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
-            if (!string.IsNullOrEmpty(json)) {
-                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                var outboxItem = new {
-                    Data = root,
-                    IsPendingSubmission = true,
-                    Timestamp = DateTime.UtcNow
-                };
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
+        // AUDIT LOG CONSTRUCTION
+        if (ExistingEntryFound) {
+            var changes = new List<string>();
+            if (BarSales != _originalBarSales) changes.Add($"Bar: {_originalBarSales:C} -> {BarSales:C}");
+            if (TotalHours != _originalTotalHours) changes.Add($"Hours: {_originalTotalHours} -> {TotalHours}");
+            if (LottoSales != _originalLottoSales) changes.Add($"Lotto: {_originalLottoSales:C} -> {LottoSales:C}");
+            if (LottoCashCounted != _originalLottoCashCounted) changes.Add($"Cash: {_originalLottoCashCounted:C} -> {LottoCashCounted:C}");
+            
+            if (changes.Any()) {
+                var auditLine = $"[MODIFIED BY {(_currentUsername ?? "Unknown").ToUpper()} at {DateTime.Now:h:mm tt}]: " + string.Join(", ", changes);
+                Notes = string.IsNullOrEmpty(Notes) ? auditLine : auditLine + "\n" + Notes;
             }
-        } catch { }
-        
+        }
+
+        // [DATA INTEGRITY FIX] Construct the final payload ATOMICALLY
+        var finalData = new MobileShiftData {
+            Date = ReportDate, 
+            ShiftType = ShiftType,
+            IsRentalHall = IsRentalHall,
+            BarSales = BarSales, 
+            TotalHours = TotalHours,
+            LottoSales = LottoSales, 
+            LottoCashes = LottoCashes,
+            LottoInstantTickets = LottoInstantTickets, 
+            LottoNetDue = LottoNetDue,
+            LottoOpeningCash = LottoOpeningCash, 
+            LottoBackupBag = LottoBackupBag,
+            LottoCashCounted = LottoCashCounted, 
+            EnvelopeAmount = LottoEnvelopeAmount, 
+            BagRefillAmount = LottoBagRefill,
+            Status = "Submitted", 
+            Timestamp = DateTime.UtcNow,
+            Notes = Notes,
+                    ModifiedBy = _currentUsername
+        };
+        try {
+            // 1. SAVE TO LOCAL VAULT (Native-First)
+            var currentShift = IsRentalHall ? "Hall" : (ShiftType ?? "Day");
+            var outboxKey = $"gfc_outbox_{ReportDate:yyyy-MM-dd}_{currentShift}";
+            
+            finalData.ShiftType = currentShift;
+            
+            // [DATA-LOCK] Physically write the report to the vault before syncing
+            await JSRuntime.InvokeAsync<object>("window.gfcSetAsync", outboxKey, finalData);
+
+            // Clear the local draft
+            await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}");
+            
+            // [PROACTIVE SYNC] Trigger the delivery truck immediately after locking the data
+            await ReportingService.FlushOutboxAsync();
+        } catch (Exception ex) { 
+            Console.WriteLine($"[CRITICAL] Submission storage failed: {ex.Message}");
+            IsSubmitting = false;
+            Submitted = false;
+            _validationError = "Storage Failure: Please try again.";
+            _showValidation = true;
+            StateHasChanged();
+            return;
+        }
+
+        Submitted = true; 
+
+        // UI SUCCESS - NO WAITING
         IsSubmitting = false;
-        Submitted = true;
+        _showSuccessSplash = true; 
         _hasLocalChanges = false;
         StateHasChanged();
         
-        // Let user move on immediately by logging out properly
+        // Final background sync attempt with ACTUAL data
+        _ = Task.Run(async () => {
+             try { await ReportingService.SaveShiftReportAsync(finalData, "Final.Submit"); } catch {}
+        });
+
         await Task.Delay(2500);
         await AuthStateProvider.LogoutAsync();
         Navigation.NavigateTo("/login", forceLoad: true);
     }
     private async Task HandleBackToSelection() {
-        if (HasUnsavedChanges) {
-             _modalTitle = "Unsaved Work";
-             _modalMessage = "You have entered data in this shift. Leaving now will lose progress since the last save. Exit?";
-             _onModalConfirm = () => { ResetSelection(); StateHasChanged(); };
-             _showUnsavedModal = true;
-             return;
+        if (HasUnsavedChanges && !Submitted) {
+             _syncStatus = "Saving Draft...";
+             await MirrorToLocalStorage();
+             // We don't block the user; we just ensure the data is safe and move on.
         }
         ResetSelection();
         await UpdateShiftAvailability();
@@ -2577,24 +2861,43 @@
     {
         try
         {
-            var summary = await ReportingService.GetDailySummaryAsync(ReportDate);
+            _syncStatus = "Checking Server...";
+            StateHasChanged();
+
+            // PARALLEL FETCH: Get summary and debt history at once
+            var summaryTask = ReportingService.GetDailySummaryAsync(ReportDate);
+            var debtTask = ReportingService.GetCumulativeBagDebtAsync(ReportDate);
+            
+            // PARALLEL LOCAL CHECKS: Check outbox for all shifts simultaneously
+            var dayPendingTask = CheckOutboxPending("Day");
+            var nightPendingTask = CheckOutboxPending("Night");
+            var hallPendingTask = CheckOutboxPending("Hall");
+
+            await Task.WhenAll(summaryTask, debtTask, dayPendingTask, nightPendingTask, hallPendingTask);
+
+            var summary = summaryTask.Result;
+            _totalBagDebt = debtTask.Result;
+            
             _lastSyncedAt = DateTime.Now;
             _syncStatus = "Synced";
             
-            _dayMainSubmitted = summary.Day.Submitted;
-            _dayMainHasData = summary.Day.HasData;
+            _dayMainSubmitted = summary.Day.Submitted || dayPendingTask.Result;
+            _dayMainHasData = summary.Day.HasData || dayPendingTask.Result;
             _dayMainModified = summary.Day.Modified;
             _dayCloser = summary.Day.Closer;
 
-            _nightMainSubmitted = summary.Night.Submitted;
-            _nightMainHasData = summary.Night.HasData;
+            _nightMainSubmitted = summary.Night.Submitted || nightPendingTask.Result;
+            _nightMainHasData = summary.Night.HasData || nightPendingTask.Result;
             _nightMainModified = summary.Night.Modified;
             _nightCloser = summary.Night.Closer;
 
-            _hallSubmitted = summary.Hall.Submitted;
+            _hallSubmitted = summary.Hall.Submitted || hallPendingTask.Result;
             _hallModified = summary.Hall.Modified;
             _hallCloser = summary.Hall.Closer;
+            
             _totalBagDebt = await ReportingService.GetCumulativeBagDebtAsync(ReportDate);
+            
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -2602,36 +2905,58 @@
         }
     }
 
+    private async Task<bool> CheckOutboxPending(string shift)
+    {
+        try {
+            // 1. Check for direct draft in Vault
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{shift}";
+            var json = await JSRuntime.InvokeAsync<string>("window.gfcGetAsync", key);
+            if (!string.IsNullOrEmpty(json)) return true;
+
+            // 2. Scan Outbox List for matching record
+            var outboxJson = await JSRuntime.InvokeAsync<string>("window.getGfcOutboxItems");
+            if (!string.IsNullOrEmpty(outboxJson)) {
+                using var outboxDoc = global::System.Text.Json.JsonDocument.Parse(outboxJson);
+                foreach (var item in outboxDoc.RootElement.EnumerateArray()) {
+                    if (item.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                    var data = item.GetProperty("data");
+                    if (data.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                    
+                    DateTime? itemDate = null;
+                    string? itemShift = null;
+                    foreach (var prop in data.EnumerateObject()) {
+                        if (prop.Name.Equals("Date", StringComparison.OrdinalIgnoreCase)) {
+                            if (prop.Value.ValueKind == global::System.Text.Json.JsonValueKind.String) {
+                                if (DateTime.TryParse(prop.Value.GetString(), out var d)) itemDate = d;
+                            }
+                        }
+                        if (prop.Name.Equals("ShiftType", StringComparison.OrdinalIgnoreCase)) itemShift = prop.Value.GetString();
+                    }
+
+                    if (itemDate?.Date == ReportDate.Date && itemShift == shift) return true;
+                }
+            }
+        } catch { }
+        return false;
+    }
+
     private void SetLottoSign(int sign) {
         if (LottoNetDue == null) return;
         LottoNetDue = Math.Abs(LottoNetDue.Value) * sign;
         _lottoSignConfirmed = true;
-        _ = AutoSave();
+        _ = DebouncedMirrorToLocalStorage();
         StateHasChanged();
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
     {
-        if (HasUnsavedChanges)
+        if (HasUnsavedChanges && !Submitted)
         {
-            context.PreventNavigation();
-            _pendingNavigationUrl = context.TargetLocation;
-            _modalTitle = "Unsaved Changes";
-            _modalMessage = "You have sales data in progress. Leaving now will permanently discard your work.";
-            _onModalConfirm = () => {
-                Submitted = true;
-                Navigation.NavigateTo(_pendingNavigationUrl ?? "/mobile");
-            };
-            _showUnsavedModal = true;
-            await InvokeAsync(StateHasChanged);
+            // [SEAMLESS FIX] Save draft silently on internal navigation
+            await MirrorToLocalStorage();
         }
     }
 
-    private void ProceedWithAction()
-    {
-        _showUnsavedModal = false;
-        _onModalConfirm?.Invoke();
-    }
 
     private async Task HandleCancel() {
         await AuthStateProvider.LogoutAsync();
