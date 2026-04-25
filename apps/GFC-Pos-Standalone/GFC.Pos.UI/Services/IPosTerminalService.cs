@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace GFC.Pos.Terminal.Services;
+namespace GFC.Pos.UI.Services;
 
 public interface IPosTerminalService
 {
@@ -21,4 +21,16 @@ public interface IPosTerminalService
     Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName);
     Task<bool> CheckConnectivityAsync();
     Task<List<UserListItemDto>> GetAuthorizedUsersAsync();
+
+    // ─── LOCAL SHIFT DATABASE (PROPER ARCHITECTURE) ───
+    Task AddSaleToShiftAsync(PosSaleDto sale);
+    Task<ShiftAuditDto> GetShiftAuditAsync();
+    Task ClearShiftAsync();
+}
+
+public class ShiftAuditDto
+{
+    public decimal CashTotal { get; set; }
+    public decimal GrossTotal { get; set; }
+    public Dictionary<string, int> ItemSummary { get; set; } = new();
 }

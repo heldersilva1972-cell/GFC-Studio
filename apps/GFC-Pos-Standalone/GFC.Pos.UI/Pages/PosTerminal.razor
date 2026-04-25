@@ -3,7 +3,7 @@
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
 @using GFC.Core.DTOs
-@using GFC.Pos.Terminal.Services
+@using GFC.Pos.UI.Services
 @using global::System.Text.Json
 @using Microsoft.AspNetCore.Components
 @inject IJSRuntime JSRuntime
@@ -12,6 +12,7 @@
 @inject Blazored.Toast.Services.IToastService Toast
 @inject ConnectivityService Connectivity
 @inject IVersionService VersionService
+@inject IPrinterService PrinterService
 @implements IDisposable
 @attribute [AllowAnonymous]
 
@@ -59,15 +60,14 @@
                             <span>LOCAL MODE</span>
                         </div>
                     }
-
-                    @if (PendingSyncCount > 0)
+                    else if (PendingSyncCount > 0)
                     {
                         <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
                             <i class="bi bi-cloud-arrow-up-fill"></i>
                             <span>@PendingSyncCount PENDING</span>
                         </div>
                     }
-                    else if (Connectivity.IsServerReachable)
+                    else
                     {
                         <div class="sync-pill success">
                             <i class="bi bi-cloud-check-fill"></i>
@@ -294,24 +294,38 @@
             </div>
 
             <div class="product-grid">
-                @if (ActiveCategory == "TOKENS")
+                @if (!FilteredItems.Any() && ActiveCategory != "TOKENS")
                 {
-                    @foreach (var token in DbTokens)
-                    {
-                        <button class="product-card token-card" @onclick="() => AddTokenToCart(token)" style="border-left: 10px solid @token.ColorHex">
-                            <span class="item-name">@token.Name</span>
-                            <span class="item-price">BUY @token.SalePrice.ToString("C")</span>
+                    <div class="text-center py-5 w-100 opacity-50 animate__animated animate__fadeIn">
+                        <i class="bi bi-search fs-1 d-block mb-3"></i>
+                        <h4 class="fw-bold">NO ITEMS FOUND IN "@ActiveCategory.ToUpper()"</h4>
+                        <p class="small mb-4">@(Connectivity.IsServerReachable ? "Waiting for data from server..." : "Server is currently offline.")</p>
+                        <button class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="RefreshData">
+                            <i class="bi bi-arrow-clockwise me-2"></i> RELOAD NOW
                         </button>
-                    }
+                    </div>
                 }
                 else
                 {
-                    @foreach (var item in FilteredItems)
+                    @if (ActiveCategory == "TOKENS")
                     {
-                        <button class="product-card" @onclick="() => AddToCart(item)">
-                            <span class="item-name">@item.Name</span>
-                            <span class="item-price">$@item.Price.ToString("F2")</span>
-                        </button>
+                        @foreach (var token in DbTokens)
+                        {
+                            <button class="product-card token-card" @onclick="() => AddTokenToCart(token)" style="border-left: 10px solid @token.ColorHex">
+                                <span class="item-name">@token.Name</span>
+                                <span class="item-price">BUY @token.SalePrice.ToString("C")</span>
+                            </button>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var item in FilteredItems)
+                        {
+                            <button class="product-card" @onclick="() => AddToCart(item)">
+                                <span class="item-name">@item.Name</span>
+                                <span class="item-price">$@item.Price.ToString("F2")</span>
+                            </button>
+                        }
                     }
                 }
             </div>
@@ -529,22 +543,7 @@
     </div>
 }
 
-@* OFFLINE PRINT ZONE *@
-<div id="receipt-print-zone">
-    <div class="center bold">GFC TERMINAL</div>
-    <div class="center">@TerminalName</div>
-    <div class="divider"></div>
-    <div class="center bold">Z-REPORT SUMMARY</div>
-    <div class="divider"></div>
-    <div>Date: @DateTime.Now.ToString("g")</div>
-    <div>Operator: @CurrentUserName</div>
-    <div class="divider"></div>
-    <div class="bold">TOTAL CASH: @ShiftCashTotal.ToString("C")</div>
-    <div class="divider"></div>
-    <div class="center">SYNC PENDING: @(PendingSyncCount > 0 ? "YES" : "NO")</div>
-    <div class="divider"></div>
-    <div class="center small" style="margin-top: 10px;">Standalone Mode v@(VersionService.GetRevision())</div>
-</div>
+@* OFFLINE PRINT ZONE REMOVED (Now using C# Generator) *@
 
 @code {
     private string CurrentUserName = "ADMIN";
@@ -596,6 +595,9 @@
 
         var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
         if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
+
+        // HARDENED LOAD: The source of truth is now the Database (Shift Log)
+        await UpdateAuditAsync();
         
         var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
         if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
@@ -606,9 +608,13 @@
         await PosService.GetTotalPendingAsync();
     }
 
-    private void OnConnectivityChanged(bool isOnline)
+    private async void OnConnectivityChanged(bool isOnline)
     {
-        InvokeAsync(StateHasChanged);
+        if (isOnline && (!Categories.Any() || !DbItems.Any()))
+        {
+            await RefreshData();
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private void OnOutboxChanged()
@@ -752,23 +758,35 @@
     private void ClearCart() { CartItems.Clear(); isDartsModeActive = false; UpdateSpeedBar(); }
     private async Task Checkout() { if (Subtotal == 0) await FinalizeSale(); else { CashInputString = ""; CashReceived = null; ShowCheckoutOverlay = true; } }
 
-    private decimal ShiftCashTotal = 0;
+    private ShiftAuditDto _currentAudit = new();
+    private async Task UpdateAuditAsync() { _currentAudit = await PosService.GetShiftAuditAsync(); StateHasChanged(); }
+
     private async Task FinalizeSale()
     {
-        var payment = CashReceived.HasValue ? "CASH" : (Subtotal == 0 ? "TOKEN/COMP" : "OTHER");
+        // BUG FIX: Capture the amount IMMEDIATELY before any state changes
+        var amountToRecord = Subtotal;
+        var payment = CashReceived.HasValue ? "CASH" : (amountToRecord == 0 ? "TOKEN/COMP" : "OTHER");
         var saleId = _correctingSaleId ?? Guid.NewGuid();
-        
+
+        // BUILD THE SALE RECORD FIRST
         var sale = new PosSaleDto
         {
             Id = saleId,
             Timestamp = DateTime.Now,
             TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
-            TotalAmount = Subtotal,
+            TotalAmount = amountToRecord,
             BartenderName = CurrentUserName,
             PaymentType = payment,
             ItemsJson = JsonSerializer.Serialize(CartItems)
         };
         
+        // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
+        if (!forceTrainingMode)
+        {
+            await PosService.AddSaleToShiftAsync(sale);
+            await UpdateAuditAsync();
+        }
+
         if (!forceTrainingMode) 
         {
             await PosService.SaveSaleAsync(sale);
@@ -777,8 +795,6 @@
             {
                 _correctingSaleId = null;
             }
-
-            if (payment == "CASH") ShiftCashTotal += Subtotal;
             
             foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) 
             {
@@ -787,13 +803,26 @@
             }
         }
         
-        ClearCart(); _correctingSaleId = null; ShowCheckoutOverlay = false; CashReceived = null; CashInputString = "";
-        showSuccessOverlay = true; StateHasChanged(); await Task.Delay(1000); showSuccessOverlay = false;
-        UpdateSpeedBar(); StateHasChanged();
+        ClearCart(); 
+        _correctingSaleId = null; 
+        ShowCheckoutOverlay = false; 
+        CashReceived = null; 
+        CashInputString = "";
+        showSuccessOverlay = true; 
+        StateHasChanged(); 
+        await Task.Delay(1000); 
+        showSuccessOverlay = false;
+        UpdateSpeedBar(); 
+        StateHasChanged();
     }
 
     private async Task HandleNoSale()
     {
+        if (!forceTrainingMode || allowHardwareInTraining)
+        {
+            await PrinterService.KickDrawerAsync();
+        }
+
         if (!forceTrainingMode) {
             var noSale = new PosSaleDto { TerminalName = TerminalName, TotalAmount = 0, Timestamp = DateTime.Now, ItemsJson = "[{\"Name\": \"NO SALE (Drawer Open)\", \"Quantity\": 1, \"Price\": 0}]", PaymentType = "NO SALE" };
             await PosService.SaveSaleAsync(noSale);
@@ -810,22 +839,85 @@
     private async Task ProcessZOut(bool print)
     {
         if (!forceTrainingMode) {
+            // Calculate final audit from Database
+            var finalAudit = await PosService.GetShiftAuditAsync();
+            
             var z = new PosZReportDto { 
                 Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
-                CashTotal = ShiftCashTotal, TotalGrossSales = ShiftCashTotal, 
+                CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
                 InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
-                SalesSummaryJson = "{}" // Server re-calculates or uses this total
+                SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary)
             };
             await PosService.SaveZReportAsync(z);
+
+            if (print) 
+            {
+                if (!forceTrainingMode || allowHardwareInTraining)
+                {
+                    await PrinterService.KickDrawerAsync();
+                }
+                
+                // ─── GENERATE DETAILED RECEIPT (PROPER WAY) ───
+                var salesRows = "";
+                foreach(var item in finalAudit.ItemSummary.OrderByDescending(x => x.Value)) {
+                    salesRows += $"<div style='display:flex; justify-content:space-between;'><span>{item.Key}</span><span>{item.Value}</span></div>";
+                }
+
+                var inventoryRows = "";
+                foreach(var pull in _inventoryPullDraft) {
+                    var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
+                    if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
+                }
+
+                var html = $@"
+                    <div style='font-family: monospace; width: 300px; padding: 10px;'>
+                        <div style='text-align: center;'>
+                            <h2 style='margin:0;'>GFC TERMINAL</h2>
+                            <div style='font-size:0.9em;'>{TerminalName}</div>
+                            <hr/>
+                            <h3 style='margin:10px 0;'>Z-REPORT SUMMARY</h3>
+                            <hr/>
+                        </div>
+                        
+                        <div style='margin-bottom:10px;'>
+                            <div>Date: {z.Timestamp:g}</div>
+                            <div>Operator: {z.BartenderName}</div>
+                        </div>
+
+                        <div style='border: 1px solid #000; padding: 5px; margin-bottom:10px;'>
+                            <div style='display:flex; justify-content:space-between; font-weight:bold;'>
+                                <span>TOTAL CASH:</span><span>{z.CashTotal:C}</span>
+                            </div>
+                            <div style='display:flex; justify-content:space-between; font-weight:bold;'>
+                                <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
+                            </div>
+                        </div>
+
+                        <div style='margin-top:15px;'>
+                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>POS SALES ACTIVITY</div>
+                            {salesRows}
+                        </div>
+
+                        {(string.IsNullOrEmpty(inventoryRows) ? "" : $@"
+                        <div style='margin-top:15px;'>
+                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>INVENTORY REMOVAL LOG</div>
+                            {inventoryRows}
+                        </div>")}
+
+                        <div style='text-align: center; margin-top:20px; font-size: 0.7em; opacity: 0.8;'>
+                            <hr/>
+                            Standalone Mode v{VersionService.GetRevision()}
+                        </div>
+                    </div>";
+
+                await PrinterService.PrintReceiptAsync(html);
+            }
         }
 
-        if (print) 
-        {
-            await Task.Delay(100);
-            await JSRuntime.InvokeVoidAsync("window.print");
-        }
-
-        _inventoryPullDraft.Clear(); ShiftCashTotal = 0; _currentCloseOutStep = CloseOutStep.None;
+        _inventoryPullDraft.Clear(); 
+        await PosService.ClearShiftAsync();
+        await UpdateAuditAsync();
+        _currentCloseOutStep = CloseOutStep.None;
         showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
     }
 

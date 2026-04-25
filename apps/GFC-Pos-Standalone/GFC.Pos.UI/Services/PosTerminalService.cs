@@ -3,7 +3,7 @@ using GFC.Core.DTOs;
 using Microsoft.JSInterop;
 using System.Text.Json;
 
-namespace GFC.Pos.Terminal.Services;
+namespace GFC.Pos.UI.Services;
 
 /// <summary>
 /// Offline-first POS terminal service.
@@ -18,6 +18,7 @@ public class PosTerminalService : IPosTerminalService
 
     private const string VaultPrefixSales = "gfc_pos_vault_sale_";
     private const string VaultPrefixZ     = "gfc_pos_vault_z_";
+    private const string ShiftLogPrefix   = "gfc_shift_log_";
     private const string CachedMenuKey      = "gfc_pos_cached_menu";
     private const string AuthorizedUsersKey = "gfc_pos_authorized_users";
     private const int MaxAttempts           = 5;
@@ -29,6 +30,71 @@ public class PosTerminalService : IPosTerminalService
     public int PendingZCount      { get; private set; }
     public int TotalPendingCount  => PendingSalesCount + PendingZCount;
     public DateTime? LastSynced   { get; private set; }
+
+    // ─── LOCAL SHIFT DATABASE (PROPER ARCHITECTURE) ───────────────────────────────────
+
+    public async Task AddSaleToShiftAsync(PosSaleDto sale)
+    {
+        var key = $"{ShiftLogPrefix}{sale.Id}";
+        await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
+    }
+
+    public async Task<ShiftAuditDto> GetShiftAuditAsync()
+    {
+        var audit = new ShiftAuditDto();
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(ShiftLogPrefix))
+                    {
+                        var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                        if (data != null)
+                        {
+                            audit.GrossTotal += data.TotalAmount;
+                            if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
+
+                            var items = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
+                            if (items != null)
+                            {
+                                foreach (var i in items)
+                                {
+                                    if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
+                                    audit.ItemSummary[i.Name] += i.Quantity;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        return audit;
+    }
+
+    public async Task ClearShiftAsync()
+    {
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(ShiftLogPrefix))
+                    {
+                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                    }
+                }
+            }
+        }
+        catch { }
+    }
 
     private readonly SemaphoreSlim _syncLock = new(1, 1);
     private readonly Timer _syncTimer;
@@ -137,12 +203,44 @@ public class PosTerminalService : IPosTerminalService
 
     public async Task<List<PosZReportDto>> GetZReportsAsync(string terminalName)
     {
+        var reports = new List<PosZReportDto>();
+
+        // 1. Try Server
         try 
         { 
-            if (!await _connectivity.GateAsync("GetZReports")) return new();
-            return await _http.GetFromJsonAsync<List<PosZReportDto>>($"api/pos/z-reports/{terminalName}") ?? new(); 
+            if (await _connectivity.GateAsync("GetZReports"))
+            {
+                var serverReports = await _http.GetFromJsonAsync<List<PosZReportDto>>($"api/pos/z-reports/{terminalName}"); 
+                if (serverReports != null) reports.AddRange(serverReports);
+            }
         }
-        catch { return new(); }
+        catch { }
+
+        // 2. Merge from Vault (ensure we don't show duplicates if they just synced)
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(VaultPrefixZ))
+                    {
+                        var data = JsonSerializer.Deserialize<PosZReportDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                        if (data != null && !reports.Any(r => r.Id == data.Id))
+                        {
+                            // Mark as pending for UI
+                            data.BartenderName += " (PENDING SYNC)";
+                            reports.Add(data);
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return reports.OrderByDescending(r => r.Timestamp).ToList();
     }
 
     public async Task<PosZReportDto?> GetZReportAsync(Guid id)

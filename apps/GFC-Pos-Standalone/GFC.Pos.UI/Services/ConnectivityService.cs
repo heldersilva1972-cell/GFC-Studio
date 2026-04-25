@@ -1,6 +1,6 @@
 using Microsoft.JSInterop;
 
-namespace GFC.Pos.Terminal.Services;
+namespace GFC.Pos.UI.Services;
 
 /// <summary>
 /// Detects real-time online/offline state via browser events.

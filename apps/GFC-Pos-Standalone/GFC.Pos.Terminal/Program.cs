@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using GFC.Pos.Terminal;
 using GFC.Pos.Terminal.Services;
 using GFC.Core.Interfaces;
+using GFC.Pos.UI.Services;
 using Blazored.Toast;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -21,5 +22,6 @@ builder.Services.AddScoped<ConnectivityService>();              // Scoped (= sin
 builder.Services.AddScoped<PosTerminalService>();               // Scoped (= singleton in WASM): shared outbox + sync events
 builder.Services.AddScoped<IPosTerminalService>(sp => sp.GetRequiredService<PosTerminalService>());
 builder.Services.AddSingleton<IVersionService, PosVersionService>();
+builder.Services.AddScoped<IPrinterService, WebPrinterService>();
 
 await builder.Build().RunAsync();

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>GFC.Pos.Mobile</title>
+    <base href="/" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/app.css" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/pos-terminal.css" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/pos-terminal-print.css" />
+    <link href="_content/Blazored.Toast/blazored-toast.css" rel="stylesheet" />
+    <link rel="stylesheet" href="GFC.Pos.Mobile.styles.css" />
+    <link rel="icon" href="data:,">
+</head>
+
+<body>
+
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">Loading...</div>
+
+    <div id="blazor-error-ui" data-nosnippet>
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+    <script src="_content/GFC.Pos.UI/js/connectivity.js"></script>
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script>
+        // [UI-THREAD OFFLOAD] Initialize Background Persistence Worker
+        const gfcWorker = new Worker('_content/GFC.Pos.UI/gfc-storage-worker.js');
+        const pendingRequests = new Map();
+
+        gfcWorker.onmessage = (e) => {
+            const { action, key, value } = e.data;
+            if (action === "getAll_result") {
+                const resolve = pendingRequests.get("getAll");
+                if (resolve) {
+                    pendingRequests.delete("getAll");
+                    resolve(value);
+                }
+            } else if (action === "get_result") {
+                const resolve = pendingRequests.get("get_" + key);
+                if (resolve) {
+                    pendingRequests.delete("get_" + key);
+                    resolve(typeof value === "string" ? value : JSON.stringify(value));
+                }
+            } else if (action === "set_result") {
+                const resolve = pendingRequests.get("set_" + key);
+                if (resolve) {
+                    pendingRequests.delete("set_" + key);
+                    resolve(true);
+                }
+            }
+        };
+
+        window.gfcSetAsync = (key, value) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("set_" + key);
+                reject("gfcSetAsync Timeout");
+            }, 5000);
+            pendingRequests.set("set_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'set', key, value });
+        });
+        
+        window.gfcGetAsync = (key) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("get_" + key);
+                resolve(null); 
+            }, 5000);
+            pendingRequests.set("get_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'get', key });
+        });
+        
+        window.gfcGetAllAsync = () => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("getAll");
+                resolve("[]");
+            }, 10000);
+            pendingRequests.set("getAll", (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'getAll' });
+        });
+
+        window.gfcRemoveAsync = (key) => {
+            gfcWorker.postMessage({ action: 'remove', key });
+        };
+    </script>
+
+</body>
+
+</html>
