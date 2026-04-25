@@ -25,6 +25,16 @@
             </button>
             <span class="brand-text">GFC</span>
             <span class="terminal-id">@TerminalName.ToUpper()</span>
+            
+            <div class="user-indicator-pill">
+                <div class="user-avatar">
+                    <i class="bi bi-person-fill"></i>
+                </div>
+                <div class="user-details">
+                    <span class="user-role">BARTENDER</span>
+                    <span class="user-name">@CurrentUserName</span>
+                </div>
+            </div>
         </div>
         
         <div class="pos-status">
@@ -215,6 +225,7 @@
                 else if (_currentCloseOutStep == CloseOutStep.Selection)
                 {
                     <div class="inventory-selection-area">
+
                         <div class="d-flex justify-content-between align-items-center mb-4">
                             <h4 class="fw-black mb-0 text-uppercase"><i class="bi bi-box-seam me-2"></i> Select Bottles Removed</h4>
                             <span class="badge bg-primary">@_inventoryPullDraft.Values.Sum() BOTTLES SELECTED</span>
@@ -266,15 +277,20 @@
                 <div class="d-flex gap-2 flex-wrap">
                     @foreach (var cat in Categories)
                     {
-                        var isDarts = cat == "DARTS CLUB ROUND";
-                        var shouldHighlightDarts = isDarts && isDartsModeActive;
-                        <button class="filter-pill @(ActiveCategory == cat || shouldHighlightDarts ? "active" : "") @(isDarts ? "filter-pill--darts" : "")" 
+                        <button class="filter-pill @(ActiveCategory == cat ? "active" : "")" 
                                 @onclick='() => HandleCategoryClick(cat)'>@cat</button>
                     }
                 </div>
-                <button class="btn-no-sale shadow-sm" @onclick="HandleNoSale">
-                    <i class="bi bi-unlock-fill"></i> NO SALE
-                </button>
+                <div class="d-flex align-items-center gap-2">
+                    @if (DateTime.Now.DayOfWeek == DayOfWeek.Thursday || forceTrainingMode)
+                    {
+                        <button class="filter-pill filter-pill--darts @(isDartsModeActive ? "active" : "")" 
+                                @onclick='() => HandleCategoryClick("DARTS CLUB ROUND")'>DARTS CLUB ROUND</button>
+                    }
+                    <button class="btn-no-sale shadow-sm" @onclick="HandleNoSale">
+                        <i class="bi bi-unlock-fill"></i> NO SALE
+                    </button>
+                </div>
             </div>
 
             <div class="product-grid">
@@ -319,11 +335,14 @@
             </div>
         </aside>
 
-        <aside class="pos-cart">
+        <aside class="pos-cart @(isDartsModeActive ? "darts-mode-active" : "")">
             <div class="cart-header">
                 <div class="d-flex align-items-center">
-                    <h3 class="fw-black m-0">ACTIVE ORDER</h3>
-                    <span class="items-count">@CartItems.Sum(x => x.Quantity) ITEMS</span>
+                    <h3 class="fw-black m-0 me-3">ACTIVE ORDER</h3>
+                    <div class="items-count-badge">
+                        <span class="count">@CartItems.Sum(x => x.Quantity)</span>
+                        <span class="label">ITEMS</span>
+                    </div>
                 </div>
                 <button class="btn-clear-header" @onclick="ClearCart">
                     <i class="bi bi-trash3-fill"></i> CLEAR
@@ -344,7 +363,7 @@
                     {
                         <div class="cart-item-pill animate__animated animate__fadeInRight animate__faster">
                             <div class="item-info">
-                                <div class="qty-badge">@item.Quantity<small>x</small></div>
+                                <div class="qty-badge">@item.Quantity</div>
                                 <div class="name">@item.Name</div>
                             </div>
                             <div class="d-flex align-items-center">
@@ -361,8 +380,10 @@
             <div class="cart-footer">
                 <div class="grand-total-pill">
                     <span class="label-total">TOTAL DUE</span>
-                    <span class="value">$@Subtotal.ToString("N2")</span>
+                    <span class="value-total">$@Subtotal.ToString("N2")</span>
                 </div>
+
+
 
                 <div class="checkout-btns-group" style="display: flex; gap: 10px;">
                     <button class="btn-redeem @(CartItems.Count == 0 ? "disabled" : "")" 
@@ -437,15 +458,11 @@
     <div class="shift-overlay">
         <div class="checkout-card animate__animated animate__zoomIn animate__faster">
             <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="fw-black mb-0">CHECKOUT</h3>
                 <button class="btn-settings-icon" @onclick="() => ShowCheckoutOverlay = false">
-                    <i class="bi bi-chevron-left fs-3"></i>
+                    <i class="bi bi-x-lg fs-3"></i>
                 </button>
-                <div class="cash-display-box flex-grow-1 mx-3">
-                    <span class="currency">$</span>
-                    <span class="value">@CashInputString</span>
-                </div>
             </div>
-
             <div class="checkout-summary-grid">
                 <div class="summary-pill total">
                     <div class="label-total">TOTAL DUE</div>
@@ -454,6 +471,17 @@
                 <div class="summary-pill change @(CashReceived.HasValue && CashReceived.Value >= Subtotal ? "visible animate__animated animate__pulse animate__infinite" : "")">
                     <div class="label-total">@(CashReceived.HasValue && CashReceived.Value >= Subtotal ? "CHANGE DUE" : "REMAINING")</div>
                     <div class="value">$@Math.Abs(ChangeDue).ToString("N2")</div>
+                </div>
+            </div>
+
+            <div class="cash-input-section mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-black text-muted small">CASH TENDERED</span>
+                    <button class="btn btn-sm btn-link text-danger fw-bold text-decoration-none" @onclick='() => HandleNumPad("CLEAR")'>CLEAR</button>
+                </div>
+                <div class="cash-display-box">
+                    <span class="currency">$</span>
+                    <span class="value">@CashInputString</span>
                 </div>
             </div>
 
@@ -478,7 +506,7 @@
 
             <div class="checkout-button-group">
                 <button class="btn-complete" @onclick="FinalizeSale">COMPLETE TRANSACTION</button>
-                <button class="btn-add-more" @onclick="() => ShowCheckoutOverlay = false">UPDATE ORDER</button>
+                <button class="btn-add-more" @onclick="() => ShowCheckoutOverlay = false">BACK TO ORDER</button>
             </div>
         </div>
     </div>
@@ -515,7 +543,7 @@
     <div class="divider"></div>
     <div class="center">SYNC PENDING: @(PendingSyncCount > 0 ? "YES" : "NO")</div>
     <div class="divider"></div>
-    <div class="center small">Standalone Mode v@VersionService.GetRevision()</div>
+    <div class="center small" style="margin-top: 10px;">Standalone Mode v@(VersionService.GetRevision())</div>
 </div>
 
 @code {
@@ -601,11 +629,9 @@
         if (menu != null && menu.Items.Any())
         {
             Console.WriteLine($"[POS] Loaded {menu.Items.Count} items in {menu.Categories.Count} categories.");
-            Categories = menu.Categories;
+            Categories = menu.Categories.Where(c => c != "DARTS CLUB ROUND").ToList();
             DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
             DbTokens = menu.Tokens;
-            if (DateTime.Now.DayOfWeek == DayOfWeek.Thursday || forceTrainingMode)
-                if (!Categories.Contains("DARTS CLUB ROUND")) Categories.Add("DARTS CLUB ROUND");
             if (!Categories.Contains(ActiveCategory)) ActiveCategory = Categories.FirstOrDefault() ?? "BEER";
         }
         else
@@ -624,25 +650,53 @@
     {
         if (cat == "DARTS CLUB ROUND")
         {
-            if (isDartsModeActive) ClearCart();
-            else {
-                var existing = await PosService.GetDartsRoundTodayAsync(TerminalName);
-                if (existing != null) ShowNotice("Round Already Submitted", "A club round has already been submitted today. Correct it?", "dual", () => LoadDartsRoundForCorrection(existing));
-                else ActivateDartsMode();
+            if (isDartsModeActive)
+            {
+                // Toggle OFF and WIPE CART (Legacy Hard Reset)
+                ClearCart();
             }
-        } else { ActiveCategory = cat; }
+            else
+            {
+                // CHECK FOR DUPLICATES TODAY
+                var existing = await PosService.GetDartsRoundTodayAsync(TerminalName);
+                if (existing != null)
+                {
+                    ShowNotice("Round Already Submitted", "A club round has already been submitted today. Do you need to make a correction?", "dual", () => {
+                        LoadDartsRoundForCorrection(existing);
+                    });
+                }
+                else
+                {
+                    ActivateDartsMode();
+                }
+            }
+        }
+        else
+        {
+            ActiveCategory = cat;
+        }
     }
 
     private void ActivateDartsMode()
     {
         isDartsModeActive = true; 
-        ActiveCategory = "DARTS CLUB ROUND";
-        if (CartItems.Any()) {
+        
+        if (CartItems.Any()) 
+        {
+            // 1. Remove food items (strictly prohibited)
             int removedFood = CartItems.RemoveAll(i => i.Category == "FOOD");
-            if (removedFood > 0) ShowNotice("Items Removed", "Food items are not allowed in Darts Rounds.", "warning");
-            foreach (var item in CartItems.Where(i => i.Price > 0)) {
-                if (item.Category == "BEER" || item.Category == "LIQUOR") {
-                    item.Price = 0; if (!item.Name.Contains("(DARTS)")) item.Name += " (DARTS)";
+            if (removedFood > 0) 
+            {
+                ShowNotice("Items Removed", "Food items were removed because they are not allowed during Darts Club Rounds.", "warning");
+            }
+
+            // 2. Zero out eligible items
+            foreach (var item in CartItems.Where(i => i.Price > 0)) 
+            {
+                if (item.Category == "BEER" || item.Category == "LIQUOR" || item.Category == "TOKENS") 
+                {
+                    item.Name = item.Name.Contains("(DARTS)") ? item.Name : $"{item.Name} (DARTS)";
+                    item.Price = 0;
                 }
             }
         }
@@ -650,28 +704,37 @@
     }
 
     private Guid? _correctingSaleId = null;
-    private void LoadDartsRoundForCorrection(PosSaleDto sale) { _correctingSaleId = sale.Id; isDartsModeActive = true; ActiveCategory = "DARTS CLUB ROUND"; CartItems = JsonSerializer.Deserialize<List<ProductItem>>(sale.ItemsJson) ?? new(); StateHasChanged(); }
+    private void LoadDartsRoundForCorrection(PosSaleDto sale) { _correctingSaleId = sale.Id; isDartsModeActive = true; CartItems = JsonSerializer.Deserialize<List<ProductItem>>(sale.ItemsJson) ?? new(); StateHasChanged(); }
 
     private async Task AddToCart(ProductItem item)
     {
-        if (isDartsModeActive && item.Category == "FOOD") { ShowNotice("Strict Rule", "Food is not allowed in Darts Club Rounds.", "warning"); return; }
+        if (isDartsModeActive && item.Category == "FOOD") 
+        {
+             ShowNotice("Not Allowed", "Food items cannot be added during Darts Club Rounds.", "warning");
+             return;
+        }
+
         var isDartComp = isDartsModeActive;
         var price = isDartComp ? 0 : item.Price;
         var name = isDartComp && !item.Name.Contains("(DARTS)") ? $"{item.Name} (DARTS)" : item.Name;
+
         var existing = CartItems.FirstOrDefault(x => x.Id == item.Id && x.Price == price && x.Name == name);
         if (existing != null) existing.Quantity++;
         else CartItems.Add(new ProductItem { Id = item.Id, Name = name, Price = price, Category = item.Category, Quantity = 1 });
+        
         StateHasChanged();
         await JSRuntime.InvokeVoidAsync("eval", "var el = document.getElementById('cartItemsList'); if(el) el.scrollTop = el.scrollHeight;");
     }
 
     private void AddTokenToCart(PosToken token)
     {
+        int tokenId = -token.Id;
         var price = isDartsModeActive ? 0 : token.SalePrice;
         var name = isDartsModeActive ? $"{token.Name} (TOKEN) (DARTS)" : $"{token.Name} (TOKEN)";
-        var existing = CartItems.FirstOrDefault(x => x.Id == -token.Id && x.Price == price);
+        var existing = CartItems.FirstOrDefault(x => x.Id == tokenId && x.Price == price);
         if (existing != null) existing.Quantity++;
-        else CartItems.Add(new ProductItem { Id = -token.Id, Name = name, Price = price, Category = "TOKENS", Quantity = 1 });
+        else CartItems.Add(new ProductItem { Id = tokenId, Name = name, Price = price, Category = "TOKENS", Quantity = 1 });
+        StateHasChanged();
     }
 
     private void ApplyTokenRedemption(PosToken token)
@@ -693,9 +756,11 @@
     private async Task FinalizeSale()
     {
         var payment = CashReceived.HasValue ? "CASH" : (Subtotal == 0 ? "TOKEN/COMP" : "OTHER");
+        var saleId = _correctingSaleId ?? Guid.NewGuid();
+        
         var sale = new PosSaleDto
         {
-            Id = _correctingSaleId ?? Guid.NewGuid(),
+            Id = saleId,
             Timestamp = DateTime.Now,
             TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
             TotalAmount = Subtotal,
@@ -704,10 +769,19 @@
             ItemsJson = JsonSerializer.Serialize(CartItems)
         };
         
-        if (!forceTrainingMode) {
+        if (!forceTrainingMode) 
+        {
             await PosService.SaveSaleAsync(sale);
+            
+            if (_correctingSaleId != null)
+            {
+                _correctingSaleId = null;
+            }
+
             if (payment == "CASH") ShiftCashTotal += Subtotal;
-            foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) {
+            
+            foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) 
+            {
                 if (!ItemFrequency.ContainsKey(ci.Id)) ItemFrequency[ci.Id] = 0;
                 ItemFrequency[ci.Id] += ci.Quantity;
             }
@@ -724,7 +798,7 @@
             var noSale = new PosSaleDto { TerminalName = TerminalName, TotalAmount = 0, Timestamp = DateTime.Now, ItemsJson = "[{\"Name\": \"NO SALE (Drawer Open)\", \"Quantity\": 1, \"Price\": 0}]", PaymentType = "NO SALE" };
             await PosService.SaveSaleAsync(noSale);
         }
-        ClearCart(); Toast.ShowInfo("Drawer Opened");
+        ClearCart();
     }
 
     private enum CloseOutStep { None, PromptInventory, ReviewDraft, Selection, PromptZ }
