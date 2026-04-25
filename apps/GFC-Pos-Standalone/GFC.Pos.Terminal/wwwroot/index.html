@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
     <link rel="stylesheet" href="css/app.css" />
     <link rel="stylesheet" href="css/pos-terminal.css" />
+    <link href="_content/Blazored.Toast/blazored-toast.css" rel="stylesheet" />
     <link rel="icon" type="image/png" href="favicon.png" />
     <link href="GFC.Pos.Terminal.styles.css" rel="stylesheet" />
     <link rel="manifest" href="manifest.json" />
@@ -35,6 +36,65 @@
     </div>
     <script src="js/connectivity.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        // [UI-THREAD OFFLOAD] Initialize Background Persistence Worker
+        const gfcWorker = new Worker('gfc-storage-worker.js');
+        const pendingRequests = new Map();
+
+        gfcWorker.onmessage = (e) => {
+            const { action, key, value } = e.data;
+            if (action === "getAll_result") {
+                const resolve = pendingRequests.get("getAll");
+                if (resolve) {
+                    pendingRequests.delete("getAll");
+                    resolve(value);
+                }
+            } else if (action === "get_result") {
+                const resolve = pendingRequests.get("get_" + key);
+                if (resolve) {
+                    pendingRequests.delete("get_" + key);
+                    resolve(typeof value === "string" ? value : JSON.stringify(value));
+                }
+            } else if (action === "set_result") {
+                const resolve = pendingRequests.get("set_" + key);
+                if (resolve) {
+                    pendingRequests.delete("set_" + key);
+                    resolve(true);
+                }
+            }
+        };
+
+        window.gfcSetAsync = (key, value) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("set_" + key);
+                reject("gfcSetAsync Timeout");
+            }, 5000);
+            pendingRequests.set("set_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'set', key, value });
+        });
+        
+        window.gfcGetAsync = (key) => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("get_" + key);
+                resolve(null); 
+            }, 5000);
+            pendingRequests.set("get_" + key, (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'get', key });
+        });
+        
+        window.gfcGetAllAsync = () => new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pendingRequests.delete("getAll");
+                resolve("[]");
+            }, 10000);
+            pendingRequests.set("getAll", (val) => { clearTimeout(timeout); resolve(val); });
+            gfcWorker.postMessage({ action: 'getAll' });
+        });
+
+        window.gfcRemoveAsync = (key) => {
+            gfcWorker.postMessage({ action: 'remove', key });
+        };
+    </script>
 </body>
 
 </html>

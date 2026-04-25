@@ -11,6 +11,7 @@
 @inject IPosTerminalService PosService
 @inject Blazored.Toast.Services.IToastService Toast
 @inject ConnectivityService Connectivity
+@inject IVersionService VersionService
 @implements IDisposable
 @attribute [AllowAnonymous]
 
@@ -27,25 +28,50 @@
         </div>
         
         <div class="pos-status">
-            <div class="status-pill @(Connectivity.IsOnline ? "online" : "offline")">
-                <i class="bi @(Connectivity.IsOnline ? "bi-wifi" : "bi-wifi-off")"></i>
-                <span>@(Connectivity.IsOnline ? "ONLINE" : "OFFLINE")</span>
+            <!-- Internet Indicator -->
+            <div class="hub-heartbeat-container">
+                <div class="hub-heartbeat-dot @(Connectivity.IsHardwareOnline ? "online" : "offline")"></div>
+                <span class="heartbeat-label">INTERNET</span>
             </div>
 
-            @if (PendingSyncSales.Any())
-            {
-                <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
-                    <i class="bi bi-cloud-arrow-up-fill"></i>
-                    <span>@PendingSyncSales.Count PENDING SYNC</span>
+            <!-- Server Indicator -->
+            <div class="hub-heartbeat-container">
+                <div class="hub-heartbeat-dot @(Connectivity.IsServerReachable ? "online" : "offline")"></div>
+                <span class="heartbeat-label">SERVER</span>
+            </div>
+
+            <div class="d-flex flex-column align-items-center" style="line-height: 1.1; min-width: 140px;">
+                <div class="d-flex align-items-center gap-2">
+                    @if (!Connectivity.IsServerReachable)
+                    {
+                        <div class="sync-pill danger animate__animated animate__pulse animate__infinite">
+                            <i class="bi bi-cloud-slash-fill"></i>
+                            <span>LOCAL MODE</span>
+                        </div>
+                    }
+
+                    @if (PendingSyncCount > 0)
+                    {
+                        <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
+                            <i class="bi bi-cloud-arrow-up-fill"></i>
+                            <span>@PendingSyncCount PENDING</span>
+                        </div>
+                    }
+                    else if (Connectivity.IsServerReachable)
+                    {
+                        <div class="sync-pill success">
+                            <i class="bi bi-cloud-check-fill"></i>
+                            <span>SYNCED</span>
+                        </div>
+                    }
+                    <span class="badge bg-light text-muted border" style="font-size: 0.6rem; letter-spacing: 0.05em; padding: 4px 8px;">
+                        v.@VersionService.GetRevision()
+                    </span>
                 </div>
-            }
-            else
-            {
-                <div class="sync-pill success">
-                    <i class="bi bi-cloud-check-fill"></i>
-                    <span>SYNCED</span>
-                </div>
-            }
+                <span class="heartbeat-label" style="font-size: 0.5rem; opacity: 0.8;">
+                    @(PosService.LastSynced.HasValue ? $"SYNCED: {PosService.LastSynced.Value.ToString("h:mm:ss tt")}" : "SAVED TO VAULT")
+                </span>
+            </div>
 
             @if (forceTrainingMode)
             {
@@ -118,6 +144,19 @@
                             </div>
                         </div>
                     }
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="text-muted small fw-bold text-uppercase mb-3">Operator Identity</h6>
+                    <div class="p-3 bg-light rounded-4 mb-3">
+                        <label class="small text-muted mb-2 d-block ms-1">Active Bartender</label>
+                        <select class="form-select form-select-lg border-0 shadow-sm rounded-3" @bind="CurrentUserName">
+                            @foreach (var user in AuthorizedUsers)
+                            {
+                                <option value="@user.Username">@user.Username</option>
+                            }
+                        </select>
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -461,10 +500,28 @@
     </div>
 }
 
+@* OFFLINE PRINT ZONE *@
+<div id="receipt-print-zone">
+    <div class="center bold">GFC TERMINAL</div>
+    <div class="center">@TerminalName</div>
+    <div class="divider"></div>
+    <div class="center bold">Z-REPORT SUMMARY</div>
+    <div class="divider"></div>
+    <div>Date: @DateTime.Now.ToString("g")</div>
+    <div>Operator: @CurrentUserName</div>
+    <div class="divider"></div>
+    <div class="bold">TOTAL CASH: @ShiftCashTotal.ToString("C")</div>
+    <div class="divider"></div>
+    <div class="center">SYNC PENDING: @(PendingSyncCount > 0 ? "YES" : "NO")</div>
+    <div class="divider"></div>
+    <div class="center small">Standalone Mode v@VersionService.GetRevision()</div>
+</div>
+
 @code {
     private string CurrentUserName = "ADMIN";
     private string TerminalName = "TERMINAL 1";
-    private List<PosSaleDto> PendingSyncSales = new();
+    private List<UserListItemDto> AuthorizedUsers = new();
+    private int PendingSyncCount => PosService.TotalPendingCount;
     
     private List<ProductItem> DbItems = new();
     private List<string> Categories = new();
@@ -498,9 +555,16 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await Connectivity.InitializeAsync();
         await LoadTerminalName();
         await RefreshData();
         
+        AuthorizedUsers = await PosService.GetAuthorizedUsersAsync();
+        if (AuthorizedUsers.Any())
+        {
+            CurrentUserName = AuthorizedUsers.First().Username;
+        }
+
         var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
         if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
         
@@ -508,6 +572,9 @@
         if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
 
         Connectivity.ConnectivityChanged += OnConnectivityChanged;
+        PosService.OutboxChanged += OnOutboxChanged;
+        
+        await PosService.GetTotalPendingAsync();
     }
 
     private void OnConnectivityChanged(bool isOnline)
@@ -515,22 +582,34 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void OnOutboxChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     public void Dispose()
     {
         Connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        PosService.OutboxChanged -= OnOutboxChanged;
     }
 
     private async Task RefreshData()
     {
+        Console.WriteLine("[POS] Refreshing Menu Data...");
         var menu = await PosService.GetMenuAsync();
-        if (menu != null)
+        if (menu != null && menu.Items.Any())
         {
+            Console.WriteLine($"[POS] Loaded {menu.Items.Count} items in {menu.Categories.Count} categories.");
             Categories = menu.Categories;
             DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
             DbTokens = menu.Tokens;
             if (DateTime.Now.DayOfWeek == DayOfWeek.Thursday || forceTrainingMode)
                 if (!Categories.Contains("DARTS CLUB ROUND")) Categories.Add("DARTS CLUB ROUND");
             if (!Categories.Contains(ActiveCategory)) ActiveCategory = Categories.FirstOrDefault() ?? "BEER";
+        }
+        else
+        {
+            Console.WriteLine("[POS] RefreshData: Menu was empty, keeping existing state.");
         }
     }
 
@@ -656,15 +735,21 @@
     private async Task ProcessZOut(bool print)
     {
         if (!forceTrainingMode) {
-            var lastTime = await PosService.GetLastZTimeAsync(TerminalName);
             var z = new PosZReportDto { 
                 Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
-                CashTotal = ShiftCashTotal, TotalGrossSales = 0, 
+                CashTotal = ShiftCashTotal, TotalGrossSales = ShiftCashTotal, 
                 InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
-                SalesSummaryJson = "{}" // Server calculates the full summary now
+                SalesSummaryJson = "{}" // Server re-calculates or uses this total
             };
             await PosService.SaveZReportAsync(z);
         }
+
+        if (print) 
+        {
+            await Task.Delay(100);
+            await JSRuntime.InvokeVoidAsync("window.print");
+        }
+
         _inventoryPullDraft.Clear(); ShiftCashTotal = 0; _currentCloseOutStep = CloseOutStep.None;
         showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
     }

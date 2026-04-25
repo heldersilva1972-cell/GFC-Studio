@@ -16,17 +16,22 @@ public class PosTerminalService : IPosTerminalService
     private readonly IJSRuntime _js;
     private readonly ConnectivityService _connectivity;
 
-    private const string PendingSalesKey    = "gfc_pos_pending_sales";
-    private const string PendingZKey        = "gfc_pos_pending_z_reports";
+    private const string VaultPrefixSales = "gfc_pos_vault_sale_";
+    private const string VaultPrefixZ     = "gfc_pos_vault_z_";
     private const string CachedMenuKey      = "gfc_pos_cached_menu";
+    private const string AuthorizedUsersKey = "gfc_pos_authorized_users";
     private const int MaxAttempts           = 5;
+    private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    /// <summary>Raised when the pending count changes — UI badges subscribe to this.</summary>
     public event Action? OutboxChanged;
 
     public int PendingSalesCount  { get; private set; }
     public int PendingZCount      { get; private set; }
     public int TotalPendingCount  => PendingSalesCount + PendingZCount;
+    public DateTime? LastSynced   { get; private set; }
+
+    private readonly SemaphoreSlim _syncLock = new(1, 1);
+    private readonly Timer _syncTimer;
 
     public PosTerminalService(HttpClient http, IJSRuntime js, ConnectivityService connectivity)
     {
@@ -34,195 +39,223 @@ public class PosTerminalService : IPosTerminalService
         _js = js;
         _connectivity = connectivity;
 
-        // Auto-flush everything the moment connectivity is restored
+        // [SYNC HEARTBEAT] Pulse every 30 seconds to flush trapped data
+        _syncTimer = new Timer(async _ => await SafeFlushAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+
         _connectivity.ConnectivityChanged += async isOnline =>
         {
             if (isOnline)
             {
-                Console.WriteLine("[POS] Connectivity restored — flushing outbox...");
-                await FlushAllPendingAsync();
+                Console.WriteLine("[SYNC TRACE] Connectivity restored — sweeping vault...");
+                await SafeFlushAsync();
             }
         };
     }
 
+    private async Task SafeFlushAsync()
+    {
+        if (!await _syncLock.WaitAsync(0)) return;
+        try { await FlushAllPendingAsync(); }
+        finally { _syncLock.Release(); }
+    }
+
     // ─── READ OPERATIONS ──────────────────────────────────────────────────────────────
 
-    public async Task<bool> CheckConnectivityAsync()
-    {
-        try
-        {
-            var response = await _http.GetAsync("api/pos/menu");
-            return response.IsSuccessStatusCode;
-        }
-        catch { return false; }
-    }
+    public async Task<bool> CheckConnectivityAsync() => await _connectivity.CheckServerReachableAsync();
 
     public async Task<PosMenuDto> GetMenuAsync()
     {
+        // 1. Try Server (if online)
         try
         {
-            var menu = await _http.GetFromJsonAsync<PosMenuDto>("api/pos/menu");
-            if (menu != null)
+            if (await _connectivity.GateAsync("GetMenu"))
             {
-                // Cache for offline startup
-                await _js.InvokeVoidAsync("localStorage.setItem", CachedMenuKey, JsonSerializer.Serialize(menu));
-                return menu;
+                var menu = await _http.GetFromJsonAsync<PosMenuDto>("api/pos/menu");
+                if (menu != null && menu.Items.Any())
+                {
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
+                    return menu;
+                }
             }
         }
-        catch
+        catch { }
+
+        // 2. Fallback to Vault
+        try
         {
-            // Fall back to cached menu
-            var cached = await _js.InvokeAsync<string>("localStorage.getItem", CachedMenuKey);
+            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
             if (!string.IsNullOrEmpty(cached))
             {
-                Console.WriteLine("[POS] Loaded menu from localStorage cache.");
-                return JsonSerializer.Deserialize<PosMenuDto>(cached) ?? new PosMenuDto();
+                return JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions) ?? new PosMenuDto();
             }
         }
+        catch { }
+
         return new PosMenuDto();
+    }
+
+    public async Task<List<UserListItemDto>> GetAuthorizedUsersAsync()
+    {
+        // 1. Try Server
+        try
+        {
+            if (await _connectivity.GateAsync("GetUsers"))
+            {
+                var users = await _http.GetFromJsonAsync<List<UserListItemDto>>("api/pos/users");
+                if (users != null)
+                {
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", AuthorizedUsersKey, users);
+                    return users;
+                }
+            }
+        }
+        catch { }
+
+        // 2. Fallback to Vault
+        try
+        {
+            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", AuthorizedUsersKey);
+            if (!string.IsNullOrEmpty(cached))
+            {
+                return JsonSerializer.Deserialize<List<UserListItemDto>>(cached, _jsonOptions) ?? new();
+            }
+        }
+        catch { }
+
+        return new();
     }
 
     public async Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName)
     {
-        try { return await _http.GetFromJsonAsync<PosSaleDto>($"api/pos/darts-check/{terminalName}"); }
+        try 
+        { 
+            if (!await _connectivity.GateAsync("GetDartsRound")) return null;
+            return await _http.GetFromJsonAsync<PosSaleDto>($"api/pos/darts-check/{terminalName}"); 
+        }
         catch { return null; }
     }
 
     public async Task<List<PosZReportDto>> GetZReportsAsync(string terminalName)
     {
-        try { return await _http.GetFromJsonAsync<List<PosZReportDto>>($"api/pos/z-reports/{terminalName}") ?? new(); }
+        try 
+        { 
+            if (!await _connectivity.GateAsync("GetZReports")) return new();
+            return await _http.GetFromJsonAsync<List<PosZReportDto>>($"api/pos/z-reports/{terminalName}") ?? new(); 
+        }
         catch { return new(); }
     }
 
     public async Task<PosZReportDto?> GetZReportAsync(Guid id)
     {
-        try { return await _http.GetFromJsonAsync<PosZReportDto>($"api/pos/z-report/{id}"); }
+        try 
+        { 
+            if (!await _connectivity.GateAsync("GetZReport")) return null;
+            return await _http.GetFromJsonAsync<PosZReportDto>($"api/pos/z-report/{id}"); 
+        }
         catch { return null; }
     }
 
     public async Task<DateTime> GetLastZTimeAsync(string terminalName)
     {
-        try { return await _http.GetFromJsonAsync<DateTime>($"api/pos/last-z/{terminalName}"); }
+        try 
+        { 
+            if (!await _connectivity.GateAsync("GetLastZ")) return DateTime.Today;
+            return await _http.GetFromJsonAsync<DateTime>($"api/pos/last-z/{terminalName}"); 
+        }
         catch { return DateTime.Today; }
     }
 
-    // ─── WRITE OPERATIONS (local-first) ──────────────────────────────────────────────
+    // ─── SAVE OPERATIONS (VAULT-FIRST) ───
 
     public async Task SaveSaleAsync(PosSaleDto sale)
     {
-        // Ensure stable ID for deduplication on retry
-        if (sale.Id == Guid.Empty)
-            sale.Id = Guid.NewGuid();
+        if (sale.Id == Guid.Empty) sale.Id = Guid.NewGuid();
 
-        // 1. Save locally first (instant, always succeeds)
-        await BufferSaleLocallyAsync(sale);
+        // 1. Instant Atomic Vault Save
+        var key = $"{VaultPrefixSales}{sale.Id}";
+        await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
+        
+        await GetTotalPendingAsync();
+        OutboxChanged?.Invoke();
 
-        // 2. Flush in background — does not block caller
-        if (_connectivity.IsOnline)
-            _ = FlushAllPendingAsync();
+        // 2. Background Attempt
+        _ = SafeFlushAsync();
     }
 
     public async Task SaveZReportAsync(PosZReportDto report)
     {
-        await BufferZReportLocallyAsync(report);
+        if (report.Id == Guid.Empty) report.Id = Guid.NewGuid();
 
-        if (_connectivity.IsOnline)
-            _ = FlushAllPendingAsync();
+        var key = $"{VaultPrefixZ}{report.Id}";
+        await _js.InvokeVoidAsync("window.gfcSetAsync", key, report);
+        
+        await GetTotalPendingAsync();
+        OutboxChanged?.Invoke();
+
+        _ = SafeFlushAsync();
     }
 
-    // ─── FLUSH (called on reconnect + after each successful save) ────────────────────
+    // ─── SYNC ENGINE (VAULT SWEEP) ───
 
     public async Task FlushAllPendingAsync()
     {
-        await FlushPendingSalesAsync();
-        await FlushPendingZReportsAsync();
+        if (!await _connectivity.GateAsync("OutboxSweep")) return;
+
+        try {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind != JsonValueKind.Array) return;
+
+            foreach (var item in vaultItems.EnumerateArray()) {
+                var key = item.GetProperty("key").GetString();
+                if (key == null) continue;
+
+                if (key.StartsWith(VaultPrefixSales)) {
+                    var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                    if (data != null) {
+                        var resp = await _http.PostAsJsonAsync("api/pos/sale", data);
+                        if (resp.IsSuccessStatusCode) {
+                            await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                            LastSynced = DateTime.Now;
+                        }
+                    }
+                }
+                
+                if (key.StartsWith(VaultPrefixZ)) {
+                    var data = JsonSerializer.Deserialize<PosZReportDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                    if (data != null) {
+                        var resp = await _http.PostAsJsonAsync("api/pos/z-report", data);
+                        if (resp.IsSuccessStatusCode) {
+                            await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                            LastSynced = DateTime.Now;
+                        }
+                    }
+                }
+            }
+        } catch { }
+
+        await GetTotalPendingAsync();
+        OutboxChanged?.Invoke();
     }
 
     public async Task<int> GetTotalPendingAsync()
     {
-        var sales = await GetPendingSalesAsync();
-        var zs    = await GetPendingZReportsAsync();
-        PendingSalesCount = sales.Count;
-        PendingZCount     = zs.Count;
-        return TotalPendingCount;
-    }
+        try {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            int sales = 0;
+            int z = 0;
 
-    // ─── INTERNAL BUFFERING ───────────────────────────────────────────────────────────
-
-    private async Task BufferSaleLocallyAsync(PosSaleDto sale)
-    {
-        var pending = await GetPendingSalesAsync();
-        // Replace if same ID already buffered (idempotent)
-        pending.RemoveAll(s => s.Id == sale.Id);
-        pending.Add(sale);
-        await _js.InvokeVoidAsync("localStorage.setItem", PendingSalesKey, JsonSerializer.Serialize(pending));
-        PendingSalesCount = pending.Count;
-        OutboxChanged?.Invoke();
-    }
-
-    private async Task BufferZReportLocallyAsync(PosZReportDto report)
-    {
-        var pending = await GetPendingZReportsAsync();
-        pending.RemoveAll(z => z.Id == report.Id);
-        pending.Add(report);
-        await _js.InvokeVoidAsync("localStorage.setItem", PendingZKey, JsonSerializer.Serialize(pending));
-        PendingZCount = pending.Count;
-        OutboxChanged?.Invoke();
-    }
-
-    private async Task FlushPendingSalesAsync()
-    {
-        var pending = await GetPendingSalesAsync();
-        if (!pending.Any()) return;
-
-        var remaining = new List<PosSaleDto>();
-        foreach (var sale in pending)
-        {
-            try
-            {
-                var resp = await _http.PostAsJsonAsync("api/pos/sale", sale);
-                if (!resp.IsSuccessStatusCode) remaining.Add(sale);
-                else Console.WriteLine($"[POS] ✓ Synced sale {sale.Id}");
+            if (vaultItems.ValueKind == JsonValueKind.Array) {
+                foreach (var item in vaultItems.EnumerateArray()) {
+                    var key = item.GetProperty("key").GetString();
+                    if (key == null) continue;
+                    if (key.StartsWith(VaultPrefixSales)) sales++;
+                    if (key.StartsWith(VaultPrefixZ)) z++;
+                }
             }
-            catch { remaining.Add(sale); }
-        }
 
-        await _js.InvokeVoidAsync("localStorage.setItem", PendingSalesKey, JsonSerializer.Serialize(remaining));
-        PendingSalesCount = remaining.Count;
-        OutboxChanged?.Invoke();
-    }
-
-    private async Task FlushPendingZReportsAsync()
-    {
-        var pending = await GetPendingZReportsAsync();
-        if (!pending.Any()) return;
-
-        var remaining = new List<PosZReportDto>();
-        foreach (var report in pending)
-        {
-            try
-            {
-                var resp = await _http.PostAsJsonAsync("api/pos/z-report", report);
-                if (!resp.IsSuccessStatusCode) remaining.Add(report);
-                else Console.WriteLine($"[POS] ✓ Synced Z-report {report.Id}");
-            }
-            catch { remaining.Add(report); }
-        }
-
-        await _js.InvokeVoidAsync("localStorage.setItem", PendingZKey, JsonSerializer.Serialize(remaining));
-        PendingZCount = remaining.Count;
-        OutboxChanged?.Invoke();
-    }
-
-    private async Task<List<PosSaleDto>> GetPendingSalesAsync()
-    {
-        var json = await _js.InvokeAsync<string>("localStorage.getItem", PendingSalesKey);
-        return string.IsNullOrEmpty(json) ? new() : JsonSerializer.Deserialize<List<PosSaleDto>>(json) ?? new();
-    }
-
-    private async Task<List<PosZReportDto>> GetPendingZReportsAsync()
-    {
-        var json = await _js.InvokeAsync<string>("localStorage.getItem", PendingZKey);
-        return string.IsNullOrEmpty(json) ? new() : JsonSerializer.Deserialize<List<PosZReportDto>>(json) ?? new();
+            PendingSalesCount = sales;
+            PendingZCount = z;
+            return TotalPendingCount;
+        } catch { return 0; }
     }
 }

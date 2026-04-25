@@ -12,6 +12,15 @@ window.GfcConnectivity = {
         return navigator.onLine;
     },
 
+    // [DIAGNOSTIC] Returns detailed state
+    getState: function() {
+        return {
+            onLine: navigator.onLine,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString()
+        };
+    },
+
     _notify: function (isOnline) {
         if (this._dotnetRef) {
             this._dotnetRef.invokeMethodAsync('OnConnectivityChanged', isOnline);
@@ -22,3 +31,4 @@ window.GfcConnectivity = {
         this._dotnetRef = null;
     }
 };
+

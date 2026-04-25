@@ -9,16 +9,23 @@ namespace GFC.Pos.Terminal.Services;
 public class ConnectivityService : IAsyncDisposable
 {
     private readonly IJSRuntime _js;
+    private readonly HttpClient _http;
     private DotNetObjectReference<ConnectivityService>? _selfRef;
 
-    public bool IsOnline { get; private set; } = true;
+    private bool _isOnline = true;
+    private bool _isHardwareOnline = true;
+    private bool _isServerReachable = true;
 
-    /// <summary>Fires whenever connectivity changes. Parameter is the new IsOnline value.</summary>
+    public bool IsOnline => _isOnline;
+    public bool IsHardwareOnline => _isHardwareOnline;
+    public bool IsServerReachable => _isServerReachable;
+
     public event Action<bool>? ConnectivityChanged;
 
-    public ConnectivityService(IJSRuntime js)
+    public ConnectivityService(IJSRuntime js, HttpClient http)
     {
         _js = js;
+        _http = http;
     }
 
     public async Task InitializeAsync()
@@ -26,8 +33,26 @@ public class ConnectivityService : IAsyncDisposable
         try
         {
             _selfRef = DotNetObjectReference.Create(this);
-            IsOnline = await _js.InvokeAsync<bool>("GfcConnectivity.isOnline");
             await _js.InvokeVoidAsync("GfcConnectivity.initialize", _selfRef);
+            
+            // [MOBILE PARITY] Pulse every 5 seconds exactly like mobile hub
+            _ = Task.Run(async () => {
+                while (true) {
+                    var prevOnline = _isOnline;
+                    var prevHardware = _isHardwareOnline;
+                    var prevServer = _isServerReachable;
+
+                    await CheckServerReachableAsync();
+
+                    // Fire if ANY state changed (Diagnostics dots need this)
+                    if (prevOnline != _isOnline || prevHardware != _isHardwareOnline || prevServer != _isServerReachable)
+                    {
+                        ConnectivityChanged?.Invoke(_isOnline);
+                    }
+
+                    await Task.Delay(5000);
+                }
+            });
         }
         catch (Exception ex)
         {
@@ -35,13 +60,53 @@ public class ConnectivityService : IAsyncDisposable
         }
     }
 
+    public async Task<bool> CheckServerReachableAsync()
+    {
+        try
+        {
+            // 1. Instant Hardware Check
+            _isHardwareOnline = await _js.InvokeAsync<bool>("GfcConnectivity.isOnline");
+            if (!_isHardwareOnline)
+            {
+                _isServerReachable = false;
+                _isOnline = false;
+                return false;
+            }
+
+            // 2. Real API Heartbeat (with Mobile-spec Cache Buster)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var timestamp = DateTime.Now.Ticks;
+            var response = await _http.GetAsync($"api/Health?t={timestamp}", cts.Token);
+            
+            _isServerReachable = response.IsSuccessStatusCode;
+            _isOnline = _isServerReachable;
+            return _isOnline;
+        }
+        catch
+        {
+            _isServerReachable = false;
+            _isOnline = false;
+            return false;
+        }
+    }
+
+    public async Task<bool> GateAsync(string actionName)
+    {
+        // Zero 'Failed to fetch' strategy - Mobile Spec
+        var reachable = await CheckServerReachableAsync();
+        if (!reachable)
+        {
+            Console.WriteLine($"[CONNECTIVITY GUARD] Blocking '{actionName}' - Offline state detected.");
+            return false;
+        }
+        return true;
+    }
+
     [JSInvokable]
     public void OnConnectivityChanged(bool isOnline)
     {
-        if (IsOnline == isOnline) return;
-        IsOnline = isOnline;
-        Console.WriteLine($"[Connectivity] → {(isOnline ? "ONLINE" : "OFFLINE")}");
-        ConnectivityChanged?.Invoke(isOnline);
+        // Immediate hardware update from JS, but heartbeat will confirm IsOnline
+        _isHardwareOnline = isOnline;
     }
 
     public async ValueTask DisposeAsync()

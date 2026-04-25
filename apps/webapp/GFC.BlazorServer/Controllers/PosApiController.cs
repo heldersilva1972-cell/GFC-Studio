@@ -74,6 +74,13 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             
+            // [IDEMPOTENCY] Check if this sale already arrived
+            if (await db.PosSales.AnyAsync(s => s.Id == saleDto.Id))
+            {
+                _logger.LogInformation("POS Sale {Id} already exists, skipping duplicate save.", saleDto.Id);
+                return Ok();
+            }
+
             var sale = new PosSale
             {
                 Id = saleDto.Id,
@@ -97,7 +104,7 @@ public class PosApiController : ControllerBase
                     foreach (var item in items.Where(i => i.Id > 0))
                     {
                         // Note: Using a default system user ID (1) for POS adjustments
-                        _ = _liquorService.AdjustStockAsync(item.Id, 1, -item.Quantity, $"POS Sale: {item.Name}");
+                        await _liquorService.AdjustStockAsync(item.Id, 1, -item.Quantity, $"POS Sale: {item.Name}");
                     }
                 }
             }
@@ -119,6 +126,13 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             
+            // [IDEMPOTENCY] Check if this report already arrived
+            if (await db.PosZReports.AnyAsync(r => r.Id == reportDto.Id))
+            {
+                _logger.LogInformation("Z-Report {Id} already exists, skipping duplicate save.", reportDto.Id);
+                return Ok();
+            }
+
             var report = new PosZReport
             {
                 Id = reportDto.Id,
