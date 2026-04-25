@@ -3,6 +3,7 @@ using GFC.Core.DTOs;
 
 namespace GFC.Core.Interfaces;
 
+// GFC Mobile Service Contract (Targeted Revision)
 public interface IMobileReportingService
 {
     Task<MobileShiftData> GetShiftReportDataAsync(DateTime date, string shiftType, bool isRental);
@@ -12,6 +13,7 @@ public interface IMobileReportingService
     Task<bool> SubmitFinalReportAsync(MobileShiftData data, string username);
     Task<DailyShiftSummary> GetDailySummaryAsync(DateTime date);
     Task<string> GetServerVersionAsync();
+    Task<LotteryCommissionRate> GetLotteryRateAsync(int year);
     Task FlushOutboxAsync();
     event Action? OutboxChanged;
 }

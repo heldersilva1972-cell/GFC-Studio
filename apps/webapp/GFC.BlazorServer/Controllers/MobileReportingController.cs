@@ -1,5 +1,6 @@
 using GFC.Core.Interfaces;
 using GFC.Core.DTOs;
+using GFC.Core.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GFC.BlazorServer.Controllers;
@@ -80,5 +81,11 @@ public class MobileReportingController : ControllerBase
     public async Task<ActionResult<DailyShiftSummary>> GetSummary(DateTime date)
     {
         return await _reportingService.GetDailySummaryAsync(date);
+    }
+
+    [HttpGet("lottery-rate")]
+    public async Task<ActionResult<LotteryCommissionRate>> GetLotteryRate(int year)
+    {
+        return await _reportingService.GetLotteryRateAsync(year);
     }
 }

@@ -15,17 +15,20 @@ public class MobileReportingService : IMobileReportingService
 {
     private readonly IDbContextFactory<GfcDbContext> _dbFactory;
     private readonly ILotteryShiftRepository _lottoRepo;
+    private readonly ILotteryRateRepository _rateRepo;
     private readonly IAuditLogger _auditLogger;
     private readonly IVersionService _versionService;
 
     public MobileReportingService(
         IDbContextFactory<GfcDbContext> dbFactory,
         ILotteryShiftRepository lottoRepo,
+        ILotteryRateRepository rateRepo,
         IAuditLogger auditLogger,
         IVersionService versionService)
     {
         _dbFactory = dbFactory;
         _lottoRepo = lottoRepo;
+        _rateRepo = rateRepo;
         _auditLogger = auditLogger;
         _versionService = versionService;
     }
@@ -93,11 +96,14 @@ public class MobileReportingService : IMobileReportingService
 
     public async Task<decimal> GetCarryoverCashAsync(DateTime date, string shiftType)
     {
+        var rate = await GetLotteryRateAsync(date.Year);
+        var target = rate?.TargetDrawerAmount ?? 1200;
+
         using var db = await _dbFactory.CreateDbContextAsync();
         if (shiftType == "Night")
         {
             var day = await db.LotteryShifts.AsNoTracking().FirstOrDefaultAsync(s => s.ShiftDate.Date == date.Date && s.ShiftType == "Day");
-            if (day == null || day.EndingCash <= 0) return 1200;
+            if (day == null || day.EndingCash <= 0) return target;
             return day.EndingCash - day.EnvelopeAmount - day.BagRefillAmount;
         }
 
@@ -108,8 +114,8 @@ public class MobileReportingService : IMobileReportingService
                 .OrderByDescending(s => s.ShiftDate).ThenByDescending(s => s.ShiftType)
                 .FirstOrDefaultAsync();
             
-            if (yesterday == null || yesterday.EndingCash <= 0) return 1200;
-            return Math.Min(1200, yesterday.EndingCash - yesterday.EnvelopeAmount - yesterday.BagRefillAmount);
+            if (yesterday == null || yesterday.EndingCash <= 0) return target;
+            return Math.Min(target, yesterday.EndingCash - yesterday.EnvelopeAmount - yesterday.BagRefillAmount);
         }
     }
 
@@ -281,6 +287,11 @@ public class MobileReportingService : IMobileReportingService
     public Task<string> GetServerVersionAsync()
     {
         return Task.FromResult(_versionService.GetFullVersion());
+    }
+
+    public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
+    {
+        return await Task.Run(() => _rateRepo.GetApplicableRate(year)) ?? new LotteryCommissionRate { Year = year };
     }
 
     // [INTERFACE SATISFACTION] The server-side service is the destination and does not need a local outbox.

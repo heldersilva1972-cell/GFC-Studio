@@ -1,3 +1,4 @@
+@* GFC Mobile Shift Reporting UI (Synchronized with Core 2.1.51) *@
 @page "/mobile/shift-report"
 
 @using GFC.Mobile.Components.Shared
@@ -12,11 +13,13 @@
 @inject IVersionService VersionService
 @inject ICustomAuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
+@inject IConnectivityService Connectivity
+@implements IDisposable
 @attribute [Authorize]
 
 <PageTitle>End of Shift | GFC Mobile</PageTitle>
 
-<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" Username="@_currentUsername" />
+<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" Username="@_currentUsername" ShiftType="@ShiftType" />
 
 
 <div class="tablet-body p-0 m-0">
@@ -181,61 +184,65 @@
 
     @if (_showDistributionSlip)
     {
-        <div class="glass-modal-overlay">
-            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px; border: 3px solid #0d6efd;">
-                <div class="glass-modal-header-icon success mb-3" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd; border-color: #0d6efd;">
-                    <i class="bi bi-cash-stack"></i>
+        <div class="glass-modal-overlay" style="z-index: 10000;">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 550px; padding: 2.5rem 1.5rem; border: none; box-shadow: 0 30px 60px -12px rgba(0,0,0,0.3);">
+                <div class="text-center mb-4">
+                    <div class="modal-icon-header mb-3 shadow-sm">
+                        <i class="bi bi-safe2-fill text-primary" style="font-size: 2.5rem;"></i>
+                    </div>
+                    <h2 class="fw-black text-dark mb-1">CASH RECONCILIATION</h2>
+                    <p class="text-muted small">Please pull and place the cash amounts exactly as shown below.</p>
                 </div>
-                <h3 class="fw-black text-dark mb-1 text-uppercase">💵 End-of-Shift Envelope Cash</h3>
-                <p class="text-muted small mb-4">Please pull the following amounts from the drawer now.</p>
-                
-                <div class="bg-light rounded-4 p-4 mb-4 border text-start shadow-inner">
+
+                <div class="d-flex flex-column gap-3 mb-4">
+                    <!-- TASK 1: BACKUP BAG -->
                     @if (LottoBagRefill > 0)
                     {
-                        <div class="math-row mb-3 pb-2 border-bottom">
-                            <div class="d-flex flex-column">
-                                <span class="fw-black text-dark text-uppercase small opacity-75">Money to be returned:</span>
-                                <span class="text-muted small">Place this back into the money backup bag.</span>
-                                @if (_debtBreakdown.Count > 0)
-                                {
-                                    <div class="mt-2 p-2 bg-white rounded border border-info border-opacity-25" style="font-size: 0.65rem;">
-                                        <div class="fw-bold text-info mb-1"><i class="bi bi-info-circle me-1"></i>Bag Debt History:</div>
-                                        @foreach (var item in _debtBreakdown)
-                                        {
-                                            <div class="d-flex justify-content-between text-muted">
-                                                <span>@item.Date.ToString("MMM d") (@item.Shift)</span>
-                                                <span class="fw-bold">@item.Amount.ToString("C2")</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
+                        <div class="instruction-card amber-tint animate-slide-up">
+                            <div class="ins-icon">
+                                <i class="bi bi-briefcase-fill"></i>
                             </div>
-                            <span class="fw-black text-dark fs-4">@(LottoBagRefill.ToString("C2"))</span>
+                            <div class="ins-content">
+                                <span class="ins-label">RETURN TO BACKUP BAG</span>
+                                <span class="ins-amount">@(LottoBagRefill.ToString("C2"))</span>
+                                <span class="ins-subtext">Put this back in the money backup bag now.</span>
+                            </div>
                         </div>
                     }
 
-                        <div class="d-flex flex-column">
-                            <span class="fw-black text-primary text-uppercase small">Deposit amount:</span>
-                            <span class="text-primary fw-bold" style="font-size: 0.75rem;">PLACE THIS IN THE ENVELOPE</span>
+                    <!-- TASK 2: ENVELOPE -->
+                    <div class="instruction-card green-tint animate-slide-up" style="animation-delay: 0.1s;">
+                        <div class="ins-icon">
+                            <i class="bi bi-envelope-check-fill"></i>
                         </div>
-                        <span class="fw-black text-primary fs-2">@(LottoEnvelopeAmount.ToString("C2"))</span>
+                        <div class="ins-content">
+                            <span class="ins-label">PLACE IN DEPOSIT ENVELOPE</span>
+                            <span class="ins-amount">@(LottoEnvelopeAmount.ToString("C2"))</span>
+                            <span class="ins-subtext">Seal this in your shift envelope.</span>
+                        </div>
                     </div>
 
-                    <div class="text-center mt-3 pt-3 border-top border-dark border-opacity-10 d-flex justify-content-between align-items-center">
-                         <div class="d-flex flex-column text-start">
-                             <span class="fw-bold small text-uppercase opacity-75"><i class="bi bi-bank me-2"></i>Ending drawer cash:</span>
-                             <span class="text-muted fw-bold" style="font-size: 0.65rem;">PLACE THIS BACK IN THE LOTTERY DRAWER</span>
-                         </div>
-                         <span class="fw-black text-dark fs-5">$1,200.00</span>
+                    <!-- TASK 3: DRAWER -->
+                    <div class="instruction-card blue-tint animate-slide-up" style="animation-delay: 0.2s;">
+                        <div class="ins-icon">
+                            <i class="bi bi-inbox-fill"></i>
+                        </div>
+                        <div class="ins-content">
+                            <span class="ins-label">LEAVE IN CASH DRAWER</span>
+                            <span class="ins-amount">@((_currentRate.TargetDrawerAmount).ToString("C2"))</span>
+                            <span class="ins-subtext">This bank stays in the drawer for the next shift.</span>
+                        </div>
                     </div>
-
-                <div class="alert alert-info py-2 px-3 mb-4 rounded-pill border-2 d-flex align-items-center justify-content-center">
-                    <span class="fw-black text-primary text-uppercase" style="font-size: 0.7rem;">Envelope total: @(LottoEnvelopeAmount.ToString("C2")) ONLY</span>
                 </div>
 
-                <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="HandleSubmit">
-                    <i class="bi bi-check2-all me-2"></i> MONEY PLACED CORRECTLY
-                </button>
+                <div class="px-2">
+                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg animate-pulse" @onclick="HandleSubmit">
+                        <i class="bi bi-check2-circle me-2 fs-5"></i> I HAVE PLACED THE MONEY CORRECTLY
+                    </button>
+                    <p class="text-center mt-3 text-muted fw-bold" style="font-size: 0.65rem; opacity: 0.6; letter-spacing: 0.05em;">
+                        CLICKING ABOVE WILL FINALIZE AND SUBMIT YOUR REPORT
+                    </p>
+                </div>
             </div>
         </div>
     }
@@ -378,21 +385,6 @@
                                 </div>
                                 <div class="pill-icon-box">
                                     <i class="bi bi-envelope-check-fill fs-5"></i>
-                                </div>
-                            </div>
-                        }
-                        else if (ShiftType == "Day" && (LottoNetMade != 0 || BarSales != null))
-                        {
-                            // Day: show combined net total (no envelope pulled)
-                            <div class="final-envelope-card-pill shadow-sm animate-bounce-in d-flex align-items-center">
-                                <div class="px-3">
-                                    <label class="d-block mb-0 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 0.1em; opacity: 0.8;">Day Total</label>
-                                    <div class="fw-black" style="font-size: 1.1rem; line-height: 1;">
-                                        @((LottoNetMade + (decimal)(BarSales ?? 0)).ToString("C2"))
-                                    </div>
-                                </div>
-                                <div class="pill-icon-box">
-                                    <i class="bi bi-cash-stack fs-5"></i>
                                 </div>
                             </div>
                         }
@@ -944,11 +936,11 @@
         overflow: hidden; /* Added to clip the footer banner corners */
         transition: all 0.3s ease;
     }
-    .summary-header { background: rgba(0,0,0,0.03); padding: 8px; font-weight: 900; font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; border-bottom: 1px solid var(--glass-border); }
-    .math-flow-table { background: var(--bg-surface); padding: 8px !important; }
-    .math-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 0.75rem; }
-    .variance-footer-banner { text-align: center; transition: all 0.3s ease; }
-    .v-label { font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; opacity: 0.8; margin-bottom: -4px; }
+    .summary-header { background: rgba(0,0,0,0.03); padding: 4px; font-weight: 900; font-size: 0.55rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; border-bottom: 1px solid var(--glass-border); }
+    .math-flow-table { background: var(--bg-surface); padding: 4px 8px !important; }
+    .math-row { display: flex; justify-content: space-between; align-items: center; padding: 1px 0; font-size: 0.65rem; line-height: 1.1; }
+    .variance-footer-banner { text-align: center; transition: all 0.3s ease; padding: 0.25rem 0 !important; }
+    .v-label { font-size: 0.55rem; font-weight: 900; letter-spacing: 0.1em; opacity: 0.8; margin-bottom: -6px; }
     
     /* Colors for Unified Card - ENSURE VISIBILITY */
     .sim-res-card-unified.exact { border-color: #10b981 !important; }
@@ -1007,6 +999,53 @@
         50% { transform: scale(1.01); background: rgba(239, 68, 68, 0.1) !important; }
         100% { transform: scale(1); }
     }
+
+    /* ENVELOPE MODAL REDESIGN STYLES */
+    .instruction-card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        border-left: 6px solid #cbd5e1;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        transition: transform 0.2s;
+    }
+    .instruction-card:active { transform: scale(0.98); }
+    
+    .instruction-card.amber-tint { border-color: #f59e0b; background: #fffbeb; }
+    .instruction-card.green-tint { border-color: #10b981; background: #f0fdf4; }
+    .instruction-card.blue-tint { border-color: #3b82f6; background: #eff6ff; }
+
+    .ins-icon {
+        width: 54px;
+        height: 54px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        flex-shrink: 0;
+    }
+    .amber-tint .ins-icon { background: #fef3c7; color: #d97706; }
+    .green-tint .ins-icon { background: #dcfce7; color: #16a34a; }
+    .blue-tint .ins-icon { background: #dbeafe; color: #1d4ed8; }
+
+    .ins-content { display: flex; flex-direction: column; flex-grow: 1; text-align: left; }
+    .ins-label { font-weight: 900; font-size: 0.75rem; letter-spacing: 0.05em; color: #64748b; margin-bottom: 2px; }
+    .ins-amount { font-weight: 900; font-size: 1.8rem; line-height: 1; margin-bottom: 4px; }
+    .amber-tint .ins-amount { color: #b45309; }
+    .green-tint .ins-amount { color: #15803d; }
+    .blue-tint .ins-amount { color: #1e40af; }
+    .ins-subtext { font-weight: 700; font-size: 0.85rem; color: #475569; opacity: 0.8; }
+    
+    .amber-tint .ins-label { color: #d97706; }
+    .green-tint .ins-label { color: #16a34a; }
+    .blue-tint .ins-label { color: #1d4ed8; }
+
+    .modal-icon-header { width: 80px; height: 80px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+
         .glass-page-container.mobile-version {
             padding-top: 1rem;
             display: flex;
@@ -2146,6 +2185,23 @@
         }
     }
 
+    public void Dispose()
+    {
+        Connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        _heartbeatTimer?.Dispose();
+        _autoSaveCts?.Cancel();
+        _autoSaveCts?.Dispose();
+    }
+
+    private void OnConnectivityChanged(bool isOnline)
+    {
+        if (isOnline)
+        {
+            // [AUTO-REFRESH] Server is back! Refresh the shift statuses and debt instantly.
+            _ = Task.Run(async () => await UpdateShiftAvailability());
+        }
+    }
+
     private async Task DebouncedAutoSave() {
         _autoSaveCts?.Cancel();
         _autoSaveCts = new global::System.Threading.CancellationTokenSource();
@@ -2346,6 +2402,8 @@
     private bool _hallSubmitted;
     private bool _hallModified;
     private string? _hallCloser;
+    private LotteryCommissionRate _currentRate = new LotteryCommissionRate { Year = DateTime.Now.Year, TargetDrawerAmount = 1200m };
+
 
     private bool _isCircutAlive = true;
     private System.Threading.Timer? _heartbeatTimer;
@@ -2406,7 +2464,7 @@
     private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
     
     // NIGHT SHIFT RECONCILIATION MATH
-    private decimal LottoTotalDrop => Math.Max(0, (LottoCashCounted ?? 0) - 1200);
+    private decimal LottoTotalDrop => Math.Max(0, (LottoCashCounted ?? 0) - _currentRate.TargetDrawerAmount);
     private decimal TotalBagIOU => _totalBagDebt + (ShiftType == "Night" ? (LottoBackupBag ?? 0) : 0);
     private decimal LottoBagRefill => (ShiftType == "Day") ? 0 : Math.Min(LottoTotalDrop, TotalBagIOU);
 
@@ -2595,6 +2653,10 @@
             _lastProcessedQueryDate = QueryDate;
             _lastProcessedQueryShift = QueryShift;
 
+            // [CONNECTIVITY HEARTBEAT] Subscribe to changes so we auto-refresh when server comes back
+            Connectivity.ConnectivityChanged -= OnConnectivityChanged; // Avoid double-sub
+            Connectivity.ConnectivityChanged += OnConnectivityChanged;
+
             if (!string.IsNullOrEmpty(QueryDate) && DateTime.TryParse(QueryDate, out var qDate))
             {
                 ReportDate = qDate;
@@ -2639,6 +2701,13 @@
             _ = ReportingService.GetServerVersionAsync().ContinueWith(t => {
                 if (t.IsCompletedSuccessfully && t.Result != "Offline") {
                     _hasUpdate = t.Result != VersionService.GetFullVersion();
+                    InvokeAsync(StateHasChanged);
+                }
+            });
+
+            _ = ReportingService.GetLotteryRateAsync(ReportDate.Year).ContinueWith(t => {
+                if (t.IsCompletedSuccessfully && t.Result != null) {
+                    _currentRate = t.Result;
                     InvokeAsync(StateHasChanged);
                 }
             });
@@ -2708,51 +2777,63 @@
         if (string.IsNullOrEmpty(ShiftType)) return;
         try
         {
-            var data = await ReportingService.GetShiftReportDataAsync(ReportDate, ShiftType, IsRentalHall);
-            ExistingEntryFound = data != null && data.ExistingEntryFound;
+            // 1. [INSTANT REVEAL] Check local vault first
+            await CheckForLocalDraft();
             
-            // HYDRATE UI FIELDS
-            if (data != null)
-            {
-                BarSales = data.BarSales;
-                TotalHours = data.TotalHours;
-                LottoSales = data.LottoSales;
-                LottoCashes = data.LottoCashes;
-                LottoInstantTickets = data.LottoInstantTickets;
-                LottoNetDue = data.LottoNetDue;
-                LottoBackupBag = data.LottoBackupBag;
-                LottoCashCounted = data.LottoCashCounted;
-                LottoOpeningCash = data.LottoOpeningCash;
-                _prevDaySales = data.PrevDaySales ?? 0;
-                _prevDayCashes = data.PrevDayCashes ?? 0;
-                _prevDayTickets = data.PrevDayTickets ?? 0;
-                Notes = data.Notes;
+            // HIDE SPINNER IMMEDIATELY - User can start working now
+            Loading = false;
+            StateHasChanged();
 
-
-                // Track original values for change detection
-                _originalBarSales = BarSales;
-                _originalLottoSales = LottoSales;
-                _originalLottoCashes = LottoCashes;
-                _originalLottoInstantTickets = LottoInstantTickets;
-                _originalLottoNetDue = LottoNetDue;
-                _originalLottoOpeningCash = LottoOpeningCash;
-                _originalLottoBackupBag = LottoBackupBag;
-                _originalLottoCashCounted = LottoCashCounted;
-                _originalTotalHours = TotalHours;
-                _originalNotes = Notes;
-
-                // Ownership-based Lock: Locked if exists AND user is not owner AND user is not admin
-                IsLocked = (data.ExistingEntryFound && CurrentUser != null && !CurrentUser.IsAdmin && data.LockOwner != CurrentUser.Username);
-                
-                _lockOwner = data.LockOwner;
-                _lastSyncedAt = DateTime.Now; // Mark initial load as a sync point
-            }
+            // 2. [SILENT SYNC] Fetch from server in the background to reconcile
+            _ = Task.Run(async () => {
+                try {
+                    var data = await ReportingService.GetShiftReportDataAsync(ReportDate, ShiftType, IsRentalHall);
+                    if (data != null) {
+                        await InvokeAsync(() => {
+                            // Only hydrate if the user hasn't started typing yet
+                            if (!_hasLocalChanges) {
+                                HydrateFromData(data);
+                            }
+                            StateHasChanged();
+                        });
+                    }
+                } catch { }
+            });
         }
-        catch
-        {
-            ExistingEntryFound = false;
-            IsLocked = false;
-        }
+        catch { Loading = false; }
+    }
+
+    private void HydrateFromData(MobileShiftData data)
+    {
+        ExistingEntryFound = data.ExistingEntryFound;
+        BarSales = data.BarSales;
+        TotalHours = data.TotalHours;
+        LottoSales = data.LottoSales;
+        LottoCashes = data.LottoCashes;
+        LottoInstantTickets = data.LottoInstantTickets;
+        LottoNetDue = data.LottoNetDue;
+        LottoBackupBag = data.LottoBackupBag;
+        LottoCashCounted = data.LottoCashCounted;
+        LottoOpeningCash = data.LottoOpeningCash;
+        _prevDaySales = data.PrevDaySales ?? 0;
+        _prevDayCashes = data.PrevDayCashes ?? 0;
+        _prevDayTickets = data.PrevDayTickets ?? 0;
+        Notes = data.Notes;
+
+        // Track original values for change detection
+        _originalBarSales = BarSales;
+        _originalLottoSales = LottoSales;
+        _originalLottoCashes = LottoCashes;
+        _originalLottoInstantTickets = LottoInstantTickets;
+        _originalLottoNetDue = LottoNetDue;
+        _originalLottoOpeningCash = LottoOpeningCash;
+        _originalLottoBackupBag = LottoBackupBag;
+        _originalLottoCashCounted = LottoCashCounted;
+        _originalTotalHours = TotalHours;
+        _originalNotes = Notes;
+
+        IsLocked = (data.ExistingEntryFound && CurrentUser != null && !CurrentUser.IsAdmin && data.LockOwner != CurrentUser.Username);
+        _lockOwner = data.LockOwner;
     }
 
     // Called from the distribution slip modal "Money placed correctly" button — proceeds to submit
@@ -2862,46 +2943,68 @@
         try
         {
             _syncStatus = "Checking Server...";
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
 
-            // PARALLEL FETCH: Get summary and debt history at once
-            var summaryTask = ReportingService.GetDailySummaryAsync(ReportDate);
-            var debtTask = ReportingService.GetCumulativeBagDebtAsync(ReportDate);
-            
-            // PARALLEL LOCAL CHECKS: Check outbox for all shifts simultaneously
-            var dayPendingTask = CheckOutboxPending("Day");
-            var nightPendingTask = CheckOutboxPending("Night");
-            var hallPendingTask = CheckOutboxPending("Hall");
+            // 1. [LOCAL VAULT CHECK] - Refresh local flags first (Very fast)
+            try {
+                // Reset local tracking flags before scan
+                _dayMainHasData = false; _nightMainHasData = false; hallPending = false;
+                
+                var outboxJson = await JSRuntime.InvokeAsync<string>("window.getGfcOutboxItems");
+                if (!string.IsNullOrEmpty(outboxJson)) {
+                    using var doc = global::System.Text.Json.JsonDocument.Parse(outboxJson);
+                    foreach (var item in doc.RootElement.EnumerateArray()) {
+                        var data = item.GetProperty("data");
+                        if (data.TryGetProperty("Date", out var dProp) && DateTime.TryParse(dProp.GetString(), out var d) && d.Date == ReportDate.Date) {
+                            if (data.TryGetProperty("ShiftType", out var sProp)) {
+                                var s = sProp.GetString();
+                                if (s == "Day") _dayMainSubmitted = true;
+                                if (s == "Night") _nightMainSubmitted = true;
+                                if (s == "RentalHall") _hallSubmitted = true;
+                            }
+                        }
+                    }
+                }
 
-            await Task.WhenAll(summaryTask, debtTask, dayPendingTask, nightPendingTask, hallPendingTask);
+                // Check Drafts
+                var dayDraft = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Day");
+                if (!string.IsNullOrEmpty(dayDraft)) _dayMainHasData = true;
 
-            var summary = summaryTask.Result;
-            _totalBagDebt = debtTask.Result;
+                var nightDraft = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Night");
+                if (!string.IsNullOrEmpty(nightDraft)) _nightMainHasData = true;
+                
+                await InvokeAsync(StateHasChanged); // Partial UI Update
+            } catch { }
+
+            // 2. [SERVER FETCH]
+            var summary = await ReportingService.GetDailySummaryAsync(ReportDate);
+            _totalBagDebt = await ReportingService.GetCumulativeBagDebtAsync(ReportDate);
             
-            _lastSyncedAt = DateTime.Now;
-            _syncStatus = "Synced";
-            
-            _dayMainSubmitted = summary.Day.Submitted || dayPendingTask.Result;
-            _dayMainHasData = summary.Day.HasData || dayPendingTask.Result;
+            // Reconcile Server + Outbox
+            _dayMainSubmitted = summary.Day.Submitted || _dayMainSubmitted;
+            _dayMainHasData = summary.Day.HasData || _dayMainHasData;
             _dayMainModified = summary.Day.Modified;
             _dayCloser = summary.Day.Closer;
 
-            _nightMainSubmitted = summary.Night.Submitted || nightPendingTask.Result;
-            _nightMainHasData = summary.Night.HasData || nightPendingTask.Result;
+            _nightMainSubmitted = summary.Night.Submitted || _nightMainSubmitted;
+            _nightMainHasData = summary.Night.HasData || _nightMainHasData;
             _nightMainModified = summary.Night.Modified;
             _nightCloser = summary.Night.Closer;
 
-            _hallSubmitted = summary.Hall.Submitted || hallPendingTask.Result;
+            _hallSubmitted = summary.Hall.Submitted || _hallSubmitted;
             _hallModified = summary.Hall.Modified;
             _hallCloser = summary.Hall.Closer;
+
+            _lastSyncedAt = DateTime.Now;
+            _syncStatus = "Synced";
             
-            _totalBagDebt = await ReportingService.GetCumulativeBagDebtAsync(ReportDate);
-            
-            await InvokeAsync(StateHasChanged);
+            await InvokeAsync(StateHasChanged); // Final UI Update
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error updating shift availability: {ex.Message}");
+            _syncStatus = "Sync Pending";
+            await InvokeAsync(StateHasChanged);
         }
     }
 

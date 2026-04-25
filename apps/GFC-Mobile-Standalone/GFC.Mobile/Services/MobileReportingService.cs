@@ -114,7 +114,20 @@ public class MobileReportingService : IMobileReportingService
             if (!await _connectivity.GateAsync("GetVersion")) return "Offline";
             return await _http.GetStringAsync("/api/mobile-reporting/version"); 
         }
-        catch { return "GFC Mobile Revision 2.1.32 (Hardened Sync)"; }
+        catch { return "GFC Mobile Revision 2.1.51 (Settlement Hardening)"; }
+    }
+
+    public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
+    {
+        try
+        {
+            if (!await _connectivity.GateAsync("GetRate")) 
+                return new LotteryCommissionRate { Year = year };
+
+            var url = $"/api/mobile-reporting/lottery-rate?year={year}";
+            return await _http.GetFromJsonAsync<LotteryCommissionRate>(url) ?? new LotteryCommissionRate { Year = year };
+        }
+        catch { return new LotteryCommissionRate { Year = year }; }
     }
 
     // ─── WRITE OPERATIONS (outbox-first) ─────────────────────────────────────────────────

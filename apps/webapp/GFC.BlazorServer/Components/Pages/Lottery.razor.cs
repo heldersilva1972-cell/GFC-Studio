@@ -739,7 +739,10 @@ namespace GFC.BlazorServer.Components.Pages
                 // Carry over previous values per user request
                 SalesRate = prevRate?.SalesRate ?? 5.00m,
                 CashingRate = prevRate?.CashingRate ?? 1.00m,
-                TicketRate = prevRate?.TicketRate ?? 1.00m
+                TicketRate = prevRate?.TicketRate ?? 1.00m,
+                DailySystemFee = prevRate?.DailySystemFee ?? 0.00m,
+                DailyBondingFee = prevRate?.DailyBondingFee ?? 1.00m,
+                TargetDrawerAmount = prevRate?.TargetDrawerAmount ?? 1200.00m
             });
         }
 

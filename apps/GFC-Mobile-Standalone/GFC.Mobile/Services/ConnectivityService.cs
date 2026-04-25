@@ -68,10 +68,19 @@ public class MobileConnectivityService : IConnectivityService
     {
         _ = Task.Run(async () => {
             while (true) {
-                var prev = _isOnline;
+                var prevOnline = _isOnline;
+                var prevHardware = _isHardwareOnline;
+                var prevServer = _isServerReachable;
+
                 await CanReachableServerAsync();
-                if (prev != _isOnline) ConnectivityChanged?.Invoke(_isOnline);
-                await Task.Delay(5000); // Faster updates for the new dual UI
+
+                // Fire event if ANY of the three states changed
+                if (prevOnline != _isOnline || prevHardware != _isHardwareOnline || prevServer != _isServerReachable)
+                {
+                    ConnectivityChanged?.Invoke(_isOnline);
+                }
+
+                await Task.Delay(5000); // 5-second pulse
             }
         });
     }

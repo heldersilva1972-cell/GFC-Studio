@@ -15,7 +15,7 @@ namespace GFC.Data.Repositories
             var rates = new List<LotteryCommissionRate>();
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = "SELECT [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, CreatedBy FROM LotteryCommissionRates ORDER BY [Year] DESC";
+            const string sql = "SELECT [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, TargetDrawerAmount, CreatedBy FROM LotteryCommissionRates ORDER BY [Year] DESC";
             using var command = new SqlCommand(sql, connection);
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -28,6 +28,7 @@ namespace GFC.Data.Repositories
                     TicketRate = (decimal)reader["TicketRate"],
                     DailySystemFee = (decimal)reader["DailySystemFee"],
                     DailyBondingFee = (decimal)reader["WeeklyBondFee"],
+                    TargetDrawerAmount = reader["TargetDrawerAmount"] != DBNull.Value ? (decimal)reader["TargetDrawerAmount"] : 1200.00m,
                     CreatedBy = reader["CreatedBy"] as string
                 });
             }
@@ -38,7 +39,7 @@ namespace GFC.Data.Repositories
         {
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = "SELECT [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, CreatedBy FROM LotteryCommissionRates WHERE [Year] = @Year";
+            const string sql = "SELECT [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, TargetDrawerAmount, CreatedBy FROM LotteryCommissionRates WHERE [Year] = @Year";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Year", year);
             using var reader = command.ExecuteReader();
@@ -52,6 +53,7 @@ namespace GFC.Data.Repositories
                     TicketRate = (decimal)reader["TicketRate"],
                     DailySystemFee = (decimal)reader["DailySystemFee"],
                     DailyBondingFee = (decimal)reader["WeeklyBondFee"],
+                    TargetDrawerAmount = reader["TargetDrawerAmount"] != DBNull.Value ? (decimal)reader["TargetDrawerAmount"] : 1200.00m,
                     CreatedBy = reader["CreatedBy"] as string
                 };
             }
@@ -64,7 +66,7 @@ namespace GFC.Data.Repositories
             using var connection = Db.GetConnection();
             connection.Open();
             const string sql = @"
-                SELECT TOP 1 [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, CreatedBy 
+                SELECT TOP 1 [Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, TargetDrawerAmount, CreatedBy 
                 FROM LotteryCommissionRates 
                 WHERE [Year] <= @Year 
                 ORDER BY [Year] DESC";
@@ -81,6 +83,7 @@ namespace GFC.Data.Repositories
                     TicketRate = (decimal)reader["TicketRate"],
                     DailySystemFee = (decimal)reader["DailySystemFee"],
                     DailyBondingFee = (decimal)reader["WeeklyBondFee"],
+                    TargetDrawerAmount = reader["TargetDrawerAmount"] != DBNull.Value ? (decimal)reader["TargetDrawerAmount"] : 1200.00m,
                     CreatedBy = reader["CreatedBy"] as string
                 };
             }
@@ -99,13 +102,14 @@ namespace GFC.Data.Repositories
                 BEGIN
                     UPDATE LotteryCommissionRates 
                     SET SalesRate = @SalesRate, CashingRate = @CashingRate, TicketRate = @TicketRate, 
-                        DailySystemFee = @DailySystemFee, WeeklyBondFee = @WeeklyBondFee, CreatedBy = @CreatedBy
+                        DailySystemFee = @DailySystemFee, WeeklyBondFee = @WeeklyBondFee, 
+                        TargetDrawerAmount = @TargetDrawerAmount, CreatedBy = @CreatedBy
                     WHERE [Year] = @Year
                 END
                 ELSE
                 BEGIN
-                    INSERT INTO LotteryCommissionRates ([Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, CreatedBy)
-                    VALUES (@Year, @SalesRate, @CashingRate, @TicketRate, @DailySystemFee, @WeeklyBondFee, @CreatedBy)
+                    INSERT INTO LotteryCommissionRates ([Year], SalesRate, CashingRate, TicketRate, DailySystemFee, WeeklyBondFee, TargetDrawerAmount, CreatedBy)
+                    VALUES (@Year, @SalesRate, @CashingRate, @TicketRate, @DailySystemFee, @WeeklyBondFee, @TargetDrawerAmount, @CreatedBy)
                 END";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Year", rate.Year);
@@ -114,6 +118,7 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@TicketRate", rate.TicketRate);
             command.Parameters.AddWithValue("@DailySystemFee", rate.DailySystemFee);
             command.Parameters.AddWithValue("@WeeklyBondFee", rate.DailyBondingFee);
+            command.Parameters.AddWithValue("@TargetDrawerAmount", rate.TargetDrawerAmount);
             command.Parameters.AddWithValue("@CreatedBy", rate.CreatedBy ?? (object)DBNull.Value);
             command.ExecuteNonQuery();
         }

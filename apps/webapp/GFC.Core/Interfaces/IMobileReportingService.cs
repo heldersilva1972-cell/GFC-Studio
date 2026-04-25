@@ -12,6 +12,7 @@ public interface IMobileReportingService
     Task<bool> SubmitFinalReportAsync(MobileShiftData data, string username);
     Task<DailyShiftSummary> GetDailySummaryAsync(DateTime date);
     Task<string> GetServerVersionAsync();
+    Task<LotteryCommissionRate> GetLotteryRateAsync(int year);
 }
 
 public class DailyShiftSummary

@@ -11,6 +11,7 @@ namespace GFC.Core.Models
         
         public decimal DailySystemFee { get; set; } = 0.00m;
         public decimal DailyBondingFee { get; set; } = 1.00m; // Daily bonding fee (e.g., $1.00/day)
+        public decimal TargetDrawerAmount { get; set; } = 1200.00m; // Target to place back in drawer
 
         public DateTime CreatedDate { get; set; }
         public string? CreatedBy { get; set; }

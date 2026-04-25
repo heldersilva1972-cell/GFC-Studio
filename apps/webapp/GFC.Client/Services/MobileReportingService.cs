@@ -1,5 +1,6 @@
 using GFC.Core.Interfaces;
 using GFC.Core.DTOs;
+using GFC.Core.Models;
 using System.Net.Http.Json;
 
 namespace GFC.Client.Services;
@@ -49,5 +50,11 @@ public class MobileReportingService : IMobileReportingService
     public async Task<string> GetServerVersionAsync()
     {
         return await _http.GetStringAsync("api/mobile-reporting/version");
+    }
+
+    public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
+    {
+        return await _http.GetFromJsonAsync<LotteryCommissionRate>($"api/mobile-reporting/lottery-rate?year={year}") 
+               ?? new LotteryCommissionRate { Year = year };
     }
 }
