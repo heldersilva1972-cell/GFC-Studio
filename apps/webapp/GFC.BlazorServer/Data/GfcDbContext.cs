@@ -144,6 +144,12 @@ public class GfcDbContext : DbContext
     public DbSet<PosToken> PosTokens => Set<PosToken>();
     public DbSet<PosSale> PosSales => Set<PosSale>();
     public DbSet<PosZReport> PosZReports => Set<PosZReport>();
+    
+    // Finance System (Bills & Invoices)
+    public DbSet<GFC.Core.Models.Finance.FinanceBill> FinanceBills => Set<GFC.Core.Models.Finance.FinanceBill>();
+    public DbSet<GFC.Core.Models.Finance.FinanceVendor> FinanceVendors => Set<GFC.Core.Models.Finance.FinanceVendor>();
+    public DbSet<GFC.Core.Models.Finance.FinanceCategory> FinanceCategories => Set<GFC.Core.Models.Finance.FinanceCategory>();
+    public DbSet<GFC.Core.Models.Finance.FinancePayment> FinancePayments => Set<GFC.Core.Models.Finance.FinancePayment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -809,6 +815,45 @@ public class GfcDbContext : DbContext
             entity.ToTable("PosZReports");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.CashTotal).HasColumnType("decimal(18,2)");
+        });
+
+        // Finance System Configuration
+        modelBuilder.Entity<GFC.Core.Models.Finance.FinanceBill>(entity =>
+        {
+            entity.ToTable("FinanceBills");
+            entity.HasKey(b => b.Id);
+            entity.Property(b => b.OriginalAmount).HasColumnType("decimal(18,2)");
+            entity.HasOne(b => b.Vendor)
+                .WithMany(v => v.Bills)
+                .HasForeignKey(b => b.VendorId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(b => b.Category)
+                .WithMany(c => c.Bills)
+                .HasForeignKey(b => b.CategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Finance.FinanceVendor>(entity =>
+        {
+            entity.ToTable("FinanceVendors");
+            entity.HasKey(v => v.Id);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Finance.FinanceCategory>(entity =>
+        {
+            entity.ToTable("FinanceCategories");
+            entity.HasKey(c => c.Id);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Finance.FinancePayment>(entity =>
+        {
+            entity.ToTable("FinancePayments");
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.AmountPaid).HasColumnType("decimal(18,2)");
+            entity.HasOne(p => p.Bill)
+                .WithMany(b => b.Payments)
+                .HasForeignKey(p => p.BillId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Liquor Inventory Configuration

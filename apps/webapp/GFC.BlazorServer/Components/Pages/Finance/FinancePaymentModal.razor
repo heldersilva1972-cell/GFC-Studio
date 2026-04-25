@@ -1,0 +1,192 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Finance
+@inject IFinanceService FinanceService
+
+<div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(8px);">
+    <div class="modal-dialog modal-dialog-centered finance-modal-content" style="max-width: 400px;">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 28px;">
+            <div class="modal-header finance-modal-header d-flex justify-content-between align-items-center">
+                <h5 class="modal-title fw-bold">Record Payment</h5>
+                <button type="button" class="btn-close" @onclick="OnClose"></button>
+            </div>
+            <div class="modal-body finance-modal-body text-center">
+                <div class="mb-4 text-start bg-light p-3 rounded-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small">Original Invoice:</span>
+                        <span class="fw-bold">@Bill.OriginalAmount.ToString("C")</span>
+                    </div>
+                    
+                    @if (Bill.Payments != null && Bill.Payments.Any())
+                    {
+                        <div class="border-top pt-2 mt-2">
+                            <div class="text-muted small mb-1">Payment History:</div>
+                            @foreach (var payment in Bill.Payments.OrderByDescending(p => p.PaymentDate))
+                            {
+                                <div class="d-flex justify-content-between align-items-center small mb-1">
+                                    <span class="text-muted">@payment.PaymentDate.ToString("MMM dd"):</span>
+                                    <span class="text-success fw-bold">- @payment.AmountPaid.ToString("C")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="border-top pt-2 mt-2 d-flex justify-content-between align-items-center">
+                        <span class="fw-bold">Current Balance:</span>
+                        <span class="h4 fw-bold text-primary mb-0">@Bill.BalanceRemaining.ToString("C")</span>
+                    </div>
+                </div>
+
+                <div class="row g-3 text-start">
+                    <div class="col-12">
+                        <div class="d-flex flex-column gap-2 bg-light p-3 rounded-4">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-bold text-muted">Partial Payment?</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" style="width: 2.2em; height: 1.1em;" @bind="IsPartial" @bind:after="OnPartialChanged">
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center border-top pt-2">
+                                <span class="small fw-bold text-muted">Pay Additional / Fee?</span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" style="width: 2.2em; height: 1.1em;" @bind="AllowOverpayment" @bind:after="OnOverpayChanged">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted @(ValidationError != null ? "text-danger" : "")">Amount Paid</label>
+                        <div class="input-group @(ValidationError != null ? "border border-danger rounded-3" : "")">
+                            <span class="input-group-text bg-white border-end-0">@((ValidationError != null) ? "❌" : "$")</span>
+                            <input type="number" step="0.01" class="form-control border-start-0 ps-0 @(IsPartial || AllowOverpayment ? "fw-bold text-primary" : "bg-light text-muted")" 
+                                   @bind="PaymentAmount" readonly="@(!IsPartial && !AllowOverpayment)" onfocus="this.select()">
+                        </div>
+                        @if (AllowOverpayment)
+                        {
+                            <div class="mt-2 text-primary d-flex align-items-center gap-1" style="font-size: 0.65rem;">
+                                <i class="bi bi-info-circle"></i>
+                                <span>Ideal for recording late fees, tips, or paying ahead.</span>
+                            </div>
+                        }
+                        @if (ValidationError != null)
+                        {
+                            <div class="alert alert-danger py-2 px-3 mt-2 mb-0 d-flex align-items-center gap-2 shadow-sm" style="border-left: 4px solid #dc3545;">
+                                <i class="bi bi-exclamation-octagon-fill h5 mb-0"></i>
+                                <span class="fw-bold small">@ValidationError</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">Payment Date</label>
+                        <input type="date" class="form-control" @bind="PaymentDate" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">Payment Method</label>
+                        <select class="form-select" @bind="PaymentMethod">
+                            <option value="Cash">Cash</option>
+                            <option value="Check">Check</option>
+                            <option value="Credit Card">Credit Card</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">Notes</label>
+                        <textarea class="form-control" @bind="Note" rows="2" placeholder="Confirmation number, check #, etc."></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <button class="btn btn-primary rounded-pill px-5 py-2 fw-bold shadow-sm w-100" @onclick="SubmitPayment" disabled="@IsProcessing">
+                        @if (IsProcessing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Confirm Payment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FinanceBill Bill { get; set; } = new();
+    [Parameter] public EventCallback<bool> OnSave { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private decimal PaymentAmount { get; set; }
+    private DateTime PaymentDate { get; set; } = DateTime.Today;
+    private string PaymentMethod { get; set; } = "Cash";
+    private string Note { get; set; } = "";
+    private bool IsProcessing { get; set; }
+    private bool IsPartial { get; set; }
+    private bool AllowOverpayment { get; set; }
+    private string? ValidationError { get; set; }
+
+    protected override void OnInitialized()
+    {
+        PaymentAmount = Bill.BalanceRemaining;
+        IsPartial = false;
+    }
+
+    private void OnPartialChanged()
+    {
+        if (IsPartial)
+        {
+            PaymentAmount = 0;
+            AllowOverpayment = false;
+        }
+        else if (!AllowOverpayment)
+        {
+            PaymentAmount = Bill.BalanceRemaining;
+        }
+        ValidationError = null;
+    }
+
+    private void OnOverpayChanged()
+    {
+        if (AllowOverpayment)
+        {
+            IsPartial = false;
+        }
+        else if (!IsPartial)
+        {
+            PaymentAmount = Bill.BalanceRemaining;
+        }
+        ValidationError = null;
+    }
+
+    private async Task SubmitPayment()
+    {
+        if (PaymentAmount <= 0)
+        {
+            ValidationError = "Please enter a payment amount greater than zero.";
+            return;
+        }
+
+        if (!AllowOverpayment && PaymentAmount > Bill.BalanceRemaining)
+        {
+            ValidationError = $"Payment cannot exceed the balance of {Bill.BalanceRemaining.ToString("C")}. Check 'Pay Additional' for fees.";
+            return;
+        }
+
+        IsProcessing = true;
+        ValidationError = null;
+        try
+        {
+            await FinanceService.MarkAsPaidAsync(Bill.Id, PaymentAmount, PaymentDate, PaymentMethod, Note);
+            await OnSave.InvokeAsync(true);
+        }
+        catch (Exception ex)
+        {
+            // Handle error
+        }
+        finally
+        {
+            IsProcessing = false;
+        }
+    }
+}

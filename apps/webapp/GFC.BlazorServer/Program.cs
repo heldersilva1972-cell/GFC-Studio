@@ -346,6 +346,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
         builder.Services.AddScoped<IFinancialAnalyticsService, FinancialAnalyticsService>();
         builder.Services.AddScoped<ILiquorService, LiquorService>();
+        builder.Services.AddScoped<IFinanceService, FinanceService>();
         builder.Services.AddScoped<IUserUsageService, UserUsageService>();
         
         // Controller Client Wiring

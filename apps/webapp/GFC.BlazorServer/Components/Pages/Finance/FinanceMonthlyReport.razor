@@ -1,0 +1,286 @@
+@page "/finance/report/{Month:int}/{Year:int}"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Finance
+@inject IFinanceService FinanceService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+@layout MainLayout
+
+<div class="report-container p-4 p-md-5">
+    <!-- Header / Actions -->
+    <div class="d-flex justify-content-between align-items-center mb-5 no-print">
+        <button class="btn btn-outline-secondary rounded-pill px-4" @onclick="GoBack">
+            <i class="bi bi-arrow-left me-2"></i> Back to Dashboard
+        </button>
+        <button class="btn btn-primary rounded-pill px-4 shadow" @onclick="PrintReport">
+            <i class="bi bi-printer me-2"></i> Print Report
+        </button>
+    </div>
+
+    <!-- Official Report Header -->
+    <div class="report-header text-center mb-5">
+        <div class="display-6 fw-bold text-dark mb-2">Monthly Expenditure Report</div>
+        <div class="h4 text-muted">@ReportDate.ToString("MMMM yyyy")</div>
+        <div class="mt-2 small text-muted text-uppercase letter-spacing-1">Generated on @DateTime.Now.ToString("MMM dd, yyyy @ HH:mm")</div>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="row g-3 mb-5 flex-nowrap">
+        <div class="col-4">
+            <div class="summary-card p-4 rounded-4 bg-light border text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Total Obligations</div>
+                <div class="h2 fw-bold mb-0">@TotalObligations.ToString("C")</div>
+                <div class="small text-muted">Total amount of all bills for this period</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="summary-card p-4 rounded-4 bg-light border text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Settled Amount</div>
+                <div class="h2 fw-bold text-success mb-0">@TotalSettled.ToString("C")</div>
+                <div class="small text-muted">Amount paid toward these obligations</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="summary-card p-4 rounded-4 bg-primary text-white border-0 text-center shadow">
+                <div class="opacity-75 small text-uppercase fw-bold mb-1">Outstanding Balance</div>
+                <div class="h2 fw-bold mb-0">@OutstandingBalance.ToString("C")</div>
+                <div class="small opacity-75">Remaining amount yet to be paid</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="row mb-5">
+        <div class="col-12">
+            <h5 class="fw-bold mb-3 border-bottom pb-2 small text-uppercase letter-spacing-1">Expenditure by Category</h5>
+            <div class="table-responsive">
+                <table class="table table-sm table-borderless align-middle mb-0" style="font-size: 0.9rem;">
+                    <thead class="text-muted">
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <th class="py-2 fw-normal">Category</th>
+                            <th class="py-2 fw-normal text-end">Amount</th>
+                            <th class="py-2 fw-normal text-end" style="width: 100px;">% of Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cat in CategorySummaries.OrderByDescending(c => c.TotalAmount))
+                        {
+                            <tr style="border-bottom: 1px solid #f8fafc;">
+                                <td class="py-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="rounded-circle" style="width: 8px; height: 8px; background: @cat.Color"></div>
+                                        <span class="fw-bold">@cat.Name</span>
+                                    </div>
+                                </td>
+                                <td class="py-2 text-end fw-semibold">@cat.TotalAmount.ToString("C")</td>
+                                <td class="py-2 text-end text-muted">@((cat.TotalAmount / TotalObligations * 100).ToString("N1"))%</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Transaction Log -->
+    <div class="row">
+        <div class="col-12">
+            <h5 class="fw-bold mb-4 border-bottom pb-2">Detailed Transaction Log</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="border-0 small text-uppercase">Vendor</th>
+                            <th class="border-0 small text-uppercase">Category</th>
+                            <th class="border-0 small text-uppercase">Due Date</th>
+                            <th class="border-0 small text-uppercase">Status</th>
+                            <th class="border-0 small text-uppercase text-end">Total</th>
+                            <th class="border-0 small text-uppercase text-end">Paid</th>
+                            <th class="border-0 small text-uppercase text-end">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var bill in AllBills.OrderBy(b => b.DueDate))
+                        {
+                            <tr>
+                                <td class="fw-bold">@bill.Vendor?.Name</td>
+                                <td>
+                                    <span class="badge rounded-pill bg-light text-dark border fw-normal">
+                                        @bill.Category?.Name
+                                    </span>
+                                </td>
+                                <td>@bill.DueDate.ToString("MMM dd, yyyy")</td>
+                                <td>
+                                    <span class="status-indicator status-@bill.Status.ToLower()">
+                                        @bill.Status
+                                    </span>
+                                </td>
+                                <td class="text-end">@bill.OriginalAmount.ToString("C")</td>
+                                <td class="text-end text-success">@bill.Payments.Sum(p => p.AmountPaid).ToString("C")</td>
+                                <td class="text-end fw-bold">@bill.BalanceRemaining.ToString("C")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="bg-light fw-bold">
+                        <tr>
+                            <td colspan="4" class="text-end">GRAND TOTALS</td>
+                            <td class="text-end">@TotalObligations.ToString("C")</td>
+                            <td class="text-end text-success">@TotalSettled.ToString("C")</td>
+                            <td class="text-end">@OutstandingBalance.ToString("C")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center mt-5 pt-5 text-muted small border-top">
+        <p>This report was generated automatically by GFC Studio Finance Management System.</p>
+        <p class="mb-0">&copy; @DateTime.Now.Year GFC. All rights reserved.</p>
+    </div>
+</div>
+
+<style>
+    .report-container {
+        background: white;
+        max-width: 1000px;
+        margin: 0 auto;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    .letter-spacing-1 { letter-spacing: 0.1em; }
+    
+    .status-indicator {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.25rem 0.75rem;
+        border-radius: 100px;
+        display: inline-block;
+    }
+    .status-paid { background: #dcfce7; color: #166534; }
+    .status-pending { background: #fef9c3; color: #854d0e; }
+    .status-partial { background: #dbeafe; color: #1e40af; }
+    .status-overdue { background: #fee2e2; color: #991b1b; }
+
+    @@media print {
+        /* Hide Website Navigation & UI Chrome */
+        .app-topbar, 
+        .app-sidebar, 
+        .sidebar-overlay,
+        .btn-print,
+        .no-print,
+        header,
+        aside {
+            display: none !important;
+        }
+
+        /* Reset Page Structure for Print */
+        body, .app-shell, .app-main, .app-content, .content {
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            height: auto !important;
+        }
+
+        .report-container { 
+            width: 100% !important; 
+            max-width: 100% !important; 
+            padding: 0 !important; 
+            margin: 0 !important;
+            box-shadow: none !important;
+        }
+
+        /* Summary Card Compaction */
+        .summary-card { 
+            padding: 1rem !important;
+            border: 1px solid #dee2e6 !important; 
+            box-shadow: none !important;
+            break-inside: avoid; 
+            background: #f8fafc !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        
+        .summary-card .h2 {
+            font-size: 1.25rem !important;
+        }
+        
+        .summary-card .small {
+            font-size: 0.65rem !important;
+        }
+
+        /* Progress Bar Visibility */
+        .progress {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #e2e8f0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .progress-bar {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* Table Optimization */
+        .table { 
+            width: 100% !important;
+            break-inside: auto; 
+        }
+        tr { break-inside: avoid; break-after: auto; }
+        thead { display: table-header-group; }
+        tfoot { display: table-footer-group; }
+
+        /* Typography */
+        h1, h2, h3, h4, h5, .h2, .h4, .fw-bold {
+            color: black !important;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public int Month { get; set; }
+    [Parameter] public int Year { get; set; }
+
+    private DateTime ReportDate => new DateTime(Year, Month, 1);
+    private List<FinanceBill> AllBills { get; set; } = new();
+    private List<CategorySum> CategorySummaries { get; set; } = new();
+    
+    private decimal TotalObligations => AllBills.Sum(b => b.OriginalAmount);
+    private decimal TotalSettled => AllBills.Sum(b => b.Payments.Sum(p => p.AmountPaid));
+    private decimal OutstandingBalance => TotalObligations - TotalSettled;
+    private decimal MaxCategoryAmount => CategorySummaries.Any() ? CategorySummaries.Max(c => c.TotalAmount) : 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Fetch ALL bills for the month (including paid and past due ones relevant to this month's view)
+        AllBills = (await FinanceService.GetBillsAsync(Month, Year)).ToList();
+
+        // Calculate Category Summaries
+        CategorySummaries = AllBills
+            .GroupBy(b => new { b.CategoryId, Name = b.Category?.Name ?? "Uncategorized", Color = b.Category?.Color ?? "#cbd5e1" })
+            .Select(g => new CategorySum 
+            { 
+                Name = g.Key.Name, 
+                Color = g.Key.Color, 
+                TotalAmount = g.Sum(b => b.OriginalAmount) 
+            })
+            .ToList();
+    }
+
+    private void GoBack() => NavManager.NavigateTo("/finance/bills");
+    
+    private async Task PrintReport()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private class CategorySum
+    {
+        public string Name { get; set; }
+        public string Color { get; set; }
+        public decimal TotalAmount { get; set; }
+    }
+}
