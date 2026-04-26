@@ -22,24 +22,48 @@ namespace GFC.BlazorServer.Services
 
         public async Task<IEnumerable<FinanceBill>> GetBillsAsync(int month, int year)
         {
+            Console.WriteLine($"[FINANCE] GetBillsAsync START: {month}/{year}");
             using var db = await _dbFactory.CreateDbContextAsync();
             var startOfMonth = new DateTime(year, month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
-            // Logic:
-            // 1. Show everything due in the VIEWED month (Paid or Unpaid)
-            // 2. Show everything UNPAID from the PAST (Arrears)
-            // 3. Show everything UNPAID in the FUTURE but only if within 14 days of TODAY
             var today = DateTime.Today;
             var upcomingLimit = today.AddDays(14);
 
+            try
+            {
+                var results = await db.FinanceBills
+                    .AsNoTracking()
+                    .Include(b => b.Vendor)
+                    .Include(b => b.Category)
+                    .Include(b => b.Payments)
+                    .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
+                                (b.Status != "Paid" && b.DueDate < startOfMonth) ||
+                                (b.Status != "Paid" && b.DueDate > endOfMonth && b.DueDate <= upcomingLimit))
+                    .OrderBy(b => b.DueDate)
+                    .ToListAsync();
+                Console.WriteLine($"[FINANCE] GetBillsAsync END: Found {results.Count} bills");
+                return results;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FINANCE] GetBillsAsync ERROR: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<FinanceBill>> GetBillsForYearAsync(int year)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var startOfYear = new DateTime(year, 1, 1);
+            var endOfYear = new DateTime(year, 12, 31);
+
             return await db.FinanceBills
+                .AsNoTracking()
                 .Include(b => b.Vendor)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
-                .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
-                            ((b.Status == null || b.Status != "Paid") && b.DueDate < startOfMonth) ||
-                            ((b.Status == null || b.Status != "Paid") && b.DueDate > endOfMonth && b.DueDate <= upcomingLimit))
+                .Where(b => b.DueDate >= startOfYear && b.DueDate <= endOfYear)
                 .OrderBy(b => b.DueDate)
                 .ToListAsync();
         }
@@ -48,6 +72,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.FinanceBills
+                .AsNoTracking()
                 .Include(b => b.Vendor)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
@@ -202,6 +227,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.FinanceVendors
+                .AsNoTracking()
                 .Where(v => v.IsActive)
                 .OrderBy(v => v.Name)
                 .ToListAsync();
@@ -252,7 +278,11 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<FinanceCategory>> GetAllCategoriesAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.FinanceCategories.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+            return await db.FinanceCategories
+                .AsNoTracking()
+                .Where(c => c.IsActive)
+                .OrderBy(c => c.Name)
+                .ToListAsync();
         }
 
         public async Task<FinanceCategory> CreateCategoryAsync(FinanceCategory category)
@@ -316,19 +346,20 @@ namespace GFC.BlazorServer.Services
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
             return await db.FinancePayments
+                .AsNoTracking()
                 .Where(p => p.PaymentDate >= startOfMonth && p.PaymentDate <= endOfMonth)
                 .SumAsync(p => p.AmountPaid);
         }
 
         public async Task<int> GetUpcomingAlertCountAsync(int days)
         {
-            using var context = _dbFactory.CreateDbContext();
+            using var context = await _dbFactory.CreateDbContextAsync();
             var today = DateTime.Today;
             var threshold = today.AddDays(days);
             
-            // Count everything that is NOT paid and is either OVERDUE or DUE SOON
             return await context.FinanceBills
-                .CountAsync(b => b.Status != BillStatus.Paid.ToString() 
+                .AsNoTracking()
+                .CountAsync(b => b.Status != "Paid" 
                             && b.DueDate.Date <= threshold);
         }
 

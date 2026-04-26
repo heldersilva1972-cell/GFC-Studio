@@ -113,7 +113,7 @@ public class Program
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("AllowNextJs",
-                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215", "https://localhost:7157", "https://localhost:7178", "http://localhost:7178", "https://localhost:7179", "http://localhost:7179")
+                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215", "http://localhost:7157", "https://localhost:7157", "https://localhost:7178", "http://localhost:7178", "https://localhost:7179", "http://localhost:7179")
                                   .AllowAnyMethod()
                                   .AllowAnyHeader()
                                   .AllowCredentials());

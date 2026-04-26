@@ -823,6 +823,11 @@ public class GfcDbContext : DbContext
             entity.ToTable("FinanceBills");
             entity.HasKey(b => b.Id);
             entity.Property(b => b.OriginalAmount).HasColumnType("decimal(18,2)");
+            
+            entity.HasIndex(b => b.DueDate);
+            entity.HasIndex(b => b.Status);
+            entity.HasIndex(b => b.VendorId);
+
             entity.HasOne(b => b.Vendor)
                 .WithMany(v => v.Bills)
                 .HasForeignKey(b => b.VendorId)
@@ -837,6 +842,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("FinanceVendors");
             entity.HasKey(v => v.Id);
+            entity.HasIndex(v => v.Name);
         });
 
         modelBuilder.Entity<GFC.Core.Models.Finance.FinanceCategory>(entity =>
@@ -850,6 +856,10 @@ public class GfcDbContext : DbContext
             entity.ToTable("FinancePayments");
             entity.HasKey(p => p.Id);
             entity.Property(p => p.AmountPaid).HasColumnType("decimal(18,2)");
+            
+            entity.HasIndex(p => p.BillId);
+            entity.HasIndex(p => p.PaymentDate);
+
             entity.HasOne(p => p.Bill)
                 .WithMany(b => b.Payments)
                 .HasForeignKey(p => p.BillId)

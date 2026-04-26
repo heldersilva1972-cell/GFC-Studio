@@ -122,18 +122,30 @@
             <span class="brand-text">GFC</span>
             <span class="terminal-id">@TerminalName.ToUpper()</span>
             
-            <div class="user-indicator-pill">
+            <div class="user-indicator-pill" @onclick="() => CurrentUserName = string.Empty">
                 <div class="user-avatar">
                     <i class="bi bi-person-fill"></i>
                 </div>
                 <div class="user-details">
-                    <span class="user-role">BARTENDER</span>
-                    <span class="user-name">@CurrentUserName</span>
+                    <span class="user-name">@(string.IsNullOrEmpty(CurrentUserName) ? "SELECT OPERATOR" : CurrentUserName)</span>
+                </div>
+                <div class="ms-2 ps-2 border-start text-danger" title="Lock Terminal">
+                    <i class="bi bi-lock-fill"></i>
                 </div>
             </div>
         </div>
         
         <div class="pos-status">
+            <script>
+                window.GfcIdleTracker = {
+                    initialize: (dotnetObj) => {
+                        const reset = () => dotnetObj.invokeMethodAsync('ResetIdleTimer');
+                        ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => 
+                            window.addEventListener(evt, reset, { passive: true })
+                        );
+                    }
+                };
+            </script>
             <!-- Internet Indicator -->
             <div class="hub-heartbeat-container">
                 <div class="hub-heartbeat-dot @(Connectivity.IsHardwareOnline ? "online" : "offline")"></div>
@@ -250,6 +262,24 @@
                                 </div>
                             </div>
                         }
+                    </div>
+                    
+                    <div class="mb-4">
+                        <div class="settings-section-title">
+                            <i class="bi bi-shield-lock"></i> SECURITY & SESSION
+                        </div>
+                        <div class="settings-group">
+                            <label class="settings-label">Inactivity Timeout (Minutes)</label>
+                            <div class="d-flex align-items-center gap-3">
+                                <input type="number" class="form-control settings-input" 
+                                       @bind="_idleTimeoutMinutes" @bind:after="SaveIdleSettings" 
+                                       min="0" max="120" style="width: 100px;" />
+                                <div class="text-start">
+                                    <div class="fw-bold small text-muted">0 = DISABLED</div>
+                                    <div class="small opacity-50" style="font-size: 0.6rem;">AUTO-LOCKS STATION IF IDLE</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -503,6 +533,61 @@
     </main>
 </div>
 
+@if (string.IsNullOrEmpty(CurrentUserName))
+{
+    <div class="shift-overlay no-backdrop" style="z-index: 20000; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px);">
+        <div class="animate__animated animate__fadeInDown" style="max-width: 600px; width: 90%;">
+            <div class="text-center mb-5">
+                <div class="notice-icon-circle bg-blue mb-4">
+                    <i class="bi bi-shield-lock-fill"></i>
+                </div>
+                <h1 class="fw-black text-white text-uppercase letter-spacing-2 mb-2">Terminal Locked</h1>
+                <p class="text-white opacity-50 fw-bold">SELECT AN AUTHORIZED OPERATOR TO BEGIN</p>
+                
+                <div class="d-flex justify-content-center gap-4 mt-4">
+                    <div class="hub-heartbeat-container">
+                        <div class="hub-heartbeat-dot @(Connectivity.IsHardwareOnline ? "online" : "offline")"></div>
+                        <span class="heartbeat-label text-white opacity-75">INTERNET</span>
+                    </div>
+                    <div class="hub-heartbeat-container">
+                        <div class="hub-heartbeat-dot @(Connectivity.IsServerReachable ? "online" : "offline")"></div>
+                        <span class="heartbeat-label text-white opacity-75">SERVER</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row row-cols-2 g-3">
+                @foreach (var user in AuthorizedUsers)
+                {
+                    <div class="col">
+                        <button class="btn btn-light w-100 py-4 rounded-4 shadow-lg border-0 d-flex flex-column align-items-center gap-2 transition-all hover-lift" 
+                                @onclick="() => CurrentUserName = user.Username">
+                            <i class="bi bi-person-circle fs-2 text-primary"></i>
+                            <span class="fw-black text-uppercase letter-spacing-1">@user.Username</span>
+                        </button>
+                    </div>
+                }
+                
+                @if (!AuthorizedUsers.Any())
+                {
+                    <div class="col-12 text-center py-4">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-white opacity-50 small fw-bold text-uppercase">Searching for authorized operators...</p>
+                    </div>
+                }
+            </div>
+            
+            <div class="text-center mt-5 pt-4">
+                <div class="badge bg-white bg-opacity-10 text-white rounded-pill px-4 py-2 border border-white border-opacity-10" style="font-size: 0.7rem;">
+                    GFC STANDALONE POS v@(VersionService.GetRevision())
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* Overlays *@
 @if (showSuccessOverlay)
 {
@@ -641,7 +726,7 @@
 @* OFFLINE PRINT ZONE REMOVED (Now using C# Generator) *@
 
 @code {
-    private string CurrentUserName = "ADMIN";
+    private string CurrentUserName = string.Empty;
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
     private int PendingSyncCount => PosService.TotalPendingCount;
@@ -661,6 +746,10 @@
     private bool showSuccessOverlay = false;
     private bool showCloseOutSuccessOverlay = false;
     private bool isDartsModeActive = false;
+    private bool _disposed = false;
+    
+    private DateTime _lastActivity = DateTime.Now;
+    private int _idleTimeoutMinutes = 5;
 
     private decimal? CashReceived = null;
     private string CashInputString = "";
@@ -682,12 +771,9 @@
         await LoadTerminalName();
         await RefreshData();
         
-        AuthorizedUsers = await PosService.GetAuthorizedUsersAsync();
-        if (AuthorizedUsers.Any())
-        {
-            CurrentUserName = AuthorizedUsers.First().Username;
-        }
-
+        // [AUTO-SYNC] Load from vault instantly, then background refresh from server
+        _ = SyncUsers(); 
+        
         var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
         if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
 
@@ -701,13 +787,67 @@
         PosService.OutboxChanged += OnOutboxChanged;
         
         await PosService.GetTotalPendingAsync();
+        
+        // Load Idle Settings
+        var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
+        if (int.TryParse(idleStored, out var mins)) _idleTimeoutMinutes = mins;
+        
+        // Initialize Activity Tracker
+        await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
+        
+        // [AUTO-REFRESH] Background poll for new users and security checks
+        _ = StartAuthPolling();
+    }
+    
+    [JSInvokable]
+    public void ResetIdleTimer() => _lastActivity = DateTime.Now;
+
+    private async Task SaveIdleSettings() => await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_idle_timeout", _idleTimeoutMinutes.ToString());
+
+    private async Task StartAuthPolling()
+    {
+        while (!_disposed)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            if (_disposed) continue;
+
+            // 1. Idle Timeout Check (Highest Priority)
+            if (_idleTimeoutMinutes > 0 && !string.IsNullOrEmpty(CurrentUserName))
+            {
+                if ((DateTime.Now - _lastActivity).TotalMinutes >= _idleTimeoutMinutes)
+                {
+                    Console.WriteLine($"[POS] IDLE TIMEOUT: No activity for {_idleTimeoutMinutes}m. Locking station.");
+                    CurrentUserName = string.Empty;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            // 2. Security / Permissions Sync
+            if (Connectivity.IsServerReachable)
+            {
+                await SyncUsers();
+
+                // Security Check: If a user is currently logged in, verify they are still in the authorized list
+                if (!string.IsNullOrEmpty(CurrentUserName))
+                {
+                    var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
+                    if (!isStillAuth)
+                    {
+                        Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
+                        CurrentUserName = string.Empty;
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+        }
     }
 
     private async void OnConnectivityChanged(bool isOnline)
     {
-        if (isOnline && (!Categories.Any() || !DbItems.Any()))
+        if (isOnline)
         {
-            await RefreshData();
+            if (!Categories.Any() || !DbItems.Any()) await RefreshData();
+            _ = SyncUsers(); // Auto-refresh user list when server returns
         }
         await InvokeAsync(StateHasChanged);
     }
@@ -719,6 +859,7 @@
 
     public void Dispose()
     {
+        _disposed = true;
         Connectivity.ConnectivityChanged -= OnConnectivityChanged;
         PosService.OutboxChanged -= OnOutboxChanged;
     }
@@ -1026,6 +1167,35 @@
     private void ShowNotice(string t, string m, string type, Action? c = null) { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _showNoticeModal = true; StateHasChanged(); }
     private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
     private void GoBack() => Navigation.NavigateTo("/");
+
+    private async Task SyncUsers()
+    {
+        try 
+        {
+            Console.WriteLine("[POS] Starting SyncUsers()...");
+            
+            // We use HttpClient directly here to inspect the raw response if needed
+            var users = await PosService.GetAuthorizedUsersAsync();
+            
+            if (users != null)
+            {
+                Console.WriteLine($"[POS] SyncUsers: Found {users.Count} authorized operators.");
+                AuthorizedUsers = users;
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                Console.WriteLine("[POS] SyncUsers: No authorized operators found (empty list or error).");
+                // Check connectivity status
+                var isServerUp = await Connectivity.CheckServerReachableAsync();
+                Console.WriteLine($"[POS] Connectivity Status - Online: {Connectivity.IsOnline}, Server: {isServerUp}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] SyncUsers CRITICAL ERROR: {ex.Message}");
+        }
+    }
 
     public class ProductItem { public int Id { get; set; } public string Name { get; set; } = ""; public decimal Price { get; set; } public int Quantity { get; set; } = 1; public string Category { get; set; } = "MISC"; }
 }

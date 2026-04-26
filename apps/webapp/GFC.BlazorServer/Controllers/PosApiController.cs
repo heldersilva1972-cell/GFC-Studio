@@ -17,15 +17,33 @@ public class PosApiController : ControllerBase
     private readonly IDbContextFactory<GfcDbContext> _dbFactory;
     private readonly ILiquorService _liquorService;
     private readonly ILogger<PosApiController> _logger;
+    private readonly IPagePermissionRepository _pagePermissionRepo;
+
+    [HttpGet("debug-pages")]
+    public async Task<IActionResult> DebugPages()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var pages = await db.AppPages.ToListAsync();
+        var perms = await db.UserPagePermissions
+            .Include(p => p.User)
+            .Include(p => p.Page)
+            .Take(100)
+            .Select(p => new { p.PageId, p.UserId, p.User.Username, p.Page.PageRoute, p.CanAccess })
+            .ToListAsync();
+            
+        return Ok(new { Pages = pages, RecentPermissions = perms });
+    }
 
     public PosApiController(
         IDbContextFactory<GfcDbContext> dbFactory,
         ILiquorService liquorService,
-        ILogger<PosApiController> logger)
+        ILogger<PosApiController> logger,
+        IPagePermissionRepository pagePermissionRepo)
     {
         _dbFactory = dbFactory;
         _liquorService = liquorService;
         _logger = logger;
+        _pagePermissionRepo = pagePermissionRepo;
     }
 
     [HttpGet("menu")]
@@ -255,5 +273,54 @@ public class PosApiController : ControllerBase
 
         return Ok(lastZ == default ? DateTime.Today : lastZ);
     }
-}
 
+    [HttpGet("users")]
+    public async Task<IActionResult> GetAuthorizedUsers()
+    {
+        try
+        {
+            // The POS page can be identified by either the legacy "pos" route or the canonical "/admin/pos-terminal"
+            var posPage = _pagePermissionRepo.GetPageByRoute("/admin/pos-terminal") ?? _pagePermissionRepo.GetPageByRoute("pos");
+
+            if (posPage == null)
+            {
+                _logger.LogWarning("[POS API] No page found with route '/admin/pos-terminal' or 'pos'. Ensure the page is registered in AppPages.");
+                return Ok(new List<UserListItemDto>());
+            }
+
+            _logger.LogInformation($"[POS API] Fetching authorized users for page: {posPage.PageName} (ID: {posPage.PageId}, Route: {posPage.PageRoute})");
+
+            // 2. Get active users with permission using the Repository
+            var permissions = _pagePermissionRepo.GetPagePermissions(posPage.PageId);
+            
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var userIds = permissions.Select(p => p.UserId).ToList();
+            
+            // We still need to fetch the full AppUser objects to construct the DTOs
+            var users = await db.AppUsers
+                .Where(u => userIds.Contains(u.UserId) && u.IsActive && !u.IsAdmin)
+                .OrderBy(u => u.Username)
+                .Select(u => new UserListItemDto(
+                    u.UserId,
+                    u.Username,
+                    u.IsAdmin,
+                    u.IsActive,
+                    u.MemberId,
+                    null, // MemberName
+                    u.LastLoginDate,
+                    u.Notes,
+                    u.Email ?? "",
+                    false // IsDirector
+                ))
+                .ToListAsync();
+
+            _logger.LogInformation($"[POS API] Found {users.Count} authorized users.");
+            return Ok(users);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[POS API] Error in GetAuthorizedUsers");
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
+}

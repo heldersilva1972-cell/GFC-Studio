@@ -147,7 +147,7 @@ public class PageDiscoveryService
             return "SYSTEM";
 
         // [POS SYSTEM]
-        if (normalized.StartsWith("admin/pos") || normalized == "admin/pos-terminal")
+        if (normalized.StartsWith("admin/pos") || normalized == "admin/pos-terminal" || normalized == "pos")
             return "POS SYSTEM";
 
         // [LIQUOR]
