@@ -4,6 +4,7 @@ using GFC.Core.Models.Finance;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -22,7 +23,9 @@ namespace GFC.BlazorServer.Services
 
         public async Task<IEnumerable<FinanceBill>> GetBillsAsync(int month, int year)
         {
+            var sw = Stopwatch.StartNew();
             Console.WriteLine($"[FINANCE] GetBillsAsync START: {month}/{year}");
+            
             using var db = await _dbFactory.CreateDbContextAsync();
             var startOfMonth = new DateTime(year, month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
@@ -34,6 +37,7 @@ namespace GFC.BlazorServer.Services
             {
                 var results = await db.FinanceBills
                     .AsNoTracking()
+                    .AsSplitQuery() // [OPTIMIZATION] Prevents slow Cartesian product joins
                     .Include(b => b.Vendor)
                     .Include(b => b.Category)
                     .Include(b => b.Payments)
@@ -42,30 +46,62 @@ namespace GFC.BlazorServer.Services
                                 (b.Status != "Paid" && b.DueDate > endOfMonth && b.DueDate <= upcomingLimit))
                     .OrderBy(b => b.DueDate)
                     .ToListAsync();
-                Console.WriteLine($"[FINANCE] GetBillsAsync END: Found {results.Count} bills");
+                
+                sw.Stop();
+                Console.WriteLine($"[FINANCE] GetBillsAsync FINISHED in {sw.ElapsedMilliseconds}ms. Found {results.Count} bills.");
                 return results;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[FINANCE] GetBillsAsync ERROR: {ex.Message}");
+                Console.WriteLine($"[FINANCE] GetBillsAsync ERROR after {sw.ElapsedMilliseconds}ms: {ex.Message}");
                 throw;
             }
         }
 
         public async Task<IEnumerable<FinanceBill>> GetBillsForYearAsync(int year)
         {
+            var sw = Stopwatch.StartNew();
             using var db = await _dbFactory.CreateDbContextAsync();
             var startOfYear = new DateTime(year, 1, 1);
             var endOfYear = new DateTime(year, 12, 31);
 
-            return await db.FinanceBills
+            var results = await db.FinanceBills
                 .AsNoTracking()
+                .AsSplitQuery() // [OPTIMIZATION]
                 .Include(b => b.Vendor)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
                 .Where(b => b.DueDate >= startOfYear && b.DueDate <= endOfYear)
                 .OrderBy(b => b.DueDate)
                 .ToListAsync();
+
+            sw.Stop();
+            Console.WriteLine($"[FINANCE] GetBillsForYearAsync ({year}) FINISHED in {sw.ElapsedMilliseconds}ms.");
+            return results;
+        }
+
+        public async Task<IEnumerable<FinanceBill>> GetBillsForReportAsync(int month, int year)
+        {
+            var sw = Stopwatch.StartNew();
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var startOfMonth = new DateTime(year, month, 1);
+            var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
+
+            // [REPORT LOGIC] Only include bills DUE in this month OR bills PAID in this month
+            var results = await db.FinanceBills
+                .AsNoTracking()
+                .AsSplitQuery()
+                .Include(b => b.Vendor)
+                .Include(b => b.Category)
+                .Include(b => b.Payments)
+                .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
+                            b.Payments.Any(p => p.PaymentDate >= startOfMonth && p.PaymentDate <= endOfMonth))
+                .OrderBy(b => b.DueDate)
+                .ToListAsync();
+
+            sw.Stop();
+            Console.WriteLine($"[FINANCE] GetBillsForReportAsync ({month}/{year}) FINISHED in {sw.ElapsedMilliseconds}ms.");
+            return results;
         }
 
         public async Task<FinanceBill?> GetBillByIdAsync(int id)

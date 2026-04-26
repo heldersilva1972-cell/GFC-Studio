@@ -9,6 +9,7 @@ namespace GFC.Core.Interfaces
     {
         // Bill Management
         Task<IEnumerable<FinanceBill>> GetBillsAsync(int month, int year);
+        Task<IEnumerable<FinanceBill>> GetBillsForReportAsync(int month, int year);
         Task<IEnumerable<FinanceBill>> GetBillsForYearAsync(int year);
         Task<FinanceBill?> GetBillByIdAsync(int id);
         Task<FinanceBill> CreateBillAsync(FinanceBill bill);
