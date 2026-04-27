@@ -15,13 +15,126 @@
 @inject ControllerEventService EventService
 @inject IBlazorSystemSettingsService SettingsService
 
+<style>
+    .activity-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 240px); /* Maximized height */
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+    }
+
+    .activity-filters {
+        flex-shrink: 0;
+    }
+
+    .activity-card {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin-bottom: 0 !important;
+    }
+
+    /* Compact Activity Table Styles */
+    .activity-table-container {
+        flex-grow: 1;
+        overflow-y: auto;
+        position: relative;
+        border-radius: 0 0 12px 12px;
+    }
+
+    .activity-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem; /* Smaller global font for logs */
+    }
+
+    .activity-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8fafc !important;
+        box-shadow: 0 1px 0 #e2e8f0;
+        padding: 4px 12px !important; /* Ultra compact */
+        text-transform: uppercase;
+        font-size: 0.7rem !important;
+        letter-spacing: 0.025em;
+        color: #64748b;
+    }
+
+    .activity-table tbody td {
+        padding: 2px 12px !important; /* Ultra compact */
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+        line-height: 1.1 !important;
+    }
+
+    .time-display {
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem !important;
+    }
+
+    .card-badge {
+        font-size: 0.7rem !important;
+        padding: 0px 4px !important;
+    }
+
+    .event-badge {
+        padding: 1px 6px !important;
+        font-size: 0.7rem !important;
+        border-radius: 4px;
+    }
+
+    .activity-header {
+        padding: 8px 16px !important; /* Tight header */
+        border-bottom: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #ffffff;
+    }
+
+    .activity-header h5 {
+        font-size: 0.9rem !important;
+        margin-bottom: 0 !important;
+    }
+
+    /* Keep header sticky while scrolling table */
+    .activity-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8fafc;
+        box-shadow: 0 1px 0 #e2e8f0;
+    }
+
+    /* Compact scrollbar */
+    .activity-table-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    .activity-table-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+    }
+    .activity-table-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+    }
+    .activity-table-container::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+</style>
+
 <div class="activity-container">
     <!-- Time Range Filters -->
-    <div class="activity-filters slide-in-up">
-        <div class="filter-row">
-            <div class="filter-group">
-                <label class="filter-label">Time Range</label>
-                <select class="form-select" @bind="_timeRange" @bind:after="() => LoadActivityAsync(true)">
+    <div class="activity-filters slide-in-up shadow-sm border p-2 px-3 bg-light" style="border-radius: 12px; margin-bottom: 0.5rem;">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <!-- Time Range -->
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history text-muted small"></i>
+                <select class="form-select form-select-sm" style="width: 150px; font-weight: 600;" @bind="_timeRange" @bind:after="() => LoadActivityAsync(true)">
                     <option value="all">All Time</option>
                     <option value="24h">Last 24 Hours</option>
                     <option value="today">Today</option>
@@ -33,30 +146,18 @@
             
             @if (_timeRange == "custom")
             {
-                <div class="filter-group">
-                    <label class="filter-label">From</label>
-                    <input type="datetime-local" class="form-control" @bind="_fromDate" @bind:after="() => LoadActivityAsync(true)" />
-                </div>
-                <div class="filter-group">
-                    <label class="filter-label">To</label>
-                    <input type="datetime-local" class="form-control" @bind="_toDate" @bind:after="() => LoadActivityAsync(true)" />
+                <div class="d-flex align-items-center gap-2">
+                    <span class="small text-muted">From:</span>
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_fromDate" @bind:after="() => LoadActivityAsync(true)" />
+                    <span class="small text-muted">To:</span>
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_toDate" @bind:after="() => LoadActivityAsync(true)" />
                 </div>
             }
             
-            <div class="filter-group">
-                <label class="filter-label">Controller</label>
-                <select class="form-select" @bind="_selectedControllerId" @bind:after="() => LoadActivityAsync(true)">
-                    <option value="0">All Controllers</option>
-                    @foreach (var controller in _controllers)
-                    {
-                        <option value="@controller.Id">@controller.Name</option>
-                    }
-                </select>
-            </div>
-            
-            <div class="filter-group">
-                <label class="filter-label">Door</label>
-                <select class="form-select" @bind="_selectedDoorId" @bind:after="() => LoadActivityAsync(true)">
+            <!-- Door Filter -->
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-door-closed text-muted small"></i>
+                <select class="form-select form-select-sm" style="width: 150px; font-weight: 600;" @bind="_selectedDoorId" @bind:after="() => LoadActivityAsync(true)">
                     <option value="0">All Doors</option>
                     @foreach (var door in _filteredDoors)
                     {
@@ -65,18 +166,28 @@
                 </select>
             </div>
             
-            <div class="filter-group align-end">
-                <button class="btn btn-primary" @onclick="() => LoadActivityAsync(true)" disabled="@_loading">
+            <!-- Actions -->
+            <div class="d-flex align-items-center gap-2 border-start ps-3">
+                <button class="btn btn-primary btn-sm px-3 d-flex align-items-center gap-1" style="height: 31px; border-radius: 8px; font-weight: 700;" @onclick="() => LoadActivityAsync(true)" disabled="@_loading">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
+                
+                @if (_lastRefreshTime.HasValue)
+                {
+                    <span class="text-muted small ms-2" style="font-size: 0.75rem;">
+                        Last updated: @_lastRefreshTime.Value.ToString("HH:mm:ss")
+                    </span>
+                }
             </div>
-            
-            @if (_lastRefreshTime.HasValue)
-            {
-                <div class="filter-group align-end ms-auto">
-                    <span class="text-muted small">Last updated: @_lastRefreshTime.Value.ToString("HH:mm:ss")</span>
-                </div>
-            }
+
+            <!-- Diagnostics Toggle (Far Right) -->
+            <div class="ms-auto d-flex align-items-center gap-2">
+                <button class="btn btn-sm @(_showDebugPanel ? "btn-info" : "btn-outline-info")" 
+                        style="height: 31px; border-radius: 8px; font-weight: 600; font-size: 0.75rem;"
+                        @onclick="() => _showDebugPanel = !_showDebugPanel">
+                    <i class="bi bi-bug"></i> Diagnostics
+                </button>
+            </div>
         </div>
     </div>
 
@@ -129,11 +240,7 @@
     }
     else
     {
-        <div class="mt-2">
-            <button class="btn btn-sm btn-outline-info" @onclick="() => _showDebugPanel = true">
-                <i class="bi bi-bug"></i> Show Download Diagnostics
-            </button>
-        </div>
+
     }
 
     <!-- Activity Table -->
@@ -259,7 +366,7 @@
     private bool _loadingMore = false;
     private bool _syncing = false;
     private string _errorMessage = string.Empty;
-    private string _timeRange = "all";
+    private string _timeRange = "today"; // Default to today
     private DateTime? _fromDate;
     private DateTime? _toDate;
     private int _selectedControllerId = 0;
