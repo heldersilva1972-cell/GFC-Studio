@@ -21,784 +21,625 @@
 
 @implements IDisposable
 
-<div class="page-header align-items-center mb-4">
+<div class="members-dashboard-container">
+    <div class="fixed-top-section">
+        <div class="sticky-header-top">
+            <!-- 1. INSIGHT HEADER: Tightened Metric Cards -->
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <div class="metric-card-modern tight glass-blue scale-in">
+                        <div class="metric-icon-box small">
+                            <i class="bi bi-people-fill"></i>
+                        </div>
+                        <div class="metric-content">
+                            <span class="metric-label">Total Members</span>
+                            <h3 class="metric-value">@_allMembers.Count</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="metric-card-modern tight glass-green scale-in" style="animation-delay: 0.1s;">
+                        <div class="metric-icon-box small">
+                            <i class="bi bi-check-circle-fill"></i>
+                        </div>
+                        <div class="metric-content">
+                            <span class="metric-label">Active Paid</span>
+                            <h3 class="metric-value">@_allMembers.Count(m => (m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life or MemberStatus.Guest) && (m.DuesStatus is "Paid" or "Waived" or "Life"))</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="metric-card-modern tight glass-orange scale-in" style="animation-delay: 0.2s;">
+                        <div class="metric-icon-box small">
+                            <i class="bi bi-credit-card-2-front-fill"></i>
+                        </div>
+                        <div class="metric-content">
+                            <span class="metric-label">With Cards</span>
+                            <h3 class="metric-value">@_allMembers.Count(m => !string.IsNullOrEmpty(m.CardNumber))</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="metric-card-modern tight glass-purple scale-in" style="animation-delay: 0.3s;">
+                        <div class="metric-icon-box small">
+                            <i class="bi bi-person-plus-fill"></i>
+                        </div>
+                        <div class="metric-content d-flex align-items-center">
+                            <button class="btn btn-add-member-minimal" @onclick="NavigateToAdd">
+                                <i class="bi bi-plus-lg me-1"></i> Add Member
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-    <div>
-        <h1 class="page-title-modern mb-0">Members</h1>
-        <p class="text-muted small mb-0">Manage the club's membership database and card access</p>
+            <!-- 2. CONTROL CENTER: Unified Filter Bar (Tightened) -->
+            <div class="control-center-glass tight slide-in-bottom">
+                <div class="row g-3 align-items-center">
+                    <div class="col-lg-5">
+                        <div class="search-input-wrapper">
+                            <i class="bi bi-search search-icon"></i>
+                            <input type="text" 
+                                   class="form-control-modern slim" 
+                                   placeholder="Search members..."
+                                   @bind="_searchTerm"
+                                   @bind:event="oninput"
+                                   @bind:after="OnSearchChanged"
+                                   disabled="@_isLoading" />
+                            @if (!string.IsNullOrWhiteSpace(_searchTerm))
+                            {
+                                <button class="btn-search-clear" @onclick="ClearSearch">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-lg-3">
+                        <div class="sort-wrapper">
+                            <i class="bi bi-sort-down-alt sort-icon"></i>
+                            <select class="form-select-modern slim" @bind="_sortOption" @bind:after="() => ApplyFilters()">
+                                <option value="name">Sort by Name</option>
+                                <option value="applied">Recent Applications</option>
+                                <option value="accepted">Membership Date</option>
+                                <option value="status">Status</option>
+                                <option value="dues">Dues Status</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-lg-4 text-end">
+                        <div class="filter-indicators">
+                            @if (HasActiveFilters)
+                            {
+                                <button class="btn-clear-all slim" @onclick="ClearFilters">
+                                    <i class="bi bi-filter-left me-1"></i> Reset
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-chips-scroll mt-2">
+                    @foreach (var chip in _statusChips)
+                    {
+                        var count = GetFilterCount(chip.Value);
+                        <button class="status-chip-modern slim @(IsChipActive(chip.Value) ? "active" : "")" 
+                                @onclick="() => SetStatusFilter(chip.Value)"
+                                disabled="@_isLoading">
+                            <span class="chip-label">@chip.Label</span>
+                            <span class="chip-count">@count</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
     </div>
-</div>
 
-<div class="row g-4">
-    <div class="col-lg-9">
-
-<div class="data-card mb-4">
-    <div class="row g-3 align-items-end">
-        <!-- Search Box -->
-        <div class="col-md-6">
-            <label class="form-label fw-semibold">
-                <i class="bi bi-search me-1"></i>Search Members
-            </label>
-            <div class="input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-search text-muted"></i>
-                </span>
-                <input class="form-control"
-                       placeholder="Search by name, ID, email, or phone"
-                       @bind="_searchTerm"
-                       @bind:event="oninput"
-                       @bind:after="OnSearchChanged"
-                       disabled="@_isLoading" />
-                @if (!string.IsNullOrWhiteSpace(_searchTerm))
-                {
-                    <button type="button"
-                            class="btn btn-outline-secondary"
-                            @onclick="ClearSearch"
-                            title="Clear search"
-                            disabled="@_isLoading">
-                        <i class="bi bi-x-lg"></i>
+    <div class="scrollable-member-list">
+        <!-- 3. MAIN LIST -->
+        @if (_isLoading)
+        {
+            <div class="loading-overlay">
+                <div class="loader-modern"></div>
+                <p class="text-muted mt-3">Gathering member data...</p>
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger glass-morphic border-danger mt-4 scale-in">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">Connection Error</h5>
+                        <p class="mb-0">@_errorMessage</p>
+                    </div>
+                    <button class="btn btn-danger ms-auto" type="button" @onclick="LoadMembersAsync">
+                        <i class="bi bi-arrow-clockwise me-1"></i> Retry
                     </button>
-                }
+                </div>
             </div>
-        </div>
-
-        <!-- Sort Dropdown -->
-        <div class="col-md-3">
-            <label class="form-label fw-semibold">
-                <i class="bi bi-sort-down me-1"></i>Sort By
-            </label>
-            <select class="form-select"
-                    @bind="_sortOption"
-                    @bind:after="() => ApplyFilters()"
-                    disabled="@_isLoading">
-                <option value="name">Name (A–Z)</option>
-                <option value="applied">Date Applied</option>
-                <option value="accepted">Date Accepted</option>
-                <option value="status">Status</option>
-                <option value="dues">Dues Status</option>
-                <option value="id">Member ID</option>
-            </select>
-        </div>
-
-        <!-- Filter Indicator -->
-        <div class="col-md-3 text-end">
-            @if (HasActiveFilters)
-            {
-                <span class="badge bg-primary" style="font-size: 0.9rem; padding: 8px 12px;">
-                    <i class="bi bi-funnel-fill me-1"></i>
-                    Filters Active
-                </span>
-            }
-        </div>
-    </div>
-
-    <!-- Status Filter Chips -->
-    <div class="mt-3 pt-3 border-top">
-        <label class="form-label fw-semibold mb-2">
-            <i class="bi bi-filter me-1"></i>Filter by Status
-        </label>
-        <div class="d-flex flex-wrap gap-2">
-            @foreach (var chip in _statusChips)
-            {
-                var count = GetFilterCount(chip.Value);
-                <button type="button"
-                        class="btn btn-sm @(IsChipActive(chip.Value) ? "btn-primary" : "btn-outline-secondary")"
-                        style="border-radius: 20px; padding: 6px 16px;"
-                        @onclick="() => SetStatusFilter(chip.Value)"
-                        disabled="@_isLoading">
-                    @chip.Label (@count)
-                </button>
-            }
-        </div>
-    </div>
-</div>
-
-@if (_isLoading)
-{
-    <div class="data-card">
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+        }
+        else if (_filteredMembers.Count == 0)
+        {
+            <div class="empty-state-modern scale-in">
+                <div class="empty-icon">
+                    <i class="bi bi-people"></i>
+                </div>
+                <h3>No members found</h3>
+                <p>Adjust your search or filters to see results.</p>
             </div>
-            <p class="text-muted mt-3">Loading members...</p>
-        </div>
-    </div>
-}
-else if (!string.IsNullOrWhiteSpace(_errorMessage))
-{
-    <div class="alert alert-danger">
-        <i class="bi bi-exclamation-triangle me-2"></i>@_errorMessage
-        <button class="btn btn-outline-danger btn-sm ms-3" type="button" @onclick="LoadMembersAsync">Retry</button>
-    </div>
-}
-else
-{
-    @if (_filteredMembers.Count == 0)
-    {
-        <div class="data-card text-center py-5">
-            <i class="bi bi-people" style="font-size: 3rem; color: #ccc;"></i>
-            <h5 class="mt-3">No members found</h5>
-            <p class="text-muted">Try clearing filters or search terms.</p>
-            @if (HasActiveFilters)
-            {
-                <button class="btn btn-outline-secondary" type="button" @onclick="ClearFilters">
-                    <i class="bi bi-x-circle me-2"></i>Clear Filters
-                </button>
-            }
-        </div>
-    }
-    else
-    {
-        <div class="data-card">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="sticky-header">
-                        <tr>
-                            <th style="width: 80px;">ID</th>
-                            <th>Name</th>
-                            <th>City</th>
-                            <th>Membership</th>
-                            <th>Dues Status</th>
-                            <th style="width: 110px;">Applied</th>
-                            <th style="width: 110px;">Accepted</th>
-                            <th style="width: 140px;">Card Number</th>
-                            <th style="width: 100px;" class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var member in _filteredMembers)
-                        {
-                            <tr>
-                                <td>
-                                    <span class="badge bg-secondary">#@member.MemberId</span>
-                                </td>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div>
-                                            <div class="fw-semibold d-flex align-items-center">
-                                                @member.FullName
-                                                @if (member.RegularSince.HasValue && member.Status != MemberStatus.Guest && member.Status != MemberStatus.Pending)
-                                                {
-                                                    var years = DateTime.Today.Year - member.RegularSince.Value.Year;
-                                                    if (DateTime.Today < member.RegularSince.Value.AddYears(years)) years--;
-                                                    if (years > 0)
-                                                    {
-                                                        <span class="badge badge-np ms-2" style="font-size: 0.65rem; padding: 2px 6px; font-weight: 700;">@years YRS</span>
-                                                    }
-                                                }
-                                            </div>
-                                            @if (!string.IsNullOrWhiteSpace(member.Email) && member.Status != MemberStatus.Deceased)
-                                            {
-                                                <small class="text-muted">@member.Email</small>
-                                            }
-                                            @if (member.Status == MemberStatus.Deceased && member.DateOfDeath.HasValue)
-                                            {
-                                                <small class="text-danger">Deceased: @member.DateOfDeath.Value.ToString("MMM d, yyyy")</small>
-                                            }
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>@(member.Status == MemberStatus.Deceased ? "—" : (member.City ?? "—"))</td>
-                                <td>
-                                    <span class="badge @GetStatusBadgeClass(member.Status)">
+        }
+        else
+        {
+            <div class="member-grid-modern">
+                @foreach (var member in _filteredMembers)
+                {
+                    bool isOverdue = member.DuesStatus.Contains("Past Due", StringComparison.OrdinalIgnoreCase) || 
+                                     member.DuesStatus.Contains("Overdue", StringComparison.OrdinalIgnoreCase);
+
+                    <div class="member-card-simplified scale-in @(isOverdue ? "is-overdue" : "")" @onclick="() => NavigateToMember(member.MemberId)">
+                        <div class="card-body-simple">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <div class="name-id-group">
+                                    <span class="member-id-tag">#@member.MemberId</span>
+                                    <h4 class="member-name-simple">@member.FullName</h4>
+                                </div>
+                                <div class="status-pill-group">
+                                    <span class="badge-modern @GetStatusBadgeClass(member.Status)">
                                         @GetStatusLabel(member.Status)
                                     </span>
-                                </td>
-                                <td>
-                                    <span class="badge @GetDuesBadgeClass(member.DuesStatus)">
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center mt-auto">
+                                <div class="dues-info d-flex align-items-center">
+                                    <span class="badge-modern @GetDuesBadgeClass(member.DuesStatus)">
+                                        @if (isOverdue)
+                                        {
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                        }
                                         @GetDuesLabel(member.DuesStatus)
                                     </span>
-                                </td>
-                                <td>
-                                    @if (member.ApplicationDate.HasValue)
-                                    {
-                                        <small>@member.ApplicationDate.Value.ToString("MMM d, yyyy")</small>
-                                    }
-                                    else
-                                    {
-                                        <small class="text-muted">—</small>
-                                    }
-                                </td>
-                                <td>
                                     @if (member.MemberSince.HasValue)
                                     {
-                                        <small>@member.MemberSince.Value.ToString("MMM d, yyyy")</small>
+                                        <span class="member-since-simple ms-2">Since @member.MemberSince.Value.Year</span>
                                     }
-                                    else
-                                    {
-                                        <small class="text-muted">—</small>
-                                    }
-                                </td>
-                                <td class="text-center">
+                                </div>
+                                
+                                <div class="card-info-simple">
                                     @if (!string.IsNullOrEmpty(member.CardNumber))
                                     {
-                                        <div class="d-flex flex-column align-items-center">
-                                            <code class="fw-bold text-dark" style="font-size: 0.85rem;">@member.CardNumber</code>
-                                            <span class="badge @(member.CardIsActive == true ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger")" 
-                                                  style="font-size: 0.65rem; padding: 2px 6px;">
-                                                @(member.CardIsActive == true ? "ACTIVE" : "INACTIVE")
-                                            </span>
+                                        <div class="card-display-simple">
+                                            <i class="bi bi-credit-card-2-front me-1"></i>
+                                            <span class="card-num-simple">@member.CardNumber</span>
+                                            <span class="card-status-dot @(member.CardIsActive == true ? "active" : "inactive")"></span>
                                         </div>
                                     }
                                     else
                                     {
-                                        <span class="text-muted small">No card assigned</span>
+                                        <span class="no-card-simple">No Card</span>
                                     }
-                                </td>
-                                <td class="text-end">
-                                    <button class="btn btn-sm btn-outline-primary" 
-                                            @onclick="() => NavigateToMember(member.MemberId)"
-                                            title="View Details">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-action-overlay">
+                            <span>View Profile <i class="bi bi-arrow-right ms-1"></i></span>
+                        </div>
+                    </div>
+                }
             </div>
-            
-            @if (_filteredMembers.Count > 0)
-            {
-                <div class="p-3 border-top border-main">
-                    <small class="text-secondary">
-                        Showing @_filteredMembers.Count of @_allMembers.Count members
-                    </small>
-                </div>
-            }
-        </div>
-    }
-}
-</div>
 
-    <!-- Sidebar / Quick Actions Column -->
-    <div class="col-lg-3">
-        <div class="action-tile-modern scale-in mb-4">
-            <div class="action-tile-content">
-                <div class="action-icon-wrapper pulse-slow">
-                    <i class="bi bi-person-plus-fill"></i>
-                </div>
-                <h3>Membership Actions</h3>
-                <p>Register a new member into the system</p>
-                <button class="btn btn-primary btn-action-modern w-100 mt-2" @onclick="NavigateToAdd">
-                    <i class="bi bi-plus-lg me-2"></i>
-                    Add New Member
-                </button>
+            <div class="list-footer-minimal mt-5">
+                Total Results: <strong>@_filteredMembers.Count</strong> members
             </div>
-        </div>
-
-        <!-- System Stats / Info (Optional context) -->
-        <div class="data-card p-4">
-            <h6 class="fw-800 text-uppercase small text-muted mb-3" style="letter-spacing: 0.5px;">Quick Stats</h6>
-            <div class="d-flex justify-content-between mb-2">
-                <span class="text-muted small">Total Members</span>
-                <span class="fw-bold">@_allMembers.Count</span>
-            </div>
-            <div class="d-flex justify-content-between mb-2">
-                <span class="text-muted small">Active Paid Members</span>
-                <span class="fw-bold text-success">@_allMembers.Count(m => (m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life or MemberStatus.Guest) && (m.DuesStatus is "Paid" or "Waived" or "Life"))</span>
-            </div>
-            <div class="d-flex justify-content-between">
-                <span class="text-muted small">With Cards</span>
-                <span class="fw-bold text-primary">@_allMembers.Count(m => !string.IsNullOrEmpty(m.CardNumber))</span>
-            </div>
-        </div>
+        }
     </div>
 </div>
 
 <style>
-    .bulk-actions-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 10px;
-        padding: 10px 14px;
-        margin-bottom: 12px;
-        border: 1px solid var(--glass-border);
-        border-radius: 10px;
-        background: var(--glass-bg);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        min-height: 64px;
+    :root {
+        --gfc-bg: #f8fafc;
+        --gfc-surface: #ffffff;
+        --gfc-border: #e2e8f0;
+        --gfc-primary: #3b82f6;
+        --gfc-success: #10b981;
+        --gfc-warning: #f59e0b;
+        --gfc-danger: #ef4444;
+        --gfc-text-main: #1e293b;
+        --gfc-text-muted: #64748b;
+        --gfc-glass-bg: rgba(255, 255, 255, 0.7);
+        --gfc-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
     }
 
-    .bulk-actions-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-        color: var(--text-primary);
+    .glass-morphic {
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
     }
 
-    .bulk-actions-controls {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-
-    .bulk-count {
-        font-size: 0.95rem;
-    }
-
-    .filter-bar {
+    .members-dashboard-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        height: calc(100vh - 110px); /* Constrain height to viewport minus top-bar */
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        padding: 14px;
-        margin-bottom: 16px;
-        background: var(--bg-primary);
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
+        overflow: hidden; /* The container itself doesn't scroll */
     }
 
-    .filter-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        align-items: flex-end;
-    }
-
-    .filter-group {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        flex: 1;
-        min-width: 220px;
-    }
-
-    .filter-group.full-width {
-        min-width: 100%;
-    }
-
-    .filter-label {
-        font-size: 0.9rem;
-        font-weight: 700;
-        color: var(--text-secondary);
-        margin-bottom: 0;
-    }
-
-    .search-input {
-        position: relative;
-    }
-
-    .search-input i {
-        position: absolute;
-        left: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        pointer-events: none;
-    }
-
-    .search-input .form-control {
-        padding-left: 38px;
-        padding-right: 38px;
-        height: 44px;
-    }
-
-    .btn-clear {
-        position: absolute;
-        right: 6px;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 34px;
-        height: 34px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: #6b7280;
-        transition: background-color 0.15s ease, color 0.15s ease;
-    }
-
-    .btn-clear:hover {
-        background: var(--bg-surface-hover);
-        color: var(--text-primary);
-    }
-
-    .btn-clear:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        background: transparent;
-    }
-
-    .status-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .status-chip {
-        border: 1px solid var(--glass-border);
-        background: var(--glass-bg);
-        color: var(--text-secondary);
-        padding: 8px 12px;
-        border-radius: 10px;
-        font-weight: 700;
-        transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-    }
-
-    .status-chip:hover {
-        background: var(--bg-surface-hover);
-        border-color: var(--accent-primary);
-    }
-
-    .status-chip.active {
-        background: var(--chip-color);
-        color: #ffffff;
-        border-color: transparent;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-        transform: translateY(-1px);
-    }
-
-    .status-chip:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-        box-shadow: none;
-    }
-
-    .indicator-group {
-        display: flex;
-        flex: 0 0 160px;
-        min-width: 160px;
-        justify-content: flex-end;
-    }
-
-    .filter-active-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
-        font-weight: 700;
-        border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .sort-group select {
-        min-width: 180px;
-    }
-
-    .chips-row {
-        align-items: flex-start;
-    }
-
-    @@media (max-width: 768px) {
-        .filter-row {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filter-group,
-        .indicator-group {
-            min-width: 100%;
-        }
-
-        .indicator-group {
-            justify-content: flex-start;
-        }
-    }
-
-    .members-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-    }
-
-    .members-list-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 10px;
-        border: 1px dashed var(--glass-border);
-        border-radius: 10px;
-        background: var(--bg-primary);
-    }
-
-    .select-all-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-        color: var(--text-primary);
-        margin-bottom: 0;
-    }
-
-    .member-row-wrapper {
-        display: grid;
-        grid-template-columns: 44px 1fr;
-        gap: 10px;
-        align-items: stretch;
-    }
-
-    .member-select {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding-top: 0;
-    }
-
-    .member-row {
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
-        padding: 14px 16px;
-        background: var(--glass-bg);
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-        cursor: pointer;
-        position: relative;
-        outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-        color: var(--text-primary);
-    }
-
-    .member-row:hover {
-        border-color: var(--accent-primary);
-        background: rgba(255, 255, 255, 0.05);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-        transform: translateY(-1px);
-    }
-
-    .btn-clear:focus-visible,
-    .status-chip:focus-visible,
-    .bulk-actions-controls .btn:focus-visible {
-        outline: 2px solid var(--accent-primary);
-        outline-offset: 2px;
-    }
-
-    .form-check-input:focus-visible {
-        outline: 2px solid var(--accent-primary);
-        outline-offset: 2px;
-        box-shadow: none;
-    }
-
-    .member-row:focus-visible {
-        border-color: var(--accent-primary);
-        box-shadow:
-            0 0 0 2px rgba(14, 165, 233, 0.35),
-            0 8px 24px rgba(0, 0, 0, 0.2);
-        background: rgba(255, 255, 255, 0.08);
-    }
-
-    .member-row.selected {
-        border-color: var(--accent-primary);
-        background: rgba(14, 165, 233, 0.1);
-        box-shadow:
-            0 0 0 1px rgba(14, 165, 233, 0.25),
-            0 10px 28px rgba(0, 0, 0, 0.2);
-        transform: translateY(-1px);
-    }
-
-    .member-row-main {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .member-primary {
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .member-name-line {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: flex-start;
-        column-gap: 12px;
-        row-gap: 8px;
-    }
-
-    .member-name {
-        font-size: 1.05rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        min-width: 0;
-        word-break: break-word;
-    }
-
-    .member-sub {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-        color: #6b7280;
-        font-size: 0.9rem;
-    }
-
-    .member-id {
-        font-weight: 600;
-        color: #374151;
-    }
-
-    .dot {
-        color: #d1d5db;
-    }
-
-    .member-row-badges {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        row-gap: 6px;
-        flex-wrap: wrap;
+    .fixed-top-section {
         flex-shrink: 0;
-        min-width: 0;
+        background: #f8fafc;
+        z-index: 10;
+        padding: 0.5rem 0.5rem 0 0.5rem;
     }
 
-    .pill {
-        border-radius: 999px;
-        padding: 6px 12px;
-        font-size: 0.85rem;
-        font-weight: 700;
-        line-height: 1;
-        border: none;
-        white-space: nowrap;
+    .scrollable-member-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 0.5rem 2rem 0.5rem;
+        /* Smooth scrolling for cards */
+        scroll-behavior: smooth;
     }
 
-    .status-badge {
-        color: #0f172a;
-        background: #e5e7eb;
-    }
-
-    .status-regular { background: #16a34a; color: #ffffff; }
-    .status-regular-np { background: #0ea5e9; color: #ffffff; }
-    .status-guest { background: #6b7280; color: #ffffff; }
-    .status-life { background: #d6b33d; color: #1f2937; }
-    .status-inactive { background: #ef4444; color: #ffffff; }
-    .status-deceased { background: #b91c1c; color: #ffffff; }
-    .status-rejected { background: #7f1d1d; color: #ffffff; }
-
-    .dues-badge {
-        background: #e5e7eb;
-        color: #111827;
-    }
-
-    .dues-paid { background: #16a34a; color: #ffffff; }
-    .dues-overdue { background: #f97316; color: #111827; }
-    .dues-waived { background: #6b7280; color: #ffffff; }
-    .dues-life { background: #d6b33d; color: #1f2937; }
-
-    .member-row-meta {
+    /* --- Metric Cards --- */
+    .metric-card-modern {
+        background: var(--gfc-surface);
+        border: 1px solid var(--gfc-border);
+        border-radius: 1.25rem;
+        padding: 1.25rem;
         display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-top: 8px;
-        color: #6b7280;
+        align-items: center;
+        gap: 1.25rem;
+        box-shadow: var(--gfc-shadow);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .metric-card-modern.tight {
+        padding: 0.75rem 1.25rem;
+    }
+
+    .metric-card-modern:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px -5px rgba(0,0,0,0.05);
+    }
+
+    .metric-icon-box {
+        width: 48px;
+        height: 48px;
+        border-radius: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        flex-shrink: 0;
+    }
+
+    .metric-icon-box.small {
+        width: 40px;
+        height: 40px;
+        font-size: 1.15rem;
+    }
+
+    .glass-blue { border-left: 4px solid var(--gfc-primary); }
+    .glass-blue .metric-icon-box { background: rgba(59, 130, 246, 0.1); color: var(--gfc-primary); }
+
+    .glass-green { border-left: 4px solid var(--gfc-success); }
+    .glass-green .metric-icon-box { background: rgba(16, 185, 129, 0.1); color: var(--gfc-success); }
+
+    .glass-orange { border-left: 4px solid var(--gfc-warning); }
+    .glass-orange .metric-icon-box { background: rgba(245, 158, 11, 0.1); color: var(--gfc-warning); }
+
+    .glass-purple { border-left: 4px solid #8b5cf6; }
+    .glass-purple .metric-icon-box { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
+
+    .metric-label { font-size: 0.75rem; color: var(--gfc-text-muted); font-weight: 700; display: block; text-transform: uppercase; letter-spacing: 0.02em; }
+    .metric-value { font-size: 1.5rem; font-weight: 800; color: var(--gfc-text-main); margin: 0; line-height: 1.1; }
+
+    .btn-add-member-minimal {
+        background: var(--gfc-primary);
+        color: white;
+        border: none;
+        border-radius: 0.75rem;
+        padding: 0.5rem 0.85rem;
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        transition: all 0.2s ease;
+    }
+
+    .btn-add-member-minimal:hover {
+        background: #2563eb;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+
+    /* --- Control Center --- */
+    .control-center-glass {
+        background: var(--gfc-glass-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        border-radius: 1.25rem;
+        padding: 1.25rem;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
+    }
+
+    .control-center-glass.tight {
+        padding: 0.75rem 1.25rem;
+    }
+
+    .search-input-wrapper { position: relative; }
+    .search-icon { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--gfc-text-muted); }
+    .form-control-modern {
+        background: white;
+        border: 1px solid var(--gfc-border);
+        border-radius: 0.85rem;
+        padding: 0.65rem 1rem 0.65rem 2.75rem;
         font-size: 0.9rem;
+        width: 100%;
+        transition: all 0.2s ease;
     }
 
-    .skeleton-list {
-        gap: 0.6rem;
+    .form-control-modern.slim {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
     }
 
-    .skeleton-line {
-        height: 10px;
-        border-radius: 999px;
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
-        background-size: 200% 100%;
-        animation: shimmer 1.2s infinite;
+    .form-control-modern:focus {
+        border-color: var(--gfc-primary);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        outline: none;
     }
 
-    .skeleton-pill {
-        height: 22px;
-        border-radius: 999px;
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
-        background-size: 200% 100%;
-        animation: shimmer 1.2s infinite;
+    .sort-wrapper { position: relative; }
+    .sort-icon { position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--gfc-text-muted); pointer-events: none; }
+    .form-select-modern {
+        background: white;
+        border: 1px solid var(--gfc-border);
+        border-radius: 0.85rem;
+        padding: 0.65rem 1rem 0.65rem 2.25rem;
+        font-size: 0.9rem;
+        width: 100%;
+        cursor: pointer;
+        appearance: none;
     }
 
-    .w-50 { width: 50%; }
-    .w-30 { width: 30%; }
-    .w-20 { width: 20%; }
-    .w-16 { width: 16%; }
-
-    @@keyframes shimmer {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
+    .form-select-modern.slim {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
     }
 
-    @@media (max-width: 1024px) {
-        .member-row {
-            padding: 12px 14px;
-        }
+    .status-chips-scroll {
+        display: flex;
+        gap: 0.5rem;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+        scrollbar-width: none;
+    }
+    .status-chips-scroll::-webkit-scrollbar { display: none; }
 
-        .member-name-line {
-            align-items: flex-start;
-        }
+    .status-chip-modern {
+        background: white;
+        border: 1px solid var(--gfc-border);
+        border-radius: 2rem;
+        padding: 0.4rem 1rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--gfc-text-muted);
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        transition: all 0.2s ease;
+    }
 
-        .member-row-badges {
-            justify-content: flex-start;
-        }
+    .status-chip-modern.slim {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
 
-        .member-row-meta {
-            flex-direction: column;
-            gap: 6px;
+    .status-chip-modern:hover { border-color: var(--gfc-primary); color: var(--gfc-primary); }
+    .status-chip-modern.active {
+        background: var(--gfc-primary);
+        color: white;
+        border-color: var(--gfc-primary);
+        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-clear-all.slim {
+        padding: 0.4rem 1rem;
+        font-size: 0.8rem;
+        border-radius: 0.75rem;
+    }
+
+    .status-chip-modern:hover { border-color: var(--gfc-primary); color: var(--gfc-primary); }
+    .status-chip-modern.active {
+        background: var(--gfc-primary);
+        color: white;
+        border-color: var(--gfc-primary);
+        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+    }
+
+    .chip-count {
+        background: rgba(0, 0, 0, 0.05);
+        padding: 0.1rem 0.5rem;
+        border-radius: 1rem;
+        font-size: 0.75rem;
+    }
+    .active .chip-count { background: rgba(255, 255, 255, 0.2); }
+
+    /* --- Member Grid --- */
+    .member-grid-modern {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .member-card-simplified {
+        background: var(--gfc-surface);
+        border: 1px solid var(--gfc-border);
+        border-radius: 1.25rem;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.165, 0.84, 0.44, 1);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .member-card-simplified:hover {
+        transform: translateY(-4px);
+        border-color: var(--gfc-primary);
+        box-shadow: 0 12px 24px -8px rgba(0,0,0,0.08);
+    }
+
+    .member-card-simplified.is-overdue {
+        border-left: 5px solid var(--gfc-danger);
+        background: linear-gradient(to right, rgba(239, 68, 68, 0.05), var(--gfc-surface));
+    }
+
+    .member-card-simplified.is-overdue:hover {
+        border-color: var(--gfc-danger);
+        box-shadow: 0 12px 24px -8px rgba(239, 68, 68, 0.15);
+    }
+
+    .card-body-simple {
+        padding: 1.25rem;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .name-id-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .member-id-tag {
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: var(--gfc-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.15rem;
+    }
+
+    .member-name-simple {
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: var(--gfc-text-main);
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    .member-since-simple {
+        font-size: 0.75rem;
+        color: var(--gfc-text-muted);
+        font-weight: 600;
+    }
+
+    .card-display-simple {
+        display: flex;
+        align-items: center;
+        background: #f1f5f9;
+        padding: 0.35rem 0.75rem;
+        border-radius: 0.65rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #334155;
+    }
+
+    .card-num-simple {
+        font-family: 'JetBrains Mono', monospace;
+        margin: 0 0.5rem;
+    }
+
+    .card-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .card-status-dot.active {
+        background: var(--gfc-success);
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    }
+
+    .card-status-dot.inactive {
+        background: var(--gfc-danger);
+    }
+
+    .no-card-simple {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--gfc-text-muted);
+        padding: 0.35rem 0.75rem;
+        background: #f8fafc;
+        border-radius: 0.65rem;
+        border: 1px dashed var(--gfc-border);
+    }
+
+    .card-action-overlay {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: var(--gfc-primary);
+        color: white;
+        padding: 0.5rem;
+        text-align: center;
+        font-size: 0.8rem;
+        font-weight: 700;
+        transform: translateY(100%);
+        transition: transform 0.2s ease;
+    }
+
+    .member-card-simplified:hover .card-action-overlay {
+        transform: translateY(0);
+    }
+
+    /* --- Animations --- */
+    @@keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    @@keyframes slideInBottom { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    .scale-in { animation: scaleIn 0.4s cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+    .slide-in-bottom { animation: slideInBottom 0.5s cubic-bezier(0.165, 0.84, 0.44, 1) both; }
+
+    /* --- Loading --- */
+    .loading-overlay { text-align: center; padding: 5rem 0; }
+    .loader-modern {
+        width: 48px;
+        height: 48px;
+        border: 4px solid var(--gfc-border);
+        border-bottom-color: var(--gfc-primary);
+        border-radius: 50%;
+        display: inline-block;
+        animation: rotation 1s linear infinite;
+    }
+    @@keyframes rotation { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* Responsive */
+    @@media (max-width: 1500px) {
+        .member-grid-modern {
+            grid-template-columns: 1fr 1fr;
         }
     }
 
-    @@media (max-width: 640px) {
-        .bulk-actions-bar {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .bulk-actions-controls {
-            width: 100%;
-            justify-content: flex-start;
-        }
-
-        .member-row-wrapper {
-            grid-template-columns: 40px 1fr;
-        }
-
-        .member-name-line {
+    @@media (max-width: 1000px) {
+        .member-grid-modern {
             grid-template-columns: 1fr;
         }
+    }
 
-        .member-row {
-            padding: 12px;
-        }
-
-        .member-row-main {
-            gap: 8px;
-        }
-
-        .member-name-line {
-            gap: 8px;
-        }
-
-        .member-name {
-            font-size: 1rem;
-        }
-
-        .member-row-badges {
-            width: 100%;
-            justify-content: flex-start;
-        }
-
-        .member-sub {
-            gap: 6px;
-            font-size: 0.9rem;
-        }
-
-        .member-sub .dot,
-        .member-sub .member-location {
-            display: none;
-        }
-
-        .member-row-meta {
-            display: none;
-        }
-
-        .pill {
-            padding: 6px 10px;
-            font-size: 0.8rem;
-        }
+    @@media (max-width: 600px) {
+        .metric-card-modern { padding: 1rem; }
     }
 </style>
+
 @code {
     private readonly List<StatusChip> _statusChips = new()
     {
