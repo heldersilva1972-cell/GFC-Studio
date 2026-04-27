@@ -42,9 +42,22 @@ public class WebPrinterService : IPrinterService
         return true;
     }
 
+    public Task<bool> PrintRawDataAsync(byte[] data)
+    {
+        // The Web version (Browser/PWA) does not support direct raw byte transmission to USB 
+        // without specialized WebUSB implementations. Returning false for now.
+        return Task.FromResult(false);
+    }
+
     public Task<bool> KickDrawerAsync()
     {
         // Browser cannot kick drawer directly
         return Task.FromResult(false);
+    }
+
+    public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync()
+    {
+        // Browsers require WebUSB API which is not implemented here.
+        return Task.FromResult(new List<UsbDeviceDto>());
     }
 }

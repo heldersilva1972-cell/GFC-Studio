@@ -5,25 +5,19 @@ namespace GFC.Pos.Mobile.Services;
 
 public class MauiPrinterService : IPrinterService
 {
+    private readonly IPrinterService _implementation;
+
+    public MauiPrinterService(IPrinterConfigService configService)
+    {
 #if ANDROID
-    private readonly UsbPrinterService _androidPrinter;
-
-    public MauiPrinterService()
-    {
-        _androidPrinter = new UsbPrinterService();
-    }
-
-    public Task<bool> PrintReceiptAsync(string content)
-    {
-        return _androidPrinter.PrintReceiptAsync(content);
-    }
-
-    public Task<bool> KickDrawerAsync()
-    {
-        return Task.FromResult(_androidPrinter.KickDrawer());
-    }
+        _implementation = new AndroidPrinterService(configService);
 #else
-    public Task<bool> PrintReceiptAsync(string content) => Task.FromResult(false);
-    public Task<bool> KickDrawerAsync() => Task.FromResult(false);
+        _implementation = new DummyPrinterService();
 #endif
+    }
+
+    public Task<bool> PrintReceiptAsync(string content) => _implementation.PrintReceiptAsync(content);
+    public Task<bool> PrintRawDataAsync(byte[] data) => _implementation.PrintRawDataAsync(data);
+    public Task<bool> KickDrawerAsync() => _implementation.KickDrawerAsync();
+    public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync() => _implementation.GetConnectedDevicesAsync();
 }
