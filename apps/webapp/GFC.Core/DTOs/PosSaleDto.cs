@@ -11,4 +11,8 @@ public class PosSaleDto
     public decimal TotalAmount { get; set; }
     public string PaymentType { get; set; } = "";
     public string ItemsJson { get; set; } = "";
+    public bool IsVoided { get; set; }
+    public bool IsCorrection { get; set; }
+    public Guid? OriginalSaleId { get; set; }
+    public string? AdjustmentReason { get; set; }
 }

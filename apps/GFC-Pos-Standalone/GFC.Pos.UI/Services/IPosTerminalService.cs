@@ -24,6 +24,7 @@ public interface IPosTerminalService
 
     // ─── LOCAL SHIFT DATABASE (PROPER ARCHITECTURE) ───
     Task AddSaleToShiftAsync(PosSaleDto sale);
+    Task VoidSaleAsync(Guid saleId, string reason);
     Task<ShiftAuditDto> GetShiftAuditAsync();
     Task ClearShiftAsync();
 }
@@ -33,4 +34,6 @@ public class ShiftAuditDto
     public decimal CashTotal { get; set; }
     public decimal GrossTotal { get; set; }
     public Dictionary<string, int> ItemSummary { get; set; } = new();
+    public List<PosSaleDto> VoidedSales { get; set; } = new();
+    public PosSaleDto? LatestSale { get; set; }
 }

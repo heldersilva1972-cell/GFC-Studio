@@ -39,6 +39,33 @@ public class PosTerminalService : IPosTerminalService
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
     }
 
+    public async Task VoidSaleAsync(Guid saleId, string reason)
+    {
+        var key = $"{ShiftLogPrefix}{saleId}";
+        var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+        if (vaultItems.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in vaultItems.EnumerateArray())
+            {
+                var k = item.GetProperty("key").GetString();
+                if (k == key)
+                {
+                    var sale = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                    if (sale != null)
+                    {
+                        sale.IsVoided = true;
+                        sale.AdjustmentReason = reason;
+                        await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
+                        
+                        // Sync to outbox too
+                        var vKey = $"{VaultPrefixSales}{saleId}";
+                        await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, sale);
+                    }
+                }
+            }
+        }
+    }
+
     public async Task<ShiftAuditDto> GetShiftAuditAsync()
     {
         var audit = new ShiftAuditDto();
@@ -55,8 +82,19 @@ public class PosTerminalService : IPosTerminalService
                         var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
                         if (data != null)
                         {
+                            if (data.IsVoided) 
+                            {
+                                audit.VoidedSales.Add(data);
+                                continue; 
+                            }
+
                             audit.GrossTotal += data.TotalAmount;
                             if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
+
+                            if (audit.LatestSale == null || data.Timestamp > audit.LatestSale.Timestamp)
+                            {
+                                audit.LatestSale = data;
+                            }
 
                             var items = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
                             if (items != null)
