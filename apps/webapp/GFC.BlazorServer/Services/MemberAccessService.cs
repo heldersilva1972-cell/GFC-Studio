@@ -299,6 +299,28 @@ public class MemberAccessService : IMemberAccessService
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        
+        // CRITICAL: Update the KeyCard record to confirm it is now synced with hardware.
+        // This ensures the "Activation Not Confirmed" banner in the UI is cleared.
+        if (activeCard != null)
+        {
+            try
+            {
+                var cardToUpdate = _keyCardRepository.GetById(activeCard.KeyCardId);
+                if (cardToUpdate != null)
+                {
+                    cardToUpdate.IsControllerSynced = true;
+                    cardToUpdate.LastControllerSyncDate = DateTime.Now;
+                    _keyCardRepository.Update(cardToUpdate);
+                    _logger.LogInformation("Confirmed sync status for card {CardNumber} after door access update.", activeCard.CardNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update IsControllerSynced flag for card {CardNumber} after successful door sync.", activeCard.CardNumber);
+            }
+        }
+
         _logger.LogInformation("Sync results for member {MemberId}: {Results}", memberId, string.Join("; ", syncResults));
     }
 
