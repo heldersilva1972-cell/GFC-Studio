@@ -10,18 +10,21 @@ namespace GFC.Core.Models;
 public class DuesPayment : BaseEntity
 {
     [Key]
+    [Column("DuesPaymentID")]
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public int Id { get; set; }
-    
-    // Legacy support if needed, but primary is Id
-    [NotMapped]
-    public int DuesPaymentID { get => Id; set => Id = value; }
 
     [Required]
+    [Column("MemberID")]
     public int MemberId { get; set; }
     
     // Alias for legacy support
     [NotMapped]
     public int MemberID { get => MemberId; set => MemberId = value; }
+    
+    // Alias for legacy support
+    [NotMapped]
+    public int DuesPaymentID { get => Id; set => Id = value; }
 
     [Required]
     public int Year { get; set; }

@@ -33,7 +33,7 @@ public static class MemberFilters
 
         if (TryGetCutoffYear(m, out var cutoffYear))
         {
-            return selectedYear <= cutoffYear;
+            return selectedYear < cutoffYear;
         }
 
         // No cutoff dates mean the member is considered active per normal rules

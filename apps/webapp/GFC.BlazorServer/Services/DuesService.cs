@@ -55,8 +55,19 @@ public class DuesService
         };
     }
 
+    private void LogToFile(string message)
+    {
+        try
+        {
+            var logPath = "C:\\Users\\hnsil\\Documents\\GFC_DEBUG.txt";
+            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+        }
+        catch { /* Ignore logging errors */ }
+    }
+
     public async Task RecordPaymentAsync(int memberId, int year, decimal amount, DateTime paidDate, string? notes, string? paymentType = null, int? performedByUserId = null, CancellationToken cancellationToken = default)
     {
+        LogToFile($"[DUES SERVICE] RecordPaymentAsync called for Member {memberId}, Year {year}");
         if (amount <= 0)
         {
             throw new ArgumentException("Amount must be greater than 0.", nameof(amount));
@@ -117,14 +128,28 @@ public class DuesService
             _dbContext.DuesPayments.Add(payment);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
+        LogToFile($"[DUES SERVICE] Attempting to save payment for Member {memberId}, Year {year}, Amount {amount}");
+        
+        try 
+        {
+            int saved = await _dbContext.SaveChangesAsync(cancellationToken);
+            LogToFile($"[DUES SERVICE] SaveChangesAsync completed. Rows affected: {saved}");
+        }
+        catch (Exception dbEx)
+        {
+            var msg = dbEx.Message;
+            if (dbEx.InnerException != null) msg += $" INNER: {dbEx.InnerException.Message}";
+            LogToFile($"[DUES SERVICE] DATABASE ERROR: {msg}");
+            throw;
+        }
+        
         var member = await _dbContext.Members
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(m => m.MemberID == memberId, cancellationToken);
-            
+        
         if (member != null && member.IsDeleted)
         {
+            _logger.LogInformation("[DUES SERVICE] Restoring soft-deleted member {MemberId}", memberId);
             member.IsDeleted = false;
             member.ModifiedBy = recorderName;
             member.ModifiedAt = DateTime.UtcNow;
@@ -132,6 +157,8 @@ public class DuesService
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         
+        _logger.LogInformation("[DUES SERVICE] Successfully finalized dues payment for Member {MemberId}, Year {Year}", memberId, year);
+
         var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
 
         var previousSummary = previousDetails == null

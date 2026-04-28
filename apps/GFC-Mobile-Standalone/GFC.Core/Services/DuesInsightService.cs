@@ -99,7 +99,8 @@ public class DuesInsightService : IDuesInsightService
             }
 
             List<int>? advanceYears = null;
-            if (isPaid && context.DuesByMember.TryGetValue(member.MemberID, out var allMemberDues))
+            // [FIX] Always check for future years even if current year is unpaid
+            if (context.DuesByMember.TryGetValue(member.MemberID, out var allMemberDues))
             {
                 advanceYears = allMemberDues
                     .Where(d => d.Year > year && d.PaidDate.HasValue && !string.Equals(d.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase))
@@ -108,6 +109,7 @@ public class DuesInsightService : IDuesInsightService
                     .ToList();
                 
                 if (advanceYears.Count == 0) advanceYears = null;
+                
             }
 
             string? pendingReason = null;
