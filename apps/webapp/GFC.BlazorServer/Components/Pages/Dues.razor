@@ -376,7 +376,8 @@
                 @foreach (var item in FilteredItems.Take(100))
                 {
                     var isOverdue = !item.Satisfied && !item.IsInGracePeriod;
-                    var overdueClass = isOverdue ? "text-danger fw-bold" : "";
+                    var isPending = item.Status == MemberStatus.Pending;
+                    var overdueClass = isOverdue && !isPending ? "text-danger fw-bold" : (isPending ? "text-purple fw-bold" : "");
                     
                     <div class="member-tile">
                         <!-- Tile Top Section -->
@@ -418,7 +419,7 @@
                                             <i class="bi bi-hourglass-split me-1"></i>GRACE
                                         </span>
                                     }
-                                    else
+                                    else if (!isPending)
                                     {
                                         <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
                                             <i class="bi bi-exclamation-circle-fill me-1"></i>OVERDUE
@@ -462,6 +463,10 @@
                                     {
                                         <span>In Grace Period</span>
                                     }
+                                    else if (isPending && !string.IsNullOrEmpty(item.PendingReason))
+                                    {
+                                        <span>@item.PendingReason</span>
+                                    }
                                     else
                                     {
                                         @FormatPreciseOverdueText(item.DueDate)
@@ -504,6 +509,12 @@
                             else
                             {
                                 <div class="primary-actions">
+                                    @if (isPending)
+                                    {
+                                        <button class="btn btn-outline-secondary" title="Update Member Info" @onclick="() => NavigateToMemberEdit(item.MemberId)">
+                                            <i class="bi bi-person-gear"></i> Details
+                                        </button>
+                                    }
                                     @if (CanRecordPayment(item))
                                     {
                                         <button class="btn btn-primary" @onclick="() => OpenPaymentModal(item)">
@@ -2213,10 +2224,10 @@
         !_operationInProgress;
 
     private bool CanRecordPayment(DuesListItemDto item) =>
-        !item.Satisfied && !IsExempt(item) && !_operationInProgress;
+        !item.Satisfied && !IsExempt(item) && item.Status != MemberStatus.Pending && !_operationInProgress;
 
     private bool CanSetInactive(DuesListItemDto item) =>
-        !item.Satisfied && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
+        !item.Satisfied && !IsExempt(item) && item.Status != MemberStatus.Pending && item.MonthsOverdue >= 15 && !_operationInProgress;
 
     private IEnumerable<DuesListItemDto> FilteredItems
     {
@@ -2308,6 +2319,7 @@
         }
     }
     private void ClearDuesSearch() => _searchText = string.Empty;
+    private void NavigateToMemberEdit(int memberId) => NavManager.NavigateTo($"/members/{memberId}/edit");
 
     private sealed class PaymentFormModel
     {
