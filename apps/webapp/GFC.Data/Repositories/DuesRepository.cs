@@ -58,6 +58,46 @@ public class DuesRepository : IDuesRepository
         return dues;
     }
 
+    public Dictionary<int, int> GetLastPaidYears(IEnumerable<int> memberIds)
+    {
+        var results = new Dictionary<int, int>();
+        var idList = memberIds.ToList();
+        if (!idList.Any()) return results;
+
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        var chunks = idList.Select((id, index) => new { id, index })
+                           .GroupBy(x => x.index / 1000)
+                           .Select(g => g.Select(x => x.id).ToList())
+                           .ToList();
+
+        foreach (var chunk in chunks)
+        {
+            var paramNames = chunk.Select((id, i) => $"@id{i}").ToList();
+            var sql = $@"
+                SELECT MemberID, MAX(Year) as LastPaidYear
+                FROM DuesPayments
+                WHERE PaymentType <> 'UNPAID'
+                  AND MemberID IN ({string.Join(",", paramNames)})
+                GROUP BY MemberID";
+
+            using var command = new SqlCommand(sql, connection);
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                command.Parameters.AddWithValue($"@id{i}", chunk[i]);
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                results[(int)reader["MemberID"]] = (int)reader["LastPaidYear"];
+            }
+        }
+
+        return results;
+    }
+
     /// <summary>
     /// Gets all dues payment records for a specific year.
     /// </summary>

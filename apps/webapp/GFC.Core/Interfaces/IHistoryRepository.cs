@@ -15,6 +15,7 @@ public interface IHistoryRepository
     Task<List<MemberChangeHistory>> GetGlobalHistoryAsync(int count = 100);
     DateTime? GetGuestToRegularDate(int memberId);
     DateTime? GetEarliestRegularDate(int memberId);
+    Dictionary<int, DateTime> GetEarliestRegularDates(IEnumerable<int> memberIds);
 
     /// <summary>
     /// Logs a specific historical event with a manual timestamp.

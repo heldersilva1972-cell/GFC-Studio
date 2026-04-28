@@ -23,25 +23,38 @@ public class LifeEligibilityService : ILifeEligibilityService
         return Task.Run(() =>
         {
             var horizon = includeUpcoming ? DateTime.Today.AddMonths(12) : DateTime.Today;
+            
+            // 1. Fetch eligible candidates (already optimized in Repository to use batch history)
             var members = _memberRepository.GetLifeEligibleMembers(horizon, _historyRepository);
+            var memberIds = members.Select(m => m.MemberID).ToList();
 
+            if (!memberIds.Any()) return new List<LifeEligibilityDto>();
+
+            // 2. Batch fetch payment status for current year
             var currentYear = DateTime.Today.Year;
-            var currentYearDues = _duesRepository.GetDuesForYear(currentYear);
-            var paidMemberIds = currentYearDues.Where(d => d.PaymentType != "UNPAID").Select(d => d.MemberID).ToHashSet();
+            var currentYearPayments = _duesRepository.GetDuesForYear(currentYear)
+                .Where(d => d.PaymentType != "UNPAID" && memberIds.Contains(d.MemberID))
+                .Select(d => d.MemberID)
+                .ToHashSet();
 
-            var allDues = _duesRepository.GetAllDues();
-            var lastPaidDictionary = allDues
-                .Where(d => d.PaymentType != "UNPAID")
-                .GroupBy(d => d.MemberID)
-                .ToDictionary(g => g.Key, g => g.Max(d => d.Year));
+            // 3. Batch fetch last paid year
+            var lastPaidDictionary = _duesRepository.GetLastPaidYears(memberIds);
+
+            // 4. Batch fetch history for regularSince calculation (already handled in GetLifeEligibleMembers, but we need it here for DTO)
+            var historyMap = _historyRepository.GetEarliestRegularDates(memberIds);
 
             return (IReadOnlyList<LifeEligibilityDto>)members
                 .Select(m =>
                 {
-                    var regularSince = m.RegularSince ?? MemberStatusHelper.GetRegularSinceDate(m, _historyRepository);
-                    MemberStatusHelper.TryCalculateLifeEligibility(m, horizon, _historyRepository, out var eligibilityDate);
+                    // Calculate regularSince consistently with GetLifeEligibleMembers logic
+                    DateTime? historyDate = historyMap.TryGetValue(m.MemberID, out var d) ? d : null;
+                    DateTime? statusDate = (string.Equals(m.Status, "REGULAR", StringComparison.OrdinalIgnoreCase) && m.StatusChangeDate.HasValue)
+                        ? m.StatusChangeDate.Value : null;
+                    var regularSince = historyDate ?? statusDate ?? m.AcceptedDate;
+
+                    MemberStatusHelper.TryCalculateLifeEligibility(m, horizon, regularSince, out var eligibilityDate);
                     var age = m.DateOfBirth.HasValue ? (int)((horizon - m.DateOfBirth.Value).TotalDays / 365.25) : 0;
-                    var isPaid = paidMemberIds.Contains(m.MemberID);
+                    var isPaid = currentYearPayments.Contains(m.MemberID);
                     
                     int? monthsUnpaid = null;
                     if (!isPaid)

@@ -208,6 +208,47 @@ public class HistoryRepository : IHistoryRepository
         return result as DateTime?;
     }
 
+    public Dictionary<int, DateTime> GetEarliestRegularDates(IEnumerable<int> memberIds)
+    {
+        var results = new Dictionary<int, DateTime>();
+        var idList = memberIds.ToList();
+        if (!idList.Any()) return results;
+
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        var chunks = idList.Select((id, index) => new { id, index })
+                           .GroupBy(x => x.index / 1000)
+                           .Select(g => g.Select(x => x.id).ToList())
+                           .ToList();
+
+        foreach (var chunk in chunks)
+        {
+            var paramNames = chunk.Select((id, i) => $"@id{i}").ToList();
+            var sql = $@"
+                SELECT MemberID, MIN(ChangeDate) as EarliestDate
+                FROM MemberChangeHistory
+                WHERE FieldName = 'Status'
+                  AND NewValue = 'REGULAR'
+                  AND MemberID IN ({string.Join(",", paramNames)})
+                GROUP BY MemberID";
+
+            using var command = new SqlCommand(sql, connection);
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                command.Parameters.AddWithValue($"@id{i}", chunk[i]);
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                results[(int)reader["MemberID"]] = (DateTime)reader["EarliestDate"];
+            }
+        }
+
+        return results;
+    }
+
     /// <summary>
     /// Logs a specific historical event with a manual timestamp.
     /// </summary>

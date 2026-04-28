@@ -210,6 +210,16 @@ public static class MemberStatusHelper
         IHistoryRepository? historyRepository,
         out DateTime? eligibilityDate)
     {
+        var regularSinceDate = GetRegularSinceDate(member, historyRepository);
+        return TryCalculateLifeEligibility(member, asOfDate, regularSinceDate, out eligibilityDate);
+    }
+
+    public static bool TryCalculateLifeEligibility(
+        Member? member,
+        DateTime asOfDate,
+        DateTime? regularSinceDate,
+        out DateTime? eligibilityDate)
+    {
         eligibilityDate = null;
 
         if (member == null)
@@ -227,7 +237,6 @@ public static class MemberStatusHelper
             return false;
         }
 
-        var regularSinceDate = GetRegularSinceDate(member, historyRepository);
         if (!regularSinceDate.HasValue)
         {
             return false;

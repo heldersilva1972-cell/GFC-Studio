@@ -7,121 +7,259 @@
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<NpQueue> Logger
 
-<h1 class="page-title">Non-Portuguese Queue</h1>
+<link href="css/np-queue-modern.css" rel="stylesheet" />
 
-@if (_loading)
-{
-    <div class="loading-state">
-        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-        Loading queue...
+<div class="np-queue-container">
+    <div class="d-flex justify-content-between align-items-end mb-4">
+        <div>
+            <h1 class="page-title mb-1">Non-Portuguese Queue</h1>
+            <p class="text-muted mb-0">Monitor and promote members waiting for Regular status.</p>
+        </div>
     </div>
-}
-else if (!string.IsNullOrWhiteSpace(_errorMessage))
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else
-{
-    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+
+    @if (!_loading && !_promoting)
     {
-        <div class="alert @(_operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+        <div class="queue-stats">
+            <div class="stat-card">
+                <div class="stat-icon icon-queue">
+                    <i class="bi bi-list-ol"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">@_entries.Count</span>
+                    <span class="stat-label">Queue Size</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon icon-slots">
+                    <i class="bi bi-door-open-fill"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">@_slots</span>
+                    <span class="stat-label">Slots Available</span>
+                </div>
+            </div>
+        </div>
     }
 
-    <div class="data-card mb-3">
-        <h3>Summary</h3>
-        <p>
-            Queue size: <strong>@_entries.Count</strong><br />
-            Slots available: <strong>@_slots</strong>
-        </p>
-    </div>
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success") d-flex align-items-center mb-4 rounded-4 shadow-sm border-0">
+            <i class="bi @(_operationError ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2 fs-5"></i>
+            <div>@_operationMessage</div>
+        </div>
+    }
 
-    <div class="table-container">
-        <table class="data-table table-compact table-sticky">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Applied</th>
-                    <th>Dues Status</th>
-                    <th>Can Promote</th>
-                    <th style="width:200px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_entries.Count == 0)
-                {
-                    <tr>
-                        <td colspan="6" class="text-center text-muted py-4">Queue is empty.</td>
-                    </tr>
-                }
-                else
-                {
-                    @foreach (var entry in _entries)
-                    {
+    @if (!_loading && GetPriorityEntry() is var priority && priority != null)
+    {
+        <div class="priority-promotion-section">
+            <div class="priority-card">
+                <div class="priority-glow"></div>
+                <div class="priority-content">
+                    <div class="priority-avatar">@priority.FullName.Substring(0, 1)</div>
+                    <div class="priority-info">
+                        <div class="priority-badge mb-2">Priority Promotion</div>
+                        <h4>@priority.FullName</h4>
+                        <div class="priority-meta">
+                            <span class="meta-item"><i class="bi bi-clock-history"></i> Applied @(priority.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")</span>
+                            <span class="meta-item"><i class="bi bi-shield-check text-success"></i> Dues Paid</span>
+                            <span class="meta-item"><i class="bi bi-star-fill text-warning"></i> #1 in Queue</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="priority-action">
+                    <button class="btn btn-promote-priority" 
+                            disabled="@_promoting"
+                            @onclick="() => BeginPromotion(priority)">
+                        <i class="bi bi-person-plus-fill"></i>
+                        Promote to Regular
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="modern-card p-5 text-center">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <p class="text-muted fw-bold">Synchronizing queue records...</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger rounded-4 border-0 shadow-sm">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            @_errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="modern-card">
+            <div class="card-header-modern">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-people-fill me-2 text-primary"></i>Waiting List</h5>
+                <div class="d-flex gap-2">
+                    <span class="badge bg-light text-dark border rounded-pill px-3 py-2">@_entries.Count Total</span>
+                </div>
+            </div>
+            <div class="table-responsive-modern">
+                <table class="table-modern">
+                    <thead>
                         <tr>
-                            <td>@entry.Position</td>
-                            <td>@entry.FullName</td>
-                            <td>@(entry.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")</td>
-                            <td>
-                                @if (entry.CurrentYearPaid)
-                                {
-                                    <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Paid</span>
-                                }
-                                else
-                                {
-                                    <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i> Unpaid</span>
-                                    @if (entry.MonthsUnpaid.HasValue)
-                                    {
-                                        <div class="small text-muted mt-1">@entry.MonthsUnpaid.Value months overdue</div>
-                                    }
-                                }
-                            </td>
-                            <td>@(entry.CanPromote ? "Yes" : "Waiting")</td>
-                            <td>
-                                @if (ShowPromoteButton(entry))
-                                {
-                                    <button class="btn btn-success btn-sm"
-                                            disabled="@_promoting"
-                                            @onclick="() => BeginPromotion(entry)">
-                                        Promote to Regular
-                                    </button>
-                                }
-                            </td>
+                            <th style="width: 60px;">#</th>
+                            <th>Member</th>
+                            <th>Applied Date</th>
+                            <th>Dues Status</th>
+                            <th>Promotion Status</th>
+                            <th class="text-end">Actions</th>
                         </tr>
-                    }
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                    </thead>
+                    <tbody>
+                        @if (_entries.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6">
+                                    <div class="empty-state-modern">
+                                        <div class="empty-state-icon"><i class="bi bi-clipboard2-x"></i></div>
+                                        <h5>Queue is Empty</h5>
+                                        <p class="mb-0">There are currently no members in the Non-Portuguese waiting list.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            var topCandidate = GetPriorityEntry();
+                            @foreach (var entry in _entries)
+                            {
+                                var isNextUp = !_promoting && topCandidate == null && entry.Position == 1;
+                                <tr class="@(isNextUp ? "next-up-anim" : "")">
+                                    <td>
+                                        <div class="position-badge @(entry.Position == 1 ? "position-1" : "")">
+                                            @entry.Position
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="member-cell">
+                                            <div class="member-avatar">@entry.FullName.Substring(0, 1)</div>
+                                            <div class="member-name">@entry.FullName</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center text-secondary">
+                                            <i class="bi bi-calendar-check me-2"></i>
+                                            <span class="fw-semibold">@(entry.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (entry.CurrentYearPaid)
+                                        {
+                                            <span class="badge-modern badge-paid">
+                                                <i class="bi bi-shield-fill-check"></i> Paid
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <div class="d-flex flex-column">
+                                                <span class="badge-modern badge-unpaid mb-1">
+                                                    <i class="bi bi-shield-fill-exclamation"></i> Unpaid
+                                                </span>
+                                                @if (entry.MonthsUnpaid.HasValue)
+                                                {
+                                                    <span class="text-danger small fw-bold ms-1" style="font-size: 0.7rem;">@entry.MonthsUnpaid.Value mo overdue</span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (entry.CanPromote)
+                                        {
+                                            <span class="badge-modern badge-ready">
+                                                <i class="bi bi-check-circle-fill"></i> Ready
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge-modern badge-waiting">
+                                                <i class="bi bi-hourglass-split"></i> Waiting
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (ShowPromoteButton(entry))
+                                        {
+                                            @if (topCandidate == null)
+                                            {
+                                                <button class="btn btn-primary btn-sm rounded-pill px-4 fw-bold shadow-sm"
+                                                        disabled="@_promoting"
+                                                        @onclick="() => BeginPromotion(entry)">
+                                                    Promote to Regular
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-primary small fw-bold"><i class="bi bi-arrow-up-circle-fill me-1"></i>In Spotlight</span>
+                                            }
+                                        }
+                                        else if (entry.Position == 1 && _slots == 0)
+                                        {
+                                            <span class="text-muted small fst-italic"><i class="bi bi-lock-fill me-1"></i>No Slots</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small fst-italic">In Queue</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
 
 @if (_pendingPromotion is not null)
 {
-    <div class="modal-backdrop"></div>
-    <div class="modal-card">
-        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Confirm promotion</h4>
-            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelPromotion">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-        <p>
-            Promote <strong>@_pendingPromotion.FullName</strong> from Guest (NP) to Regular-NP?
-            This will update their status and history.
-        </p>
-        <div class="modal-card__actions">
-            <button class="btn btn-primary"
-                    disabled="@_promoting"
-                    @onclick="ConfirmPromotionAsync">
-                <span class="spinner-border spinner-border-sm me-1"
-                      role="status"
-                      hidden="@(!_promoting)"></span>
-                Confirm
-            </button>
-            <button class="btn btn-outline" type="button" @onclick="CancelPromotion">Cancel</button>
+    <div class="modal-backdrop fade show" style="background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px);"></div>
+    <div class="modal d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom-0 pt-4 px-4">
+                    <h5 class="modal-title fw-800 text-dark">Confirm Promotion</h5>
+                    <button type="button" class="btn-close" @onclick="CancelPromotion"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3">
+                            <i class="bi bi-person-up text-primary fs-3"></i>
+                        </div>
+                        <div>
+                            <p class="mb-0 text-muted">Promoting to Regular status</p>
+                            <h5 class="mb-0 fw-bold">@_pendingPromotion.FullName</h5>
+                        </div>
+                    </div>
+                    <p class="text-secondary mb-0">
+                        This will advance the member from the <strong>Non-Portuguese Queue</strong> to <strong>Regular Status</strong>. This action will be logged in the member's history.
+                    </p>
+                </div>
+                <div class="modal-footer border-top-0 pb-4 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="CancelPromotion">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold" 
+                            disabled="@_promoting"
+                            @onclick="ConfirmPromotionAsync">
+                        @if (_promoting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Confirm Promotion
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 }
+
 
 @code {
     private bool _loading = true;
@@ -204,23 +342,38 @@ else
             TryLogHistory(entry.MemberId, "Status", "GUEST (NP)", "REGULAR-NP");
 
             _operationError = false;
-            _operationMessage = "Member promoted successfully.";
+            _operationMessage = "Promotion successful! Updating queue list...";
+            
+            // Close the modal and stop the spinner so the user can see the list
+            _pendingPromotion = null;
+            _promoting = false;
+            StateHasChanged();
+
+            // Give the user a moment to register the modal closing 
+            // before the next person animates into the spotlight
+            await Task.Delay(1500);
+
             await LoadQueue();
+            _operationMessage = "Member promoted successfully.";
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[NPQueue:promote] {ex}");
             _operationError = true;
             _operationMessage = "Unable to promote the selected member.";
-        }
-        finally
-        {
             _promoting = false;
         }
     }
 
     private bool ShowPromoteButton(NpQueueEntryDto entry)
         => entry.CanPromote && entry.Position == 1 && _slots > 0;
+
+    private NpQueueEntryDto? GetPriorityEntry()
+    {
+        var top = _entries.FirstOrDefault(e => e.Position == 1);
+        return (top != null && top.CanPromote && _slots > 0) ? top : null;
+    }
+
     private void TryLogHistory(int memberId, string field, string? oldValue, string? newValue)
     {
         try

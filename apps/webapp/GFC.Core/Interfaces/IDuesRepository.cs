@@ -8,6 +8,7 @@ namespace GFC.Core.Interfaces;
 public interface IDuesRepository
 {
     List<DuesPayment> GetAllDues();
+    Dictionary<int, int> GetLastPaidYears(IEnumerable<int> memberIds);
     List<DuesPayment> GetDuesForYear(int year);
     List<DuesPayment> GetDuesForMember(int memberId);
     DuesPayment? GetDuesForMemberYear(int memberId, int year);

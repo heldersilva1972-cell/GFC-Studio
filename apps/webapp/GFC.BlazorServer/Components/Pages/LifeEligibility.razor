@@ -9,142 +9,243 @@
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<LifeEligibility> Logger
 
-<h1 class="page-title">Life Eligibility</h1>
+<link href="css/life-eligibility-modern.css" rel="stylesheet" />
 
-<div class="toolbar">
-    <div class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" id="upcomingSwitch" @bind="_includeUpcoming" @bind:after="OnFilterChanged" />
-        <label class="form-check-label" for="upcomingSwitch">Include next 12 months</label>
+<div class="life-eligibility-container">
+    <div class="d-flex justify-content-between align-items-end mb-4">
+        <div>
+            <h1 class="page-title mb-1">Life Eligibility</h1>
+            <p class="text-muted mb-0">Manage members eligible for conversion to Life status.</p>
+        </div>
+        <div class="toolbar">
+            <div class="form-check form-switch modern-toggle">
+                <input class="form-check-input" type="checkbox" id="upcomingSwitch" @bind="_includeUpcoming" @bind:after="OnFilterChanged" />
+                <label class="form-check-label fw-bold text-secondary" for="upcomingSwitch">Include next 12 months</label>
+            </div>
+        </div>
     </div>
-</div>
 
-@if (!string.IsNullOrWhiteSpace(_operationMessage))
-{
-    <div class="alert @( _operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
-}
+    @if (!_loading && !_operationInProgress)
+    {
+        <div class="eligibility-stats">
+            <div class="stat-card">
+                <div class="stat-icon icon-eligible">
+                    <i class="bi bi-person-check-fill"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">@_members.Count(m => m.EligibleNow)</span>
+                    <span class="stat-label">Eligible Now</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon icon-upcoming">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">@_members.Count(m => !m.EligibleNow)</span>
+                    <span class="stat-label">Upcoming</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon icon-total">
+                    <i class="bi bi-people-fill"></i>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">@_members.Count</span>
+                    <span class="stat-label">Total Shown</span>
+                </div>
+            </div>
+        </div>
+    }
 
-@if (_loading)
-{
-    <div class="loading-state">
-        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-        Checking eligibility...
-    </div>
-}
-else if (!string.IsNullOrWhiteSpace(_errorMessage))
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else
-{
-    <div class="table-container">
-        <table class="data-table table-compact table-sticky">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Age</th>
-                    <th>Regular Since</th>
-                    <th>Eligibility Date</th>
-                    <th>Status</th>
-                    <th>Dues Status</th>
-                    <th style="width:150px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_members.Count == 0)
-                {
-                    <tr>
-                        <td colspan="7" class="text-center text-muted py-4">No members meet the criteria.</td>
-                    </tr>
-                }
-                else
-                {
-                    @foreach (var member in _members)
-                    {
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @( _operationError ? "alert-danger" : "alert-success") d-flex align-items-center mb-4 rounded-4 shadow-sm border-0">
+            <i class="bi @(_operationError ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2 fs-5"></i>
+            <div>@_operationMessage</div>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="modern-card p-5 text-center">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <p class="text-muted fw-bold">Analyzing eligibility records...</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger rounded-4 border-0 shadow-sm">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            @_errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="modern-card">
+            <div class="card-header-modern">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-table me-2 text-primary"></i>Member Listing</h5>
+                <span class="badge bg-light text-dark border rounded-pill px-3 py-2">@_members.Count Entries</span>
+            </div>
+            <div class="table-responsive-modern">
+                <table class="table-modern">
+                    <thead>
                         <tr>
-                            <td>@member.FullName</td>
-                            <td>@member.Age</td>
-                            <td>
-                                @FormatDate(member.RegularSince)
-                                @if (member.RegularSince.HasValue)
-                                {
-                                    var years = DateTime.Today.Year - member.RegularSince.Value.Year;
-                                    if (DateTime.Today < member.RegularSince.Value.AddYears(years)) years--;
-                                    <span class="badge badge-np ms-2" style="font-size: 0.7rem; padding: 0.15rem 0.5rem; opacity: 0.9;">@years yrs</span>
-                                }
-                            </td>
-                            <td>@FormatDate(member.EligibilityDate)</td>
-                            <td>
-                                @if (member.EligibleNow)
-                                {
-                                    <span class="badge badge-success">Eligible</span>
-                                }
-                                else
-                                {
-                                    <span class="badge badge-warning">Upcoming</span>
-                                }
-                            </td>
-                            <td>
-                                @if (member.CurrentYearPaid)
-                                {
-                                    <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Paid</span>
-                                }
-                                else
-                                {
-                                    <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i> Unpaid</span>
-                                    @if (member.MonthsUnpaid.HasValue)
-                                    {
-                                        <div class="small text-muted mt-1">@member.MonthsUnpaid.Value months overdue</div>
-                                    }
-                                }
-                            </td>
-                            <td>
-                                @if (member.EligibleNow)
-                                {
-                                    <button class="btn btn-success btn-sm"
-                                            disabled="@_operationInProgress"
-                                            @onclick="() => BeginConversion(member)">
-                                        Convert to Life
-                                    </button>
-                                }
-                                else
-                                {
-                                    <span class="text-muted small">Not yet eligible</span>
-                                }
-                            </td>
+                            <th>Member</th>
+                            <th>Age</th>
+                            <th>Regular Since</th>
+                            <th>Eligibility Date</th>
+                            <th>Status</th>
+                            <th>Dues Status</th>
+                            <th class="text-end">Actions</th>
                         </tr>
-                    }
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                    </thead>
+                    <tbody>
+                        @if (_members.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7">
+                                    <div class="empty-state-modern">
+                                        <div class="empty-state-icon"><i class="bi bi-person-x"></i></div>
+                                        <h5>No Members Found</h5>
+                                        <p class="mb-0">There are currently no members matching your selection criteria.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var member in _members)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="member-cell">
+                                            <div class="member-avatar">@member.FullName.Substring(0, 1)</div>
+                                            <div>
+                                                <div class="member-name">@member.FullName</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="fw-bold text-dark">@member.Age</span>
+                                        <span class="text-muted small ms-1">yrs</span>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column">
+                                            <span class="fw-semibold">@FormatDate(member.RegularSince)</span>
+                                            @if (member.RegularSince.HasValue)
+                                            {
+                                                var years = DateTime.Today.Year - member.RegularSince.Value.Year;
+                                                if (DateTime.Today < member.RegularSince.Value.AddYears(years)) years--;
+                                                <span class="text-primary small fw-bold">@years Years Tenure</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-calendar-event me-2 text-muted"></i>
+                                            <span class="fw-semibold">@FormatDate(member.EligibilityDate)</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (member.EligibleNow)
+                                        {
+                                            <span class="badge-modern badge-eligible">
+                                                <i class="bi bi-check-circle-fill"></i> Eligible
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge-modern badge-upcoming">
+                                                <i class="bi bi-hourglass-split"></i> Upcoming
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (member.CurrentYearPaid)
+                                        {
+                                            <span class="badge-modern badge-paid">
+                                                <i class="bi bi-shield-fill-check"></i> Paid
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <div class="d-flex flex-column">
+                                                <span class="badge-modern badge-unpaid mb-1">
+                                                    <i class="bi bi-shield-fill-exclamation"></i> Unpaid
+                                                </span>
+                                                @if (member.MonthsUnpaid.HasValue)
+                                                {
+                                                    <span class="text-danger small fw-bold ms-1" style="font-size: 0.7rem;">@member.MonthsUnpaid.Value months overdue</span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (member.EligibleNow)
+                                        {
+                                            <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold"
+                                                    disabled="@_operationInProgress"
+                                                    @onclick="() => BeginConversion(member)">
+                                                Convert to Life
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small fst-italic">Pending...</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
 
 @if (_pendingMember is not null)
 {
-    <div class="modal-backdrop"></div>
-    <div class="modal-card">
-        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Confirm conversion</h4>
-            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelConversion">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-        <p>
-            Convert <strong>@_pendingMember.FullName</strong> from Regular to Life? Dues will no longer be assessed and the change will be logged.
-        </p>
-        <div class="modal-card__actions">
-            <button class="btn btn-primary"
-                    disabled="@_operationInProgress"
-                    @onclick="ConfirmConversionAsync">
-                <span class="spinner-border spinner-border-sm me-1"
-                      role="status"
-                      hidden="@(!_operationInProgress)"></span>
-                Confirm
-            </button>
-            <button class="btn btn-outline" type="button" @onclick="CancelConversion">Cancel</button>
+    <div class="modal-backdrop fade show" style="background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px);"></div>
+    <div class="modal d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom-0 pt-4 px-4">
+                    <h5 class="modal-title fw-800 text-dark">Confirm Conversion</h5>
+                    <button type="button" class="btn-close" @onclick="CancelConversion"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3">
+                            <i class="bi bi-person-badge-fill text-primary fs-3"></i>
+                        </div>
+                        <div>
+                            <p class="mb-0 text-muted">You are about to convert</p>
+                            <h5 class="mb-0 fw-bold">@_pendingMember.FullName</h5>
+                        </div>
+                    </div>
+                    <p class="text-secondary mb-0">
+                        This will permanently change the member's status to <strong>LIFE</strong>. Dues will no longer be assessed for this member.
+                    </p>
+                </div>
+                <div class="modal-footer border-top-0 pb-4 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="CancelConversion">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold" 
+                            disabled="@_operationInProgress"
+                            @onclick="ConfirmConversionAsync">
+                        @if (_operationInProgress)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Confirm Conversion
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 }
+
 
 @code {
     private bool _loading = true;

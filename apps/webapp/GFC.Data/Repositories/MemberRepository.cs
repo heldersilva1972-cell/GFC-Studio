@@ -909,27 +909,52 @@ FROM Members;";
     /// <returns>List of eligible members, sorted by LifeEligibleDate (or calculated eligibility date), then LastName, FirstName</returns>
     public List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null)
     {
-        var allMembers = GetAllMembers();
-        var eligibleMembers = new List<(Member member, DateTime eligibilityDate)>();
-        
-        foreach (var member in allMembers)
+        // 1. Fetch only REGULAR members (potential candidates)
+        var candidates = new List<Member>();
+        using (var connection = Db.GetConnection())
         {
-            // Exclude INACTIVE and DECEASED members
-            if (member.Status.Equals("INACTIVE", StringComparison.OrdinalIgnoreCase) ||
-                member.Status.Equals("DECEASED", StringComparison.OrdinalIgnoreCase))
+            connection.Open();
+            var sql = $@"SELECT {MemberSelectColumns} FROM Members WHERE UPPER(Status) = 'REGULAR'";
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
             {
-                continue;
-            }
-            
-            if (IsLifeEligible(member, asOfDate, out var eligibilityDate, historyRepository) && eligibilityDate.HasValue)
-            {
-                // Use stored LifeEligibleDate if available, otherwise use calculated date
-                var finalEligibilityDate = member.LifeEligibleDate ?? eligibilityDate.Value;
-                eligibleMembers.Add((member, finalEligibilityDate));
+                candidates.Add(MapReaderToMember(reader, nameof(GetLifeEligibleMembers)));
             }
         }
-        
-        // Sort by eligibility date, then LastName, FirstName
+
+        // 2. Batch load history if repository is provided
+        var historyMap = new Dictionary<int, DateTime>();
+        if (historyRepository != null && candidates.Any())
+        {
+            historyMap = historyRepository.GetEarliestRegularDates(candidates.Select(m => m.MemberID));
+        }
+
+        // 3. Filter and calculate in-memory
+        var eligibleMembers = new List<(Member member, DateTime eligibilityDate)>();
+        foreach (var member in candidates)
+        {
+            // GetEarliestRegularDate logic extracted for optimization
+            DateTime? historyDate = historyMap.TryGetValue(member.MemberID, out var d) ? d : null;
+            DateTime? statusDate = (string.Equals(member.Status, "REGULAR", StringComparison.OrdinalIgnoreCase) && member.StatusChangeDate.HasValue)
+                ? member.StatusChangeDate.Value : null;
+            
+            var regularSince = historyDate ?? statusDate ?? member.AcceptedDate;
+            
+            if (regularSince.HasValue && member.DateOfBirth.HasValue)
+            {
+                var minServiceDate = regularSince.Value.Date.AddYears(15);
+                var minAgeDate = member.DateOfBirth.Value.Date.AddYears(65);
+                var eligibilityDate = minServiceDate > minAgeDate ? minServiceDate : minAgeDate;
+
+                // Check if eligible as of requested date
+                if (eligibilityDate <= asOfDate.Date)
+                {
+                    eligibleMembers.Add((member, member.LifeEligibleDate ?? eligibilityDate));
+                }
+            }
+        }
+
         return eligibleMembers
             .OrderBy(x => x.eligibilityDate)
             .ThenBy(x => x.member.LastName)
