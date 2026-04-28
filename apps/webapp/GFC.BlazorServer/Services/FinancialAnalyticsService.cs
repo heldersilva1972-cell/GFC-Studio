@@ -92,14 +92,34 @@ namespace GFC.BlazorServer.Services
         public async Task<List<int>> GetAvailableYearsAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var barYears = await db.BarSaleEntries.Select(e => e.SaleDate.Year).Distinct().ToListAsync();
-            var rentalYears = await db.HallRentals.Select(e => e.EventDate.Year).Distinct().ToListAsync();
-            var duesYears = await db.DuesPayments.Select(e => e.Year).Distinct().ToListAsync();
             
-            // Lottery years from new weekly stats
-            var lotteryYears = await db.LotteryWeeklyStats.Select(s => s.WeekEndingDate.Year).Distinct().ToListAsync();
+            // Only include years that have ACTUALIZED data (Completed, Submitted, or Paid)
+            var barYears = await db.BarSaleEntries
+                .Where(e => e.Status == "Submitted")
+                .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
+                .Distinct()
+                .ToListAsync();
+
+            var rentalYears = await db.HallRentals
+                .Where(e => e.Status == "Completed")
+                .Select(e => e.EventDate.Year)
+                .Distinct()
+                .ToListAsync();
+
+            var duesYears = await db.DuesPayments
+                .Where(e => e.Amount.HasValue && e.PaidDate.HasValue)
+                .Select(e => e.Year)
+                .Distinct()
+                .ToListAsync();
+            
+            var lotteryYears = await db.LotteryShifts
+                .Where(e => e.Status == "Submitted")
+                .Select(e => e.ShiftDate.Year)
+                .Distinct()
+                .ToListAsync();
 
             return barYears.Union(rentalYears).Union(duesYears).Union(lotteryYears)
+                .Where(y => y > 2000 && y <= DateTime.Now.Year) // Sanity check and historical only
                 .OrderByDescending(y => y)
                 .ToList();
         }
@@ -169,10 +189,37 @@ namespace GFC.BlazorServer.Services
                 allPoints.AddRange(points);
             }
 
-            // if (request.IncomeTypes.Contains("Lottery"))
-            // {
-            //     Data removed per user request. Shows as $0.
-            // }
+            if (request.IncomeTypes.Contains("Lottery"))
+            {
+                var lottoShifts = await db.LotteryShifts
+                    .Where(e => request.Years.Contains(e.ShiftDate.Year) && e.Status == "Submitted")
+                    .ToListAsync();
+                
+                var rTable = new Dictionary<int, LotteryCommissionRate>(); // Cache rates by year
+                
+                var points = new List<FinancialDataPoint>();
+                foreach(var s in lottoShifts)
+                {
+                    if (!rTable.TryGetValue(s.ShiftDate.Year, out var r))
+                    {
+                        r = _rateRepository.GetApplicableRate(s.ShiftDate.Year);
+                        rTable[s.ShiftDate.Year] = r;
+                    }
+                    
+                    decimal income = (s.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                     (s.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                     (s.ShiftCancelsActivity * r.TicketBonusMultiplier);
+                    
+                    points.Add(new FinancialDataPoint
+                    {
+                        Date = s.ShiftDate,
+                        Amount = income,
+                        IncomeType = "Lottery",
+                        Year = s.ShiftDate.Year
+                    });
+                }
+                allPoints.AddRange(points);
+            }
 
             // Apply filters
             var filtered = allPoints.AsQueryable();

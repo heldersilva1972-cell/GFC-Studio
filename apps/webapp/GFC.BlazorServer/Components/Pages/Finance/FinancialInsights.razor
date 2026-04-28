@@ -69,9 +69,10 @@
     }
 
     .income-type-pill.active {
-        border-color: var(--pill-color);
-        background: var(--pill-bg);
-        color: var(--pill-color);
+        border-color: #3b82f6;
+        background: #3b82f6;
+        color: white;
+        box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
     }
 
     .view-content-wrapper {
@@ -252,37 +253,14 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="d-flex align-items-center gap-3">
                         <h2 class="h6 fw-bold mb-0">Analysis & Performance</h2>
-                        <div class="view-toggle-group">
-                            <button class="view-btn @(_request.Period == "year" ? "active" : "")" @onclick='() => ChangePeriod("year")'>YEARS</button>
-                            <button class="view-btn @(_request.Period == "month" ? "active" : "")" @onclick='() => ChangePeriod("month")'>MONTH</button>
-                            <button class="view-btn @(_request.Period == "week" ? "active" : "")" @onclick='() => ChangePeriod("week")'>WEEK</button>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="filter-label">Group By</span>
+                            <select class="chart-select-premium fs-xs" @bind="_request.GroupBy" @bind:after="ReloadAndRefresh">
+                                <option value="month">Monthly</option>
+                                <option value="week">Weekly</option>
+                            </select>
                         </div>
-                    </div>
-                    <div class="d-flex gap-2 align-items-center">
-                        @if (_request.Period == "month")
-                        {
-                            <select class="chart-select-premium fs-xs" @bind="_request.SelectedMonth" @bind:after="ReloadAndRefresh">
-                                @for (int i = 1; i <= 12; i++)
-                                {
-                                    <option value="@i">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(i)</option>
-                                }
-                            </select>
-                        }
-                        @if (_request.Period == "week")
-                        {
-                            <select class="chart-select-premium fs-xs" @bind="_request.SelectedWeek" @bind:after="ReloadAndRefresh">
-                                @foreach (var week in _weekOptions)
-                                {
-                                    <option value="@week.Number">@week.Label</option>
-                                }
-                            </select>
-                        }
-                        <select class="chart-select-premium fs-xs" @bind="_request.GroupBy" @bind:after="ReloadAndRefresh">
-                            @if (_request.Period == "year") { <option value="month">Monthly</option><option value="week">Weekly</option> }
-                            else if (_request.Period == "month") { <option value="week">Weekly</option><option value="day">Daily</option> }
-                            else { <option value="day">Daily</option> }
-                        </select>
-                        <div class="view-toggle-group">
+                        <div class="view-toggle-group ms-2">
                             <button class="view-btn @(_chartType == "bar" ? "active" : "")" @onclick='() => ChangeChartType("bar")'><i class="bi bi-bar-chart-fill"></i></button>
                             <button class="view-btn @(_chartType == "line" ? "active" : "")" @onclick='() => ChangeChartType("line")'><i class="bi bi-graph-up"></i></button>
                             <button class="view-btn @(_chartType == "table" ? "active" : "")" @onclick='() => ChangeChartType("table")'><i class="bi bi-table"></i></button>
@@ -297,7 +275,6 @@
                             @foreach (var type in _incomeTypes)
                             {
                                 <div class="income-type-pill @(_request.IncomeTypes.Contains(type.Name) ? "active" : "")"
-                                     style="--pill-color: @type.Color; --pill-bg: @type.BgColor"
                                      @onclick="() => ToggleIncomeType(type.Name)">
                                     @type.Name
                                 </div>
@@ -319,10 +296,10 @@
                 </div>
             </div>
 
-            <!-- Row 3: Totals (Take only 2 to save more space) -->
+            <!-- Row 3: Totals & Averages -->
             <div class="border-top pt-2">
                 <div class="row g-2">
-                    @foreach (var yearTotal in _summary.RevenueByYear.OrderByDescending(x => x.Key).Take(3))
+                    @foreach (var yearTotal in _summary.RevenueByYear.OrderByDescending(x => x.Key))
                     {
                         var avg = (yearTotal.Value / Math.Max(1, _chartLabelsCount));
                         var previousYear = _summary.RevenueByYear.Keys.Where(y => y < yearTotal.Key).OrderByDescending(y => y).FirstOrDefault();
@@ -330,20 +307,32 @@
                         if (previousYear != 0 && _summary.RevenueByYear[previousYear] > 0)
                             growth = ((yearTotal.Value - _summary.RevenueByYear[previousYear]) / _summary.RevenueByYear[previousYear]) * 100;
 
-                        <div class="col-md-4">
-                            <div class="p-2 rounded-3 bg-light border d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div class="text-muted x-small fw-bold mb-1">@yearTotal.Key TOTAL</div>
-                                    <div class="h6 fw-bold mb-0">@yearTotal.Value.ToString("C0")</div>
+                        <div class="col-md-4 col-lg">
+                            <div class="p-2 rounded-3 bg-light border d-flex flex-column h-100">
+                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                    <div class="text-muted x-small fw-bold">@yearTotal.Key PERFORMANCE</div>
+                                    @if (previousYear != 0)
+                                    {
+                                        <div class="kpi-trend @(growth >= 0 ? "trend-up" : "trend-down")">
+                                            <i class="bi @(growth >= 0 ? "bi-caret-up-fill" : "bi-caret-down-fill")"></i>
+                                            <span class="fw-bold fs-xs">@growth.ToString("N1")%</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="d-flex justify-content-between align-items-end">
+                                    <div>
+                                        <div class="h6 fw-bold mb-0">@yearTotal.Value.ToString("C0")</div>
+                                        <div class="text-muted x-small">Annual Total</div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-bold text-primary" style="font-size: 0.85rem;">@avg.ToString("C0")</div>
+                                        <div class="text-muted x-small">Avg / @(_request.GroupBy == "month" ? "Month" : (_request.GroupBy == "week" ? "Week" : "Day"))</div>
+                                    </div>
                                 </div>
                                 @if (previousYear != 0)
                                 {
-                                    <div class="text-end">
-                                        <div class="kpi-trend @(growth >= 0 ? "trend-up" : "trend-down")">
-                                            <i class="bi @(growth >= 0 ? "bi-graph-up-arrow" : "bi-graph-down-arrow")"></i>
-                                            <span class="fw-bold">@growth.ToString("N1")%</span>
-                                        </div>
-                                        <div class="text-muted x-small">vs @previousYear</div>
+                                    <div class="text-muted x-small mt-1 border-top pt-1">
+                                        vs @previousYear (@_summary.RevenueByYear[previousYear].ToString("C0"))
                                     </div>
                                 }
                             </div>
@@ -371,18 +360,16 @@
 
     private List<IncomeTypeConfig> _incomeTypes = new()
     {
-        new() { Name = "Downstairs Bar", Color = "#2ecc71", BgColor = "rgba(46, 204, 113, 0.1)", Icon = "bi-shop" },
-        new() { Name = "Upstairs Bar", Color = "#6366f1", BgColor = "rgba(99, 102, 241, 0.1)", Icon = "bi-building-up" },
-        new() { Name = "Lottery", Color = "#3b82f6", BgColor = "rgba(59, 130, 246, 0.1)", Icon = "bi-ticket-perforated" },
-        new() { Name = "Hall Rentals", Color = "#f59e0b", BgColor = "rgba(245, 158, 11, 0.1)", Icon = "bi-building" },
-        new() { Name = "Membership Dues", Color = "#8b5cf6", BgColor = "rgba(139, 92, 246, 0.1)", Icon = "bi-wallet2" }
+        new() { Name = "Downstairs Bar", Icon = "bi-shop" },
+        new() { Name = "Upstairs Bar", Icon = "bi-building-up" },
+        new() { Name = "Lottery", Icon = "bi-ticket-perforated" },
+        new() { Name = "Hall Rentals", Icon = "bi-building" },
+        new() { Name = "Membership Dues", Icon = "bi-wallet2" }
     };
 
     private class IncomeTypeConfig
     {
         public string Name { get; set; }
-        public string Color { get; set; }
-        public string BgColor { get; set; }
         public string Icon { get; set; }
     }
 
@@ -595,28 +582,27 @@
         _tableLabels = labels;
         _chartLabelsCount = labels.Count;
 
+        int yearIdx = 0;
+        var yearColors = new[] { "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#f43f5e", "#ec4899", "#06b6d4" }; // Blue, Green, Orange, Purple, Red, Pink, Cyan
+
         foreach (var year in _request.Years.OrderByDescending(y => y))
         {
             var yearOpacity = GetYearOpacity(year);
-            var yearTotalForTable = new List<decimal>();
-            for (int i = 0; i < labels.Count; i++) yearTotalForTable.Add(0);
+            var data = BuildDataForCombination(year, null, labels, dataPoints);
+            
+            // Always use year-based palette for colors
+            string baseColor = yearColors[yearIdx % yearColors.Length];
 
-            foreach (var typeName in _request.IncomeTypes)
-            {
-                var data = BuildDataForCombination(year, typeName, labels, dataPoints);
-                var configType = _incomeTypes.First(t => t.Name == typeName);
-                datasets.Add(new { 
-                    label = $"{year} - {typeName}", 
-                    data = data, 
-                    color = configType.Color, 
-                    bg = configType.Color + yearOpacity,
-                    stack = year.ToString()
-                });
+            datasets.Add(new { 
+                label = $"{year} Total", 
+                data = data, 
+                color = baseColor, 
+                bg = baseColor + yearOpacity,
+                stack = year.ToString()
+            });
 
-                // Accumulate for table
-                for (int i = 0; i < data.Count; i++) yearTotalForTable[i] += data[i];
-            }
-            _tableData[year] = yearTotalForTable;
+            _tableData[year] = data;
+            yearIdx++;
         }
 
         if (_chartType != "table")
