@@ -702,12 +702,35 @@
                             </div>
                         </div>
                         
-                        @* Auto-closing in 1.5s as per user request *@
+                        @if (!_hasActiveCard)
+                        {
+                            <div class="mt-4 pt-3 border-top">
+                                <h5 class="fw-bold text-primary mb-2">No Key Card Assigned</h5>
+                                <p class="text-muted mb-4">Would you like to assign a new key card to @_lastPaymentMember now?</p>
+                                <div class="d-flex justify-content-center gap-2">
+                                    <button class="btn btn-outline-secondary px-4" @onclick="CloseSuccessModal">No, Not Now</button>
+                                    <button class="btn btn-primary px-4" @onclick="NavigateToAssignCard">
+                                        <i class="bi bi-credit-card-2-front me-2"></i>Yes, Assign Card
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else 
+                        {
+                            @* Auto-closing in 1.5s as per user request *@
+                        }
                     </div>
                 </div>
             </div>
         </div>
     }
+
+    <!-- Shared Assignment Modal -->
+    <AssignKeyCardModal 
+        IsVisible="_showAssignModal" 
+        MemberId="_selectedMemberIdForAssign"
+        OnClose="() => _showAssignModal = false"
+        OnCompleted="HandleAssignmentCompleted" />
 
     @* Edit Payment Modal *@
     @if (_showEditPaymentModal && _editPaymentTarget != null)
@@ -1049,6 +1072,8 @@
     private string _searchText = string.Empty;
     private bool _showPaymentModal;
     private bool _showSuccessModal = false;
+    private bool _showAssignModal = false;
+    private int _selectedMemberIdForAssign = 0;
     private string? _lastPaymentMember;
     private decimal _lastPaymentAmount;
     private int _lastPaymentMemberId;
@@ -1789,14 +1814,23 @@
             _lastPaymentAmount = amount;
             _lastPaymentMemberId = memberId;
             _lastYearsPaid = yearsPaid;
-            _hasActiveCard = _memberCards.ContainsKey(memberId);
+            
+            // Check if member has an active card
+            _hasActiveCard = _memberCards.TryGetValue(memberId, out var c) && c.IsActive;
+            
             _showSuccessModal = true;
             StateHasChanged();
 
-            // Auto-close after 1.5 seconds as per user request
-            await Task.Delay(1500);
-            _showSuccessModal = false;
-            StateHasChanged();
+            if (_hasActiveCard)
+            {
+                // Auto-close after 1.5 seconds as per user request
+                await Task.Delay(1500);
+                if (_showSuccessModal)
+                {
+                    _showSuccessModal = false;
+                    StateHasChanged();
+                }
+            }
 
 
             
@@ -1914,10 +1948,15 @@
     private void NavigateToAssignCard()
     {
         _showSuccessModal = false;
+        _selectedMemberIdForAssign = _lastPaymentMemberId;
+        _showAssignModal = true;
+    }
 
-
-
-        NavManager.NavigateTo($"/keycards?assignTo={_lastPaymentMemberId}");
+    private void HandleAssignmentCompleted(int memberId)
+    {
+        _showAssignModal = false;
+        // Optionally refresh member status/card status in the list
+        _ = LoadDataInternal(silent: true);
     }
 
     private async Task PrintReceipt()
