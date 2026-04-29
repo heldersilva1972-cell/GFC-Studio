@@ -13,6 +13,7 @@ namespace GFC.BlazorServer.Services
 {
     public interface IFinancialAnalyticsService
     {
+        public static int DiagnosticRawCount { get; set; }
         Task<List<FinancialDataPoint>> GetAggregatedDataAsync(FinancialAnalyticsRequest request);
         Task<FinancialSummary> GetSummaryAsync(FinancialAnalyticsRequest request);
         Task<List<int>> GetAvailableYearsAsync();
@@ -91,7 +92,9 @@ namespace GFC.BlazorServer.Services
 
         public async Task<List<int>> GetAvailableYearsAsync()
         {
-            using var db = await _dbFactory.CreateDbContextAsync();
+            try 
+            {
+                using var db = await _dbFactory.CreateDbContextAsync();
             
             // Only include years that have ACTUALIZED data (Completed, Submitted, or Paid)
             var barYears = await db.BarSaleEntries
@@ -122,6 +125,12 @@ namespace GFC.BlazorServer.Services
                 .Where(y => y > 2000 && y <= DateTime.Now.Year) // Sanity check and historical only
                 .OrderByDescending(y => y)
                 .ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] Error getting available years: {ex.Message}");
+                return new List<int> { DateTime.Now.Year };
+            }
         }
 
         public async Task<List<FinancialDataPoint>> GetAggregatedDataAsync(FinancialAnalyticsRequest request)
@@ -609,18 +618,41 @@ namespace GFC.BlazorServer.Services
 
         public async Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All")
         {
-            using var db = await _dbFactory.CreateDbContextAsync();
+            try 
+            {
+                using var db = await _dbFactory.CreateDbContextAsync();
             var start = startDate.Date;
             var end = endDate.Date;
 
-            var query = db.BarSaleEntries
-                .AsNoTracking()
-                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= start && (e.AdjustedSaleDate ?? e.SaleDate).Date <= end && e.Status == "Submitted");
+            IQueryable<BarSaleEntry> query = db.BarSaleEntries.AsNoTracking();
 
-            if (!string.IsNullOrWhiteSpace(username))
-                query = query.Where(e => e.CreatedBy == username);
+            // DIAGNOSTIC: Get raw count before any filters
+            int rawCount = await query.CountAsync();
+            IFinancialAnalyticsService.DiagnosticRawCount = rawCount;
+            Console.WriteLine($"[DIAGNOSTIC] Total BarSaleEntries in DB: {rawCount}");
 
-            var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            // Date filter (Keep this to avoid loading years of data)
+            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= start && (e.AdjustedSaleDate ?? e.SaleDate) <= end);
+            
+            // Relaxed Status matching for debugging (handle trailing spaces or different casing)
+            // query = query.Where(e => e.Status != null && (e.Status.Trim() == "Submitted" || e.Status.Trim() == "Committed")); 
+
+            if (!string.IsNullOrWhiteSpace(username) && username != "All")
+            {
+                query = query.Where(e => 
+                    (e.EmployeeUsername != null && e.EmployeeUsername.Trim() == username.Trim()) || 
+                    (e.CreatedBy != null && e.CreatedBy.Trim() == username.Trim())
+                );
+            }
+
+            // Diagnostic: Check raw count ignoring filters to see if IsDeleted is hiding data
+            var rawCountNoFilters = await db.BarSaleEntries.IgnoreQueryFilters().CountAsync();
+            if (rawCount == 0 && rawCountNoFilters > 0)
+            {
+                Console.WriteLine($"[DIAGNOSTIC] data exists ({rawCountNoFilters} records) but is HIDDEN by query filter (IsDeleted=1).");
+            }
+
+            var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
             decimal fallbackEmployeeTax = 0, fallbackEmployerTax = 0;
             if (sys != null)
             {
@@ -641,20 +673,54 @@ namespace GFC.BlazorServer.Services
                 })
                 .ToListAsync();
 
-            if (!entries.Any()) return new List<EmployeeHoursDto>();
+            if (!entries.Any()) 
+            {
+                Console.WriteLine($"[FinancialService] No BarSaleEntries found for {start:yyyy-MM-dd} to {end:yyyy-MM-dd}");
+                return new List<EmployeeHoursDto>();
+            }
+
+            Console.WriteLine($"[FinancialService] Found {entries.Count} bar sale entries. Starting mapping...");
+            foreach(var e in entries.Take(5)) Console.WriteLine($" - Entry: {e.User} ({e.Date:MM/dd}), Hours: {e.Hours}");
 
             // Fetch dynamic tax tables for the current year (2024 by default)
             var currentYear = DateTime.Now.Year;
-            var allBrackets = await db.TaxBrackets.AsNoTracking().Where(b => b.TaxYear == currentYear).ToListAsync();
-            var allDeductions = await db.TaxStandardDeductions.AsNoTracking().Where(d => d.TaxYear == currentYear).ToListAsync();
+            // [SMART LOOKUP]: Find latest available tax year if current year is missing
+            var taxYear = currentYear;
+            if (!await db.TaxBrackets.AnyAsync(b => b.TaxYear == taxYear))
+            {
+                var latestYear = await db.TaxBrackets.OrderByDescending(b => b.TaxYear).Select(b => b.TaxYear).FirstOrDefaultAsync();
+                if (latestYear > 0) taxYear = latestYear;
+            }
 
-            // Group entries by user and match with employee metadata
+            var allBrackets = await db.TaxBrackets.AsNoTracking().Where(b => b.TaxYear == taxYear).ToListAsync();
+            var allDeductions = await db.TaxStandardDeductions.AsNoTracking().Where(d => d.TaxYear == taxYear).ToListAsync();
 
             // Fetch users (Remove strict employee tracking filter to ensure all recorded hours are visible)
             var users = await db.AppUsers.AsNoTracking()
                 .ToListAsync();
             
             var allMembers = await db.Members.AsNoTracking().ToListAsync();
+
+            // [SMART MATCHING] Build a map of Full Names to Usernames to handle records with names like "Darren Marques"
+            var nameToUsername = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var u in users)
+            {
+                if (!nameToUsername.ContainsKey(u.Username)) nameToUsername[u.Username] = u.Username;
+                if (!string.IsNullOrEmpty(u.Email) && !nameToUsername.ContainsKey(u.Email)) nameToUsername[u.Email] = u.Username;
+                
+                if (u.MemberId.HasValue)
+                {
+                    var m = allMembers.FirstOrDefault(x => x.MemberID == u.MemberId);
+                    if (m != null)
+                    {
+                        var fullName = $"{m.FirstName} {m.LastName}".Trim();
+                        var fullNameWithSuffix = $"{m.FirstName} {m.LastName} {m.Suffix}".Trim();
+                        
+                        if (!nameToUsername.ContainsKey(fullName)) nameToUsername[fullName] = u.Username;
+                        if (!string.IsNullOrEmpty(m.Suffix) && !nameToUsername.ContainsKey(fullNameWithSuffix)) nameToUsername[fullNameWithSuffix] = u.Username;
+                    }
+                }
+            }
             
             // Year-specific overrides for older records that missed the snapshot
             var yearsInRange = Enumerable.Range(start.Year, (end.Year - start.Year) + 1).ToList();
@@ -662,27 +728,8 @@ namespace GFC.BlazorServer.Services
                 .Where(w => yearsInRange.Contains(w.Year))
                 .ToListAsync();
 
-            // Create a lookup for Username to Full Name
-            var nameToUsername = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var user in users)
-            {
-                if (user.MemberId != null)
-                {
-                    var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
-                    if (member != null)
-                    {
-                        var fullName = $"{member.FirstName} {member.LastName}".Trim();
-                        var fullNameWithSuffix = $"{member.FirstName} {member.LastName} {member.Suffix}".Trim();
-                        
-                        if (!nameToUsername.ContainsKey(fullName))
-                            nameToUsername.Add(fullName, user.Username);
-                        if (!string.IsNullOrEmpty(member.Suffix) && !nameToUsername.ContainsKey(fullNameWithSuffix))
-                            nameToUsername.Add(fullNameWithSuffix, user.Username);
-                    }
-                }
-            }
-
             var filteredResults = new List<EmployeeHoursDto>();
+            var usedEntryIndices = new HashSet<int>();
 
             foreach (var user in users)
             {
@@ -690,12 +737,22 @@ namespace GFC.BlazorServer.Services
                 var userFullNames = nameToUsername.Where(kvp => kvp.Value == user.Username).Select(kvp => kvp.Key).ToList();
                 
                 // Get all shifts belonging to this user (Match by Username or any known Full Name)
-                var userEntries = entries.Where(e => 
-                    string.Equals(e.User?.Trim(), user.Username?.Trim(), StringComparison.OrdinalIgnoreCase) || 
-                    userFullNames.Any(fn => string.Equals(fn.Trim(), e.User?.Trim(), StringComparison.OrdinalIgnoreCase))
+                var userEntries = entries.Where((e, idx) => 
+                    (string.Equals(e.User?.Trim(), user.Username?.Trim(), StringComparison.OrdinalIgnoreCase) || 
+                     userFullNames.Any(fn => string.Equals(fn.Trim(), e.User?.Trim(), StringComparison.OrdinalIgnoreCase)))
                 ).ToList();
 
                 if (!userEntries.Any()) continue;
+
+                // Track used entries
+                for(int i=0; i<entries.Count; i++) {
+                    var e = entries[i];
+                    if (string.Equals(e.User?.Trim(), user.Username?.Trim(), StringComparison.OrdinalIgnoreCase) || 
+                        userFullNames.Any(fn => string.Equals(fn.Trim(), e.User?.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    {
+                        usedEntryIndices.Add(i);
+                    }
+                }
 
                 var totalHours = userEntries.Sum(e => e.Hours);
 
@@ -711,52 +768,72 @@ namespace GFC.BlazorServer.Services
 
                 foreach (var e in userEntries)
                 {
-                    // [PRECEDENCE]: 1. Live Snapshot from Shift | 2. Yearly Database Override | 3. Current Live User Profile (Fallback)
-                    var shiftYear = e.Date.Year;
-                    var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
-                    
-                    decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
-                    decimal shiftGross = e.Hours * rate;
- 
-                    // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
-                    var yearDeduction = allDeductions.FirstOrDefault(d => d.FilingStatus == user.FilingStatus);
-                    var taxBreakdown = GFC.BlazorServer.Utilities.PayrollTaxCalculator.CalculateFederalTaxes(
-                        shiftGross, user, allBrackets, yearDeduction, "Monthly");
-                    
-                    // State & PFML Taxes (Using standard MA Rates)
-                    decimal stateRate = (sys?.MaStateTaxRate ?? 5.0m) / 100m;
-                    decimal shiftMaIncomeTax = Math.Floor(shiftGross * stateRate * 100m) / 100m;
-                    
-                    decimal suiRate = (sys?.MaUnemploymentRate ?? 2.42m) / 100m;
-                    decimal shiftMaSui = Math.Floor(shiftGross * suiRate * 100m) / 100m;
-                    
-                    decimal pfmlRate = (sys?.PfmlEmployeeRate ?? 0.35m) / 100m;
-                    decimal shiftMaPfml = Math.Floor(shiftGross * pfmlRate * 100m) / 100m;
+                    try 
+                    {
+                        // [PRECEDENCE]: 1. Live Snapshot from Shift | 2. Yearly Database Override | 3. Current Live User Profile (Fallback)
+                        var shiftYear = e.Date.Year;
+                        var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
+                        
+                        decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
+                        decimal shiftGross = e.Hours * rate;
+    
+                        // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
+                        var yearDeduction = allDeductions.FirstOrDefault(d => d.FilingStatus == user.FilingStatus);
+                        
+                        decimal shiftWithheld = 0;
+                        decimal shiftEmployerAddOn = 0;
 
-                    decimal shiftWithheld = taxBreakdown.TotalEmployeeWithholding + shiftMaIncomeTax + shiftMaPfml;
-                    decimal shiftEmployerAddOn = taxBreakdown.TotalEmployerLiability + (shiftGross * fallbackEmployerTax) + shiftMaSui;
-                    
-                    decimal shiftNet = shiftGross - shiftWithheld;
-                    decimal shiftCost = shiftGross + shiftEmployerAddOn;
+                        try 
+                        {
+                            var taxBreakdown = GFC.BlazorServer.Utilities.PayrollTaxCalculator.CalculateFederalTaxes(
+                                shiftGross, user, allBrackets, yearDeduction, "Monthly");
+                            
+                            // State & PFML Taxes (Using standard MA Rates)
+                            decimal stateRate = (sys?.MaStateTaxRate ?? 5.0m) / 100m;
+                            decimal shiftMaIncomeTax = Math.Floor(shiftGross * stateRate * 100m) / 100m;
+                            
+                            decimal suiRate = (sys?.MaUnemploymentRate ?? 2.42m) / 100m;
+                            decimal shiftMaSui = Math.Floor(shiftGross * suiRate * 100m) / 100m;
+                            
+                            decimal pfmlRate = (sys?.PfmlEmployeeRate ?? 0.35m) / 100m;
+                            decimal shiftMaPfml = Math.Floor(shiftGross * pfmlRate * 100m) / 100m;
 
-                    totalPay += shiftGross;
-                    netPay += shiftNet;
-                    totalPayrollCost += shiftCost;
-                    totalWithheld += shiftWithheld;
-                    totalEmployerAddOn += shiftEmployerAddOn;
+                            shiftWithheld = taxBreakdown.TotalEmployeeWithholding + shiftMaIncomeTax + shiftMaPfml;
+                            shiftEmployerAddOn = taxBreakdown.TotalEmployerLiability + (shiftGross * fallbackEmployerTax) + shiftMaSui;
 
-                    // Accumulate Detail Fields
-                    fedWh += taxBreakdown.FederalTax;
-                    ficaSS += taxBreakdown.SocialSecurity;
-                    ficaMed += taxBreakdown.Medicare;
-                    maIncomeTax += shiftMaIncomeTax;
-                    maSui += shiftMaSui;
-                    maPfml += shiftMaPfml;
-                    empSS += taxBreakdown.EmployerSocialSecurity;
-                    empMed += taxBreakdown.EmployerMedicare;
+                            // Accumulate Detail Fields
+                            fedWh += taxBreakdown.FederalTax;
+                            ficaSS += taxBreakdown.SocialSecurity;
+                            ficaMed += taxBreakdown.Medicare;
+                            maIncomeTax += shiftMaIncomeTax;
+                            maSui += shiftMaSui;
+                            maPfml += shiftMaPfml;
+                            empSS += taxBreakdown.EmployerSocialSecurity;
+                            empMed += taxBreakdown.EmployerMedicare;
+                        }
+                        catch 
+                        {
+                            // Fallback for missing tax data
+                            shiftWithheld = shiftGross * fallbackEmployeeTax;
+                            shiftEmployerAddOn = shiftGross * fallbackEmployerTax;
+                        }
 
-                    if (e.IsHall) upstairsPay += shiftGross;
-                    else downstairsPay += shiftGross;
+                        decimal shiftNet = shiftGross - shiftWithheld;
+                        decimal shiftCost = shiftGross + shiftEmployerAddOn;
+
+                        totalPay += shiftGross;
+                        netPay += shiftNet;
+                        totalPayrollCost += shiftCost;
+                        totalWithheld += shiftWithheld;
+                        totalEmployerAddOn += shiftEmployerAddOn;
+
+                        if (e.IsHall) upstairsPay += shiftGross;
+                        else downstairsPay += shiftGross;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[FinancialService] Error processing entry for {user.Username}: {ex.Message}");
+                    }
                 }
 
                 var dto = new EmployeeHoursDto {
@@ -802,24 +879,40 @@ namespace GFC.BlazorServer.Services
                 }
 
                 // Link member name for better display
-                if (user.MemberId != null)
-                {
-                    var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
-                    if (member != null)
-                    {
-                        dto.MemberName = $"{member.FirstName} {member.LastName}{(string.IsNullOrEmpty(member.Suffix) ? "" : " " + member.Suffix)}";
-                    }
-                }
-                
-                if (string.IsNullOrEmpty(dto.MemberName))
-                {
-                    dto.MemberName = user.Email ?? user.Username;
-                }
+                var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+                dto.MemberName = member != null ? $"{member.FirstName} {member.LastName}" : (user.Email ?? user.Username);
 
                 filteredResults.Add(dto);
             }
 
+            // [ORPHANS] Handle any entries that didn't match a user
+            var orphanedEntries = entries.Where((e, idx) => !usedEntryIndices.Contains(idx)).ToList();
+            if (orphanedEntries.Any())
+            {
+                Console.WriteLine($"[FinancialService] Found {orphanedEntries.Count} orphaned entries. Grouping into Miscellaneous.");
+                var miscDto = new EmployeeHoursDto {
+                    Username = "miscellaneous",
+                    MemberName = "Miscellaneous / Unmapped",
+                    TotalHours = orphanedEntries.Sum(e => e.Hours),
+                    EntryCount = orphanedEntries.Count,
+                    TotalPay = orphanedEntries.Sum(e => e.Hours * 15.0m), // Estimate
+                    StartDate = start,
+                    EndDate = end
+                };
+                foreach (var entryGroup in orphanedEntries.GroupBy(e => e.Date))
+                    miscDto.DailyHours[entryGroup.Key] = entryGroup.Sum(e => e.Hours);
+                
+                filteredResults.Add(miscDto);
+            }
+
             return filteredResults.OrderByDescending(d => d.TotalHours).ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] ERROR in GetEmployeeHoursAsync: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+                return new List<EmployeeHoursDto>();
+            }
         }
 
         public async Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year, int? month = null)

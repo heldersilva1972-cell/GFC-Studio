@@ -1103,29 +1103,40 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _availableYears = await FinancialService.GetAvailableYearsAsync();
-        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
-        _settingsYear = DateTime.Now.Year;
-
-        _currentMonth = DateTime.Now.Month;
-        _currentYear = DateTime.Now.Year;
-        _payPeriod = "MonthPicker";
-
-        using var db = await DbFactory.CreateDbContextAsync();
-        var sys = await db.SystemSettings.FirstOrDefaultAsync();
-        if (sys != null)
+        _loading = true;
+        try 
         {
-            _maStateTaxRate = sys.MaStateTaxRate;
-            _pfmlEmployeeRate = sys.PfmlEmployeeRate;
-            _pfmlEmployerRate = sys.PfmlEmployerRate;
-            _ficaEmployeeRate = sys.FicaEmployeeRate;
-            _ficaEmployerRate = sys.FicaEmployerRate;
-            _maUnemploymentRate = sys.MaUnemploymentRate;
+            _availableYears = await FinancialService.GetAvailableYearsAsync();
+            if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+            _settingsYear = DateTime.Now.Year;
+
+            _currentMonth = DateTime.Now.Month;
+            _currentYear = DateTime.Now.Year;
+            _payPeriod = "MonthPicker";
+
+            using var db = await DbFactory.CreateDbContextAsync();
+            var sys = await db.SystemSettings.FirstOrDefaultAsync();
+            if (sys != null)
+            {
+                _maStateTaxRate = sys.MaStateTaxRate;
+                _pfmlEmployeeRate = sys.PfmlEmployeeRate;
+                _pfmlEmployerRate = sys.PfmlEmployerRate;
+                _ficaEmployeeRate = sys.FicaEmployeeRate;
+                _ficaEmployerRate = sys.FicaEmployerRate;
+                _maUnemploymentRate = sys.MaUnemploymentRate;
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"System Config Error: {ex.Message}");
         }
 
-        await LoadData();
-        await LoadAllUsers();
-        await LoadYearlyWages();
+        // Isolate data loads so one failure doesn't block the others
+        try { await LoadData(); } catch (Exception ex) { await ToastService.ShowError($"Financial Load Error: {ex.Message}"); }
+        try { await LoadAllUsers(); } catch (Exception ex) { await ToastService.ShowError($"Employee List Error: {ex.Message}"); }
+        try { await LoadYearlyWages(); } catch (Exception ex) { await ToastService.ShowError($"Wage Config Error: {ex.Message}"); }
+
+        _loading = false;
     }
 
     private async Task ChangePeriod(string period)
@@ -1189,22 +1200,32 @@
             _payPeriodTitle = "Custom Audit Range";
         }
 
-        _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, "Main");
-        
-        using var db = await DbFactory.CreateDbContextAsync();
-
-        // Determine Cycle Status based on database state
-        var entries = await db.BarSaleEntries
-            .Where(e => e.SaleDate >= _startDate && e.SaleDate <= _endDate)
-            .ToListAsync();
+        try 
+        {
+            _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, "Main");
             
-        if (!entries.Any()) _cycleStatus = "EMPTY";
-        else if (entries.All(e => e.Status == "Committed")) _cycleStatus = "COMMITTED";
-        else if (entries.All(e => e.Status == "Submitted")) _cycleStatus = "READY";
-        else _cycleStatus = "DRAFT";
-        
-        _loading = false;
-        StateHasChanged();
+            using var db = await DbFactory.CreateDbContextAsync();
+
+            // Determine Cycle Status based on database state
+            var entries = await db.BarSaleEntries
+                .Where(e => e.SaleDate >= _startDate && e.SaleDate <= _endDate)
+                .ToListAsync();
+                
+            if (!entries.Any()) _cycleStatus = "EMPTY";
+            else if (entries.All(e => e.Status == "Committed")) _cycleStatus = "COMMITTED";
+            else if (entries.All(e => e.Status == "Submitted")) _cycleStatus = "READY";
+            else _cycleStatus = "DRAFT";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PayrollCenter] Error loading data: {ex.Message}");
+            _data = new List<EmployeeHoursDto>();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CommitCycle()
@@ -1283,6 +1304,7 @@
     private async Task OpenPayrollSettings()
     {
         _showPayrollSettings = true;
+        await LoadAllUsers(); // [RESCUE] Ensure users are loaded even if initialization failed
         await LoadYearlyWages();
     }
 
@@ -1312,6 +1334,7 @@
         try
         {
             using var db = await DbFactory.CreateDbContextAsync();
+            // Fetch users one by one or with careful selection to find the crash point
             allSystemUsers = await db.AppUsers.AsNoTracking()
                 .OrderBy(u => u.Username)
                 .ToListAsync();
@@ -1321,6 +1344,7 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error loading users: {ex.Message}");
+            await ToastService.ShowError($"Database Mapping Error: {ex.Message}. Check AppUsers table schema.");
         }
     }
 

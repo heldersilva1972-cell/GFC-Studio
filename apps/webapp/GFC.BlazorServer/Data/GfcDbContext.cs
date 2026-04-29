@@ -157,31 +157,31 @@ public class GfcDbContext : DbContext
 
         modelBuilder.Entity<YearlyWage>(entity =>
         {
-            entity.ToTable("YearlyWages");
+            entity.ToTable("YearlyWages", "dbo");
             entity.HasKey(e => e.Id);
             entity.HasQueryFilter(y => !y.IsDeleted);
         });
 
         modelBuilder.Entity<TaxBracket>(entity =>
         {
-            entity.ToTable("TaxBrackets");
+            entity.ToTable("TaxBrackets", "dbo");
             entity.HasKey(e => e.Id);
         });
 
         modelBuilder.Entity<TaxStandardDeduction>(entity =>
         {
-            entity.ToTable("TaxStandardDeductions");
+            entity.ToTable("TaxStandardDeductions", "dbo");
             entity.HasKey(e => e.Id);
         });
 
         // Standard "Gold Standard" Query Filter for Soft Deletes
-        modelBuilder.Entity<Member>().HasQueryFilter(m => !m.IsDeleted);
-        modelBuilder.Entity<BarSaleEntry>().HasQueryFilter(b => !b.IsDeleted);
-        modelBuilder.Entity<DuesPayment>().HasQueryFilter(d => !d.IsDeleted);
-        modelBuilder.Entity<StaffShift>().HasQueryFilter(s => !s.IsDeleted);
-        modelBuilder.Entity<ShiftReport>().HasQueryFilter(s => !s.IsDeleted);
-        modelBuilder.Entity<ClubEvent>().HasQueryFilter(e => !e.IsDeleted);
-        modelBuilder.Entity<ClubEventTransaction>().HasQueryFilter(t => !t.IsDeleted);
+        modelBuilder.Entity<Member>().ToTable("Members", "dbo").HasQueryFilter(m => !m.IsDeleted);
+        modelBuilder.Entity<BarSaleEntry>().ToTable("BarSaleEntries", "dbo").HasQueryFilter(b => b.IsDeleted == false);
+        modelBuilder.Entity<DuesPayment>().ToTable("DuesPayments", "dbo").HasQueryFilter(d => !d.IsDeleted);
+        modelBuilder.Entity<StaffShift>().ToTable("StaffShifts", "dbo").HasQueryFilter(s => !s.IsDeleted);
+        modelBuilder.Entity<ShiftReport>().ToTable("ShiftReports", "dbo").HasQueryFilter(s => !s.IsDeleted);
+        modelBuilder.Entity<ClubEvent>().ToTable("ClubEvents", "dbo").HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<ClubEventTransaction>().ToTable("ClubEventTransactions", "dbo").HasQueryFilter(t => !t.IsDeleted);
 
         modelBuilder.Entity<ControllerDevice>()
             .ToTable("Controllers")
@@ -367,7 +367,7 @@ public class GfcDbContext : DbContext
 
         modelBuilder.Entity<SystemSettings>(entity =>
         {
-            entity.ToTable("SystemSettings");
+            entity.ToTable("SystemSettings", "dbo");
             // Ensure only one row exists (Id = 1)
             entity.HasData(new SystemSettings
             {
@@ -375,8 +375,8 @@ public class GfcDbContext : DbContext
                 LastUpdatedUtc = null
             });
 
-            entity.Property(e => e.AccessMode)
-                  .HasConversion<string>();
+            // REMOVED: .HasConversion<string>() for AccessMode to resolve System.Int32 to System.String cast error
+            // The database column is currently an INT in most deployments.
         });
 
         modelBuilder.Entity<GFC.BlazorServer.Data.Entities.MemberDoorAccess>(entity =>
@@ -505,7 +505,7 @@ public class GfcDbContext : DbContext
         // AppUser configuration
         modelBuilder.Entity<GFC.Core.Models.AppUser>(entity =>
         {
-            entity.ToTable("AppUsers");
+            entity.ToTable("AppUsers", "dbo");
             entity.HasKey(u => u.UserId);
         });
 
@@ -754,7 +754,7 @@ public class GfcDbContext : DbContext
 
         modelBuilder.Entity<BarSaleEntry>(entity =>
         {
-            entity.ToTable("BarSaleEntries");
+            entity.ToTable("BarSaleEntries", "dbo");
             entity.HasIndex(e => e.SaleDate);
             entity.HasIndex(e => new { e.AdjustedSaleDate, e.Shift, e.IsRentalHall }).IsUnique();
             entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
@@ -933,7 +933,7 @@ public class GfcDbContext : DbContext
 
         modelBuilder.Entity<LotteryShift>(entity =>
         {
-            entity.ToTable("LotteryShifts");
+            entity.ToTable("LotteryShifts", "dbo");
             entity.HasKey(e => e.ShiftId);
             entity.HasIndex(e => new { e.ShiftDate, e.ShiftType }).IsUnique();
             entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
@@ -952,7 +952,7 @@ public class GfcDbContext : DbContext
 
         modelBuilder.Entity<LotteryWeeklyStat>(entity =>
         {
-            entity.ToTable("LotteryWeeklyStats");
+            entity.ToTable("LotteryWeeklyStats", "dbo");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.OnlineNetSales).HasColumnType("decimal(18,2)");
             entity.Property(e => e.OnlineCommission).HasColumnType("decimal(18,2)");

@@ -6,6 +6,7 @@
 @inject IFinancialAnalyticsService FinancialService
 @inject IJSRuntime JS
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+@inject IConfiguration AppConfig
 @inject IToastService ToastService
 @attribute [Authorize]
 @using Microsoft.EntityFrameworkCore
@@ -341,6 +342,10 @@
 
 <div class="hours-page">
     <div class="container-fluid max-width-1400 flex-grow-1 d-flex flex-column overflow-hidden">
+        <div class="alert alert-info py-1 mb-3 x-small fw-bold">
+            <i class="bi bi-info-circle me-2"></i> DIAGNOSTIC: Records in Table: @(IFinancialAnalyticsService.DiagnosticRawCount) | Data List: @(_data?.Count ?? 0) | Range: @_startDate.ToShortDateString() - @_endDate.ToShortDateString()
+        </div>
+        
         <!-- Header Section -->
         <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4 no-print">
             <div>
@@ -800,6 +805,7 @@
         _ => "bg-light text-muted opacity-25"
     };
 
+    private List<AppUser> allSystemUsers = new();
     private List<EmployeeHoursDto> _data = new();
     private string _searchQuery = "";
     private string _userSearchQuery = "";
@@ -840,18 +846,51 @@
     protected override async Task OnInitializedAsync()
     {
         _loading = true;
-        
-        using var db = await DbFactory.CreateDbContextAsync();
-        var sys = await db.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
-        
-        _availableYears = await FinancialService.GetAvailableYearsAsync();
-        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
-        
-        PopulateWeekOptions();
-        await LoadData();
+        try 
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var sys = await db.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
+            
+            _availableYears = await FinancialService.GetAvailableYearsAsync();
+            if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+            
+            PopulateWeekOptions();
+            await LoadAllUsers();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Employee Hours Init Error: {ex.Message}");
+            Console.WriteLine($"[ERROR] OnInitializedAsync failed: {ex}");
+            _data = new List<EmployeeHoursDto>();
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
 
+
+    private async Task LoadAllUsers()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            allSystemUsers = await db.AppUsers.AsNoTracking()
+                .OrderBy(u => u.Username)
+                .ToListAsync();
+            
+            if (allSystemUsers == null || !allSystemUsers.Any())
+            {
+                Console.WriteLine("[DIAGNOSTIC] allSystemUsers is empty after fetch.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Employee Load Error: {ex.Message}");
+        }
+    }
 
     private IEnumerable<DateTime> GetWeekDays()
     {
@@ -952,16 +991,24 @@
             // Custom mode
         }
 
-        _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, "Main");
-        
-
-
-        _summaryTotalHours = _data.Sum(d => d.TotalHours);
-        _summaryActiveEmployees = _data.Count;
-        _summaryTotalShifts = _data.Sum(d => d.EntryCount);
-
-        _loading = false;
-        StateHasChanged();
+        try 
+        {
+            _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, "Main");
+            
+            _summaryTotalHours = _data.Sum(d => d.TotalHours);
+            _summaryActiveEmployees = _data.Count;
+            _summaryTotalShifts = _data.Sum(d => d.EntryCount);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[EmployeeHours] Error loading data: {ex.Message}");
+            _data = new List<EmployeeHoursDto>();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task PrintReport()
