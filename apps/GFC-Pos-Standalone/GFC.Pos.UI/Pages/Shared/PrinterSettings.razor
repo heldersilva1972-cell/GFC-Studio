@@ -4,47 +4,74 @@
 @inject Blazored.Toast.Services.IToastService Toast
 
 <div class="settings-group">
-    <div class="d-grid mb-3">
-        <button class="btn btn-dark fw-bold rounded-pill py-3 mb-2" @onclick="ScanForPrinters">
-            <i class="bi bi-search me-2"></i> SCAN FOR PRINTERS
-        </button>
-        
-        @if (_detectedDevices.Any())
-        {
-            <div class="list-group mb-3 animate__animated animate__fadeIn">
-                @foreach (var dev in _detectedDevices)
-                {
-                    <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3" 
-                            @onclick="() => SelectDevice(dev)">
-                        <div>
-                            <div class="fw-bold">@dev.Name</div>
-                            <div class="small text-muted">VID: @dev.VidHex | PID: @dev.PidHex</div>
-                        </div>
-                        <i class="bi bi-plus-circle-fill text-primary fs-4"></i>
-                    </button>
-                }
-            </div>
-        }
+    <div class="mb-4">
+        <label class="settings-label">CONNECTION MODE</label>
+        <div class="d-flex gap-2">
+            <button class="btn @(PrinterConfig.CurrentPrinterType == PrinterType.USB ? "btn-primary" : "btn-light") flex-grow-1 rounded-pill fw-black" 
+                    @onclick="() => SetPrinterType(PrinterType.USB)">USB (HOST)</button>
+            <button class="btn @(PrinterConfig.CurrentPrinterType == PrinterType.Ethernet ? "btn-primary" : "btn-light") flex-grow-1 rounded-pill fw-black" 
+                    @onclick="() => SetPrinterType(PrinterType.Ethernet)">ETHERNET (IP)</button>
+        </div>
     </div>
 
-    <div class="row g-2">
-        <div class="col-6">
-            <label class="settings-label">Vendor ID (Hex)</label>
-            <input type="text" class="form-control settings-input" 
-                   @bind="PrinterConfig.PrinterVendorId" placeholder="04B8" />
+    @if (PrinterConfig.CurrentPrinterType == PrinterType.USB)
+    {
+        <div class="animate__animated animate__fadeIn">
+            <div class="d-grid mb-3">
+                <button class="btn btn-dark fw-bold rounded-pill py-3 mb-2" @onclick="ScanForPrinters">
+                    <i class="bi bi-search me-2"></i> SCAN FOR USB PRINTERS
+                </button>
+                
+                @if (_detectedDevices.Any())
+                {
+                    <div class="list-group mb-3 animate__animated animate__fadeIn">
+                        @foreach (var dev in _detectedDevices)
+                        {
+                            <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3" 
+                                    @onclick="() => SelectDevice(dev)">
+                                <div>
+                                    <div class="fw-bold">@dev.Name</div>
+                                    <div class="small text-muted">VID: @dev.VidHex | PID: @dev.PidHex</div>
+                                </div>
+                                <i class="bi bi-plus-circle-fill text-primary fs-4"></i>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="row g-2">
+                <div class="col-6">
+                    <label class="settings-label">Vendor ID (Hex)</label>
+                    <input type="text" class="form-control settings-input" 
+                           @bind="PrinterConfig.PrinterVendorId" placeholder="04B8" />
+                </div>
+                <div class="col-6">
+                    <label class="settings-label">Product ID (Hex)</label>
+                    <input type="text" class="form-control settings-input" 
+                           @bind="PrinterConfig.PrinterProductId" placeholder="0202" />
+                </div>
+            </div>
         </div>
-        <div class="col-6">
-            <label class="settings-label">Product ID (Hex)</label>
-            <input type="text" class="form-control settings-input" 
-                   @bind="PrinterConfig.PrinterProductId" placeholder="0202" />
+    }
+    else
+    {
+        <div class="animate__animated animate__fadeIn">
+            <div class="mb-3">
+                <label class="settings-label">PRINTER IP ADDRESS</label>
+                <input type="text" class="form-control settings-input" 
+                       @bind="PrinterConfig.PrinterIpAddress" placeholder="192.168.1.100" />
+                <div class="small text-muted mt-1 opacity-50">Default Port: 9100</div>
+            </div>
         </div>
-    </div>
-    <div class="d-flex gap-2 mt-3">
-        <button class="btn btn-primary flex-grow-1 fw-bold rounded-pill py-3" @onclick="SaveSettings">SAVE PRINTER</button>
+    }
+
+    <div class="d-flex gap-2 mt-4">
+        <button class="btn btn-primary flex-grow-1 fw-bold rounded-pill py-3 shadow" @onclick="SaveSettings">SAVE CONFIG</button>
         <button class="btn btn-outline-primary flex-grow-1 fw-bold rounded-pill py-3" @onclick="TestPrint">TEST PRINT</button>
     </div>
-    <div class="mt-2 small text-muted opacity-50 text-center" style="font-size: 0.6rem;">
-        ESC/POS DIRECT USB Communication
+    <div class="mt-2 small text-muted opacity-50 text-center" style="font-size: 0.6rem; letter-spacing: 1px;">
+        @(PrinterConfig.CurrentPrinterType == PrinterType.USB ? "ESC/POS DIRECT USB Communication" : "ESC/POS TCP/IP Network Communication")
     </div>
 </div>
 
@@ -62,6 +89,12 @@
         if (!_detectedDevices.Any()) Toast.ShowInfo("No USB devices detected.");
     }
 
+    private void SetPrinterType(PrinterType type)
+    {
+        PrinterConfig.CurrentPrinterType = type;
+        StateHasChanged();
+    }
+
     private void SelectDevice(UsbDeviceDto dev)
     {
         PrinterConfig.PrinterVendorId = dev.VidHex;
@@ -72,13 +105,18 @@
 
     private void SaveSettings()
     {
-        PrinterConfig.SaveSettings(PrinterConfig.PrinterVendorId, PrinterConfig.PrinterProductId);
+        PrinterConfig.SaveSettings(
+            PrinterConfig.PrinterVendorId, 
+            PrinterConfig.PrinterProductId, 
+            PrinterConfig.PrinterIpAddress, 
+            PrinterConfig.CurrentPrinterType);
+            
         Toast.ShowSuccess("Printer settings saved.");
     }
 
     private async Task TestPrint()
     {
-        bool success = await PrinterService.PrintReceiptAsync("GFC POS TEST PRINT\nUSB DIRECT CONNECTION\n\nREADY TO SERVE\n\n\n\n\n");
+        bool success = await PrinterService.PrintReceiptAsync($"GFC POS TEST PRINT\nMODE: {PrinterConfig.CurrentPrinterType.ToString().ToUpper()}\n\nREADY TO SERVE\n\n\n\n\n");
         if (success)
             Toast.ShowSuccess("Test print sent.");
         else

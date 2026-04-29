@@ -12,6 +12,7 @@ public class AndroidPrinterService : IPrinterService
     private readonly UsbManager _usbManager;
     private readonly IPrinterConfigService _configService;
     private const string ActionUsbPermission = "com.gfc.pos.USB_PERMISSION";
+    private static TaskCompletionSource<bool>? _permissionTcs;
 
     public AndroidPrinterService(IPrinterConfigService configService)
     {
@@ -21,6 +22,8 @@ public class AndroidPrinterService : IPrinterService
 
     public async Task<bool> PrintReceiptAsync(string content)
     {
+        // For a real app, we'd use ESCPOS_NET here to build the byte array.
+        // For now, we use simple ASCII.
         return await PrintRawDataAsync(Encoding.ASCII.GetBytes(content));
     }
 
@@ -34,8 +37,8 @@ public class AndroidPrinterService : IPrinterService
 
         if (!_usbManager.HasPermission(device))
         {
-            await RequestPermissionAsync(device);
-            return false;
+            var granted = await RequestPermissionAsync(device);
+            if (!granted) return false;
         }
 
         return SendRawData(device, data);
@@ -43,7 +46,6 @@ public class AndroidPrinterService : IPrinterService
 
     public async Task<bool> KickDrawerAsync()
     {
-        // ESC/POS Drawer Kick command: 1B 70 00 19 FA
         byte[] kickCommand = new byte[] { 0x1B, 0x70, 0x00, 0x19, 0xFA };
         return await PrintRawDataAsync(kickCommand);
     }
@@ -63,7 +65,7 @@ public class AndroidPrinterService : IPrinterService
         return Task.FromResult(devices);
     }
 
-    private UsbDevice FindPrinter(int vid, int pid)
+    private UsbDevice? FindPrinter(int vid, int pid)
     {
         foreach (var device in _usbManager.DeviceList.Values)
         {
@@ -72,23 +74,41 @@ public class AndroidPrinterService : IPrinterService
         return null;
     }
 
-    private Task RequestPermissionAsync(UsbDevice device)
+    private async Task<bool> RequestPermissionAsync(UsbDevice device)
     {
-        var tcs = new TaskCompletionSource<bool>();
+        _permissionTcs = new TaskCompletionSource<bool>();
+        
+        var context = Platform.CurrentActivity;
+        var receiver = new UsbPermissionReceiver();
+        context.RegisterReceiver(receiver, new IntentFilter(ActionUsbPermission), ReceiverFlags.NotExported);
+
         var intent = new Intent(ActionUsbPermission);
-        var pendingIntent = PendingIntent.GetBroadcast(Platform.CurrentActivity, 0, intent, PendingIntentFlags.Immutable);
+        var pendingIntent = PendingIntent.GetBroadcast(context, 0, intent, PendingIntentFlags.Mutable);
         _usbManager.RequestPermission(device, pendingIntent);
-        // Note: In a real app, you'd register a BroadcastReceiver to listen for the result.
-        // For simplicity here, we trigger the request and return. The next print attempt will check HasPermission again.
-        return Task.CompletedTask;
+
+        var result = await _permissionTcs.Task;
+        context.UnregisterReceiver(receiver);
+        return result;
+    }
+
+    [BroadcastReceiver(Enabled = true, Exported = false)]
+    private class UsbPermissionReceiver : BroadcastReceiver
+    {
+        public override void OnReceive(Context? context, Intent? intent)
+        {
+            if (intent?.Action == ActionUsbPermission)
+            {
+                var granted = intent.GetBooleanExtra(UsbManager.ExtraPermissionGranted, false);
+                _permissionTcs?.TrySetResult(granted);
+            }
+        }
     }
 
     private bool SendRawData(UsbDevice device, byte[] data)
     {
-        UsbInterface usbInterface = null;
-        UsbEndpoint endpoint = null;
+        UsbInterface? usbInterface = null;
+        UsbEndpoint? endpoint = null;
 
-        // Try to find a suitable interface and endpoint
         for (int i = 0; i < device.InterfaceCount; i++)
         {
             var iface = device.GetInterface(i);
@@ -107,21 +127,19 @@ public class AndroidPrinterService : IPrinterService
 
         if (endpoint == null || usbInterface == null) return false;
 
-        using (UsbDeviceConnection connection = _usbManager.OpenDevice(device))
-        {
-            if (connection == null) return false;
+        using var connection = _usbManager.OpenDevice(device);
+        if (connection == null) return false;
 
-            if (connection.ClaimInterface(usbInterface, true))
+        if (connection.ClaimInterface(usbInterface, true))
+        {
+            try
             {
-                try
-                {
-                    int result = connection.BulkTransfer(endpoint, data, data.Length, 5000);
-                    return result >= 0;
-                }
-                finally
-                {
-                    connection.ReleaseInterface(usbInterface);
-                }
+                int result = connection.BulkTransfer(endpoint, data, data.Length, 5000);
+                return result >= 0;
+            }
+            finally
+            {
+                connection.ReleaseInterface(usbInterface);
             }
         }
 

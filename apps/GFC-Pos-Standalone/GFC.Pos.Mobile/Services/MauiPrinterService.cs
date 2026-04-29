@@ -9,11 +9,18 @@ public class MauiPrinterService : IPrinterService
 
     public MauiPrinterService(IPrinterConfigService configService)
     {
+        if (configService.CurrentPrinterType == PrinterType.Ethernet)
+        {
+            _implementation = new EthernetPrinterService(configService);
+        }
+        else
+        {
 #if ANDROID
-        _implementation = new AndroidPrinterService(configService);
+            _implementation = new AndroidPrinterService(configService);
 #else
-        _implementation = new DummyPrinterService();
+            _implementation = new DummyPrinterService();
 #endif
+        }
     }
 
     public Task<bool> PrintReceiptAsync(string content) => _implementation.PrintReceiptAsync(content);

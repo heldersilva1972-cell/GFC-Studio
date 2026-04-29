@@ -6,8 +6,16 @@ namespace GFC.Pos.Mobile.Services;
 
 public class PrinterConfigService : IPrinterConfigService
 {
+    private const string TypeKey = "printer_type";
+    private const string IpKey = "printer_ip";
     private const string VidKey = "printer_vid";
     private const string PidKey = "printer_pid";
+
+    public PrinterType CurrentPrinterType
+    {
+        get => (PrinterType)Preferences.Default.Get(TypeKey, (int)PrinterType.USB);
+        set => Preferences.Default.Set(TypeKey, (int)value);
+    }
 
     public string PrinterVendorId 
     { 
@@ -21,10 +29,18 @@ public class PrinterConfigService : IPrinterConfigService
         set => Preferences.Default.Set(PidKey, value);
     }
 
-    public void SaveSettings(string vid, string pid)
+    public string PrinterIpAddress
+    {
+        get => Preferences.Default.Get(IpKey, "192.168.1.100");
+        set => Preferences.Default.Set(IpKey, value);
+    }
+
+    public void SaveSettings(string vid, string pid, string ip, PrinterType type)
     {
         PrinterVendorId = vid;
         PrinterProductId = pid;
+        PrinterIpAddress = ip;
+        CurrentPrinterType = type;
     }
 
     public Task LoadSettingsAsync() => Task.CompletedTask;

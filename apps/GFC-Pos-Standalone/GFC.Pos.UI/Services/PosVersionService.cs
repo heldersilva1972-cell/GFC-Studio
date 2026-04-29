@@ -6,9 +6,13 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.21.0"; 
-
+    public string GetRevision() => "2.25.0"; 
+    
     // REVISION HISTORY:
+    // 2.25.0: Removed back navigation button from header for a cleaner UI.
+    // 2.24.0: Improved USB permission handling and synchronized multi-project printer configuration logic.
+    // 2.23.0: Added support for Ethernet (TCP/IP) printers and redesigned printer settings architecture.
+    // 2.22.0: Modernized "No Items Found" UI with refined aesthetics and proper loading state logic.
     // 2.21.0: Simplified Correction Checkout UI (Removed numpad, focus on GIVE BACK/COLLECT)
     // 2.20.0: Implemented 'Last Transaction' bar and 'Correction Mode' with soft-void tracking
     // 2.19.0: Renamed 'REDEEM' button to 'REDEEM TOKEN'
