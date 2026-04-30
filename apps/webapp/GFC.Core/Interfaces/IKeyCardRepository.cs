@@ -12,5 +12,6 @@ public interface IKeyCardRepository
     void Update(KeyCard card);
     void Delete(int keyCardId);
     KeyCard? GetActiveMemberCard(int memberId);
+    int GetOutOfSyncCount();
 }
 

@@ -1,7 +1,10 @@
+using GFC.Core.DTOs;
+
 namespace GFC.BlazorServer.Models.Dashboard;
 
 public class DashboardMetricsDto
 {
+    public AlertSummaryDto? AlertSummary { get; set; }
     public int TotalMembers { get; set; }
     public int ActiveMembers { get; set; }
     public int PastDueMembers { get; set; }

@@ -249,6 +249,23 @@ public class KeyCardRepository : IKeyCardRepository
         return reader.Read() ? MapReader(reader, nameof(GetActiveMemberCard)) : null;
     }
 
+    public int GetOutOfSyncCount()
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = "SELECT COUNT(*) FROM dbo.KeyCards WHERE IsActive = 1 AND IsControllerSynced = 0";
+            using var command = new SqlCommand(sql, connection);
+            return Convert.ToInt32(command.ExecuteScalar());
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
+    }
+
     private static KeyCard MapReader(SqlDataReader reader, string context)
     {
         reader.EnsureColumns(GetContext(context), KeyCardColumnNames);

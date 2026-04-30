@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using GFC.Core.Models;
 
 namespace GFC.Core.Interfaces;
@@ -23,8 +25,8 @@ public interface IMemberRepository
     List<MemberQueueItem> GetNonPortugueseGuestQueue();
     int GetNonPortugueseQueueCount();
     List<Member> GetLifeMembers();
-    List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null);
-    int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null);
+    List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);
+    int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);
     List<Member> FindByNameAndDob(string firstName, string lastName, DateTime dateOfBirth);
 }
 

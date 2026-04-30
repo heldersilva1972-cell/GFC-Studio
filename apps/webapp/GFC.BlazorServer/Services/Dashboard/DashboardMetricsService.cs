@@ -8,8 +8,6 @@ using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using GFC.BlazorServer.Services;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
 using CoreDuesPayment = GFC.Core.Models.DuesPayment;
 
 namespace GFC.BlazorServer.Services.Dashboard;
@@ -50,89 +48,117 @@ public class DashboardMetricsService : IDashboardMetricsService
         try
         {
             var currentYear = DateTime.Today.Year;
-            var now = DateTime.UtcNow;
             var today = DateTime.Today;
             var weekStart = today.AddDays(-7);
             var prevWeekStart = today.AddDays(-14);
 
+            // 1. Start ALL data-fetching tasks in parallel
             var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), ct);
+            
+            // This task waits for membersTask internally but allows other tasks to start immediately
+            var alertSummaryTask = Task.Run(async () => {
+                var membersResult = await membersTask;
+                return await _dashboardService.GetAlertSummaryAsync(membersResult, ct);
+            }, ct);
+
             var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
             var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
             var duesSettingsTask = Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
             var systemSettingsTask = _settingsService.GetAsync();
-            var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(ct);
             var cardCountsTask = GetCardCountsAsync(ct);
             var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
             var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
             var staffTask = GetTonightStaffAsync(today, ct);
             var entryCountsTask = GetTodaysEntryCountsAsync(ct);
-            // These will now be handled sequentially or with shared data
-            // var activityFeedTask = GetRecentActivitiesAsync(ct);
-            // var drawStatusTask = GetSignInDrawStatusAsync(ct);
+            var boardAssignmentsTask = Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
+            var unacknowledgedNotesTask = GetUnacknowledgedNotesAsync(ct);
 
+            // 2. Start dependent processing tasks as early as possible
+            var drawStatusTask = Task.Run(async () => {
+                await Task.WhenAll(membersTask, currentYearDuesTask, previousYearDuesTask, systemSettingsTask, duesSettingsTask, boardAssignmentsTask);
+                return await GetSignInDrawStatusAsync(
+                    membersTask.Result, 
+                    currentYearDuesTask.Result, 
+                    previousYearDuesTask.Result, 
+                    systemSettingsTask.Result, 
+                    duesSettingsTask.Result, 
+                    boardAssignmentsTask.Result, 
+                    ct);
+            }, ct);
+
+            var recentActivitiesTask = Task.Run(async () => {
+                var members = await membersTask;
+                return await GetRecentActivitiesAsync(members, ct);
+            }, ct);
+
+            // 3. Wait for everything
             await Task.WhenAll(
                 membersTask,
-                currentYearDuesTask,
-                previousYearDuesTask,
-                duesSettingsTask,
-                systemSettingsTask,
+                currentYearDuesTask, 
+                previousYearDuesTask, 
+                duesSettingsTask, 
+                systemSettingsTask, 
                 alertSummaryTask,
                 cardCountsTask,
                 membershipChangesTask,
                 barSalesTask,
                 staffTask,
-                entryCountsTask);
+                entryCountsTask,
+                boardAssignmentsTask,
+                unacknowledgedNotesTask,
+                drawStatusTask,
+                recentActivitiesTask);
 
             var members = membersTask.Result;
             var currentYearDues = currentYearDuesTask.Result;
             var previousYearDues = previousYearDuesTask.Result;
-            var graceEndDate = duesSettingsTask.Result?.GraceEndDate?.Date;
-            var (activeMembers, pastDueMembers) = CalculateMembership(members, currentYearDues, previousYearDues, graceEndDate);
-
-            // Now perform sub-calculations using the already fetched data
-            var drawStatus = await GetSignInDrawStatusAsync(members, currentYearDues, previousYearDues, systemSettingsTask.Result, ct);
-            var activityFeed = await GetRecentActivitiesAsync(members, ct);
-
+            var systemSettings = systemSettingsTask.Result;
+            var duesSettings = duesSettingsTask.Result;
             var alertSummary = alertSummaryTask.Result;
-            var npQueueCount = alertSummary?.NpQueueCount ?? 0;
-            var openAlerts = alertSummary is null ? 0 : CalculateOpenAlerts(alertSummary);
+            var boardAssignments = boardAssignmentsTask.Result;
 
+            // 4. Perform final synchronous calculations
+            var (activeMembers, pastDueMembers) = CalculateMembership(members, currentYearDues, previousYearDues, duesSettings?.GraceEndDate?.Date);
+            var openAlerts = alertSummary == null ? 0 : CalculateOpenAlerts(alertSummary);
             var (enabledCards, disabledCards) = cardCountsTask.Result;
             var (weeklySales, weeklyTransactions, trend) = barSalesTask.Result;
+            var (recommended, lastExport, lastChange, reasons, drawTotal) = drawStatusTask.Result;
 
             return new DashboardMetricsDto
             {
+                AlertSummary = alertSummary,
                 TotalMembers = members.Count,
                 ActiveMembers = activeMembers,
                 PastDueMembers = pastDueMembers,
-                NpQueueCount = npQueueCount,
+                NpQueueCount = alertSummary?.NpQueueCount ?? 0,
                 EnabledCards = enabledCards,
                 DisabledCards = disabledCards,
                 OpenAlerts = openAlerts,
                 MembershipChangesLast24h = membershipChangesTask.Result,
                 
-                // Bar & Staff Real Data
                 WeeklyBarSales = weeklySales,
                 WeeklyBarTransactionCount = weeklyTransactions,
                 WeeklyBarSalesTrend = trend,
                 TodaysMemberEntryCount = entryCountsTask.Result.memberCount,
                 TodaysBuzzedInCount = entryCountsTask.Result.buzzedInCount,
                 TonightBartenders = staffTask.Result,
-                RecentActivities = activityFeed,
-                SignInDrawReprintRecommended = drawStatus.recommended,
-                LastSignInDrawExportDate = drawStatus.lastExport,
-                LastSignInDrawChangeDate = drawStatus.lastChange,
-                SignInDrawChangeReasons = drawStatus.reasons,
-                SignInDrawTotalCount = drawStatus.totalCount,
-                UnacknowledgedNotes = await GetUnacknowledgedNotesAsync(ct)
+                RecentActivities = recentActivitiesTask.Result,
+                
+                SignInDrawReprintRecommended = recommended,
+                LastSignInDrawExportDate = lastExport,
+                LastSignInDrawChangeDate = lastChange,
+                SignInDrawChangeReasons = reasons,
+                SignInDrawTotalCount = drawTotal,
+                UnacknowledgedNotes = unacknowledgedNotesTask.Result
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to fetch consolidated dashboard metrics. Returning empty metrics.");
+            _logger.LogError(ex, "Failed to fetch consolidated dashboard metrics");
             return new DashboardMetricsDto();
         }
     }
+
 
     private async Task<List<ShiftNoteAlert>> GetUnacknowledgedNotesAsync(CancellationToken ct)
     {
@@ -194,42 +220,36 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Take(30) 
                 .ToListAsync(ct);
 
-            _logger.LogInformation($"[RecentActivity] Fetched {recentEvents.Count} candidates for recent events");
-
             var recentSales = await db.BarSaleEntries
                 .OrderByDescending(e => e.SaleDate)
                 .Take(5)
                 .ToListAsync(ct);
 
             var activities = new List<ActivityFeedItem>();
-
-            // Get card numbers from events to look up member names
             var cardNumbers = recentEvents
                 .Where(e => e.CardNumber.HasValue && e.CardNumber.Value > 0)
                 .Select(e => e.CardNumber!.Value.ToString())
                 .Distinct()
                 .ToList();
 
-            // Build a lookup dictionary: CardNumber -> Member Name
+            var memberLookup = members.ToDictionary(m => m.MemberID);
             var cardToMemberLookup = new Dictionary<string, string>();
+            
             if (cardNumbers.Any())
             {
-                // members is now passed in
                 var keyCards = await db.KeyCards
                     .Where(kc => cardNumbers.Contains(kc.CardNumber))
                     .ToListAsync(ct);
 
                 foreach (var card in keyCards)
                 {
-                    var member = members.FirstOrDefault(m => m.MemberID == card.MemberId);
-                    if (member != null)
+                    if (memberLookup.TryGetValue(card.MemberId, out var member))
                     {
-                        cardToMemberLookup[card.CardNumber] = FormatMemberName(member);
+                        cardToMemberLookup[card.CardNumber] = $"{member.LastName}, {member.FirstName}";
                     }
                 }
             }
 
-            // DEBOUNCE LOGIC for Feed
             var filteredEvents = new List<GFC.BlazorServer.Data.Entities.ControllerEvent>();
             foreach (var e in recentEvents)
             {
@@ -317,33 +337,28 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Select(e => new { e.CardNumber, e.DoorId, e.EventType, e.TimestampUtc })
                 .ToListAsync(ct);
 
-            // DEBOUNCE LOGIC: Calculate intent entries (collapse hardware bursts)
-            var debouncedEvents = new List<GFC.BlazorServer.Data.Entities.ControllerEvent>();
+            // CardNumber == 1 is "Buzzed In", CardNumber > 1 is a Member card
+            int memberCount = 0;
+            int buzzedInCount = 0;
+
+            // O(M) Debounce Logic: Group by key and use last timestamp
+            var lastEventPerKey = new Dictionary<string, DateTime>();
+            
             foreach (var e in eventsToday)
             {
-                var isDuplicate = debouncedEvents.Any(existing => 
-                    existing.CardNumber == e.CardNumber && 
-                    existing.DoorId == e.DoorId && 
-                    existing.EventType == e.EventType &&
-                    Math.Abs((e.TimestampUtc - existing.TimestampUtc).TotalSeconds) < 6);
-
-                if (!isDuplicate)
+                var key = $"{e.CardNumber}_{e.DoorId}_{e.EventType}";
+                if (lastEventPerKey.TryGetValue(key, out var lastTime))
                 {
-                    // Convert the anonymous type back to an entity for the debounced list
-                    debouncedEvents.Add(new GFC.BlazorServer.Data.Entities.ControllerEvent
+                    if ((e.TimestampUtc - lastTime).TotalSeconds < 6)
                     {
-                        CardNumber = e.CardNumber,
-                        DoorId = e.DoorId,
-                        EventType = e.EventType,
-                        TimestampUtc = e.TimestampUtc
-                    });
+                        continue; // Skip burst
+                    }
                 }
-            }
 
-            // CardNumber == 1 is "Buzzed In"
-            var buzzedInCount = debouncedEvents.Count(e => e.CardNumber == 1);
-            // CardNumber > 1 is a Member card
-            var memberCount = debouncedEvents.Count(e => e.CardNumber > 1);
+                lastEventPerKey[key] = e.TimestampUtc;
+                if (e.CardNumber == 1) buzzedInCount++;
+                else if (e.CardNumber > 1) memberCount++;
+            }
 
             return (memberCount, buzzedInCount);
         }
@@ -360,17 +375,19 @@ public class DashboardMetricsService : IDashboardMetricsService
         try
         {
             await using var db = await _contextFactory.CreateDbContextAsync(ct);
-            var currentWeekSales = await db.BarSaleEntries
+            
+            // Optimization: Use SumAsync and CountAsync to avoid downloading all records
+            var currentTotal = await db.BarSaleEntries
                 .Where(e => e.SaleDate >= weekStart)
-                .ToListAsync(ct);
+                .SumAsync(e => e.TotalSales, ct);
 
-            var prevWeekSales = await db.BarSaleEntries
+            var transactions = await db.BarSaleEntries
+                .Where(e => e.SaleDate >= weekStart)
+                .CountAsync(ct);
+
+            var prevTotal = await db.BarSaleEntries
                 .Where(e => e.SaleDate >= prevWeekStart && e.SaleDate < weekStart)
-                .ToListAsync(ct);
-
-            var currentTotal = currentWeekSales.Sum(e => e.TotalSales);
-            var prevTotal = prevWeekSales.Sum(e => e.TotalSales);
-            var transactions = currentWeekSales.Count;
+                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0; // Use nullable to handle empty set
 
             double trend = 0;
             if (prevTotal > 0)
@@ -539,6 +556,8 @@ public class DashboardMetricsService : IDashboardMetricsService
         List<GFC.Core.Models.DuesPayment> currentYearDues,
         List<GFC.Core.Models.DuesPayment> previousYearDues,
         SystemSettings? settings,
+        DuesYearSettings? duesSettings,
+        List<BoardAssignment>? boardAssignments,
         CancellationToken ct)
     {
         try
@@ -546,16 +565,14 @@ public class DashboardMetricsService : IDashboardMetricsService
             if (settings == null) settings = await _settingsService.GetAsync();
             var lastExportRaw = settings.LastSignInDrawExportUtc ?? DateTime.MinValue;
             
-            // Use a 60-second buffer to prevent "Reprint Required" from showing up immediately 
-            // after a print due to slight timestamp drifts or database clock differences.
             var lastExportBuffered = lastExportRaw.AddSeconds(60);
             
             var reasons = new List<string>();
 
             var currentYear = DateTime.Today.Year;
             
-            // Grace Period Handling
-            var duesSettings = await Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
+            // Grace Period Handling (Use pre-fetched if available)
+            if (duesSettings == null) duesSettings = await Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
             var graceEndDate = duesSettings?.GraceEndDate?.Date;
             var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
             
@@ -570,8 +587,8 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Select(d => d.MemberID)
                 .ToHashSet();
 
-
-            var boardAssignments = await Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
+            // Use pre-fetched board assignments if available
+            if (boardAssignments == null) boardAssignments = await Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
             var boardMemberIds = boardAssignments
                 .Select(a => a.MemberID)
                 .Where(id => id != 0)
@@ -590,6 +607,11 @@ public class DashboardMetricsService : IDashboardMetricsService
                 return normalized is "LIFE" || isOnBoard || paidCurrent || (forGraceCheck && paidPrev);
             }
 
+            // Use a dictionary for fast lookup in loops
+            var currentYearDuesLookup = currentYearDues
+                .GroupBy(d => d.MemberID)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.PaidDate ?? DateTime.MinValue).First());
+
             // 1. Check for anyone who meets the criteria and changed recently (ADD)
             var additions = members
                 .Where(m => {
@@ -599,8 +621,10 @@ public class DashboardMetricsService : IDashboardMetricsService
                     if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExportBuffered) return true;
                     
                     // Was there a payment since last print?
-                    var dues = currentYearDues.FirstOrDefault(d => d.MemberID == m.MemberID);
-                    if (dues?.PaidDate != null && dues.PaidDate.Value > lastExportBuffered) return true;
+                    if (currentYearDuesLookup.TryGetValue(m.MemberID, out var dues))
+                    {
+                        if (dues?.PaidDate != null && dues.PaidDate.Value > lastExportBuffered) return true;
+                    }
                     
                     return false;
                 })

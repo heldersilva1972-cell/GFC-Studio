@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
+using GFC.Core.Models;
 
 namespace GFC.Core.Services;
 
@@ -54,19 +55,32 @@ public class DashboardService : IDashboardService
         return _duesInsightService.GetSummaryAsync(year, cancellationToken);
     }
 
-    public async Task<AlertSummaryDto> GetAlertSummaryAsync(CancellationToken cancellationToken = default)
+    public async Task<AlertSummaryDto> GetAlertSummaryAsync(List<Member>? members = null, CancellationToken cancellationToken = default)
     {
-        var lifeEligible = await Task.Run(
-            () => _memberRepository.GetLifeEligibleCount(DateTime.Today, _historyRepository),
-            cancellationToken);
-        var npQueue = await Task.Run(() => _memberRepository.GetNonPortugueseQueueCount(), cancellationToken);
-        var overdue15Plus = await Task.Run(() =>
-        {
-            var members = _memberRepository.GetAllMembers();
-            return _overdueService.GetOverdue15PlusMonthsCount(members);
-        }, cancellationToken);
-        var activeKeyCards = await Task.Run(() => _keycardRepository.GetActiveAssignmentCount(), cancellationToken);
-        var physicalKeysToReturn = await Task.Run(() => _physicalKeyService.GetKeysThatShouldBeReturned().Count, cancellationToken);
+        // 1. Start all base data fetching tasks in parallel
+        // If members are provided, we don't need to fetch them again
+        var membersTask = members != null 
+            ? Task.FromResult(members) 
+            : Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
+
+        var npQueueTask = Task.Run(() => _memberRepository.GetNonPortugueseQueueCount(), cancellationToken);
+        var activeKeyCardsTask = Task.Run(() => _keycardRepository.GetActiveAssignmentCount(), cancellationToken);
+        var physicalKeysToReturnTask = Task.Run(() => _physicalKeyService.GetKeysThatShouldBeReturned().Count, cancellationToken);
+
+        // 2. Wait for members first so we can use them for Life Eligibility count without a second DB fetch
+        var fetchedMembers = await membersTask;
+        
+        var lifeEligibleTask = Task.Run(() => _memberRepository.GetLifeEligibleCount(DateTime.Today, _historyRepository, fetchedMembers), cancellationToken);
+
+        // 3. Wait for everything else
+        await Task.WhenAll(lifeEligibleTask, npQueueTask, activeKeyCardsTask, physicalKeysToReturnTask);
+
+        // 4. Process data from completed tasks
+        var lifeEligible = lifeEligibleTask.Result;
+        var npQueue = npQueueTask.Result;
+        var overdue15Plus = _overdueService.GetOverdue15PlusMonthsCount(fetchedMembers);
+        var activeKeyCards = activeKeyCardsTask.Result;
+        var physicalKeysToReturn = physicalKeysToReturnTask.Result;
 
         var boardAlertYear = 0;
         IReadOnlyList<string> boardPositionsUnfilled = Array.Empty<string>();
@@ -84,8 +98,14 @@ public class DashboardService : IDashboardService
 
             if (!boardConfirmed)
             {
-                var positions = await Task.Run(() => _boardRepository.GetAllPositions(), cancellationToken);
-                var assignments = await Task.Run(() => _boardRepository.GetAssignmentsByYear(boardAlertYear), cancellationToken);
+                // Parallelize board positions and assignments fetching
+                var positionsTask = Task.Run(() => _boardRepository.GetAllPositions(), cancellationToken);
+                var assignmentsTask = Task.Run(() => _boardRepository.GetAssignmentsByYear(boardAlertYear), cancellationToken);
+                
+                await Task.WhenAll(positionsTask, assignmentsTask);
+                
+                var positions = positionsTask.Result;
+                var assignments = assignmentsTask.Result;
                 var missing = new List<string>();
 
                 foreach (var position in positions)

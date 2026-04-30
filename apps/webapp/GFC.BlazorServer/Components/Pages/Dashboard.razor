@@ -1190,15 +1190,41 @@
         OpenDrawListModal();
     }
 
-    private void OpenDrawListModal()
+    private async Task OpenDrawListModal()
     {
+        _isLoading = true;
         _errorMessage = null;
+        StateHasChanged();
+
         try
         {
+            // Lazy load member data ONLY when the modal is requested
             if (_memberList == null || !_memberList.Any())
             {
-                _errorMessage = "Member data is not loaded yet. Please wait.";
-                return;
+                var members = await MemberQueryService.GetMembersAsync(new MemberFilterOptions());
+                _memberList = members.ToList();
+            }
+
+            var currentYear = DateTime.Today.Year;
+            
+            // Fetch supporting data for Draw logic if not already present
+            if (!_drawPaidMemberIds.Any())
+            {
+                var dues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear));
+                _drawPaidMemberIds = dues.Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase)).Select(d => d.MemberID).ToHashSet();
+                
+                var board = await Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
+                _drawBoardMemberIds = board.Select(a => a.MemberID).Where(id => id != 0).ToHashSet();
+
+                var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+                _graceEndDate = settings?.GraceEndDate;
+                _drawIsGracePeriodActive = _graceEndDate.HasValue && DateTime.Today.Date < _graceEndDate.Value.Date;
+
+                if (_drawIsGracePeriodActive)
+                {
+                    var prevDues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear - 1));
+                    _drawPrevPaidMemberIds = prevDues.Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase)).Select(d => d.MemberID).ToHashSet();
+                }
             }
 
             var query = _memberList
@@ -1214,17 +1240,9 @@
                 });
 
             if (_drawSortByName)
-            {
-                _drawListMembers = query
-                    .OrderBy(m => m.FullName)
-                    .ToList();
-            }
+                _drawListMembers = query.OrderBy(m => m.FullName).ToList();
             else
-            {
-                _drawListMembers = query
-                    .OrderBy(m => m.MemberId)
-                    .ToList();
-            }
+                _drawListMembers = query.OrderBy(m => m.MemberId).ToList();
 
             _showDrawListModal = true;
         }
@@ -1232,6 +1250,11 @@
         {
             Console.Error.WriteLine($"[Dashboard:OpenDrawList] {ex.Message}");
             _errorMessage = $"Failed to generate view list: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
         }
     }
 
@@ -1313,152 +1336,72 @@
         _isLoading = true;
         _errorMessage = null;
         
-        // 1. Kick off all data fetching tasks IMMEDIATELY
+        // 1. Kick off all core data fetching tasks IN PARALLEL
         var metricsTask = DashboardMetricsService.GetMetricsAsync();
-        var controllerModeTask = LoadControllerModeAsync();
-        var duesTask = DashboardService.GetCurrentYearDuesSummaryAsync();
-        var alertsTask = DashboardService.GetAlertSummaryAsync();
-        var backupStatusTask = DashboardService.GetBackupStatusAsync();
         var rentalsTask = RentalService.GetRentalRequestsAsync();
         var shiftComplianceTask = _canViewShiftAlerts ? ShiftComplianceService.GetMissingShiftsAsync() : Task.FromResult(new List<MissingShiftAlert>());
-
-        // 2. Define minimum splash duration (Reduced for faster perceived speed)
-        var minSplashDelay = includeSplash ? Task.Delay(800) : Task.CompletedTask;
+        var controllerStatusTask = LoadControllerStatusSafeAsync();
+        var controllerModeTask = LoadControllerModeAsync();
+        var pendingSyncCountTask = SyncQueueRepository.GetPendingCountAsync();
+        var outOfSyncCountTask = Task.Run(() => KeyCardRepository.GetOutOfSyncCount());
 
         try
         {
-            // 3. Show the UI shell as soon as the splash/delay is done
+            // 2. Wait for the primary dashboard metrics - this is the core content
+            _metrics = await metricsTask;
+            _isLoading = false;
+
+            // 3. Show the UI shell as soon as data is ready
             if (includeSplash)
             {
-                await minSplashDelay;
                 _isSplashFadingOut = true;
                 StateHasChanged();
-                await Task.Delay(400); // Sync with CSS
+                await Task.Delay(150); // Minimal sync for CSS transition
                 _showSplash = false;
             }
-
-            _isLoading = false;
             StateHasChanged();
 
-            // 4. Update data as it arrives (Progressive Loading)
-            try { 
-                // Load members the same way the Members page does
-                var memberList = await MemberQueryService.GetMembersAsync(new MemberFilterOptions());
-                _memberList = memberList.ToList();
-            } catch (Exception ex) { 
-                Console.Error.WriteLine($"[Dashboard:memberTask] {ex.Message}");
-                _errorMessage = $"Member Load Error: {ex.Message}";
-                _isLoading = false;
-            }
-            try { _duesSummary = await duesTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:duesTask] {ex.Message}"); }
-            try { _alerts = await alertsTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:alertsTask] {ex.Message}"); }
-            try 
-            { 
-                 _dataHealth = await DataProtectionService.GetHealthStatusAsync();
-                 var realLastBackup = await DataProtectionService.GetLastBackupTimeAsync();
-                 _backupStatus = new BackupStatusDto(realLastBackup, null);
-            } 
-            catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:dataProtectionTask] {ex.Message}"); }
+            // 4. Secondary data updates (Wait for these in parallel without blocking primary UI)
+            await Task.WhenAll(rentalsTask, shiftComplianceTask, pendingSyncCountTask, outOfSyncCountTask);
             
-            // New Data Fetching
-            try 
-            {
-                var currentYear = DateTime.Today.Year;
-                var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
-                _graceEndDate = settings?.GraceEndDate;
-                _drawIsGracePeriodActive = _graceEndDate.HasValue && DateTime.Today.Date < _graceEndDate.Value.Date;
-                
-                var currentDues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear));
-                _drawPaidMemberIds = currentDues
-                    .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
-                    .Select(d => d.MemberID)
-                    .ToHashSet();
+            var allRentals = await rentalsTask;
+            var rentalList = allRentals.ToList();
+            _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
+            _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
 
-                if (_drawIsGracePeriodActive)
-                {
-                    var prevDues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear - 1));
-                    _drawPrevPaidMemberIds = prevDues
-                        .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
-                        .Select(d => d.MemberID)
-                        .ToHashSet();
-                }
-
-                var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
-                _drawBoardMemberIds = boardAssignments
-                    .Select(a => a.MemberID)
-                    .Where(id => id != 0)
-                    .ToHashSet();
-
-                var risks = await KeyCardLifecycleService.GetMembersAtRiskAsync(DateTime.Today.Year);
-                _membersAtRiskCount = risks.Count;
-                
-                _pendingSyncCount = await SyncQueueRepository.GetPendingCountAsync();
-                _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
-                _controllerOnline = _controllerHealthStatus.IsOnline;
-                
-                var allCards = await Task.Run(() => KeyCardRepository.GetAll());
-                _outOfSyncCount = allCards.Count(c => c.IsActive && !c.IsControllerSynced);
-                
-                var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
-                _lastSyncTime = completedSyncs.Any() 
-                    ? completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate) 
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Dashboard:newMetrics] {ex.Message}");
-            }
+            _missingShifts = await shiftComplianceTask;
+            _pendingSyncCount = await pendingSyncCountTask;
+            _outOfSyncCount = await outOfSyncCountTask;
             
-            try 
-            {
-                var allRentals = await rentalsTask;
-                var rentalList = allRentals.ToList();
-                _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
-                _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Dashboard:rentalsTask] {ex.Message}");
-            }
+            // 5. Heavy hardware checks (Don't let an offline controller block the entire page load)
+            await controllerStatusTask;
+            await controllerModeTask;
+            _isSimulationMode = !_useRealControllers;
 
-            _importantAlerts.Clear();
+            // Health & Alerts
+            _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
+            _controllerOnline = _controllerHealthStatus.IsOnline;
+            _dataHealth = await DataProtectionService.GetHealthStatusAsync();
+
             _alertPreview.Clear();
-            if (_alerts != null)
-            {
-                var important = BuildAlertPreview(_alerts);
-                _alertPreview.AddRange(important);
-                _importantAlerts.AddRange(important);
-            }
+            _importantAlerts.Clear();
             
-            try
+            var summary = _metrics?.AlertSummary;
+            if (summary != null)
             {
-                if (_canViewShiftAlerts)
-                {
-                    _missingShifts = await shiftComplianceTask;
-                }
+                var preview = BuildAlertPreview(summary);
+                _alertPreview.AddRange(preview);
+                _importantAlerts.AddRange(preview);
             }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Dashboard:shiftCompliance] {ex.Message}");
-            }
-            
+
             StateHasChanged();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[Dashboard] Critical: {ex.Message}");
-            // We no longer set _errorMessage here to allow the shell to stay visible even if data fails.
             _isLoading = false;
+            StateHasChanged();
         }
-
-        // 5. Cleanup metrics and controllers (secondary)
-        try { _metrics = await metricsTask; } catch { /* log handled elsewhere */ }
-        await controllerModeTask;
-        _isSimulationMode = !_useRealControllers;
-        await LoadControllerStatusSafeAsync();
-        
-        Alerts ??= new List<DashboardAlert>();
-        StateHasChanged();
     }
 
     private async Task RefreshAsync()

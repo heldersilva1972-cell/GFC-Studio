@@ -775,11 +775,11 @@ FROM Members;";
     /// <param name="asOfDate">The date to check eligibility as of</param>
     /// <param name="historyRepository">History repository to determine when members became REGULAR</param>
     /// <returns>Count of eligible members</returns>
-    public int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null)
+    public int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null)
     {
         try
         {
-            var eligibleMembers = GetLifeEligibleMembers(asOfDate, historyRepository);
+            var eligibleMembers = GetLifeEligibleMembers(asOfDate, historyRepository, candidates);
             return eligibleMembers.Count;
         }
         catch (SqlException ex)
@@ -907,32 +907,60 @@ FROM Members;";
     /// <param name="asOfDate">The date to check eligibility as of</param>
     /// <param name="historyRepository">History repository to determine when members became REGULAR</param>
     /// <returns>List of eligible members, sorted by LifeEligibleDate (or calculated eligibility date), then LastName, FirstName</returns>
-    public List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null)
+    public List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null)
     {
-        // 1. Fetch only REGULAR members (potential candidates)
-        var candidates = new List<Member>();
-        using (var connection = Db.GetConnection())
+        // 1. Fetch only REGULAR members (potential candidates) if not provided
+        var candidateList = candidates ?? new List<Member>();
+        
+        if (candidates == null)
         {
-            connection.Open();
-            var sql = $@"SELECT {MemberSelectColumns} FROM Members WHERE UPPER(Status) = 'REGULAR'";
-            using var command = new SqlCommand(sql, connection);
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            using (var connection = Db.GetConnection())
             {
-                candidates.Add(MapReaderToMember(reader, nameof(GetLifeEligibleMembers)));
+                connection.Open();
+                var sql = $@"SELECT {MemberSelectColumns} FROM Members WHERE UPPER(Status) = 'REGULAR'";
+                using var command = new SqlCommand(sql, connection);
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    candidateList.Add(MapReaderToMember(reader, nameof(GetLifeEligibleMembers)));
+                }
             }
         }
-
-        // 2. Batch load history if repository is provided
-        var historyMap = new Dictionary<int, DateTime>();
-        if (historyRepository != null && candidates.Any())
+        else 
         {
-            historyMap = historyRepository.GetEarliestRegularDates(candidates.Select(m => m.MemberID));
+            // If provided, filter to only REGULAR members
+            candidateList = candidates.Where(m => string.Equals(m.Status, "REGULAR", StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        // 2. Batch load history ONLY for members who need it (to check for earlier REGULAR start dates)
+        var historyMap = new Dictionary<int, DateTime>();
+        if (historyRepository != null && candidateList.Any())
+        {
+            // Only fetch history for members who are NOT already eligible based on status date or accepted date
+            // This drastically reduces the number of IDs passed to the DB query
+            var needsHistoryIds = candidateList
+                .Where(m => {
+                    var statusDate = string.Equals(m.Status, "REGULAR", StringComparison.OrdinalIgnoreCase)
+                        ? m.StatusChangeDate : null;
+                    var fallbackDate = statusDate ?? m.AcceptedDate;
+                    
+                    if (fallbackDate == null) return true; // Need history if no fallback date
+                    
+                    // If they are already eligible based on fallbackDate, we don't NEED history
+                    return GetWholeYears(fallbackDate.Value, asOfDate) < 15;
+                })
+                .Select(m => m.MemberID)
+                .ToList();
+
+            if (needsHistoryIds.Any())
+            {
+                historyMap = historyRepository.GetEarliestRegularDates(needsHistoryIds);
+            }
         }
 
         // 3. Filter and calculate in-memory
         var eligibleMembers = new List<(Member member, DateTime eligibilityDate)>();
-        foreach (var member in candidates)
+        foreach (var member in candidateList)
         {
             // GetEarliestRegularDate logic extracted for optimization
             DateTime? historyDate = historyMap.TryGetValue(member.MemberID, out var d) ? d : null;
