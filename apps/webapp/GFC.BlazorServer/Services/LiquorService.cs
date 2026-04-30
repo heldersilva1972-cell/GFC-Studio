@@ -32,6 +32,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.LiquorItems
+                .AsNoTracking()
                 .Include(i => i.Vendor)
                 .Where(i => i.IsActive)
                 .OrderBy(i => i.Name)
@@ -170,7 +171,7 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<LiquorVendor>> GetAllVendorsAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorVendors.OrderBy(v => v.Name).ToListAsync();
+            return await db.LiquorVendors.AsNoTracking().OrderBy(v => v.Name).ToListAsync();
         }
 
         public async Task<LiquorVendor?> GetVendorByIdAsync(int id)
@@ -351,6 +352,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.LiquorTransactions
+                .AsNoTracking()
                 .Include(t => t.Item)
                 .Include(t => t.User)
                 .OrderByDescending(t => t.Timestamp)
@@ -363,6 +365,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.LiquorOrders
+                .AsNoTracking()
                 .Include(o => o.Vendor)
                 .Include(o => o.User)
                 .Include(o => o.PaidByUser)

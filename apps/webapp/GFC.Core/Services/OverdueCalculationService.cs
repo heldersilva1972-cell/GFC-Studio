@@ -430,6 +430,34 @@ public class OverdueCalculationService
     /// <summary>
     /// Gets count of members who are 15+ months overdue.
     /// </summary>
+    /// <summary>
+    /// Gets count of members who are 15+ months overdue using a pre-loaded context for performance.
+    /// </summary>
+    public int GetOverdue15PlusMonthsCountBulk(List<Member> members, DuesCalculationContext context)
+    {
+        if (members == null || members.Count == 0 || context == null)
+            return 0;
+        
+        int count = 0;
+        foreach (var member in members)
+        {
+            // Skip inactive and deceased members
+            if (string.Equals(member.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(member.Status, "DECEASED", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            
+            var result = CalculateOverdue(member, context);
+            if (result.IsOverdue && result.MonthsOverdue >= 15)
+            {
+                count++;
+            }
+        }
+        
+        return count;
+    }
+
     public int GetOverdue15PlusMonthsCount(List<Member> members, DateTime? asOfDate = null)
     {
         if (members == null || members.Count == 0)

@@ -21,6 +21,8 @@ public class UserManagementService : IUserManagementService
     // PERFORMANCE CACHE: Persists across circuits (Static)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<GFC.Core.DTOs.MobilePermissionDto>> _userPermissionsCache = new();
+    private static List<AppPage>? _allPagesCache = null;
+    private static readonly object _pagesLock = new();
 
     public UserManagementService(
         IUserRepository userRepository,
@@ -110,6 +112,10 @@ public class UserManagementService : IUserManagementService
     {
         _permissionCache.Clear();
         _userPermissionsCache.Clear();
+        lock (_pagesLock)
+        {
+            _allPagesCache = null;
+        }
     }
 
     public async Task<List<UserListItemDto>> GetUsersAsync()
@@ -537,7 +543,16 @@ public class UserManagementService : IUserManagementService
     // Page Permission Management
     public List<AppPage> GetAllPages()
     {
-        return _pagePermissionRepository.GetAllPages().ToList();
+        if (_allPagesCache != null) return _allPagesCache;
+
+        lock (_pagesLock)
+        {
+            if (_allPagesCache == null)
+            {
+                _allPagesCache = _pagePermissionRepository.GetAllPages().ToList();
+            }
+            return _allPagesCache;
+        }
     }
 
     public List<AppPage> GetActivePages()

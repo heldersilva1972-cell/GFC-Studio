@@ -5,20 +5,30 @@ using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory;
+using System;
 
 namespace GFC.BlazorServer.Services
 {
     public class WebsiteSettingsService : GFC.Core.Interfaces.IWebsiteSettingsService
     {
         private readonly IDbContextFactory<GfcDbContext> _contextFactory;
+        private readonly IMemoryCache _cache;
+        private const string CacheKey = "WebsiteSettings";
 
-        public WebsiteSettingsService(IDbContextFactory<GfcDbContext> contextFactory)
+        public WebsiteSettingsService(IDbContextFactory<GfcDbContext> contextFactory, IMemoryCache cache)
         {
             _contextFactory = contextFactory;
+            _cache = cache;
         }
 
         public async Task<WebsiteSettings> GetWebsiteSettingsAsync()
         {
+            if (_cache.TryGetValue(CacheKey, out object? cachedObj) && cachedObj is WebsiteSettings cachedSettings)
+            {
+                return cachedSettings;
+            }
+
             await using var _context = await _contextFactory.CreateDbContextAsync();
             var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
             if (settings == null)
@@ -65,6 +75,8 @@ namespace GFC.BlazorServer.Services
                 settings.AvEquipmentFee ??= 25;
                 settings.SecurityDepositAmount ??= 100;
             }
+
+            _cache.Set(CacheKey, settings, TimeSpan.FromMinutes(30));
             return settings;
         }
 
@@ -134,6 +146,7 @@ namespace GFC.BlazorServer.Services
                 }
                 
                 await _context.SaveChangesAsync();
+                _cache.Remove(CacheKey);
             }
             catch (Exception ex)
             {

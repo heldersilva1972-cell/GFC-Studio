@@ -1125,6 +1125,57 @@ FROM Members;";
         
         return members;
     }
+
+    public async Task<(int total, int active, int pastDue)> GetDashboardMembershipMetricsAsync(int currentYear, DateTime? graceEndDate)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            await connection.OpenAsync();
+
+            var isGraceActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value.Date;
+
+            // This SQL calculates Total, Active (by Status), and Past Due (by Dues) in ONE database roundtrip.
+            // It respects the Grace Period logic for the first unpaid year.
+            const string sql = @"
+                DECLARE @GraceActive BIT = @IsGraceActive;
+                DECLARE @CurrYear INT = @Year;
+                DECLARE @PrevYear INT = @Year - 1;
+
+                SELECT 
+                    COUNT(*) as Total,
+                    SUM(CASE WHEN Status IN ('REGULAR', 'REGULAR-NP', 'LIFE', 'BOARD') THEN 1 ELSE 0 END) as ActiveCount,
+                    SUM(CASE 
+                        -- Must be an active-status member but NOT Life (Life is never past due)
+                        WHEN Status IN ('REGULAR', 'REGULAR-NP', 'BOARD') 
+                        -- And must not have a payment for current year
+                        AND NOT EXISTS (SELECT 1 FROM DuesPayments dp WHERE dp.MemberID = m.MemberID AND dp.Year = @CurrYear AND dp.PaidDate IS NOT NULL)
+                        -- And if grace is active, must not have a payment for previous year either
+                        AND (@GraceActive = 0 OR NOT EXISTS (SELECT 1 FROM DuesPayments dp WHERE dp.MemberID = m.MemberID AND dp.Year = @PrevYear AND dp.PaidDate IS NOT NULL))
+                        THEN 1 ELSE 0 END) as PastDueCount
+                FROM Members m
+                WHERE Status NOT IN ('INACTIVE', 'DECEASED', 'REJECTED', 'PENDING')";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Year", currentYear);
+            command.Parameters.AddWithValue("@IsGraceActive", isGraceActive);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var total = reader["Total"] is DBNull ? 0 : (int)reader["Total"];
+                var active = reader["ActiveCount"] is DBNull ? 0 : (int)reader["ActiveCount"];
+                var pastDue = reader["PastDueCount"] is DBNull ? 0 : (int)reader["PastDueCount"];
+                return (total, active, pastDue);
+            }
+        }
+        catch (SqlException ex)
+        {
+            Console.WriteLine($"[MemberRepository Error] GetDashboardMembershipMetricsAsync: {ex.Message}");
+        }
+
+        return (0, 0, 0);
+    }
 }
 
 /// <summary>

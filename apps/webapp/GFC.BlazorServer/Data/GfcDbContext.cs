@@ -98,6 +98,8 @@ public class GfcDbContext : DbContext
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
     public DbSet<StaffMember> StaffMembers => Set<StaffMember>();
     public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
+    public DbSet<BoardAssignment> BoardAssignments => Set<BoardAssignment>();
+    public DbSet<BoardPosition> BoardPositions => Set<BoardPosition>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
     public DbSet<AvailabilityCalendar> AvailabilityCalendars => Set<AvailabilityCalendar>();
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
@@ -1020,6 +1022,18 @@ public class GfcDbContext : DbContext
             entity.ToTable("PosCategories");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.DisplayOrder);
+        });
+
+        modelBuilder.Entity<BoardAssignment>(entity =>
+        {
+            entity.ToTable("BoardAssignments");
+            entity.HasKey(e => e.AssignmentID);
+        });
+
+        modelBuilder.Entity<BoardPosition>(entity =>
+        {
+            entity.ToTable("BoardPositions");
+            entity.HasKey(e => e.PositionID);
         });
     }
 

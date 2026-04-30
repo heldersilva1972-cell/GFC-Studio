@@ -53,18 +53,19 @@ public class DashboardMetricsService : IDashboardMetricsService
             var prevWeekStart = today.AddDays(-14);
 
             // 1. Start ALL data-fetching tasks in parallel
-            var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), ct);
-            
-            // This task waits for membersTask internally but allows other tasks to start immediately
-            var alertSummaryTask = Task.Run(async () => {
-                var membersResult = await membersTask;
-                return await _dashboardService.GetAlertSummaryAsync(membersResult, ct);
-            }, ct);
-
-            var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
-            var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
+            // Optimization: Get counts surgically from SQL instead of downloading all members
             var duesSettingsTask = Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
             var systemSettingsTask = _settingsService.GetAsync();
+            
+            // We need to wait for duesSettingsTask to get the grace end date
+            await Task.WhenAll(duesSettingsTask);
+            var duesSettings = duesSettingsTask.Result;
+
+            var membershipMetricsTask = _memberRepository.GetDashboardMembershipMetricsAsync(currentYear, duesSettings?.GraceEndDate?.Date);
+            
+            var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(null, ct);
+            var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
+            var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
             var cardCountsTask = GetCardCountsAsync(ct);
             var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
             var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
@@ -72,31 +73,24 @@ public class DashboardMetricsService : IDashboardMetricsService
             var entryCountsTask = GetTodaysEntryCountsAsync(ct);
             var boardAssignmentsTask = Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
             var unacknowledgedNotesTask = GetUnacknowledgedNotesAsync(ct);
+            var recentActivitiesTask = GetRecentActivitiesAsync(ct); // No longer requires members list
 
-            // 2. Start dependent processing tasks as early as possible
+            // 2. Start dependent processing tasks
+            // [OPTIMIZATION] Avoid GetAllMembers(). Use surgical counts for the draw status.
             var drawStatusTask = Task.Run(async () => {
-                await Task.WhenAll(membersTask, currentYearDuesTask, previousYearDuesTask, systemSettingsTask, duesSettingsTask, boardAssignmentsTask);
-                return await GetSignInDrawStatusAsync(
-                    membersTask.Result, 
-                    currentYearDuesTask.Result, 
-                    previousYearDuesTask.Result, 
-                    systemSettingsTask.Result, 
-                    duesSettingsTask.Result, 
-                    boardAssignmentsTask.Result, 
-                    ct);
+                await Task.WhenAll(systemSettingsTask, duesSettingsTask);
+                var settings = systemSettingsTask.Result;
+                var lastExport = settings?.LastSignInDrawExportUtc ?? DateTime.MinValue;
+                
+                // Fetch counts/flags surgically instead of loading full member objects
+                return await GetSurgicalSignInDrawStatusAsync(lastExport, currentYear, duesSettings?.GraceEndDate?.Date, ct);
             }, ct);
 
-            var recentActivitiesTask = Task.Run(async () => {
-                var members = await membersTask;
-                return await GetRecentActivitiesAsync(members, ct);
-            }, ct);
-
-            // 3. Wait for everything
+            // 3. Wait for all data tasks
             await Task.WhenAll(
-                membersTask,
+                membershipMetricsTask,
                 currentYearDuesTask, 
                 previousYearDuesTask, 
-                duesSettingsTask, 
                 systemSettingsTask, 
                 alertSummaryTask,
                 cardCountsTask,
@@ -109,25 +103,18 @@ public class DashboardMetricsService : IDashboardMetricsService
                 drawStatusTask,
                 recentActivitiesTask);
 
-            var members = membersTask.Result;
-            var currentYearDues = currentYearDuesTask.Result;
-            var previousYearDues = previousYearDuesTask.Result;
-            var systemSettings = systemSettingsTask.Result;
-            var duesSettings = duesSettingsTask.Result;
+            // 4. Extract results
+            (int totalMembers, int activeMembers, int pastDueMembers) = membershipMetricsTask.Result;
             var alertSummary = alertSummaryTask.Result;
-            var boardAssignments = boardAssignmentsTask.Result;
-
-            // 4. Perform final synchronous calculations
-            var (activeMembers, pastDueMembers) = CalculateMembership(members, currentYearDues, previousYearDues, duesSettings?.GraceEndDate?.Date);
             var openAlerts = alertSummary == null ? 0 : CalculateOpenAlerts(alertSummary);
-            var (enabledCards, disabledCards) = cardCountsTask.Result;
-            var (weeklySales, weeklyTransactions, trend) = barSalesTask.Result;
-            var (recommended, lastExport, lastChange, reasons, drawTotal) = drawStatusTask.Result;
+            (int enabledCards, int disabledCards) = cardCountsTask.Result;
+            (decimal weeklySales, int weeklyTransactions, double trend) = barSalesTask.Result;
+            (bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons, int drawTotal) = drawStatusTask.Result;
 
             return new DashboardMetricsDto
             {
                 AlertSummary = alertSummary,
-                TotalMembers = members.Count,
+                TotalMembers = totalMembers,
                 ActiveMembers = activeMembers,
                 PastDueMembers = pastDueMembers,
                 NpQueueCount = alertSummary?.NpQueueCount ?? 0,
@@ -206,7 +193,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         }
     }
 
-    private async Task<List<ActivityFeedItem>> GetRecentActivitiesAsync(List<Member> members, CancellationToken ct)
+    private async Task<List<ActivityFeedItem>> GetRecentActivitiesAsync(CancellationToken ct)
     {
         try
         {
@@ -214,6 +201,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             
             // Take more than we need so we can filter duplicates and still have 5 left
             var recentEvents = await db.ControllerEvents
+                .AsNoTracking()
                 .Include(e => e.Door)
                 .OrderByDescending(e => e.TimestampUtc)
                 .ThenByDescending(e => e.RawIndex)
@@ -221,6 +209,7 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .ToListAsync(ct);
 
             var recentSales = await db.BarSaleEntries
+                .AsNoTracking()
                 .OrderByDescending(e => e.SaleDate)
                 .Take(5)
                 .ToListAsync(ct);
@@ -232,20 +221,31 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Distinct()
                 .ToList();
 
-            var memberLookup = members.ToDictionary(m => m.MemberID);
             var cardToMemberLookup = new Dictionary<string, string>();
             
             if (cardNumbers.Any())
             {
+                // SURGICAL FETCH: Only get members associated with these card numbers
                 var keyCards = await db.KeyCards
                     .Where(kc => cardNumbers.Contains(kc.CardNumber))
                     .ToListAsync(ct);
 
-                foreach (var card in keyCards)
+                var memberIds = keyCards.Select(kc => kc.MemberId).Distinct().ToList();
+                if (memberIds.Any())
                 {
-                    if (memberLookup.TryGetValue(card.MemberId, out var member))
+                    var memberNames = await db.Members
+                        .Where(m => memberIds.Contains(m.MemberID))
+                        .Select(m => new { m.MemberID, m.FirstName, m.LastName })
+                        .ToListAsync(ct);
+                    
+                    var memberNameLookup = memberNames.ToDictionary(m => m.MemberID, m => $"{m.LastName}, {m.FirstName}");
+
+                    foreach (var card in keyCards)
                     {
-                        cardToMemberLookup[card.CardNumber] = $"{member.LastName}, {member.FirstName}";
+                        if (memberNameLookup.TryGetValue(card.MemberId, out var name))
+                        {
+                            cardToMemberLookup[card.CardNumber] = name;
+                        }
                     }
                 }
             }
@@ -551,131 +551,51 @@ public class DashboardMetricsService : IDashboardMetricsService
         }
     }
 
-    private async Task<(bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons, int totalCount)> GetSignInDrawStatusAsync(
-        List<Member> members,
-        List<GFC.Core.Models.DuesPayment> currentYearDues,
-        List<GFC.Core.Models.DuesPayment> previousYearDues,
-        SystemSettings? settings,
-        DuesYearSettings? duesSettings,
-        List<BoardAssignment>? boardAssignments,
+    private async Task<(bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons, int totalCount)> GetSurgicalSignInDrawStatusAsync(
+        DateTime lastExport,
+        int currentYear,
+        DateTime? graceEndDate,
         CancellationToken ct)
     {
         try
         {
-            if (settings == null) settings = await _settingsService.GetAsync();
-            var lastExportRaw = settings.LastSignInDrawExportUtc ?? DateTime.MinValue;
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
             
-            var lastExportBuffered = lastExportRaw.AddSeconds(60);
-            
-            var reasons = new List<string>();
+            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value.Date;
+            var exportBuffer = lastExport.AddSeconds(60);
 
-            var currentYear = DateTime.Today.Year;
-            
-            // Grace Period Handling (Use pre-fetched if available)
-            if (duesSettings == null) duesSettings = await Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
-            var graceEndDate = duesSettings?.GraceEndDate?.Date;
-            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
-            
-            // Use pre-fetched previous year dues
-            var prevPaidIds = previousYearDues
-                .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
-                .Select(d => d.MemberID)
-                .ToHashSet();
+            // 1. Calculate Total Count efficiently in DB
+            var totalCount = await db.Members
+                .AsNoTracking()
+                .Where(m => m.Status != "INACTIVE" && m.Status != "DECEASED" && m.Status != "REJECTED")
+                .CountAsync(m => m.Status == "LIFE" || m.Status == "LIFE MEMBER" || 
+                           db.BoardAssignments.Any(ba => ba.MemberID == m.MemberID && ba.TermYear == currentYear) ||
+                           db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear && dp.PaidDate != null) ||
+                           (isGracePeriodActive && db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear - 1 && dp.PaidDate != null)), ct);
 
-            var paidMemberIds = currentYearDues
-                .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
-                .Select(d => d.MemberID)
-                .ToHashSet();
+            // 2. Identify Recent Changes (Additions/Removals) for the "Recommended" flag
+            // We only need to know IF there are changes, and maybe a few examples for the "reasons" list.
+            var changes = await db.Members
+                .AsNoTracking()
+                .Where(m => (m.StatusChangeDate != null && m.StatusChangeDate > exportBuffer) ||
+                           db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear && dp.PaidDate != null && dp.PaidDate > exportBuffer))
+                .Select(m => new { m.MemberID, m.FirstName, m.LastName })
+                .Take(5)
+                .ToListAsync(ct);
 
-            // Use pre-fetched board assignments if available
-            if (boardAssignments == null) boardAssignments = await Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
-            var boardMemberIds = boardAssignments
-                .Select(a => a.MemberID)
-                .Where(id => id != 0)
-                .ToHashSet();
+            var reasons = changes.Select(m => $"Changed: [{m.MemberID}] {m.LastName}, {m.FirstName}").ToList();
 
-            bool IsIncluded(Member m, bool forGraceCheck)
-            {
-                var normalized = MemberStatusHelper.NormalizeStatus(m.Status);
-                if (normalized is "INACTIVE" or "DECEASED") return false;
-                
-                bool paidCurrent = paidMemberIds.Contains(m.MemberID);
-                bool paidPrev = prevPaidIds.Contains(m.MemberID);
-                bool isOnBoard = boardMemberIds.Contains(m.MemberID);
+            // 3. Find Last Overall Change Date
+            var lastChangeDate = await db.Members.MaxAsync(m => m.StatusChangeDate, ct);
+            var lastPaymentDate = await db.DuesPayments.Where(dp => dp.Year == currentYear).MaxAsync(dp => dp.PaidDate, ct);
+            var overallLastChange = lastChangeDate > lastPaymentDate ? lastChangeDate : lastPaymentDate;
 
-                // If forGraceCheck is true, we assume the grace period is/was active
-                return normalized is "LIFE" || isOnBoard || paidCurrent || (forGraceCheck && paidPrev);
-            }
-
-            // Use a dictionary for fast lookup in loops
-            var currentYearDuesLookup = currentYearDues
-                .GroupBy(d => d.MemberID)
-                .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.PaidDate ?? DateTime.MinValue).First());
-
-            // 1. Check for anyone who meets the criteria and changed recently (ADD)
-            var additions = members
-                .Where(m => {
-                    if (!IsIncluded(m, isGracePeriodActive)) return false;
-                    
-                    // Was there a status change since last print?
-                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExportBuffered) return true;
-                    
-                    // Was there a payment since last print?
-                    if (currentYearDuesLookup.TryGetValue(m.MemberID, out var dues))
-                    {
-                        if (dues?.PaidDate != null && dues.PaidDate.Value > lastExportBuffered) return true;
-                    }
-                    
-                    return false;
-                })
-                .ToList();
-
-            foreach (var m in additions)
-            {
-                reasons.Add($"Add: [{m.MemberID}] {FormatMemberName(m)}");
-            }
-
-            // 2. Check for anyone who does NOT meet criteria but changed recently (REMOVE)
-            // Or people who lost eligibility because the grace period ended since last print.
-            var removals = members
-                .Where(m => {
-                    bool currentlyIncluded = IsIncluded(m, isGracePeriodActive);
-                    if (currentlyIncluded) return false;
-                    
-                    // If they were included in the last print, they need to be removed now.
-                    // Case A: Status changed since last print
-                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExportBuffered) return true;
-                    
-                    // Case B: Grace period was active during last print, but is not now
-                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExportRaw.Date < graceEndDate.Value.Date)
-                    {
-                        // Were they only in because of last year's dues?
-                        if (prevPaidIds.Contains(m.MemberID) && !paidMemberIds.Contains(m.MemberID)) return true;
-                    }
-                    
-                    return false;
-                })
-                .ToList();
-
-            foreach (var m in removals)
-            {
-                reasons.Add($"Remove: [{m.MemberID}] {FormatMemberName(m)}");
-            }
-
-            // Overall change date for display
-            var statusDates = members.Where(m => m.StatusChangeDate.HasValue).Select(m => m.StatusChangeDate!.Value).ToList();
-            var paymentDates = currentYearDues.Where(d => d.PaidDate.HasValue).Select(d => d.PaidDate!.Value).ToList();
-            var allDates = statusDates.Concat(paymentDates).ToList();
-            var lastChange = allDates.Any() ? (DateTime?)allDates.Max() : null;
-
-            var totalCount = members.Count(m => IsIncluded(m, isGracePeriodActive));
-
-            return (reasons.Any(), settings.LastSignInDrawExportUtc, lastChange, reasons.Distinct().OrderBy(r => r).Take(10).ToList(), totalCount);
+            return (reasons.Any(), lastExport, overallLastChange, reasons, totalCount);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error calculating Sign-in Draw status");
-            return (false, null, null, new List<string>(), 0);
+            _logger.LogWarning(ex, "Error calculating surgical Sign-in Draw status");
+            return (false, lastExport, null, new List<string>(), 0);
         }
     }
     private string FormatMemberName(Member member)

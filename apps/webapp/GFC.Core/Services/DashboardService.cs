@@ -19,6 +19,8 @@ public class DashboardService : IDashboardService
         private readonly IBoardRepository _boardRepository;
         private readonly IBoardTermConfirmationService _boardTermConfirmationService;
         private readonly IPhysicalKeyService _physicalKeyService;
+        private readonly IDuesRepository _duesRepository;
+        private readonly IDuesWaiverRepository _waiverRepository;
 
     public DashboardService(
         IMemberQueryService memberQueryService,
@@ -31,7 +33,9 @@ public class DashboardService : IDashboardService
         IMemberKeycardRepository keycardRepository,
         IBoardRepository boardRepository,
         IBoardTermConfirmationService boardTermConfirmationService,
-        IPhysicalKeyService physicalKeyService)
+        IPhysicalKeyService physicalKeyService,
+        IDuesRepository duesRepository,
+        IDuesWaiverRepository waiverRepository)
     {
         _memberQueryService = memberQueryService ?? throw new ArgumentNullException(nameof(memberQueryService));
         _duesInsightService = duesInsightService ?? throw new ArgumentNullException(nameof(duesInsightService));
@@ -44,6 +48,8 @@ public class DashboardService : IDashboardService
         _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
         _boardTermConfirmationService = boardTermConfirmationService ?? throw new ArgumentNullException(nameof(boardTermConfirmationService));
         _physicalKeyService = physicalKeyService ?? throw new ArgumentNullException(nameof(physicalKeyService));
+        _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
+        _waiverRepository = waiverRepository ?? throw new ArgumentNullException(nameof(waiverRepository));
     }
 
     public Task<MemberSummaryDto> GetMemberSummaryAsync(CancellationToken cancellationToken = default)
@@ -58,27 +64,61 @@ public class DashboardService : IDashboardService
     public async Task<AlertSummaryDto> GetAlertSummaryAsync(List<Member>? members = null, CancellationToken cancellationToken = default)
     {
         // 1. Start all base data fetching tasks in parallel
-        // If members are provided, we don't need to fetch them again
+        // If members are provided, we use them. If not, we fetch a MINIMAL set for alerts.
         var membersTask = members != null 
             ? Task.FromResult(members) 
-            : Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
+            : Task.Run(() => _memberRepository.GetAllMembers().Select(m => new Member {
+                MemberID = m.MemberID,
+                Status = m.Status,
+                AcceptedDate = m.AcceptedDate,
+                ApplicationDate = m.ApplicationDate,
+                LifeEligibleDate = m.LifeEligibleDate
+            }).ToList(), cancellationToken);
 
         var npQueueTask = Task.Run(() => _memberRepository.GetNonPortugueseQueueCount(), cancellationToken);
         var activeKeyCardsTask = Task.Run(() => _keycardRepository.GetActiveAssignmentCount(), cancellationToken);
         var physicalKeysToReturnTask = Task.Run(() => _physicalKeyService.GetKeysThatShouldBeReturned().Count, cancellationToken);
-
-        // 2. Wait for members first so we can use them for Life Eligibility count without a second DB fetch
-        var fetchedMembers = await membersTask;
         
-        var lifeEligibleTask = Task.Run(() => _memberRepository.GetLifeEligibleCount(DateTime.Today, _historyRepository, fetchedMembers), cancellationToken);
+        // PERFORMANCE: Fetch dues and waivers in bulk once instead of N+1 per member
+        var duesTask = Task.Run(() => _duesRepository.GetAllDues(), cancellationToken);
+        var waiversTask = Task.Run(() => _waiverRepository.GetAllWaivers(), cancellationToken);
 
-        // 3. Wait for everything else
-        await Task.WhenAll(lifeEligibleTask, npQueueTask, activeKeyCardsTask, physicalKeysToReturnTask);
+        // 2. Wait for base data
+        await Task.WhenAll(membersTask, npQueueTask, activeKeyCardsTask, physicalKeysToReturnTask, duesTask, waiversTask);
+        
+        var fetchedMembers = await membersTask;
+        var allDues = duesTask.Result;
+        
+        // 3. Build optimized lookups for overdue calculations
+        var duesLookup = allDues.GroupBy(d => d.MemberID).ToDictionary(g => g.Key, g => g.ToList());
+        var waivers = waiversTask.Result; // This is actually List<DuesWaiverPeriod>
+        var waiversLookup = waivers.GroupBy(w => w.MemberId).ToDictionary(g => g.Key, g => g.ToList());
 
-        // 4. Process data from completed tasks
+        var today = DateTime.Today;
+        var boardYearCandidate = today.Month >= 12 ? today.Year + 1 : today.Year;
+        
+        var boardAssignmentsTask = Task.Run(() => _boardRepository.GetAssignmentsByYear(today.Year), cancellationToken);
+        await boardAssignmentsTask;
+        var boardLookup = boardAssignmentsTask.Result.GroupBy(b => b.MemberID).ToDictionary(g => g.Key, g => g.Select(b => b.TermYear).ToHashSet());
+
+        var overdueContext = new OverdueCalculationService.DuesCalculationContext
+        {
+            DuesByMember = duesLookup,
+            WaiversByMember = waiversLookup,
+            BoardAssignmentsByMember = boardLookup,
+            Today = today
+        };
+
+        // 4. Start processing tasks that use the fetched data
+        var lifeEligibleTask = Task.Run(() => _memberRepository.GetLifeEligibleCount(today, _historyRepository, fetchedMembers), cancellationToken);
+        var overdueCountTask = Task.Run(() => _overdueService.GetOverdue15PlusMonthsCountBulk(fetchedMembers, overdueContext), cancellationToken);
+
+        await Task.WhenAll(lifeEligibleTask, overdueCountTask);
+
+        // 5. Finalize other metrics
         var lifeEligible = lifeEligibleTask.Result;
         var npQueue = npQueueTask.Result;
-        var overdue15Plus = _overdueService.GetOverdue15PlusMonthsCount(fetchedMembers);
+        var overdue15Plus = overdueCountTask.Result;
         var activeKeyCards = activeKeyCardsTask.Result;
         var physicalKeysToReturn = physicalKeysToReturnTask.Result;
 
@@ -86,8 +126,6 @@ public class DashboardService : IDashboardService
         IReadOnlyList<string> boardPositionsUnfilled = Array.Empty<string>();
         var boardConfirmed = false;
 
-        var today = DateTime.Today;
-        var boardYearCandidate = today.Month >= 12 ? today.Year + 1 : today.Year;
         var alertStart = new DateTime(boardYearCandidate - 1, 12, 1);
 
         if (today >= alertStart)

@@ -28,5 +28,6 @@ public interface IMemberRepository
     List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);
     int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);
     List<Member> FindByNameAndDob(string firstName, string lastName, DateTime dateOfBirth);
+    Task<(int total, int active, int pastDue)> GetDashboardMembershipMetricsAsync(int currentYear, DateTime? graceEndDate);
 }
 

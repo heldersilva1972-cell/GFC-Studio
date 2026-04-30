@@ -1347,54 +1347,55 @@
 
         try
         {
-            // 2. Wait for the primary dashboard metrics - this is the core content
+            // 2. [PERFORMANCE] Wait for metrics first, but as soon as they arrive, release the splash
             _metrics = await metricsTask;
             _isLoading = false;
 
-            // 3. Show the UI shell as soon as data is ready
             if (includeSplash)
             {
                 _isSplashFadingOut = true;
                 StateHasChanged();
-                await Task.Delay(150); // Minimal sync for CSS transition
+                await Task.Delay(100); // Minimal sync for CSS transition
                 _showSplash = false;
             }
             StateHasChanged();
 
-            // 4. Secondary data updates (Wait for these in parallel without blocking primary UI)
-            await Task.WhenAll(rentalsTask, shiftComplianceTask, pendingSyncCountTask, outOfSyncCountTask);
-            
-            var allRentals = await rentalsTask;
-            var rentalList = allRentals.ToList();
-            _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
-            _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
+            // 3. Staggered Updates for everything else (Don't block the UI thread unnecessarily)
+            _ = Task.Run(async () => {
+                try {
+                    var allRentals = await rentalsTask;
+                    var rentalList = allRentals.ToList();
+                    _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
+                    _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
 
-            _missingShifts = await shiftComplianceTask;
-            _pendingSyncCount = await pendingSyncCountTask;
-            _outOfSyncCount = await outOfSyncCountTask;
-            
-            // 5. Heavy hardware checks (Don't let an offline controller block the entire page load)
-            await controllerStatusTask;
-            await controllerModeTask;
-            _isSimulationMode = !_useRealControllers;
+                    _missingShifts = await shiftComplianceTask;
+                    _pendingSyncCount = await pendingSyncCountTask;
+                    _outOfSyncCount = await outOfSyncCountTask;
 
-            // Health & Alerts
-            _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
-            _controllerOnline = _controllerHealthStatus.IsOnline;
-            _dataHealth = await DataProtectionService.GetHealthStatusAsync();
+                    await controllerStatusTask;
+                    await controllerModeTask;
+                    _isSimulationMode = !_useRealControllers;
 
-            _alertPreview.Clear();
-            _importantAlerts.Clear();
-            
-            var summary = _metrics?.AlertSummary;
-            if (summary != null)
-            {
-                var preview = BuildAlertPreview(summary);
-                _alertPreview.AddRange(preview);
-                _importantAlerts.AddRange(preview);
-            }
+                    _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
+                    _controllerOnline = _controllerHealthStatus.IsOnline;
+                    _dataHealth = await DataProtectionService.GetHealthStatusAsync();
 
-            StateHasChanged();
+                    _alertPreview.Clear();
+                    _importantAlerts.Clear();
+                    
+                    var summary = _metrics?.AlertSummary;
+                    if (summary != null)
+                    {
+                        var preview = BuildAlertPreview(summary);
+                        _alertPreview.AddRange(preview);
+                        _importantAlerts.AddRange(preview);
+                    }
+
+                    await InvokeAsync(StateHasChanged);
+                } catch (Exception ex) {
+                    Console.Error.WriteLine($"[Dashboard:staggered] {ex.Message}");
+                }
+            });
         }
         catch (Exception ex)
         {
