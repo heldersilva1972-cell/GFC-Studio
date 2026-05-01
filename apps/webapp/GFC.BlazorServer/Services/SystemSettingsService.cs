@@ -6,6 +6,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
 using GFC.Core.Enums;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
+using System.Net.Http.Json;
 
 namespace GFC.BlazorServer.Services;
 
@@ -17,17 +21,20 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<SystemSettingsService> _logger;
     private readonly IMemoryCache _cache;
+    private readonly IServiceProvider _serviceProvider;
     private const string CacheKey = "SystemSettings";
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(5);
 
     public SystemSettingsService(
         IDbContextFactory<GfcDbContext> contextFactory, 
         ILogger<SystemSettingsService> logger,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IServiceProvider serviceProvider)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
     }
 
     public async Task<SystemSettings> GetAsync()
@@ -287,8 +294,10 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.TwilioAuthToken = settings.TwilioAuthToken;
         existingSettings.TwilioFromNumber = settings.TwilioFromNumber;
         
-        // Email & SMTP Settings
+        // Email & Gateway Settings
         existingSettings.EmailEnabled = settings.EmailEnabled;
+        existingSettings.EmailProvider = settings.EmailProvider;
+        existingSettings.ResendApiKey = settings.ResendApiKey;
         existingSettings.SmtpHost = settings.SmtpHost;
         existingSettings.SmtpPort = settings.SmtpPort;
         existingSettings.SmtpUsername = settings.SmtpUsername;
@@ -328,14 +337,6 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.LiquorEmailSignature = settings.LiquorEmailSignature;
         existingSettings.GlobalLiquorPourSize = settings.GlobalLiquorPourSize;
 
-        // SMTP Settings
-        existingSettings.SmtpHost = settings.SmtpHost;
-        existingSettings.SmtpPort = settings.SmtpPort;
-        existingSettings.SmtpUsername = settings.SmtpUsername;
-        existingSettings.SmtpPassword = settings.SmtpPassword;
-        existingSettings.SmtpEnableSsl = settings.SmtpEnableSsl;
-        existingSettings.SmtpFromAddress = settings.SmtpFromAddress;
-        existingSettings.SmtpFromName = settings.SmtpFromName;
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
@@ -349,10 +350,72 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
         await dbContext.SaveChangesAsync();
         
-        // Invalidate cache so next request gets fresh data
+        // Invalidate main settings cache
         _cache.Remove(CacheKey);
         
-        _logger.LogInformation("Updated system settings");
+        // Invalidate EmailSettings options cache (for IOptionsMonitor to detect changes immediately)
+        var optionsCache = _serviceProvider.GetService<IOptionsMonitorCache<EmailSettings>>();
+        optionsCache?.Clear();
+        
+        _logger.LogInformation("Updated system settings and invalidated options cache");
+    }
+
+    public async Task<(bool Success, string Message)> TestEmailConnectionAsync(SystemSettings settings)
+    {
+        try
+        {
+            if (settings.EmailProvider == EmailProvider.Resend)
+            {
+                if (string.IsNullOrEmpty(settings.ResendApiKey))
+                    return (false, "Resend API Key is required.");
+
+                // Test Resend API
+                // Since ResendClient requires DI and we're testing unsaved settings, we use a direct HTTP call
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.ResendApiKey);
+                
+                var testMessage = new
+                {
+                    from = $"{settings.SmtpFromName} <{settings.SmtpFromAddress}>",
+                    to = new[] { settings.SmtpFromAddress },
+                    subject = "LiquorHub Connection Test",
+                    html = "<strong>Success!</strong> Your Resend API connection is working correctly."
+                };
+
+                var response = await httpClient.PostAsJsonAsync("https://api.resend.com/emails", testMessage);
+                if (response.IsSuccessStatusCode)
+                {
+                    return (true, "Resend API connection verified.");
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    return (false, $"Resend API Error: {response.StatusCode} - {error}");
+                }
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(settings.SmtpHost))
+                    return (false, "SMTP Host is required.");
+
+                // Test SMTP Connection using MailKit
+                using var client = new MailKit.Net.Smtp.SmtpClient();
+                await client.ConnectAsync(settings.SmtpHost, settings.SmtpPort, settings.SmtpEnableSsl ? MailKit.Security.SecureSocketOptions.StartTls : MailKit.Security.SecureSocketOptions.None);
+                
+                if (!string.IsNullOrEmpty(settings.SmtpUsername))
+                {
+                    await client.AuthenticateAsync(settings.SmtpUsername, settings.SmtpPassword);
+                }
+                
+                await client.DisconnectAsync(true);
+                return (true, "SMTP connection verified.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Email connection test failed");
+            return (false, ex.Message);
+        }
     }
 }
 

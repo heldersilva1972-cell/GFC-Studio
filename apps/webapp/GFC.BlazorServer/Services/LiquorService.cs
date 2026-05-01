@@ -404,8 +404,7 @@ namespace GFC.BlazorServer.Services
                         if (vendor != null && !string.IsNullOrEmpty(vendor.Email))
                         {
                             var subject = $"Liquor Order #{order.Id} - GFC System";
-                            var body = GetOrderEmailHtmlBody(order, vendor, settings);
-                            await _emailService.SendEmailAsync(vendor.Email, subject, body);
+                            await _emailService.SendOrderEmailAsync(vendor.Email, subject, order);
                             
                             // Mark as emailed
                             using var updateDb = await _dbFactory.CreateDbContextAsync();
@@ -490,8 +489,7 @@ namespace GFC.BlazorServer.Services
             {
                 var settings = await _settingsService.GetAsync();
                 var subject = $"Liquor Order #{order.Id} (RESENT) - GFC System";
-                var body = GetOrderEmailHtmlBody(order, order.Vendor, settings);
-                await _emailService.SendEmailAsync(order.Vendor.Email, subject, body);
+                await _emailService.SendOrderEmailAsync(order.Vendor.Email, subject, order);
                 
                 order.IsEmailed = true;
                 order.LastEmailedDate = DateTime.UtcNow;

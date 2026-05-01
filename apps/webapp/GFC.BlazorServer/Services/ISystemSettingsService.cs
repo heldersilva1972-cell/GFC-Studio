@@ -34,6 +34,11 @@ public interface IBlazorSystemSettingsService
     /// Gets whether the system is in Safe Mode.
     /// </summary>
     Task<bool> GetSafeModeEnabledAsync();
+
+    /// <summary>
+    /// Tests the email connection settings.
+    /// </summary>
+    Task<(bool Success, string Message)> TestEmailConnectionAsync(SystemSettings settings);
 }
 
 

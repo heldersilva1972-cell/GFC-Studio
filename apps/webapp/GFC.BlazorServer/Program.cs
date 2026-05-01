@@ -22,6 +22,8 @@ using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
 using GFC.BlazorServer.Hubs;
+using Resend;
+using GFC.Core.Models;
 using Microsoft.AspNetCore.HttpOverrides; // For Cloudflare Tunnel headers
 
 using Microsoft.AspNetCore.Authorization;
@@ -153,6 +155,23 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
+
+        // Email & Resend Configuration
+        builder.Services.AddOptions<EmailSettings>();
+        builder.Services.AddSingleton<IConfigureOptions<EmailSettings>, ConfigureEmailSettings>();
+        
+        builder.Services.AddHttpClient<IResend, ResendClient>();
+        builder.Services.AddScoped<ResendApiService>();
+        builder.Services.AddScoped<SmtpEmailService>();
+        builder.Services.AddScoped<IEmailProviderFactory, EmailProviderFactory>();
+        builder.Services.AddScoped<IEmailService, EmailService>(); // The dispatcher
+        
+        builder.Services.AddOptions<ResendClientOptions>()
+            .Configure<IOptionsMonitor<EmailSettings>>((options, settingsMonitor) => 
+            {
+                options.ApiToken = settingsMonitor.CurrentValue.ResendApiKey ?? string.Empty;
+            });
+
         builder.Services.AddHttpClient<IImportService, ImportService>();
         builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
@@ -319,7 +338,7 @@ builder.Services.AddScoped<IShiftComplianceService, ShiftComplianceService>();
 builder.Services.AddScoped<GFC.Core.Interfaces.ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IBlazorSystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IUrlHelperService, UrlHelperService>();
-builder.Services.AddScoped<IEmailService, EmailService>();
+// builder.Services.AddScoped<IEmailService, EmailService>(); // Already registered above via dispatcher
 builder.Services.AddScoped<ISmsService, SmsService>();
 builder.Services.AddScoped<GFC.BlazorServer.Services.Vpn.IVpnConfigurationService, GFC.BlazorServer.Services.Vpn.VpnConfigurationService>();
 builder.Services.AddScoped<IUserRevocationService, UserRevocationService>();
