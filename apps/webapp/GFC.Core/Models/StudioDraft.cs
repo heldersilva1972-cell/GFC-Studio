@@ -13,7 +13,7 @@ namespace GFC.Core.Models
         public int StudioPageId { get; set; }
 
         [ForeignKey("StudioPageId")]
-        public virtual StudioPage StudioPage { get; set; }
+        public virtual StudioPage StudioPage { get; set; } = default!;
 
         [Required]
         public string ContentSnapshotJson { get; set; } = "[]";

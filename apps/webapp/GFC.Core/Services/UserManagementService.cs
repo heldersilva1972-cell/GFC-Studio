@@ -676,4 +676,9 @@ public class UserManagementService : IUserManagementService
     {
         _pagePermissionRepository.SetDefaultPageIds(pageIds);
     }
+
+    public async Task<GfcLoginResult> RefreshPermissionsAsync(string token)
+    {
+        return await Task.FromResult(new GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Not implemented for direct service call in webapp." });
+    }
 }

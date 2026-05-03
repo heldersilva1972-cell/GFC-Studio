@@ -1,23 +1,29 @@
+
+using GFC.BlazorServer.Data;
+using Microsoft.EntityFrameworkCore;
 using System;
-using System.Data;
-using Microsoft.Data.SqlClient;
+using System.Linq;
+using System.Threading.Tasks;
 
-string connStr = "Server=(localdb)\\MSSQLLocalDB;Database=ClubMembership;Trusted_Connection=True;MultipleActiveResultSets=true;";
-using var conn = new SqlConnection(connStr);
-conn.Open();
+var connectionString = "Server=localhost\\SQLEXPRESS;Database=GFC;Trusted_Connection=True;TrustServerCertificate=True;";
+var optionsBuilder = new DbContextOptionsBuilder<GfcDbContext>();
+optionsBuilder.UseSqlServer(connectionString);
 
-void PrintSchema(string table) {
-    Console.WriteLine($"--- Schema: {table} ---");
-    using var cmd = new SqlCommand($"SELECT TOP 0 * FROM [{table}]", conn);
-    using var reader = cmd.ExecuteReader(CommandBehavior.SchemaOnly);
-    var tableSchema = reader.GetSchemaTable();
-    foreach (DataRow row in tableSchema.Rows) {
-        Console.WriteLine($"{row["ColumnName"]} ({row["DataType"]})");
+using var db = new GfcDbContext(optionsBuilder.Options);
+
+try {
+    Console.WriteLine("Checking SystemSettings table...");
+    var columns = db.Model.FindEntityType(typeof(GFC.Core.Models.SystemSettings))?
+        .GetProperties().Select(p => p.GetColumnName()).ToList();
+    
+    if (columns != null) {
+        Console.WriteLine("Columns in SystemSettings:");
+        foreach (var col in columns) {
+            Console.WriteLine($"- {col}");
+        }
+    } else {
+        Console.WriteLine("SystemSettings entity not found in model.");
     }
-    reader.Close();
+} catch (Exception ex) {
+    Console.WriteLine($"Error: {ex.Message}");
 }
-
-PrintSchema("Waivers");
-PrintSchema("DuesWaiverPeriods");
-PrintSchema("DuesPayments");
-PrintSchema("Members");

@@ -13,15 +13,15 @@ namespace GFC.Core.Models
         public int MediaAssetId { get; set; }
 
         [ForeignKey("MediaAssetId")]
-        public virtual MediaAsset MediaAsset { get; set; }
+        public virtual MediaAsset MediaAsset { get; set; } = default!;
 
         [Required]
         [StringLength(50)]
-        public string RenditionType { get; set; } // e.g., "thumbnail", "medium", "large", "webp"
+        public string RenditionType { get; set; } = string.Empty; // e.g., "thumbnail", "medium", "large", "webp"
 
         [Required]
         [StringLength(1024)]
-        public string Url { get; set; }
+        public string Url { get; set; } = string.Empty;
 
         [NotMapped]
         public string FilePath

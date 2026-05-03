@@ -10,6 +10,7 @@
 @inject IShiftComplianceService ShiftComplianceService
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
+@inject IVersionService VersionService
 @using GFC.Mobile.Components.Shared
 @using System.Text.Json
 @attribute [Authorize]
@@ -27,8 +28,44 @@
                 <h4 class="fw-bold mb-1">GFC Portal</h4>
                 <div class="d-flex align-items-center gap-2">
                     <p class="text-muted small mb-0">Access your shift tools and analytics.</p>
+                    <button class="btn btn-link btn-sm p-0 text-primary text-decoration-none" @onclick="ManualSyncPermissionsAsync" disabled="@_isSyncingPermissions">
+                        <i class="bi bi-arrow-repeat @(_isSyncingPermissions ? "spin" : "")"></i> Sync
+                    </button>
+                    @if (!string.IsNullOrEmpty(_syncFeedback))
+                    {
+                        <span class="extra-small @(_syncFeedback.Contains("Failed") ? "text-danger" : "text-success") animate-fade-in">
+                            @_syncFeedback
+                        </span>
+                    }
                 </div>
             </div>
+
+            @if (_showDiagnostics)
+            {
+                <div class="card border-0 shadow-sm rounded-4 mb-4 animate-entrance" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h6 class="fw-bold mb-0 text-primary small text-uppercase">Diagnostic Mode</h6>
+                            <button class="btn-close" style="font-size: 0.6rem;" @onclick="() => _showDiagnostics = false"></button>
+                        </div>
+                        <div class="small text-muted mb-2">Authenticated as: <strong>@Username</strong> (Admin: @IsAdmin)</div>
+                        <div class="bg-white p-2 rounded border small mb-2" style="max-height: 100px; overflow-y: auto; font-family: monospace;">
+                            @if (UserRoutes.Any()) {
+                                @string.Join(", ", UserRoutes)
+                            } else {
+                                <span class="text-danger italic">No mobile routes detected.</span>
+                            }
+                        </div>
+                        <div class="small mb-2">
+                            <strong>Janitor Hours Access:</strong> @(HasAccessTo("Janitor hours entry") ? "YES" : "NO") (@(UserRoutes.Contains("mobile/janitor-hours") ? "Route Present" : "Route Missing"))
+                        </div>
+                        <div class="mt-2 d-flex gap-2 justify-content-center">
+                            <button class="btn btn-danger btn-sm rounded-pill px-3 fw-bold" @onclick="ForceWipeAndResetAsync">Wipe Cache & Reset</button>
+                            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showDiagnostics = false">Close</button>
+                        </div>
+                    </div>
+                </div>
+            }
 
             @if (!IsLoading && _validMissingShifts.Any() && HasAccessTo("Shift Sales Alert"))
             {
@@ -121,7 +158,7 @@
 
 
 
-                    @if (HasAccessTo("Mobile Key Cards"))
+                    @if (HasAccessTo("Key Cards"))
                     {
                         <div class="app-card animate-entrance stagger-2" @onclick='() => NavigateTo("/mobile/keycards")'>
                             <div class="card-icon-box" style="background: rgba(236, 72, 153, 0.1); color: #ec4899;">
@@ -187,6 +224,13 @@
                             <p class="small text-muted px-4">You are logged in as <strong>@Username</strong> but do not have access to any mobile tools yet.</p>
                         </div>
                     }
+
+                    <div class="text-center pt-5 pb-2 w-100">
+                        <p class="text-muted mb-0" @onclick="OnVersionClicked" style="font-size: 0.65rem; opacity: 0.5; cursor: pointer;">
+                            &copy; 2026 GFC Studio Standalone Hub<br/>
+                            Revision @VersionService.GetRevision()
+                        </p>
+                    </div>
 
                 </div>
             }
@@ -366,6 +410,8 @@
         from { transform: translateY(100%); }
         to { transform: translateY(0); }
     }
+    .spin { animation: rotation 1s infinite linear; }
+    @@keyframes rotation { from { transform: rotate(0deg); } to { transform: rotate(359deg); } }
 </style>
 
 @code {
@@ -388,6 +434,48 @@
     private bool HasAnyMobileTools => IsAdmin || _userPermissions.Count > 0;
 
     private bool IsRefreshing { get; set; }
+
+    private bool _showDiagnostics = false;
+    private int _versionClickCount = 0;
+    private bool _isSyncingPermissions = false;
+    private string? _syncFeedback;
+
+    private async Task ForceWipeAndResetAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("localStorage.clear");
+        await JSRuntime.InvokeVoidAsync("sessionStorage.clear");
+        await JSRuntime.InvokeVoidAsync("location.assign", "/login");
+    }
+
+    private async Task ManualSyncPermissionsAsync()
+    {
+        if (_isSyncingPermissions) return;
+        _isSyncingPermissions = true;
+        _syncFeedback = "Syncing...";
+        StateHasChanged();
+
+        var currentAppUser = (AuthStateProvider as GFC.Mobile.Auth.CustomAuthenticationStateProvider)?.GetCurrentUser();
+        if (currentAppUser != null)
+        {
+            await RefreshPermissionsInBackgroundAsync(currentAppUser.UserId);
+        }
+
+        _isSyncingPermissions = false;
+        StateHasChanged();
+        
+        // Clear feedback after 3 seconds
+        _ = Task.Delay(3000).ContinueWith(_ => { _syncFeedback = null; InvokeAsync(StateHasChanged); });
+    }
+
+    private void OnVersionClicked()
+    {
+        _versionClickCount++;
+        if (_versionClickCount >= 5)
+        {
+            _showDiagnostics = true;
+            _versionClickCount = 0;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -523,62 +611,31 @@
     {
         try
         {
-            // Small delay so the initial render completes first
-            await Task.Delay(500);
-
-            var authJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
-            if (string.IsNullOrEmpty(authJson)) return;
-
-            var authData = System.Text.Json.JsonDocument.Parse(authJson);
-            string? token = null;
-            if (authData.RootElement.TryGetProperty("Token", out var tokenEl))
-                token = tokenEl.GetString();
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
             if (string.IsNullOrEmpty(token)) return;
 
-            // Fetch fresh permissions directly — bypass auth state notification entirely
-            var response = await Http.GetAsync($"/api/mobile-auth/user?token={token}");
-
-            if (!response.IsSuccessStatusCode) return;
-
-            var result = await response.Content.ReadFromJsonAsync<GFC.Core.Models.GfcLoginResult>();
-            if (result?.Permissions == null) return;
-
-            // Update the service cache directly — no auth state notification
-            var mobileService = UserService as GFC.Mobile.Services.MobileUserManagementService;
-            mobileService?.UpdateCachedPermissions(result.Permissions);
-
-            // [NEW] Also update the per-user VAULT so offline login gets these too
-            _ = mobileService?.SavePermissionsToCacheAsync(userId, result.Permissions);
-
-            // Write back to localStorage for next load
-            var newAuthData = new
+            Console.WriteLine($"[HUB] Refreshing permissions for User {userId}...");
+            var result = await UserService.RefreshPermissionsAsync(token);
+            
+            if (result.Success && result.Permissions != null)
             {
-                User = result.User,
-                Token = token,
-                Permissions = result.Permissions,
-                CreatedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddDays(30)
-            };
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_auth_state",
-                System.Text.Json.JsonSerializer.Serialize(newAuthData));
-
-            // Refresh the hub's tool list if permissions changed
-            var freshRoutes = result.Permissions
-                .Where(p => p.CanAccess)
-                .Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant())
-                .ToHashSet();
-
-            if (!freshRoutes.SetEquals(UserRoutes))
-            {
+                var freshRoutes = result.Permissions.Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant()).ToHashSet();
+                
+                // [FORCE UPDATE] Always update the local state to ensure reactivity
                 _userPermissions = result.Permissions;
                 UserRoutes = freshRoutes;
-                Console.WriteLine($"[HUB] Background refresh updated permissions: {UserRoutes.Count} routes.");
+                
+                // Store in local storage via the service (already handled by RefreshPermissionsAsync)
+                
+                _syncFeedback = "Synced";
+                Console.WriteLine($"[HUB] Permissions synchronized: {UserRoutes.Count} routes.");
                 await InvokeAsync(StateHasChanged);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[HUB] Background permission refresh failed: {ex.Message}");
+            _syncFeedback = "Sync Failed";
+            Console.WriteLine($"[HUB] Permission refresh failed: {ex.Message}");
         }
     }
 

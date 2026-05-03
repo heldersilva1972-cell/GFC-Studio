@@ -1,6 +1,3 @@
-﻿USE [ClubMembership]
-GO
-
 -- 1. SystemSettings Table Repair & Initialization
 PRINT 'Starting SystemSettings repair...';
 
@@ -164,6 +161,20 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TrustedDeviceDurationDays')
     ALTER TABLE [dbo].[SystemSettings] ADD [TrustedDeviceDurationDays] INT NULL;
 
+-- Backup System Enhancements
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'BackupStoragePath')
+    ALTER TABLE [dbo].[SystemSettings] ADD [BackupStoragePath] NVARCHAR(500) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'BackupRetentionCount')
+    ALTER TABLE [dbo].[SystemSettings] ADD [BackupRetentionCount] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'AllowServerRestoreOperations')
+    ALTER TABLE [dbo].[SystemSettings] ADD [AllowServerRestoreOperations] BIT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaintenanceModeEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaintenanceModeEnabled] BIT NULL;
+GO
+
 -- 2. Communication & Push Notification Columns
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EmailEnabled')
     ALTER TABLE [dbo].[SystemSettings] ADD [EmailEnabled] BIT NOT NULL DEFAULT 0;
@@ -195,26 +206,102 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TwilioFromNumber')
     ALTER TABLE [dbo].[SystemSettings] ADD [TwilioFromNumber] NVARCHAR(50) NULL;
 
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EmailProvider')
+    ALTER TABLE [dbo].[SystemSettings] ADD [EmailProvider] INT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'ResendApiKey')
+    ALTER TABLE [dbo].[SystemSettings] ADD [ResendApiKey] NVARCHAR(MAX) NULL;
+
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpHost')
     ALTER TABLE [dbo].[SystemSettings] ADD [SmtpHost] NVARCHAR(MAX) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPort')
     ALTER TABLE [dbo].[SystemSettings] ADD [SmtpPort] INT NULL;
 
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUser')
-    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpUser] NVARCHAR(MAX) NULL;
+-- Correction: SmtpUsername/Password/EnableSsl/FromName to match model
+-- Legacy migration cleanup FIRST to avoid conflicts
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUser')
+   AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUsername')
+    EXEC sp_rename 'SystemSettings.SmtpUser', 'SmtpUsername', 'COLUMN';
 
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPass')
-    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpPass] NVARCHAR(MAX) NULL;
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPass')
+   AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPassword')
+    EXEC sp_rename 'SystemSettings.SmtpPass', 'SmtpPassword', 'COLUMN';
+
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUseSsl')
+   AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpEnableSsl')
+    EXEC sp_rename 'SystemSettings.SmtpUseSsl', 'SmtpEnableSsl', 'COLUMN';
+
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromDisplayName')
+   AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromName')
+    EXEC sp_rename 'SystemSettings.SmtpFromDisplayName', 'SmtpFromName', 'COLUMN';
+
+-- Add columns if still missing (either rename didn't happen or they weren't there)
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUsername')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpUsername] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPassword')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpPassword] NVARCHAR(MAX) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromAddress')
     ALTER TABLE [dbo].[SystemSettings] ADD [SmtpFromAddress] NVARCHAR(MAX) NULL;
 
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromDisplayName')
-    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpFromDisplayName] NVARCHAR(MAX) NULL;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromName')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpFromName] NVARCHAR(MAX) NULL;
 
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUseSsl')
-    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpUseSsl] BIT NOT NULL DEFAULT 1;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpEnableSsl')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpEnableSsl] BIT NOT NULL DEFAULT 1;
+GO
+
+-- 3. Shift and Payroll Tracking Columns
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DayShiftStartTime')
+    ALTER TABLE [dbo].[SystemSettings] ADD [DayShiftStartTime] TIME NOT NULL DEFAULT '09:00:00';
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DayShiftEndTime')
+    ALTER TABLE [dbo].[SystemSettings] ADD [DayShiftEndTime] TIME NOT NULL DEFAULT '17:00:00';
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NightShiftStartTime')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NightShiftStartTime] TIME NOT NULL DEFAULT '18:00:00';
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NightShiftEndTime')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NightShiftEndTime] TIME NOT NULL DEFAULT '02:00:00';
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LiquorEmailEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LiquorEmailEnabled] BIT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LiquorEmailSignature')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LiquorEmailSignature] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LastSignInDrawExportUtc')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastSignInDrawExportUtc] DATETIME2 NULL;
+
+-- Tax and Payroll Rates
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaStateTaxRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaStateTaxRate] DECIMAL(18,2) NOT NULL DEFAULT 5.0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PfmlEmployeeRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [PfmlEmployeeRate] DECIMAL(18,2) NOT NULL DEFAULT 0.35;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PfmlEmployerRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [PfmlEmployerRate] DECIMAL(18,2) NOT NULL DEFAULT 0.53;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'FicaEmployeeRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [FicaEmployeeRate] DECIMAL(18,2) NOT NULL DEFAULT 7.65;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'FicaEmployerRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [FicaEmployerRate] DECIMAL(18,2) NOT NULL DEFAULT 7.65;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaUnemploymentRate')
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaUnemploymentRate] DECIMAL(18,2) NOT NULL DEFAULT 2.42;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaEmployerAccountNumber')
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaEmployerAccountNumber] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'FederalEmployerIdNumber')
+    ALTER TABLE [dbo].[SystemSettings] ADD [FederalEmployerIdNumber] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'GlobalLiquorPourSize')
+    ALTER TABLE [dbo].[SystemSettings] ADD [GlobalLiquorPourSize] DECIMAL(18,2) NOT NULL DEFAULT 1.5;
 GO
 
 -- Step D: Populate existing NULLs with defaults
@@ -262,7 +349,10 @@ UPDATE [dbo].[SystemSettings] SET
     [PushEnabled] = ISNULL([PushEnabled], 0),
     [PreferredMagicLinkMethod] = ISNULL([PreferredMagicLinkMethod], 'Email'),
     [SmtpPort] = ISNULL([SmtpPort], 587),
-    [SmtpUseSsl] = ISNULL([SmtpUseSsl], 1)
+    [SmtpEnableSsl] = ISNULL([SmtpEnableSsl], 1),
+    [BackupRetentionCount] = ISNULL([BackupRetentionCount], 10),
+    [AllowServerRestoreOperations] = ISNULL([AllowServerRestoreOperations], 0),
+    [MaintenanceModeEnabled] = ISNULL([MaintenanceModeEnabled], 0)
 WHERE Id = 1;
 GO
 
@@ -287,19 +377,10 @@ ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [MinimumBandwidthMbps] INT NOT N
 ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [RemoteQualityMaxBitrate] INT NOT NULL;
 ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [SessionTimeoutMinutes] INT NOT NULL;
 ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WatermarkPosition] NVARCHAR(50) NOT NULL;
+GO
 
 -- 2. WebsiteSettings Table Repair
-    -- Online Payment Settings
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableOnlineRentalsPayment')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableOnlineRentalsPayment] BIT NOT NULL DEFAULT 0;
-
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayUrl')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayUrl] NVARCHAR(MAX) NULL;
-
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayApiKey')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayApiKey] NVARCHAR(MAX) NULL;
-
-PRINT '✓ Verified/Updated WebsiteSettings table';
+PRINT 'Checking WebsiteSettings table...';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
 BEGIN
     CREATE TABLE [dbo].[WebsiteSettings] (
@@ -316,10 +397,7 @@ BEGIN
         [HighAccessibilityMode] BIT NOT NULL DEFAULT 0
     );
 END
-IF NOT EXISTS (SELECT * FROM [dbo].[WebsiteSettings])
-BEGIN
-    INSERT INTO [dbo].[WebsiteSettings] (ClubPhone, PrimaryColor) VALUES ('978-283-0507', '#0D1B2A');
-END
+GO
 
 -- [AUTO-FIX] Ensure new columns exist even if table was already created
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'IsClubOpen')
@@ -347,6 +425,17 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[We
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'MaxHallRentalDurationHours')
     ALTER TABLE [dbo].[WebsiteSettings] ADD [MaxHallRentalDurationHours] INT NULL DEFAULT 8;
 
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'AdditionalHourRate')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [AdditionalHourRate] DECIMAL(18,2) NOT NULL DEFAULT 0;
+
+PRINT '✓ Verified/Updated WebsiteSettings table';
+
+IF NOT EXISTS (SELECT * FROM [dbo].[WebsiteSettings])
+BEGIN
+    INSERT INTO [dbo].[WebsiteSettings] (ClubPhone, PrimaryColor) VALUES ('978-283-0507', '#0D1B2A');
+END
+GO
+
 -- 3. ProtectedDocuments Table Repair
 PRINT 'Checking ProtectedDocuments table...';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ProtectedDocuments')
@@ -361,6 +450,7 @@ BEGIN
         [UploadedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
 END
+GO
 
 -- 4. AppUsers MFA and Email Columns Fix
 PRINT 'Checking AppUsers table for MFA and Email columns...';
@@ -381,7 +471,7 @@ BEGIN
     ALTER TABLE [dbo].[AppUsers] ADD [MfaSecretKey] NVARCHAR(MAX) NULL;
     PRINT 'Added MfaSecretKey column to AppUsers';
 END
-
+GO
 
 -- 5. Data Sanitization for WebsiteSettings (Fix 'Data is Null' errors)
 PRINT 'Sanitizing WebsiteSettings data...';
@@ -400,18 +490,6 @@ BEGIN
     UPDATE [dbo].[WebsiteSettings] SET [BodyFont] = 'Inter' WHERE [BodyFont] IS NULL;
 END
 GO
-
--- 6. Enforce Constraints on WebsiteSettings (Prevent future NULLs)
--- PRINT 'Enforcing constraints on WebsiteSettings...';
--- IF EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
--- BEGIN
---     ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [MemberRate] DECIMAL(18,2) NOT NULL;
---     ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [NonMemberRate] DECIMAL(18,2) NOT NULL;
---     ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [IsClubOpen] BIT NOT NULL;
---     ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [MasterEmailKillSwitch] BIT NOT NULL;
---     ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [HighAccessibilityMode] BIT NOT NULL;
--- END
--- GO
 
 PRINT 'Database fix successfully completed!';
 GO

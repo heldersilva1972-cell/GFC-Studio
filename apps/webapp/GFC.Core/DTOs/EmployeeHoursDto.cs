@@ -43,5 +43,6 @@ namespace GFC.Core.DTOs
 
         public System.Collections.Generic.Dictionary<DateTime, decimal> DailyHours { get; set; } = new();
         public System.Collections.Generic.Dictionary<DateTime, string> DailyShiftTypes { get; set; } = new();
+        public string? Notes { get; set; }
     }
 }

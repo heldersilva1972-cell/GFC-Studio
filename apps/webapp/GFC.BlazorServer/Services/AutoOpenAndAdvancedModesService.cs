@@ -205,11 +205,13 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers
+            .OrderBy(c => c.Id)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null) return null;
 
         var options = await dbContext.ControllerBehaviorOptions
+            .OrderBy(o => o.Id)
             .FirstOrDefaultAsync(o => o.ControllerId == controllerId, cancellationToken);
 
         return new ControllerBehaviorViewModel
@@ -226,6 +228,7 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var existing = await dbContext.ControllerBehaviorOptions
+            .OrderBy(o => o.Id)
             .FirstOrDefaultAsync(o => o.ControllerId == model.ControllerId, cancellationToken);
 
         if (existing != null)
@@ -297,6 +300,7 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers
+            .OrderBy(c => c.Id)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -331,6 +335,7 @@ public class AutoOpenAndAdvancedModesService
                         var link = links.FirstOrDefault(l => l.ControllerProfileIndex == task.TimeZoneIndex && l.IsEnabled);
                         
                         var existing = await dbContext.DoorAutoOpenSchedules
+                            .OrderBy(s => s.Id)
                             .FirstOrDefaultAsync(s => s.DoorId == door.Id, cancellationToken);
 
                         if (existing != null)
@@ -368,6 +373,7 @@ public class AutoOpenAndAdvancedModesService
                     if (door != null)
                     {
                         var existing = await dbContext.DoorBehaviorOptions
+                            .OrderBy(o => o.Id)
                             .FirstOrDefaultAsync(o => o.DoorId == door.Id, cancellationToken);
 
                         if (existing != null)
@@ -397,6 +403,7 @@ public class AutoOpenAndAdvancedModesService
                 if (advancedModesDto.ControllerOptions != null)
                 {
                     var existing = await dbContext.ControllerBehaviorOptions
+                        .OrderBy(o => o.Id)
                         .FirstOrDefaultAsync(o => o.ControllerId == controllerId, cancellationToken);
 
                     if (existing != null)
@@ -436,6 +443,7 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers
+            .OrderBy(c => c.Id)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -487,6 +495,7 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers
+            .OrderBy(c => c.Id)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -538,6 +547,7 @@ public class AutoOpenAndAdvancedModesService
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers
+            .OrderBy(c => c.Id)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)

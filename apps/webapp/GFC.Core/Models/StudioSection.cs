@@ -15,7 +15,7 @@ namespace GFC.Core.Models
         public int StudioPageId { get; set; }
 
         [ForeignKey("StudioPageId")]
-        public virtual StudioPage StudioPage { get; set; }
+        public virtual StudioPage StudioPage { get; set; } = default!;
 
         [Required]
         [StringLength(100)]
@@ -89,10 +89,10 @@ namespace GFC.Core.Models
         }
 
         [NotMapped]
-        public string Title { get; set; } // Display title for the section
+        public string Title { get; set; } = string.Empty; // Display title for the section
 
         [NotMapped]
-        public string Content { get; set; } // For RichTextBlock content
+        public string Content { get; set; } = string.Empty; // For RichTextBlock content
 
         [NotMapped]
         public int PageIndex 
@@ -131,11 +131,11 @@ namespace GFC.Core.Models
                     // If content is in properties, pull it out to Content
                     if (properties.ContainsKey("content"))
                     {
-                        Content = properties["content"].ToString();
+                        Content = properties["content"]?.ToString() ?? string.Empty;
                     }
                     if (properties.ContainsKey("headline"))
                     {
-                        Title = properties["headline"].ToString();
+                        Title = properties["headline"]?.ToString() ?? string.Empty;
                     }
                 }
                 catch { /* ignore serialization errors */ }

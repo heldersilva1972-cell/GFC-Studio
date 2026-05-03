@@ -62,6 +62,8 @@ public class SystemSettings
     public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
     public bool EnableOnboarding { get; set; } = false;
     public bool SafeModeEnabled { get; set; } = false;
+    public bool MagicLinkEnabled { get; set; } = true;
+    public string PreferredMagicLinkMethod { get; set; } = "Email";
     public string SystemTimeZoneId { get; set; } = "Eastern Standard Time";
     public string BackupMethod { get; set; } = "External USB";
     public DateTime? LastSuccessfulBackupUtc { get; set; }
@@ -85,8 +87,13 @@ public class SystemSettings
     public string? TwilioFromNumber { get; set; }
     public string? SmtpHost { get; set; }
     public int SmtpPort { get; set; } = 587;
+    [Column("SmtpUser")]
     public string? SmtpUsername { get; set; }
+    
+    [Column("SmtpPass")]
     public string? SmtpPassword { get; set; }
+    
+    [Column("SmtpUseSsl")]
     public bool SmtpEnableSsl { get; set; } = true;
     public string? SmtpFromAddress { get; set; }
     public string? SmtpFromName { get; set; } = "GFC System";
@@ -100,6 +107,8 @@ public class SystemSettings
     public TimeSpan NightShiftEndTime { get; set; } = new TimeSpan(2, 0, 0);
     public bool LiquorEmailEnabled { get; set; } = false;
     public string? LiquorEmailSignature { get; set; }
+    public string? LiquorEmailFooter { get; set; }
+    public string? LiquorEmailCc { get; set; }
     public DateTime? LastSignInDrawExportUtc { get; set; }
     public decimal MaStateTaxRate { get; set; } = 5.0m;
     public decimal PfmlEmployeeRate { get; set; } = 0.35m;

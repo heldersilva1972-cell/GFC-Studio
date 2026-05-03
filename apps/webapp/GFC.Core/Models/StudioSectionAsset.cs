@@ -11,10 +11,10 @@ namespace GFC.Core.Models
 
         public int StudioSectionId { get; set; }
         [ForeignKey("StudioSectionId")]
-        public virtual StudioSection StudioSection { get; set; }
+        public virtual StudioSection StudioSection { get; set; } = default!;
 
         public int MediaAssetId { get; set; }
         [ForeignKey("MediaAssetId")]
-        public virtual MediaAsset MediaAsset { get; set; }
+        public virtual MediaAsset MediaAsset { get; set; } = default!;
     }
 }

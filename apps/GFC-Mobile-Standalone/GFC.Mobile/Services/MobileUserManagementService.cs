@@ -231,4 +231,25 @@ public class MobileUserManagementService : IUserManagementService
     public void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy) => throw new NotImplementedException();
     public List<int> GetDefaultPageIds() => throw new NotImplementedException();
     public void SetDefaultPageIds(List<int> pageIds) => throw new NotImplementedException();
+    public async Task<GFC.Core.Models.GfcLoginResult> RefreshPermissionsAsync(string token)
+    {
+        try
+        {
+            // We use the same base URL detection as the rest of the app
+            var response = await _http.GetAsync($"/api/mobile-auth/user?token={token}");
+            if (!response.IsSuccessStatusCode) return new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Sync failed" };
+
+            var result = await response.Content.ReadFromJsonAsync<GFC.Core.Models.GfcLoginResult>();
+            if (result != null && result.Code == LoginResultCode.Success && result.Permissions != null)
+            {
+                UpdateCachedPermissions(result.Permissions);
+                return result;
+            }
+            return result ?? new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error };
+        }
+        catch (Exception ex)
+        {
+            return new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = ex.Message };
+        }
+    }
 }

@@ -33,6 +33,8 @@ namespace GFC.Core.DTOs
         public decimal EnvelopeAmount { get; set; }
         public string? CreatedBy { get; set; }
         public DateTime CreatedDate { get; set; }
+        public string? ModifiedBy { get; set; }
+        public DateTime? ModifiedDate { get; set; }
         
         // Joined Data from BarSaleEntries
         public decimal? BarLaborHours { get; set; }

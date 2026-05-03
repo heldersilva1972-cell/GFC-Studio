@@ -17,13 +17,13 @@ namespace GFC.Core.Models
         /// </summary>
         [Required]
         [StringLength(128)]
-        public string ResumeToken { get; set; }
+        public string ResumeToken { get; set; } = string.Empty;
 
         /// <summary>
         /// A JSON serialized string representing the data the user has entered so far.
         /// </summary>
         [Required]
-        public string FormData { get; set; }
+        public string FormData { get; set; } = "{}";
 
         /// <summary>
         /// The date and time when this inquiry was created.

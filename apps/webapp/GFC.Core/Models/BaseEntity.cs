@@ -52,5 +52,5 @@ public abstract class BaseEntity
     /// Prevents data loss if two people edit the same record at once.
     /// </summary>
     [Timestamp]
-    public byte[] RowVersion { get; set; }
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

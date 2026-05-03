@@ -6,9 +6,11 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.25.0"; 
+    public string GetRevision() => "2.27.0"; 
     
     // REVISION HISTORY:
+    // 2.27.0: Centered Janitor Hours layout and improved header text visibility.
+    // 2.26.0: Fixed payroll mapping issues and stabilized mobile reporting hub.
     // 2.25.0: Removed back navigation button from header for a cleaner UI.
     // 2.24.0: Improved USB permission handling and synchronized multi-project printer configuration logic.
     // 2.23.0: Added support for Ethernet (TCP/IP) printers and redesigned printer settings architecture.

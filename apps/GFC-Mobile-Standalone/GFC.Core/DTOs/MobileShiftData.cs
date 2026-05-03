@@ -1,6 +1,6 @@
 namespace GFC.Core.DTOs;
 
-public class MobileShiftData
+public class MobileShiftData // Revision 2.1.35
 {
     public DateTime Date { get; set; }
     public string ShiftType { get; set; } = string.Empty;
@@ -24,6 +24,7 @@ public class MobileShiftData
     public decimal? PrevDaySales { get; set; }
     public decimal? PrevDayCashes { get; set; }
     public decimal? PrevDayTickets { get; set; }
+    public decimal? PrevDayNetDue { get; set; }
     
     // Calculated Totals for Audit
 

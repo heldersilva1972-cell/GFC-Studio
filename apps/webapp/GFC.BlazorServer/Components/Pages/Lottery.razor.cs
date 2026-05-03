@@ -812,7 +812,7 @@ namespace GFC.BlazorServer.Components.Pages
                 }
             }
 
-            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount;
+            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount - (BagRefillAmount ?? 0);
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY

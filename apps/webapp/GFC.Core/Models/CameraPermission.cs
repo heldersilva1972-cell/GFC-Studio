@@ -21,13 +21,13 @@ namespace GFC.Core.Models
         public int CameraId { get; set; }
 
         [ForeignKey("CameraId")]
-        public Camera Camera { get; set; }
+        public Camera Camera { get; set; } = default!;
 
         [Required]
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = default!;
 
         [Required]
         public CameraAccessLevel AccessLevel { get; set; }

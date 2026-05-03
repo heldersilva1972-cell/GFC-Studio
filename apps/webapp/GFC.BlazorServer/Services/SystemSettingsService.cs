@@ -22,6 +22,7 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
     private readonly ILogger<SystemSettingsService> _logger;
     private readonly IMemoryCache _cache;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IEncryptionService _encryptionService;
     private const string CacheKey = "SystemSettings";
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(5);
 
@@ -29,12 +30,14 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         IDbContextFactory<GfcDbContext> contextFactory, 
         ILogger<SystemSettingsService> logger,
         IMemoryCache cache,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IEncryptionService encryptionService)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
     }
 
     public async Task<SystemSettings> GetAsync()
@@ -67,6 +70,15 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 dbContext.SystemSettings.Add(settings);
                 await dbContext.SaveChangesAsync();
                 _logger.LogInformation("Created default SystemSettings with fixed defaults");
+            }
+            
+            if (settings != null)
+            {
+                if (!string.IsNullOrEmpty(settings.ResendApiKey))
+                    settings.ResendApiKey = _encryptionService.Decrypt(settings.ResendApiKey);
+                
+                if (!string.IsNullOrEmpty(settings.SmtpPassword))
+                    settings.SmtpPassword = _encryptionService.Decrypt(settings.SmtpPassword);
             }
             
             // Cache the settings
@@ -190,6 +202,15 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 _logger.LogInformation("Created default SystemSettings with fixed defaults (sync)");
             }
             
+            if (settings != null)
+            {
+                if (!string.IsNullOrEmpty(settings.ResendApiKey))
+                    settings.ResendApiKey = _encryptionService.Decrypt(settings.ResendApiKey);
+                
+                if (!string.IsNullOrEmpty(settings.SmtpPassword))
+                    settings.SmtpPassword = _encryptionService.Decrypt(settings.SmtpPassword);
+            }
+
             // Cache the settings
             _cache.Set(CacheKey, settings, CacheExpiration);
             
@@ -297,11 +318,31 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         // Email & Gateway Settings
         existingSettings.EmailEnabled = settings.EmailEnabled;
         existingSettings.EmailProvider = settings.EmailProvider;
-        existingSettings.ResendApiKey = settings.ResendApiKey;
+        
+        // Encrypt Resend API Key before saving
+        if (!string.IsNullOrEmpty(settings.ResendApiKey))
+        {
+            existingSettings.ResendApiKey = _encryptionService.Encrypt(settings.ResendApiKey);
+        }
+        else
+        {
+            existingSettings.ResendApiKey = settings.ResendApiKey;
+        }
+
         existingSettings.SmtpHost = settings.SmtpHost;
         existingSettings.SmtpPort = settings.SmtpPort;
         existingSettings.SmtpUsername = settings.SmtpUsername;
-        existingSettings.SmtpPassword = settings.SmtpPassword;
+        
+        // Encrypt SMTP Password before saving
+        if (!string.IsNullOrEmpty(settings.SmtpPassword))
+        {
+            existingSettings.SmtpPassword = _encryptionService.Encrypt(settings.SmtpPassword);
+        }
+        else
+        {
+            existingSettings.SmtpPassword = settings.SmtpPassword;
+        }
+
         existingSettings.SmtpEnableSsl = settings.SmtpEnableSsl;
         existingSettings.SmtpFromAddress = settings.SmtpFromAddress;
         existingSettings.SmtpFromName = settings.SmtpFromName;
@@ -335,6 +376,8 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         // Liquor Specific Settings
         existingSettings.LiquorEmailEnabled = settings.LiquorEmailEnabled;
         existingSettings.LiquorEmailSignature = settings.LiquorEmailSignature;
+        existingSettings.LiquorEmailFooter = settings.LiquorEmailFooter;
+        existingSettings.LiquorEmailCc = settings.LiquorEmailCc;
         existingSettings.GlobalLiquorPourSize = settings.GlobalLiquorPourSize;
 
 
@@ -354,8 +397,15 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         _cache.Remove(CacheKey);
         
         // Invalidate EmailSettings options cache (for IOptionsMonitor to detect changes immediately)
-        var optionsCache = _serviceProvider.GetService<IOptionsMonitorCache<EmailSettings>>();
-        optionsCache?.Clear();
+        try 
+        {
+            var optionsCache = _serviceProvider.GetService<IOptionsMonitorCache<EmailSettings>>();
+            optionsCache?.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear EmailSettings options cache.");
+        }
         
         _logger.LogInformation("Updated system settings and invalidated options cache");
     }
@@ -376,7 +426,9 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 
                 var testMessage = new
                 {
-                    from = $"{settings.SmtpFromName} <{settings.SmtpFromAddress}>",
+                    from = string.IsNullOrWhiteSpace(settings.SmtpFromName) 
+                        ? settings.SmtpFromAddress 
+                        : $"\"{settings.SmtpFromName}\" <{settings.SmtpFromAddress}>",
                     to = new[] { settings.SmtpFromAddress },
                     subject = "LiquorHub Connection Test",
                     html = "<strong>Success!</strong> Your Resend API connection is working correctly."

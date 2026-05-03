@@ -9,8 +9,6 @@ using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services;
 using GFC.Core.Interfaces;
 using GFC.Core.Services;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -72,6 +70,7 @@ public class VpnConfigurationService : IVpnConfigurationService
         
         // Find existing active profile
         var profile = await context.VpnProfiles
+            .OrderBy(p => p.Id)
             .FirstOrDefaultAsync(p => p.UserId == userId && p.RevokedAt == null);
 
         if (profile != null)
@@ -205,6 +204,7 @@ public class VpnConfigurationService : IVpnConfigurationService
         using var context = await _dbContextFactory.CreateDbContextAsync();
         
         var record = await context.VpnOnboardingTokens
+            .OrderBy(t => t.Id)
             .FirstOrDefaultAsync(t => t.Token == token);
 
         if (record == null || record.IsUsed || record.ExpiresAtUtc < DateTime.UtcNow) 
@@ -225,7 +225,7 @@ public class VpnConfigurationService : IVpnConfigurationService
     public async Task SetTokenUsedAsync(string token)
     {
         using var context = await _dbContextFactory.CreateDbContextAsync();
-        var record = await context.VpnOnboardingTokens.FirstOrDefaultAsync(t => t.Token == token);
+        var record = await context.VpnOnboardingTokens.OrderBy(t => t.Id).FirstOrDefaultAsync(t => t.Token == token);
         if (record != null)
         {
             record.IsUsed = true;

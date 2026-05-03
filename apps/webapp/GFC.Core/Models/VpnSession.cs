@@ -15,13 +15,13 @@ namespace GFC.Core.Models
         public int VpnProfileId { get; set; }
 
         [ForeignKey("VpnProfileId")]
-        public VpnProfile VpnProfile { get; set; }
+        public VpnProfile VpnProfile { get; set; } = default!;
 
         [Required]
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = default!;
 
         public DateTime ConnectedAt { get; set; } = DateTime.UtcNow;
 
@@ -29,7 +29,7 @@ namespace GFC.Core.Models
 
         [Required]
         [MaxLength(50)]
-        public string ClientIP { get; set; }
+        public string ClientIP { get; set; } = string.Empty;
 
         public long BytesReceived { get; set; } = 0;
 

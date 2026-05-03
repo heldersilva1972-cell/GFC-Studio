@@ -30,7 +30,7 @@ namespace GFC.BlazorServer.Services
             }
 
             await using var _context = await _contextFactory.CreateDbContextAsync();
-            var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+            var settings = await _context.WebsiteSettings.OrderBy(s => s.Id).FirstOrDefaultAsync();
             if (settings == null)
             {
                 settings = new WebsiteSettings
@@ -100,7 +100,7 @@ namespace GFC.BlazorServer.Services
                 settings.AvEquipmentFee ??= 25;
                 settings.SecurityDepositAmount ??= 100;
                 
-                var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+                var existingSettings = await _context.WebsiteSettings.OrderBy(s => s.Id).FirstOrDefaultAsync();
                 
                 if (existingSettings == null)
                 {

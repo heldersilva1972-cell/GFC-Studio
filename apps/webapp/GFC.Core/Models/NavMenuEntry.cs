@@ -9,10 +9,10 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [Required]
-        public string Label { get; set; }
+        public string Label { get; set; } = string.Empty;
 
         [Required]
-        public string Url { get; set; }
+        public string Url { get; set; } = string.Empty;
 
         public int? ParentId { get; set; }
     }

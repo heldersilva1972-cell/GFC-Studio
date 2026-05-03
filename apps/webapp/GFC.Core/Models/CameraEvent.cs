@@ -21,7 +21,7 @@ namespace GFC.Core.Models
         public int CameraId { get; set; }
 
         [ForeignKey("CameraId")]
-        public Camera Camera { get; set; }
+        public Camera Camera { get; set; } = default!;
 
         [Required]
         public CameraEventType EventType { get; set; }
@@ -30,6 +30,6 @@ namespace GFC.Core.Models
         public DateTime Timestamp { get; set; }
 
         [StringLength(1000)]
-        public string Description { get; set; }
+        public string Description { get; set; } = string.Empty;
     }
 }

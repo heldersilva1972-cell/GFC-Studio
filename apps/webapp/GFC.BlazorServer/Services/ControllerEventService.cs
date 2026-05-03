@@ -498,14 +498,10 @@ public class ControllerEventService
             query = query.Where(e => e.IsSimulated == isSimulated.Value);
         }
 
-        if (limit.HasValue && limit > 0)
-        {
-            query = query.Take(limit.Value);
-        }
-
         return await query
             .OrderByDescending(e => e.CreatedUtc)
             .ThenByDescending(e => e.RawIndex)
+            .Take(limit ?? 500)
             .ToListAsync(cancellationToken);
     }
 

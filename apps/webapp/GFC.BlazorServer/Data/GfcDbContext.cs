@@ -161,6 +161,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("YearlyWages", "dbo");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.HourlyRate).HasColumnType("decimal(18,2)");
             entity.HasQueryFilter(y => !y.IsDeleted);
         });
 
@@ -168,12 +169,17 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("TaxBrackets", "dbo");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.LowerBound).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.UpperBound).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.BaseTax).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Rate).HasColumnType("decimal(18,4)"); // Rate usually needs more scale
         });
 
         modelBuilder.Entity<TaxStandardDeduction>(entity =>
         {
             entity.ToTable("TaxStandardDeductions", "dbo");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
         });
 
         // Standard "Gold Standard" Query Filter for Soft Deletes
@@ -377,8 +383,13 @@ public class GfcDbContext : DbContext
                 LastUpdatedUtc = null
             });
 
-            // REMOVED: .HasConversion<string>() for AccessMode to resolve System.Int32 to System.String cast error
-            // The database column is currently an INT in most deployments.
+            entity.Property(e => e.MaStateTaxRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.PfmlEmployeeRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.PfmlEmployerRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.FicaEmployeeRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.FicaEmployerRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.MaUnemploymentRate).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.GlobalLiquorPourSize).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<GFC.BlazorServer.Data.Entities.MemberDoorAccess>(entity =>
@@ -509,6 +520,11 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("AppUsers", "dbo");
             entity.HasKey(u => u.UserId);
+            entity.Property(u => u.HourlyRate).HasColumnType("decimal(18,2)");
+            entity.Property(u => u.DependentsAmount).HasColumnType("decimal(18,2)");
+            entity.Property(u => u.OtherIncomeAmount).HasColumnType("decimal(18,2)");
+            entity.Property(u => u.DeductionsAmount).HasColumnType("decimal(18,2)");
+            entity.Property(u => u.ExtraWithholdingAmount).HasColumnType("decimal(18,2)");
         });
 
         // Camera system configuration
@@ -760,6 +776,11 @@ public class GfcDbContext : DbContext
             entity.HasIndex(e => e.SaleDate);
             entity.HasIndex(e => new { e.AdjustedSaleDate, e.Shift, e.IsRentalHall }).IsUnique();
             entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OriginalTotalSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalHours).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.HourlyRate_AtTimeOfShift).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalEmployeeTaxes_AtTimeOfShift).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalEmployerTaxes_AtTimeOfShift).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<StudioSectionAsset>(entity =>
@@ -817,6 +838,7 @@ public class GfcDbContext : DbContext
             entity.ToTable("PosZReports");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.CashTotal).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalGrossSales).HasColumnType("decimal(18,2)");
         });
 
         // Finance System Configuration
@@ -897,6 +919,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("LiquorVendors");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.MinimumOrderAmount).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<LiquorOrder>(entity =>
@@ -938,6 +961,9 @@ public class GfcDbContext : DbContext
             entity.ToTable("LotteryShifts", "dbo");
             entity.HasKey(e => e.ShiftId);
             entity.HasIndex(e => new { e.ShiftDate, e.ShiftType }).IsUnique();
+            
+            entity.Property(e => e.StartingCash).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.EndingCash).HasColumnType("decimal(18,2)");
             entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
             entity.Property(e => e.TotalPayouts).HasColumnType("decimal(18,2)");
             entity.Property(e => e.TotalCancels).HasColumnType("decimal(18,2)");
@@ -945,11 +971,19 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.CashBonus).HasColumnType("decimal(18,2)");
             entity.Property(e => e.ClaimsBonus).HasColumnType("decimal(18,2)");
             entity.Property(e => e.NetDue).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.StartingCash).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.EndingCash).HasColumnType("decimal(18,2)");
             entity.Property(e => e.BackupBagAmount).HasColumnType("decimal(18,2)");
             entity.Property(e => e.EnvelopeAmount).HasColumnType("decimal(18,2)");
             entity.Property(e => e.BagRefillAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.NetSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ExpectedCash).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Variance).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.LotteryIncome).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.NetIncome).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ShiftSalesActivity).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ShiftPayoutsActivity).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ShiftCancelsActivity).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ShiftNetDueActivity).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OriginalTotalSales).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<LotteryWeeklyStat>(entity =>
@@ -976,28 +1010,6 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.TotalDue).HasColumnType("decimal(18,2)");
         });
 
-        modelBuilder.Entity<LotteryShift>(entity =>
-        {
-            entity.ToTable("LotteryShifts");
-            entity.Property(e => e.StartingCash).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.EndingCash).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.TotalPayouts).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.TotalCancels).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.NetDue).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.BackupBagAmount).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.EnvelopeAmount).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.BagRefillAmount).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.NetSales).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.ExpectedCash).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.Variance).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.LotteryIncome).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.NetIncome).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.ShiftSalesActivity).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.ShiftPayoutsActivity).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.ShiftCancelsActivity).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.ShiftNetDueActivity).HasColumnType("decimal(18,2)");
-        });
 
         modelBuilder.Entity<ClubEvent>(entity =>
         {
@@ -1024,6 +1036,13 @@ public class GfcDbContext : DbContext
             entity.HasIndex(e => e.DisplayOrder);
         });
 
+        modelBuilder.Entity<PosToken>(entity =>
+        {
+            entity.ToTable("PosTokens", "dbo");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SalePrice).HasColumnType("decimal(18,2)");
+        });
+
         modelBuilder.Entity<BoardAssignment>(entity =>
         {
             entity.ToTable("BoardAssignments");
@@ -1034,6 +1053,13 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("BoardPositions");
             entity.HasKey(e => e.PositionID);
+        });
+
+        modelBuilder.Entity<PosSale>(entity =>
+        {
+            entity.ToTable("PosSales", "dbo");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
         });
     }
 

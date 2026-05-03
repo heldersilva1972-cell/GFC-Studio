@@ -661,4 +661,9 @@ public class UserManagementService : IUserManagementService
     {
         _pagePermissionRepository.SetDefaultPageIds(pageIds);
     }
+
+    public async Task<GFC.Core.Models.GfcLoginResult> RefreshPermissionsAsync(string token)
+    {
+        return await Task.FromResult(new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Not implemented for core service in mobile." });
+    }
 }

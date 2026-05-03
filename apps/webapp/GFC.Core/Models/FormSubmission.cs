@@ -14,10 +14,10 @@ namespace GFC.Core.Models
         public int FormId { get; set; }
 
         [ForeignKey("FormId")]
-        public virtual Form Form { get; set; }
+        public virtual Form Form { get; set; } = default!;
 
         [Required]
-        public string SubmissionData { get; set; } // JSON string of submitted data
+        public string SubmissionData { get; set; } = string.Empty; // JSON string of submitted data
 
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 

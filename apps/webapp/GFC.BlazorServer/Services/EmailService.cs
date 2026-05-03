@@ -9,13 +9,8 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class EmailService(IEmailProviderFactory factory) : IEmailService
 {
-    public Task SendEmailAsync(string recipientEmail, string subject, string body, Dictionary<string, byte[]>? attachments = null)
+    public Task<EmailResult> SendEmailAsync(string recipientEmail, string subject, string body, Dictionary<string, byte[]>? attachments = null, string? ccEmail = null)
     {
-        return factory.GetEmailService().SendEmailAsync(recipientEmail, subject, body, attachments);
-    }
-
-    public Task SendOrderEmailAsync(string toEmail, string subject, LiquorOrder order)
-    {
-        return factory.GetEmailService().SendOrderEmailAsync(toEmail, subject, order);
+        return factory.GetEmailService().SendEmailAsync(recipientEmail, subject, body, attachments, ccEmail);
     }
 }

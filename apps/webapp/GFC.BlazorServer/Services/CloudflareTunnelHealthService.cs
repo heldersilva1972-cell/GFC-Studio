@@ -56,7 +56,7 @@ namespace GFC.BlazorServer.Services
         {
             using var scope = _services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
-            var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+            var settings = await dbContext.SystemSettings.OrderBy(s => s.Id).FirstOrDefaultAsync();
 
             if (string.IsNullOrWhiteSpace(settings?.PrimaryDomain))
             {

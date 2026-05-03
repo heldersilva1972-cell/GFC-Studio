@@ -13,6 +13,10 @@ public interface IMobileReportingService
     Task<DailyShiftSummary> GetDailySummaryAsync(DateTime date);
     Task<string> GetServerVersionAsync();
     Task<LotteryCommissionRate> GetLotteryRateAsync(int year);
+    Task FlushOutboxAsync();
+    Task<int> GetPendingCountAsync();
+    int PendingCount { get; }
+    event Action? OutboxChanged;
 }
 
 public class DailyShiftSummary

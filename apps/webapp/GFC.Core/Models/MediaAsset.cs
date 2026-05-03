@@ -14,15 +14,15 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(255)]
-        public string FileName { get; set; } // Original file name
+        public string FileName { get; set; } = string.Empty; // Original file name
 
         [Required]
         [StringLength(255)]
-        public string StoredFileName { get; set; } // Actual file name on disk
+        public string StoredFileName { get; set; } = string.Empty; // Actual file name on disk
 
         [Required]
         [StringLength(100)]
-        public string ContentType { get; set; }
+        public string ContentType { get; set; } = string.Empty;
 
         // [Fix] Schema has BOTH 'Size' and 'FileSize' as bigint NOT NULL. 
         // We map both to ensure inserts succeed regardless of which one is legacy.
@@ -33,7 +33,7 @@ namespace GFC.Core.Models
         public long FileSize { get; set; }
 
         [Required]
-        public string Url { get; set; }
+        public string Url { get; set; } = string.Empty;
 
         // [Fix] Schema has both CreatedAt and UploadedAt as NOT NULL
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -43,14 +43,14 @@ namespace GFC.Core.Models
         // [Fix] Schema has UploadedBy (nvarchar(100), NOT NULL). Must be mapped and required.
         [Required]
         [StringLength(100)]
-        public string UploadedBy { get; set; }
+        public string UploadedBy { get; set; } = string.Empty;
 
         // [Fix] Schema has Tag (nvarchar(100), NULL). Should be mapped.
         [StringLength(100)]
         public string? Tag { get; set; }
 
         [Required]
-        public string Usage { get; set; } 
+        public string Usage { get; set; } = string.Empty; 
 
         [NotMapped]
         public string FilePath 
@@ -62,7 +62,7 @@ namespace GFC.Core.Models
         public int? AssetFolderId { get; set; }
 
         [ForeignKey("AssetFolderId")]
-        public virtual AssetFolder AssetFolder { get; set; }
+        public virtual AssetFolder AssetFolder { get; set; } = default!;
 
         // Mapped in DbContext but potentially missing from DB. 
         // We will keep it but STOP the service from trying to save settings into it.

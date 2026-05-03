@@ -14,22 +14,22 @@ namespace GFC.Core.Models
         public int CameraId { get; set; }
 
         [ForeignKey("CameraId")]
-        public Camera Camera { get; set; }
+        public Camera Camera { get; set; } = default!;
 
         [Required]
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = default!;
 
         [Required]
         [StringLength(100)]
-        public string Action { get; set; }
+        public string Action { get; set; } = string.Empty;
 
         [Required]
         public DateTime Timestamp { get; set; }
 
         [StringLength(1000)]
-        public string Details { get; set; }
+        public string Details { get; set; } = string.Empty;
     }
 }

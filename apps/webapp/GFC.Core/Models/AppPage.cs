@@ -12,17 +12,17 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(100)]
-        public string PageName { get; set; }
+        public string PageName { get; set; } = string.Empty;
 
         [Required]
         [StringLength(255)]
-        public string PageRoute { get; set; }
+        public string PageRoute { get; set; } = string.Empty;
 
         [StringLength(500)]
-        public string Description { get; set; }
+        public string Description { get; set; } = string.Empty;
 
         [StringLength(100)]
-        public string Category { get; set; }
+        public string Category { get; set; } = string.Empty;
 
         public bool RequiresAdmin { get; set; }
 

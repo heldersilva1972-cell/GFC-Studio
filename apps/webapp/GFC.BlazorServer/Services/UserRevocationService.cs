@@ -6,8 +6,6 @@ using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services.Vpn;
 using GFC.Core.Interfaces;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;

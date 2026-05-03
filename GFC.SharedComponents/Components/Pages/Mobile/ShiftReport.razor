@@ -422,7 +422,11 @@
                                                 <span class="btn-label-text">Day Shift</span>
                                                 <div class="shift-btn-status-footer">
                                                     @if (_dayMainSubmitted) { 
-                                                        <span class="status-tag-text success">@(_dayMainModified ? "UPDATED BY" : "CLOSED BY")@(_dayMainModified ? " ✏️" : "")</span> 
+                                                        @if (ShiftType == "Day" && HasUnsavedChanges) {
+                                                            <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
+                                                        } else {
+                                                            <span class="status-tag-text success">@(_dayMainModified ? "UPDATED BY" : "CLOSED BY")@(_dayMainModified ? " ✏️" : "")</span> 
+                                                        }
                                                         @if (!string.IsNullOrEmpty(_dayCloser)) { <span class="user-pill success">@_dayCloser.ToUpper()</span> }
                                                     } else if (_dayMainHasData) {
                                                         <span class="status-tag-text warning">@(ShiftType == "Day" ? "CORRECTING..." : "DRAFT / IN PROGRESS")</span>
@@ -443,7 +447,11 @@
                                                 <span class="btn-label-text">Night Shift</span>
                                                 <div class="shift-btn-status-footer">
                                                     @if (_nightMainSubmitted) { 
-                                                        <span class="status-tag-text success">@(_nightMainModified ? "UPDATED BY" : "CLOSED BY")@(_nightMainModified ? " ✏️" : "")</span> 
+                                                        @if (ShiftType == "Night" && HasUnsavedChanges) {
+                                                            <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
+                                                        } else {
+                                                            <span class="status-tag-text success">@(_nightMainModified ? "UPDATED BY" : "CLOSED BY")@(_nightMainModified ? " ✏️" : "")</span> 
+                                                        }
                                                         @if (!string.IsNullOrEmpty(_nightCloser)) { <span class="user-pill success">@_nightCloser.ToUpper()</span> }
                                                     } else if (_nightMainHasData) {
                                                         <span class="status-tag-text warning">@(ShiftType == "Night" ? "CORRECTING..." : "DRAFT / IN PROGRESS")</span>
@@ -477,8 +485,14 @@
                                             <span class="btn-label-text">Upstairs Bar Entry</span>
                                             <div class="shift-btn-status-footer">
                                                 @if (_hallSubmitted) { 
-                                                    <span class="status-tag-text success">CLOSED BY</span> 
+                                                    @if (ShiftType == "Hall" && HasUnsavedChanges) {
+                                                        <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
+                                                    } else {
+                                                        <span class="status-tag-text success">@(_hallModified ? "UPDATED BY" : "CLOSED BY")@(_hallModified ? " ✏️" : "")</span> 
+                                                    }
                                                     @if (!string.IsNullOrEmpty(_hallCloser)) { <span class="user-pill success">@_hallCloser.ToUpper()</span> }
+                                                } else if (_hallModified) {
+                                                    <span class="status-tag-text warning">@(ShiftType == "Hall" ? "CORRECTING..." : "DRAFT / IN PROGRESS")</span>
                                                 }
                                             </div>
                                         </button>
@@ -1889,7 +1903,10 @@
             _currentBuffer = "";
             _fieldFreshlyActivated = false;
             // If we're starting a brand new 'Net Due' entry, reset the sign to positive
-            if (_activeField == "LottoNetDue") LottoNetDue = 0;
+            if (_activeField == "LottoNetDue") {
+                LottoNetDue = 0;
+                _lottoSignConfirmed = false; // [FIX] Force sign confirmation on new entry
+            }
         }
 
         // Basic buffer logic for decimal entry
@@ -2056,6 +2073,7 @@
                 Date = ReportDate, Shift = ShiftType,
                 BarSales, LottoSales, LottoCashes, LottoInstantTickets, LottoNetDue,
                 LottoOpeningCash, LottoBackupBag, LottoCashCounted, TotalHours, Notes,
+                ModifiedBy = _currentUsername,
                 Timestamp = DateTime.UtcNow
             };
             var json = global::System.Text.Json.JsonSerializer.Serialize(data);
@@ -2108,6 +2126,12 @@
                 LottoBackupBag = LottoBackupBag,
                 LottoCashCounted = LottoCashCounted,
                 LottoOpeningCash = LottoOpeningCash,
+                PrevDaySales = _prevDaySales,
+                PrevDayCashes = _prevDayCashes,
+                PrevDayTickets = _prevDayTickets,
+                PrevDayNetDue = _prevDayNetDue,
+                EnvelopeAmount = LottoEnvelopeAmount,
+                BagRefillAmount = LottoBagRefill,
                 Notes = Notes
             };
 
@@ -2231,6 +2255,7 @@
     private decimal? _originalLottoCashCounted;
     private decimal? _originalTotalHours;
     private string? _originalNotes;
+    private string? _originalStatus;
 
     private bool HasUnsavedChanges => 
         !Loading && !Submitted && !string.IsNullOrEmpty(ShiftType) &&
@@ -2473,16 +2498,27 @@
             // HYDRATE UI FIELDS
             if (data != null)
             {
-                BarSales = data.BarSales;
-                TotalHours = data.TotalHours;
-                LottoSales = data.LottoSales;
-                LottoCashes = data.LottoCashes;
-                LottoInstantTickets = data.LottoInstantTickets;
-                LottoNetDue = data.LottoNetDue;
-                LottoBackupBag = data.LottoBackupBag;
-                LottoCashCounted = data.LottoCashCounted;
-                LottoOpeningCash = data.LottoOpeningCash;
-                Notes = data.Notes;
+                if (ExistingEntryFound)
+                {
+                    BarSales = data.BarSales;
+                    TotalHours = data.TotalHours;
+                    LottoSales = data.LottoSales;
+                    LottoCashes = data.LottoCashes;
+                    LottoInstantTickets = data.LottoInstantTickets;
+                    LottoNetDue = data.LottoNetDue;
+                    LottoBackupBag = data.LottoBackupBag;
+                    LottoCashCounted = data.LottoCashCounted;
+                    LottoOpeningCash = data.LottoOpeningCash;
+                    Notes = data.Notes;
+                }
+                else
+                {
+                    if (LottoOpeningCash == null || LottoOpeningCash == 0) LottoOpeningCash = data.LottoOpeningCash;
+                    if ((_prevDaySales ?? 0) == 0) _prevDaySales = data.PrevDaySales ?? 0;
+                    if ((_prevDayCashes ?? 0) == 0) _prevDayCashes = data.PrevDayCashes ?? 0;
+                    if ((_prevDayTickets ?? 0) == 0) _prevDayTickets = data.PrevDayTickets ?? 0;
+                    if ((_prevDayNetDue ?? 0) == 0) _prevDayNetDue = data.PrevDayNetDue ?? 0;
+                }
 
                 // Track original values for change detection
                 _originalBarSales = BarSales;
@@ -2495,6 +2531,7 @@
                 _originalLottoCashCounted = LottoCashCounted;
                 _originalTotalHours = TotalHours;
                 _originalNotes = Notes;
+                _originalStatus = data.Status;
 
                 // Ownership-based Lock: Locked if exists AND user is not owner AND user is not admin
                 IsLocked = (data.ExistingEntryFound && CurrentUser != null && !CurrentUser.IsAdmin && data.LockOwner != CurrentUser.Username);
@@ -2517,8 +2554,34 @@
         IsSubmitting = true;
         StateHasChanged();
         
-        // Final background save attempt
-        _ = SilentSave();
+        // [AUDIT LOG]: If this was an update to an already submitted shift, append the changes to the notes
+        if (_originalStatus == "Submitted" && HasUnsavedChanges) {
+            var changes = new List<string>();
+            if (BarSales != _originalBarSales) changes.Add($"Bar: {_originalBarSales:C} -> {BarSales:C}");
+            if (TotalHours != _originalTotalHours) changes.Add($"Hours: {_originalTotalHours} -> {TotalHours}");
+            if (LottoSales != _originalLottoSales) changes.Add($"Lotto Sales: {_originalLottoSales:C} -> {LottoSales:C}");
+            if (LottoCashes != _originalLottoCashes) changes.Add($"Cashes: {_originalLottoCashes:C} -> {LottoCashes:C}");
+            if (LottoNetDue != _originalLottoNetDue) changes.Add($"Net Due: {_originalLottoNetDue:C} -> {LottoNetDue:C}");
+            if (LottoCashCounted != _originalLottoCashCounted) changes.Add($"Cash Counted: {_originalLottoCashCounted:C} -> {LottoCashCounted:C}");
+            
+            if (changes.Any()) {
+                var auditLine = $"[CORRECTION BY {_currentUsername.ToUpper()} at {DateTime.Now:h:mm tt}]: " + string.Join(", ", changes);
+                Notes = string.IsNullOrEmpty(Notes) ? auditLine : Notes + "\n" + auditLine;
+            }
+        }
+        
+        // Final background save attempt with 'Submitted' status
+        await ReportingService.SaveShiftReportAsync(new MobileShiftData {
+            Date = ReportDate, ShiftType = ShiftType, IsRentalHall = IsRentalHall,
+            BarSales = BarSales, TotalHours = TotalHours, LottoSales = LottoSales,
+            LottoCashes = LottoCashes, LottoInstantTickets = LottoInstantTickets,
+            LottoNetDue = LottoNetDue, LottoOpeningCash = LottoOpeningCash,
+            LottoBackupBag = LottoBackupBag, LottoCashCounted = LottoCashCounted,
+            PrevDaySales = _prevDaySales, PrevDayCashes = _prevDayCashes,
+            PrevDayTickets = _prevDayTickets, PrevDayNetDue = _prevDayNetDue,
+            EnvelopeAmount = LottoEnvelopeAmount, BagRefillAmount = LottoBagRefill,
+            Notes = Notes, Status = "Submitted"
+        }, _currentUsername);
         
         // NO-GUESS WORKFLOW: We show success immediately because the data is safe LOCALLY.
         // We mark it in local storage so the Hub can finish the cloud sync silently.
@@ -2642,6 +2705,4 @@
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", "GFC_GuidedMode_Preference", _isGuidedMode.ToString());
         } catch { }
     }
-}
-
 }

@@ -12,7 +12,7 @@ namespace GFC.Core.Models
 
         [ForeignKey("StaffShift")]
         public int ShiftId { get; set; }
-        public virtual StaffShift StaffShift { get; set; }
+        public virtual StaffShift StaffShift { get; set; } = default!;
 
         public int BartenderId { get; set; }
 

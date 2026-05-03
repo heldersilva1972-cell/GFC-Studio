@@ -10,15 +10,15 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [Required]
-        public string ApplicantName { get; set; }
+        public string ApplicantName { get; set; } = string.Empty;
 
         [Required]
-        public string ContactInfo { get; set; }
+        public string ContactInfo { get; set; } = string.Empty;
 
         public DateTime EventDate { get; set; }
 
         [Required]
-        public string Status { get; set; } // Pending/Approved/Denied/Completed
+        public string Status { get; set; } = string.Empty; // Pending/Approved/Denied/Completed
 
         [Range(1, 180, ErrorMessage = "Guest count must be between 1 and 180.")]
         public int GuestCount { get; set; }
@@ -27,6 +27,6 @@ namespace GFC.Core.Models
 
         public decimal TotalPrice { get; set; }
 
-        public string InternalNotes { get; set; }
+        public string InternalNotes { get; set; } = string.Empty;
     }
 }

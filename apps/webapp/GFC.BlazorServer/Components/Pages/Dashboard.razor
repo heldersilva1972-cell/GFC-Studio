@@ -41,7 +41,7 @@
 
 @inject IUserManagementService UserManagementService
 @inject IDataExportService ExportService
-@using GFC.BlazorServer.Services
+
 @inject CustomAuthenticationStateProvider AuthStateProvider
 
 @if (_showSplash)
@@ -89,7 +89,7 @@
             // Use exact same logic as Members page Quick Stats
             var totalMembers = _memberList?.Count ?? 0;
             var activeMembers = _memberList?.Count(m => m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life or MemberStatus.Guest) ?? 0;
-            var overdueCount = _duesSummary?.UnpaidCount ?? 0;
+            var overdueCount = _metrics?.PastDueMembers ?? 0;
             var activePaidMembers = Math.Max(0, activeMembers - overdueCount);
 
             <div class="dash-modern-canvas">
@@ -875,9 +875,6 @@
     private bool _showSplash = true;
     private bool _isSplashFadingOut = false;
     private List<MemberListItemDto>? _memberList;
-    private DuesSummaryDto? _duesSummary;
-    private AlertSummaryDto? _alerts;
-    private BackupStatusDto? _backupStatus;
     private DataHealthStatus _dataHealth = DataHealthStatus.Unknown;
     private string? _errorMessage;
     private DashboardMetricsDto? _metrics;
@@ -887,7 +884,7 @@
     private readonly List<AlertPreviewItem> _importantAlerts = new();
     private readonly List<AlertPreviewItem> _alertPreview = new();
     private readonly List<ControllerSnapshot> _controllerSnapshots = new();
-    private string? _controllerConnectivityNote;
+
     private bool _useRealControllers;
     private bool _isSimulationMode;
     private bool IsRefreshing;
@@ -1064,11 +1061,9 @@
     
     // Key Card & Sync Data
     private DateTime? _graceEndDate;
-    private int _membersAtRiskCount;
     private int _pendingSyncCount;
     private int _outOfSyncCount;
     private bool _controllerOnline = true;
-    private DateTime? _lastSyncTime;
     private ControllerHealthStatus _controllerHealthStatus;
     
     private enum MetricState
@@ -1184,10 +1179,10 @@
     private bool _drawIsGracePeriodActive = false;
     private bool _drawSortByName = false;
 
-    private void ToggleDrawSort()
+    private async Task ToggleDrawSort()
     {
         _drawSortByName = !_drawSortByName;
-        OpenDrawListModal();
+        await OpenDrawListModal();
     }
 
     private async Task OpenDrawListModal()
@@ -1269,24 +1264,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            var settings = await SystemSettingsService.GetAsync();
-            _systemTimeZoneId = settings.SystemTimeZoneId ?? "Eastern Standard Time";
-            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(_systemTimeZoneId);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Dashboard:timezone] {ex.Message}");
-            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); // Fallback
-        }
-
-        bool showSplash = !SessionState.HasShownSplash;
-        if (showSplash) SessionState.HasShownSplash = true;
-        
-        // Check page permissions with error handling
-        try
-        {
+        // Check page permissions in parallel with timezone fetching
+        var permissionsTask = Task.Run(() => {
             var currentUser = AuthStateProvider.GetCurrentUser();
             if (currentUser != null)
             {
@@ -1308,12 +1287,22 @@
                 _canSubmitEndOfShift = UserManagementService.UserHasPageAccess(userId, "/mobile/shift-report") || UserManagementService.UserHasPageAccess(userId, "/operations/end-of-shift");
                 _canViewLottery = UserManagementService.UserHasPageAccess(userId, "/finance/lottery-analytics");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Dashboard:permissions] {ex.Message}");
-            _hasHostingSecurityAccess = false;
-        }
+        });
+
+        var timezoneTask = Task.Run(async () => {
+            try {
+                var settings = await SystemSettingsService.GetAsync();
+                _systemTimeZoneId = settings.SystemTimeZoneId ?? "Eastern Standard Time";
+                _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(_systemTimeZoneId);
+            } catch {
+                _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            }
+        });
+
+        await Task.WhenAll(permissionsTask, timezoneTask);
+
+        bool showSplash = !SessionState.HasShownSplash;
+        if (showSplash) SessionState.HasShownSplash = true;
         
         await LoadDashboardAsync(includeSplash: showSplash);
     }
@@ -1335,8 +1324,23 @@
         _isSplashFadingOut = false;
         _isLoading = true;
         _errorMessage = null;
+
+        // [INSTANT LOAD] Check session cache first
+        if (SessionState.CachedMetrics != null)
+        {
+            _metrics = SessionState.CachedMetrics;
+            _isLoading = false;
+            if (includeSplash)
+            {
+                _isSplashFadingOut = true;
+                StateHasChanged();
+                await Task.Delay(100);
+                _showSplash = false;
+            }
+            StateHasChanged();
+        }
         
-        // 1. Kick off all core data fetching tasks IN PARALLEL
+        // 1. Kick off data fetching IN PARALLEL
         var metricsTask = DashboardMetricsService.GetMetricsAsync();
         var rentalsTask = RentalService.GetRentalRequestsAsync();
         var shiftComplianceTask = _canViewShiftAlerts ? ShiftComplianceService.GetMissingShiftsAsync() : Task.FromResult(new List<MissingShiftAlert>());
@@ -1347,22 +1351,47 @@
 
         try
         {
-            // 2. [PERFORMANCE] Wait for metrics first, but as soon as they arrive, release the splash
-            _metrics = await metricsTask;
-            _isLoading = false;
-
-            if (includeSplash)
+            // 2. Refresh metrics if cache is stale or missing
+            if (_metrics == null)
             {
-                _isSplashFadingOut = true;
+                _metrics = await metricsTask;
+                _isLoading = false;
+                
+                if (includeSplash)
+                {
+                    _isSplashFadingOut = true;
+                    StateHasChanged();
+                    await Task.Delay(100);
+                    _showSplash = false;
+                }
                 StateHasChanged();
-                await Task.Delay(100); // Minimal sync for CSS transition
-                _showSplash = false;
             }
-            StateHasChanged();
+            else
+            {
+                // Cache hit! Kick off the background refresh to update the UI later
+                _ = Task.Run(async () => {
+                    try {
+                        var updated = await metricsTask;
+                        if (updated != null) {
+                            _metrics = updated;
+                            SessionState.CachedMetrics = updated;
+                            SessionState.MetricsLastUpdated = DateTime.UtcNow;
+                            await InvokeAsync(StateHasChanged);
+                        }
+                    } catch { }
+                });
+            }
 
-            // 3. Staggered Updates for everything else (Don't block the UI thread unnecessarily)
+            // 3. Staggered Updates for non-critical widgets
             _ = Task.Run(async () => {
                 try {
+                    // Update cache on first load
+                    if (SessionState.CachedMetrics == null && _metrics != null)
+                    {
+                        SessionState.CachedMetrics = _metrics;
+                        SessionState.MetricsLastUpdated = DateTime.UtcNow;
+                    }
+
                     var allRentals = await rentalsTask;
                     var rentalList = allRentals.ToList();
                     _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
@@ -1474,7 +1503,7 @@
             return open;
         }
 
-        return _alerts is null ? 0 : CalculateOpenAlerts(_alerts);
+        return _metrics?.AlertSummary is null ? 0 : CalculateOpenAlerts(_metrics.AlertSummary);
     }
 
     private IEnumerable<AlertPreviewItem> BuildAlertPreview(AlertSummaryDto summary)
@@ -1539,7 +1568,7 @@
     {
         try
         {
-            _controllerConnectivityNote = null;
+
             _controllerSnapshots.Clear();
 
             if (_isSimulationMode)
@@ -1590,7 +1619,7 @@
     }
     private async Task ApplySimulationControllerStateAsync()
     {
-        _controllerConnectivityNote = "Simulation Mode";
+
         _controllerSnapshots.Clear();
 
         var controllers = await ControllerRegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
@@ -1841,7 +1870,7 @@
 
     private MetricState GetOverdueState()
     {
-        var overdue = _metrics?.PastDueMembers ?? _duesSummary?.UnpaidCount ?? 0;
+        var overdue = _metrics?.PastDueMembers ?? 0;
         if (overdue >= DashboardThresholds.OverdueCritical)
         {
             return MetricState.Critical;
@@ -1880,24 +1909,13 @@
 
     private MetricState GetBackupState()
     {
-        var lastBackup = _backupStatus?.LastBackupUtc;
-        if (lastBackup == null)
+        return _dataHealth switch
         {
-            return MetricState.Warning;
-        }
-
-        var ageDays = (DateTime.UtcNow - lastBackup.Value).TotalDays;
-        if (ageDays >= DashboardThresholds.BackupStaleDaysCritical)
-        {
-            return MetricState.Critical;
-        }
-
-        if (ageDays >= DashboardThresholds.BackupStaleDaysWarning)
-        {
-            return MetricState.Warning;
-        }
-
-        return MetricState.Normal;
+            DataHealthStatus.Healthy => MetricState.Normal,
+            DataHealthStatus.Warning => MetricState.Warning,
+            DataHealthStatus.Critical => MetricState.Critical,
+            _ => MetricState.Warning
+        };
     }
 
     private static MetricState MergeStates(params MetricState[] states)
@@ -2021,7 +2039,7 @@
                 </div>
                 <div class="modal-footer bg-light border-0 py-3 rounded-bottom-4">
                     <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-4" @onclick="CloseDrawListModal">Close Preview</button>
-                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 shadow-sm fw-bold" @onclick="() => { CloseDrawListModal(); HandleSignInDrawPrint(); }">
+                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 shadow-sm fw-bold" @onclick="async () => { CloseDrawListModal(); await HandleSignInDrawPrint(); }">
                         <i class="bi bi-printer-fill me-2"></i> Print This List
                     </button>
                 </div>
@@ -2068,7 +2086,7 @@
                                         "@note.NoteText"
                                     </div>
                                     <div class="mt-3 d-flex justify-content-end">
-                                        <button class="btn btn-sm btn-outline-success rounded-pill px-4 fw-bold" @onclick="() => AcknowledgeNote(note)" disabled="@_isAcknowledging">
+                                        <button class="btn btn-sm btn-outline-success rounded-pill px-4 fw-bold" @onclick="async () => await AcknowledgeNote(note)" disabled="@_isAcknowledging">
                                             <i class="bi bi-check2-circle me-1"></i> Acknowledge
                                         </button>
                                     </div>

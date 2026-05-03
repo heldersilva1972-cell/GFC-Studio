@@ -11,23 +11,23 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(100)]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         [Required]
         [StringLength(500)]
-        public string RtspUrl { get; set; }
+        public string RtspUrl { get; set; } = string.Empty;
 
         [StringLength(45)]
-        public string IpAddress { get; set; }
+        public string IpAddress { get; set; } = string.Empty;
 
         [StringLength(100)]
-        public string Manufacturer { get; set; }
+        public string Manufacturer { get; set; } = string.Empty;
 
         [StringLength(100)]
-        public string Username { get; set; }
+        public string Username { get; set; } = string.Empty;
 
         [StringLength(100)]
-        public string Password { get; set; }
+        public string Password { get; set; } = string.Empty;
 
         public bool? IsEnabled { get; set; }
 

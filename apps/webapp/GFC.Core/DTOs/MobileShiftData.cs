@@ -24,6 +24,7 @@ public class MobileShiftData
     public decimal? PrevDaySales { get; set; }
     public decimal? PrevDayCashes { get; set; }
     public decimal? PrevDayTickets { get; set; }
+    public decimal? PrevDayNetDue { get; set; }
     
     // Calculated Totals for Audit
 
@@ -37,4 +38,5 @@ public class MobileShiftData
     public bool IsLocked { get; set; }
     public string? LockOwner { get; set; }
     public bool ExistingEntryFound { get; set; }
+    public DateTime? Timestamp { get; set; }
 }

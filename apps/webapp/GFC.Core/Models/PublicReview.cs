@@ -10,14 +10,14 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(100)]
-        public string DisplayName { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
 
         [StringLength(100)]
         public string? EventType { get; set; }
 
         [Required]
         [StringLength(2000)]
-        public string Content { get; set; }
+        public string Content { get; set; } = string.Empty;
 
         [Range(1, 5)]
         public int Rating { get; set; }

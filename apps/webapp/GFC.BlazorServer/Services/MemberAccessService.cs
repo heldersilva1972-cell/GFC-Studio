@@ -4,8 +4,6 @@ using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Models;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.Core.Interfaces;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -424,6 +422,7 @@ public class MemberAccessService : IMemberAccessService
 
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var link = await dbContext.ControllerTimeProfileLinks
+            .OrderBy(l => l.Id)
             .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == timeProfileId.Value, cancellationToken);
 
         return link?.ControllerProfileIndex;

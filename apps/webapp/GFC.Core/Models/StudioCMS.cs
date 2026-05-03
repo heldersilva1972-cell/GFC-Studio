@@ -37,7 +37,7 @@ namespace GFC.Core.Models
         public int CollectionId { get; set; }
 
         [ForeignKey("CollectionId")]
-        public virtual StudioCollection Collection { get; set; }
+        public virtual StudioCollection Collection { get; set; } = default!;
 
         [Required]
         [StringLength(100)]
@@ -63,7 +63,7 @@ namespace GFC.Core.Models
         public int CollectionId { get; set; }
 
         [ForeignKey("CollectionId")]
-        public virtual StudioCollection Collection { get; set; }
+        public virtual StudioCollection Collection { get; set; } = default!;
 
         [Required]
         public string DataJson { get; set; } = "{}";

@@ -14,19 +14,19 @@ namespace GFC.Core.Models
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = default!;
 
         [Required]
         [MaxLength(255)]
-        public string PublicKey { get; set; }
+        public string PublicKey { get; set; } = string.Empty;
 
         [Required]
         [MaxLength(255)]
-        public string PrivateKey { get; set; } // Encrypted at rest
+        public string PrivateKey { get; set; } = string.Empty; // Encrypted at rest
 
         [Required]
         [MaxLength(50)]
-        public string AssignedIP { get; set; }
+        public string AssignedIP { get; set; } = string.Empty;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -37,15 +37,15 @@ namespace GFC.Core.Models
         public int? RevokedBy { get; set; }
 
         [ForeignKey("RevokedBy")]
-        public AppUser RevokedByUser { get; set; }
+        public AppUser RevokedByUser { get; set; } = default!;
 
         [MaxLength(500)]
-        public string RevokedReason { get; set; }
-
+        public string RevokedReason { get; set; } = string.Empty;
+ 
         [MaxLength(255)]
-        public string DeviceName { get; set; }
+        public string DeviceName { get; set; } = string.Empty;
 
         [MaxLength(50)]
-        public string DeviceType { get; set; }
+        public string DeviceType { get; set; } = string.Empty;
     }
 }

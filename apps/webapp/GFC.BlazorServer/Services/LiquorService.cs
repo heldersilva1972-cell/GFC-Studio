@@ -7,9 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
-using GFC.BlazorServer.Data;
 
 namespace GFC.BlazorServer.Services
 {
@@ -44,13 +41,14 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.LiquorItems
                 .Include(i => i.Vendor)
+                .OrderBy(i => i.Id)
                 .FirstOrDefaultAsync(i => i.Id == id);
         }
 
         public async Task<LiquorItem?> GetItemByUpcAsync(string upc)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorItems.FirstOrDefaultAsync(i => i.UpcCode == upc && i.IsActive);
+            return await db.LiquorItems.OrderBy(i => i.Id).FirstOrDefaultAsync(i => i.UpcCode == upc && i.IsActive);
         }
 
         public async Task<LiquorItem> CreateItemAsync(LiquorItem item, int? userId)
@@ -105,7 +103,7 @@ namespace GFC.BlazorServer.Services
 
             foreach (var item in items)
             {
-                var existing = await db.LiquorItems.AsNoTracking().FirstOrDefaultAsync(i => i.Id == item.Id);
+                var existing = await db.LiquorItems.AsNoTracking().OrderBy(i => i.Id).FirstOrDefaultAsync(i => i.Id == item.Id);
                 if (existing == null) continue;
 
                 // Detect Changes
@@ -177,7 +175,7 @@ namespace GFC.BlazorServer.Services
         public async Task<LiquorVendor?> GetVendorByIdAsync(int id)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorVendors.Include(v => v.Items).FirstOrDefaultAsync(v => v.Id == id);
+            return await db.LiquorVendors.Include(v => v.Items).OrderBy(v => v.Id).FirstOrDefaultAsync(v => v.Id == id);
         }
 
         public async Task<LiquorVendor> CreateVendorAsync(LiquorVendor vendor)
@@ -383,6 +381,7 @@ namespace GFC.BlazorServer.Services
                 .Include(o => o.User)
                 .Include(o => o.OrderItems)
                     .ThenInclude(oi => oi.LiquorItem)
+                .OrderBy(o => o.Id)
                 .FirstOrDefaultAsync(o => o.Id == id);
         }
 
@@ -392,6 +391,12 @@ namespace GFC.BlazorServer.Services
             order.Status = "Placed";
             order.OrderDate = DateTime.UtcNow;
             
+            // If requested, set intent flag immediately so UI doesn't show "Logged Only"
+            if (sendEmail)
+            {
+                order.IsEmailed = true;
+            }
+
             db.LiquorOrders.Add(order);
             await db.SaveChangesAsync();
 
@@ -400,26 +405,47 @@ namespace GFC.BlazorServer.Services
                 _ = Task.Run(async () => {
                     try {
                         var settings = await _settingsService.GetAsync();
-                        var vendor = await db.LiquorVendors.FindAsync(order.VendorId);
+                        
+                        // Use a fresh DB context inside the background task to avoid "Disposed" errors
+                        using var taskDb = await _dbFactory.CreateDbContextAsync();
+                        var vendor = await taskDb.LiquorVendors.FindAsync(order.VendorId);
+                        
                         if (vendor != null && !string.IsNullOrEmpty(vendor.Email))
                         {
                             var subject = $"Liquor Order #{order.Id} - GFC System";
-                            await _emailService.SendOrderEmailAsync(vendor.Email, subject, order);
                             
-                            // Mark as emailed
-                            using var updateDb = await _dbFactory.CreateDbContextAsync();
-                            var o = await updateDb.LiquorOrders.FindAsync(order.Id);
-                            if (o != null)
+                            // Re-fetch order with items for email body
+                            var fullOrder = await taskDb.LiquorOrders
+                                .Include(o => o.OrderItems)
+                                    .ThenInclude(oi => oi.LiquorItem)
+                                .FirstOrDefaultAsync(o => o.Id == order.Id);
+
+                            if (fullOrder != null)
                             {
-                                o.IsEmailed = true;
-                                o.LastEmailedDate = DateTime.UtcNow;
-                                await updateDb.SaveChangesAsync();
+                                var body = GetOrderEmailHtmlBody(fullOrder, vendor, settings);
+                                await _emailService.SendEmailAsync(vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
+                                
+                                // Mark as emailed
+                                fullOrder.IsEmailed = true;
+                                fullOrder.LastEmailedDate = DateTime.UtcNow;
+                                await taskDb.SaveChangesAsync();
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[LiquorService] Async emailing failed for Order #{order.Id}: {ex.Message}");
+                        Console.WriteLine($"[LiquorService] Async emailing failed for Order #{order.Id}: {ex}");
+                        
+                        // Revert the intent flag if it failed completely
+                        try {
+                            using var errorDb = await _dbFactory.CreateDbContextAsync();
+                            var o = await errorDb.LiquorOrders.FindAsync(order.Id);
+                            if (o != null)
+                            {
+                                o.IsEmailed = false;
+                                await errorDb.SaveChangesAsync();
+                            }
+                        } catch { /* Silent fail on revert attempt */ }
                     }
                 });
             }
@@ -430,70 +456,145 @@ namespace GFC.BlazorServer.Services
         private string GetOrderEmailHtmlBody(LiquorOrder order, LiquorVendor vendor, SystemSettings settings)
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
-            sb.AppendLine($"<h2 style='color: #000; border-bottom: 2px solid #ddd; padding-bottom: 10px;'>LIQUOR PURCHASE ORDER #{order.Id}</h2>");
-            sb.AppendLine($"<p><strong>Vendor:</strong> {vendor.Name}</p>");
-            sb.AppendLine($"<p><strong>Order Date:</strong> {order.OrderDate:MMMM dd, yyyy}</p>");
+            sb.AppendLine("<html><body style='font-family: Arial, sans-serif; color: #333; margin: 0; padding: 20px; background-color: #f4f7f6;'>");
             
+            // Outer table to force width in Outlook
+            sb.AppendLine("<table cellpadding='0' cellspacing='0' border='0' width='100%' style='background-color: #f4f7f6;'>");
+            sb.AppendLine("<tr><td align='center'>");
+            
+            sb.AppendLine("<table cellpadding='0' cellspacing='0' border='0' width='650' style='background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e1e4e8;'>");
+            sb.AppendLine("<tr><td>");
+
+            // Header - Clean & Professional
+            sb.AppendLine("<div style='padding: 30px; border-bottom: 3px solid #f1f3f5;'>");
+            sb.AppendLine("<h1 style='margin: 0; font-size: 26px; color: #1a1a1a; text-transform: uppercase; letter-spacing: 1px;'>Liquor Purchase Order</h1>");
+            sb.AppendLine($"<div style='font-size: 14px; color: #718096; margin-top: 8px;'>Order ID: <strong style='color: #2d3748;'>#{order.Id}</strong> &bull; {order.OrderDate:MMMM dd, yyyy}</div>");
+            sb.AppendLine("</div>");
+
+            sb.AppendLine("<div style='padding: 30px;'>");
+            
+            // Vendor & Sender Info
+            sb.AppendLine("<table style='width: 100%; margin-bottom: 30px;'>");
+            sb.AppendLine("<tr>");
+            sb.AppendLine("<td style='width: 50%; vertical-align: top;'>");
+            sb.AppendLine("<div style='font-size: 12px; font-weight: bold; color: #95a5a6; text-transform: uppercase; margin-bottom: 5px;'>To Vendor:</div>");
+            sb.AppendLine($"<div style='font-size: 16px; font-weight: bold; color: #2c3e50;'>{vendor.Name}</div>");
+            if (!string.IsNullOrEmpty(vendor.ContactName)) sb.AppendLine($"<div style='font-size: 14px; color: #7f8c8d;'>Attn: {vendor.ContactName}</div>");
+            sb.AppendLine("</td>");
+            sb.AppendLine("<td style='width: 50%; vertical-align: top; text-align: right;'>");
+            sb.AppendLine("<div style='font-size: 12px; font-weight: bold; color: #95a5a6; text-transform: uppercase; margin-bottom: 5px;'>Ordered By:</div>");
+            sb.AppendLine("<div style='font-size: 16px; font-weight: bold; color: #2c3e50;'>GFC System</div>");
+            sb.AppendLine("</td>");
+            sb.AppendLine("</tr>");
+            sb.AppendLine("</table>");
+
             if (!string.IsNullOrEmpty(order.SpecialInstructions))
             {
-                sb.AppendLine("<div style='background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>");
-                sb.AppendLine("<strong style='display: block; margin-bottom: 5px;'>SPECIAL INSTRUCTIONS:</strong>");
-                sb.AppendLine($"<p style='margin: 0;'>{order.SpecialInstructions}</p>");
+                sb.AppendLine("<div style='background-color: #fff9db; border-left: 4px solid #fcc419; padding: 15px; border-radius: 4px; margin-bottom: 30px;'>");
+                sb.AppendLine("<div style='font-size: 11px; font-weight: bold; color: #856404; text-transform: uppercase; margin-bottom: 5px;'>Delivery Instructions:</div>");
+                sb.AppendLine($"<div style='font-size: 14px; color: #2c3e50;'>{order.SpecialInstructions}</div>");
                 sb.AppendLine("</div>");
             }
 
-            sb.AppendLine("<table style='width: 100%; border-collapse: collapse; margin-top: 20px;'>");
-            sb.AppendLine("<thead><tr style='background: #f2f2f2;'>");
-            sb.AppendLine("<th style='border: 1px solid #ddd; padding: 10px; text-align: center; width: 60px;'>QTY</th>");
-            sb.AppendLine("<th style='border: 1px solid #ddd; padding: 10px; text-align: left;'>PRODUCT / SIZE</th>");
-            sb.AppendLine("<th style='border: 1px solid #ddd; padding: 10px; text-align: right; width: 100px;'>UNIT PRICE</th>");
-            sb.AppendLine("<th style='border: 1px solid #ddd; padding: 10px; text-align: right; width: 100px;'>SUBTOTAL</th>");
+            // Items Table
+            sb.AppendLine("<table style='width: 100%; border-collapse: collapse;'>");
+            sb.AppendLine("<thead><tr style='border-bottom: 2px solid #edf2f7;'>");
+            sb.AppendLine("<th style='padding: 12px 5px; text-align: left; font-size: 12px; color: #718096; text-transform: uppercase;'>Qty</th>");
+            sb.AppendLine("<th style='padding: 12px 5px; text-align: left; font-size: 12px; color: #718096; text-transform: uppercase;'>Product Description</th>");
+            sb.AppendLine("<th style='padding: 12px 5px; text-align: right; font-size: 12px; color: #718096; text-transform: uppercase;'>Unit Price</th>");
+            sb.AppendLine("<th style='padding: 12px 5px; text-align: right; font-size: 12px; color: #718096; text-transform: uppercase;'>Subtotal</th>");
             sb.AppendLine("</tr></thead><tbody>");
 
             foreach (var item in order.OrderItems)
             {
-                var subtotal = item.UnitPriceAtTimeOfOrder * item.Quantity;
-                sb.AppendLine("<tr>");
-                sb.AppendLine($"<td style='border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;'>{item.Quantity}</td>");
-                sb.AppendLine($"<td style='border: 1px solid #ddd; padding: 10px;'>{item.LiquorItem?.Name} ({item.LiquorItem?.BottleSize})</td>");
-                sb.AppendLine($"<td style='border: 1px solid #ddd; padding: 10px; text-align: right;'>{item.UnitPriceAtTimeOfOrder:C}</td>");
-                sb.AppendLine($"<td style='border: 1px solid #ddd; padding: 10px; text-align: right; font-weight: bold;'>{subtotal:C}</td>");
+                var packSize = item.LiquorItem?.PackSize ?? 1;
+                var isCase = packSize > 1;
+                var displayUnits = isCase ? (decimal)item.Quantity / packSize : item.Quantity;
+                var unitLabel = isCase ? (displayUnits == 1 ? "Case" : "Cases") : (displayUnits == 1 ? "Unit" : "Units");
+                
+                var subtotal = (displayUnits * item.UnitPriceAtTimeOfOrder) + (item.BottleFeeAtTimeOfOrder * item.Quantity);
+
+                sb.AppendLine("<tr style='border-bottom: 1px solid #edf2f7;'>");
+                sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; font-weight: bold; color: #1a1a1a; white-space: nowrap;'>{displayUnits:G29} {unitLabel}</td>");
+                sb.AppendLine("<td style='padding: 15px 5px; vertical-align: top;'>");
+                sb.AppendLine($"<div style='font-weight: bold; color: #1a1a1a; font-size: 15px;'>{item.LiquorItem?.Name}</div>");
+                sb.AppendLine($"<div style='font-size: 12px; color: #718096; margin-top: 2px;'>{item.LiquorItem?.BottleSize}</div>");
+                sb.AppendLine("</td>");
+                sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; text-align: right; color: #4a5568;'>{item.UnitPriceAtTimeOfOrder:C}</td>");
+                sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; text-align: right; font-weight: bold; color: #1a1a1a;'>{subtotal:C}</td>");
                 sb.AppendLine("</tr>");
             }
 
             sb.AppendLine("</tbody></table>");
-            sb.AppendLine($"<p style='text-align: right; font-size: 1.2em;'><strong>ITEMS TOTAL: {order.ItemsTotal:C}</strong></p>");
+
+            // Totals
+            sb.AppendLine("<div style='margin-top: 30px; border-top: 2px solid #edf2f7; padding-top: 20px;'>");
+            sb.AppendLine("<table style='width: 100%;'>");
+            sb.AppendLine("<tr>");
+            sb.AppendLine("<td style='text-align: right; font-size: 16px; color: #718096;'>Total Order Value:</td>");
+            sb.AppendLine($"<td style='text-align: right; font-size: 22px; font-weight: 800; color: #2c3e50; padding-left: 20px;'>{order.TotalCost:C}</td>");
+            sb.AppendLine("</tr>");
+            sb.AppendLine("</table>");
+            sb.AppendLine("</div>");
 
             if (!string.IsNullOrEmpty(settings.LiquorEmailSignature))
             {
-                sb.AppendLine("<div style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; color: #666; font-size: 0.9em;'>");
+                sb.AppendLine("<div style='margin-top: 40px; padding-top: 25px; border-top: 2px solid #edf2f7; color: #1a1a1a; font-size: 16px; line-height: 1.6; font-weight: bold;'>");
                 sb.AppendLine(settings.LiquorEmailSignature.Replace("\n", "<br/>"));
                 sb.AppendLine("</div>");
             }
+            
+            sb.AppendLine("</div>"); // padding div
+            
+            var footerText = !string.IsNullOrEmpty(settings.LiquorEmailFooter) 
+                ? settings.LiquorEmailFooter 
+                : "This purchase order was generated automatically. Please contact us directly if there are any discrepancies.";
 
+            sb.AppendLine("<div style='background-color: #f1f5f9; padding: 25px; text-align: center; font-size: 13px; color: #334155; border-top: 1px solid #e2e8f0; font-weight: bold;'>");
+            sb.AppendLine(footerText);
+            sb.AppendLine("</div>");
+            
+            sb.AppendLine("</td></tr></table>"); // inner table
+            sb.AppendLine("</td></tr></table>"); // outer table
             sb.AppendLine("</body></html>");
+
             return sb.ToString();
         }
 
-        public async Task ResendOrderEmailAsync(int orderId)
+        public async Task<EmailResult> ResendOrderEmailAsync(int orderId)
         {
-            using var db = await _dbFactory.CreateDbContextAsync();
-            var order = await db.LiquorOrders
-                .Include(o => o.Vendor)
-                .Include(o => o.OrderItems)
-                    .ThenInclude(oi => oi.LiquorItem)
-                .FirstOrDefaultAsync(o => o.Id == orderId);
-
-            if (order != null && order.Vendor != null && !string.IsNullOrEmpty(order.Vendor.Email))
+            try 
             {
+                using var db = await _dbFactory.CreateDbContextAsync();
+                var order = await db.LiquorOrders
+                    .Include(o => o.Vendor)
+                    .Include(o => o.OrderItems)
+                        .ThenInclude(oi => oi.LiquorItem)
+                    .OrderBy(o => o.Id)
+                    .FirstOrDefaultAsync(o => o.Id == orderId);
+
+                if (order == null) return EmailResult.Failure("Order not found.");
+                if (order.Vendor == null) return EmailResult.Failure("Vendor not found for this order.");
+                if (string.IsNullOrEmpty(order.Vendor.Email)) return EmailResult.Failure("Vendor email address is missing.");
+
                 var settings = await _settingsService.GetAsync();
                 var subject = $"Liquor Order #{order.Id} (RESENT) - GFC System";
-                await _emailService.SendOrderEmailAsync(order.Vendor.Email, subject, order);
+                var body = GetOrderEmailHtmlBody(order, order.Vendor, settings);
+                var result = await _emailService.SendEmailAsync(order.Vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
                 
-                order.IsEmailed = true;
-                order.LastEmailedDate = DateTime.UtcNow;
-                await db.SaveChangesAsync();
+                if (result.Success)
+                {
+                    order.IsEmailed = true;
+                    order.LastEmailedDate = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LIQUOR SERVICE ERROR] {DateTime.Now}: {ex}");
+                return EmailResult.Failure($"System Error: {ex.Message}");
             }
         }
 
@@ -533,6 +634,7 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             var order = await db.LiquorOrders
                 .Include(o => o.OrderItems)
+                .OrderBy(o => o.Id)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) throw new Exception("Order not found");
@@ -570,6 +672,7 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             var order = await db.LiquorOrders
                 .Include(o => o.OrderItems)
+                .OrderBy(o => o.Id)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order != null)
@@ -599,6 +702,7 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             var orderItem = await db.LiquorOrderItems
                 .Include(oi => oi.Order)
+                .OrderBy(oi => oi.Id)
                 .FirstOrDefaultAsync(oi => oi.Id == orderItemId);
 
             if (orderItem == null || orderItem.IsResolved) return;
@@ -628,13 +732,13 @@ namespace GFC.BlazorServer.Services
         public async Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorNotificationRules.FirstOrDefaultAsync(r => r.UserId == userId);
+            return await db.LiquorNotificationRules.OrderBy(r => r.Id).FirstOrDefaultAsync(r => r.UserId == userId);
         }
 
         public async Task UpsertNotificationRuleAsync(LiquorNotificationRule rule)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var existing = await db.LiquorNotificationRules.FirstOrDefaultAsync(r => r.UserId == rule.UserId);
+            var existing = await db.LiquorNotificationRules.OrderBy(r => r.Id).FirstOrDefaultAsync(r => r.UserId == rule.UserId);
             if (existing == null)
             {
                 db.LiquorNotificationRules.Add(rule);

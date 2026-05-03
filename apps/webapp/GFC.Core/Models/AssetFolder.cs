@@ -11,12 +11,12 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(100)]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         public int? ParentFolderId { get; set; }
 
         [ForeignKey("ParentFolderId")]
-        public virtual AssetFolder ParentFolder { get; set; }
+        public virtual AssetFolder ParentFolder { get; set; } = default!;
 
         public virtual ICollection<AssetFolder> SubFolders { get; set; } = new List<AssetFolder>();
 

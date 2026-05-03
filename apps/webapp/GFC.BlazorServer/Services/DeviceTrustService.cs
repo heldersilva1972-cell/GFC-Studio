@@ -41,6 +41,7 @@ public class DeviceTrustService : IDeviceTrustService
             await using var context = await _contextFactory.CreateDbContextAsync();
             
             var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => 
                     d.DeviceToken == token && 
                     d.UserId == userId &&
@@ -213,6 +214,7 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             return await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
         }
         catch (Exception ex)
@@ -232,6 +234,7 @@ public class DeviceTrustService : IDeviceTrustService
             await using var context = await _contextFactory.CreateDbContextAsync();
             
             var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => d.DeviceToken == token);
 
             if (device != null)
@@ -394,6 +397,7 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
             
             if (device != null)
@@ -423,6 +427,7 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => 
                     d.DeviceToken == token && 
                     !d.IsRevoked && 
@@ -552,7 +557,7 @@ public class DeviceTrustService : IDeviceTrustService
             device.LastUsedUtc = DateTime.UtcNow;
 
             // Rolling Trust: Extend expiration based on system settings
-            var settings = await context.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
+            var settings = await context.SystemSettings.OrderBy(s => s.Id).FirstOrDefaultAsync(s => s.Id == 1);
             int durationDays = device.IsStation ? 365 : (settings?.TrustedDeviceDurationDays ?? 30);
  
             var newExpiration = DateTime.UtcNow.AddDays(durationDays);
@@ -651,11 +656,12 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
                 .FirstOrDefaultAsync(d => d.DeviceToken == stationToken && d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
                 
             if (device == null || device.LoginMode != "FastGrid") return null;
 
-            var user = await context.AppUsers.FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
+            var user = await context.AppUsers.OrderBy(u => u.UserId).FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
             if (user == null) return null;
 
             if (string.IsNullOrEmpty(device.AuthorizedUserIdsCsv)) return null;

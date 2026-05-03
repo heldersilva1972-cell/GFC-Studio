@@ -1,8 +1,6 @@
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -177,6 +175,7 @@ public class PasskeyService : IPasskeyService
         // Query AppUsers table directly using FromSqlRaw
         var user = await context.Set<AppUser>()
             .FromSqlRaw("SELECT * FROM AppUsers WHERE Username = {0}", username)
+            .OrderBy(u => u.UserId)
             .FirstOrDefaultAsync();
         if (user == null)
         {
@@ -222,6 +221,7 @@ public class PasskeyService : IPasskeyService
             await using var context = await _contextFactory.CreateDbContextAsync();
             var passkey = await context.UserPasskeys
                 .Include(p => p.User)
+                .OrderBy(p => p.Id)
                 .FirstOrDefaultAsync(p => p.CredentialId == credentialId);
 
             if (passkey == null)
@@ -310,6 +310,7 @@ public class PasskeyService : IPasskeyService
             
             var user = await context.Set<AppUser>()
                 .FromSqlRaw("SELECT * FROM AppUsers WHERE Username = {0}", username)
+                .OrderBy(u => u.UserId)
                 .FirstOrDefaultAsync();
                 
             if (user == null) return false;

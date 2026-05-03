@@ -144,6 +144,8 @@ public class MobileAuthController : ControllerBase
             CanEdit = p.CanEdit
         }).ToList();
         
+        _logger.LogInformation("Mobile permissions requested for User {UserId}. Returning {Count} active routes.", user.UserId, permissions.Count);
+        
         return Ok(new GFC.Core.Models.GfcLoginResult
         {
             Code = GFC.Core.Models.LoginResultCode.Success,

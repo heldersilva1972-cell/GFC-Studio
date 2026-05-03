@@ -13,15 +13,15 @@ namespace GFC.Core.Models
         public int StudioPageId { get; set; }
 
         [ForeignKey("StudioPageId")]
-        public virtual StudioPage StudioPage { get; set; }
+        public virtual StudioPage StudioPage { get; set; } = default!;
 
         [StringLength(70)]
-        public string MetaTitle { get; set; }
+        public string MetaTitle { get; set; } = string.Empty;
 
         [StringLength(160)]
-        public string MetaDescription { get; set; }
+        public string MetaDescription { get; set; } = string.Empty;
 
         [StringLength(1024)]
-        public string OpenGraphImageUrl { get; set; }
+        public string OpenGraphImageUrl { get; set; } = string.Empty;
     }
 }

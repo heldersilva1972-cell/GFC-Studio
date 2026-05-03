@@ -15,27 +15,27 @@ namespace GFC.Core.Models
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = default!;
 
         [Required]
         [MaxLength(50)]
-        public string AccessType { get; set; } // 'LiveView', 'Recording', 'Download', 'Snapshot'
+        public string AccessType { get; set; } = string.Empty; // 'LiveView', 'Recording', 'Download', 'Snapshot'
 
         public int? CameraId { get; set; }
 
         [ForeignKey("CameraId")]
-        public Camera Camera { get; set; }
+        public Camera Camera { get; set; } = default!;
 
         [MaxLength(255)]
-        public string CameraName { get; set; }
+        public string CameraName { get; set; } = string.Empty;
 
         [Required]
         [MaxLength(50)]
-        public string ConnectionType { get; set; } // 'LAN', 'VPN', 'Blocked'
+        public string ConnectionType { get; set; } = string.Empty; // 'LAN', 'VPN', 'Blocked'
 
         [Required]
         [MaxLength(50)]
-        public string ClientIP { get; set; }
+        public string ClientIP { get; set; } = string.Empty;
 
         public DateTime SessionStart { get; set; } = DateTime.UtcNow;
 
@@ -44,8 +44,8 @@ namespace GFC.Core.Models
         public int? DurationSeconds { get; set; }
 
         [MaxLength(500)]
-        public string RecordingFile { get; set; } // If downloaded
+        public string RecordingFile { get; set; } = string.Empty; // If downloaded
 
-        public string Notes { get; set; }
+        public string Notes { get; set; } = string.Empty;
     }
 }

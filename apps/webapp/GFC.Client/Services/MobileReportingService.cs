@@ -14,10 +14,20 @@ public class MobileReportingService : IMobileReportingService
         _http = http;
     }
 
+    public int PendingCount => 0;
+    public Task<int> GetPendingCountAsync() => Task.FromResult(0);
+    public Task FlushOutboxAsync() => Task.CompletedTask;
+    public event Action? OutboxChanged;
+
     public async Task<MobileShiftData> GetShiftReportDataAsync(DateTime date, string shiftType, bool isRental)
     {
         var response = await _http.GetFromJsonAsync<MobileShiftData>($"api/mobile-reporting/data?date={date:yyyy-MM-dd}&shiftType={shiftType}&isRental={isRental}");
         return response ?? new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
+    }
+
+    public async Task<bool> IsShiftSubmittedAsync(DateTime date, string shiftType, bool isRental)
+    {
+        return await _http.GetFromJsonAsync<bool>($"api/mobile-reporting/is-submitted?date={date:yyyy-MM-dd}&shiftType={shiftType}&isRental={isRental}");
     }
 
     public async Task<decimal> GetCarryoverCashAsync(DateTime date, string shiftType)

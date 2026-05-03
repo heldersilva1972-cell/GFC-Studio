@@ -13,12 +13,12 @@ namespace GFC.Core.Models
         public string? Subject { get; set; }
 
         [Required]
-        public string Message { get; set; }
+        public string Message { get; set; } = string.Empty;
 
         [Required]
-        public string Channel { get; set; } // e.g., "Email", "SMS", "InApp"
+        public string Channel { get; set; } = string.Empty; // e.g., "Email", "SMS", "InApp"
 
-        public string Status { get; set; } // e.g., "Pending", "Sent", "Failed"
+        public string Status { get; set; } = string.Empty; // e.g., "Pending", "Sent", "Failed"
         
         public DateTime? SentAt { get; set; }
 

@@ -10,11 +10,11 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(2048)]
-        public string OldUrl { get; set; }
+        public string OldUrl { get; set; } = string.Empty;
 
         [Required]
         [StringLength(2048)]
-        public string NewUrl { get; set; }
+        public string NewUrl { get; set; } = string.Empty;
 
         [Required]
         public int RedirectType { get; set; } = 301; // Permanent Redirect

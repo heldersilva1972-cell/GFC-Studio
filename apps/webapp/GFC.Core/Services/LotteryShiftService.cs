@@ -131,8 +131,16 @@ namespace GFC.Core.Services
                 shift.NetSales = sales - payouts - cancels;
             }
 
-            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount;
+            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount - shift.BagRefillAmount;
             shift.Variance = shift.EndingCash - shift.ExpectedCash;
+
+            // [NEW] Persist the income math so it's available for reporting without re-calculation
+            var rate = _rateRepository.GetApplicableRate(shift.ShiftDate.Year);
+            shift.LotteryIncome = (shift.ShiftSalesActivity * rate.SalesCommissionMultiplier) +
+                                 (shift.ShiftPayoutsActivity * rate.CashingBonusMultiplier) +
+                                 (shift.ShiftCancelsActivity * rate.TicketBonusMultiplier);
+            
+            shift.NetIncome = shift.LotteryIncome + shift.Variance;
         }
 
         public void DeleteShift(int shiftId)
@@ -400,6 +408,8 @@ namespace GFC.Core.Services
                 BagRefillAmount = shift.BagRefillAmount,
                 CreatedBy = shift.CreatedBy,
                 CreatedDate = shift.CreatedDate,
+                ModifiedBy = shift.ModifiedBy,
+                ModifiedDate = shift.ModifiedDate,
                 ShiftSalesActivity = shift.ShiftSalesActivity,
                 ShiftPayoutsActivity = shift.ShiftPayoutsActivity,
                 ShiftCancelsActivity = shift.ShiftCancelsActivity,

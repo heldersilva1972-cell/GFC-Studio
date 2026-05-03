@@ -450,6 +450,32 @@ namespace GFC.BlazorServer.Services
                         decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
                         decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
 
+                        // [REPAIR]: If activity fields are 0 but cumulative fields are populated (Historic bug),
+                        // try to find the previous shift in the current dataset to calculate the true delta.
+                        if (lotto != null && activeSales == 0 && lotto.TotalSales > 0)
+                        {
+                            var prevShift = lottoShifts
+                                .Where(s => s.ShiftDate < lotto.ShiftDate || (s.ShiftDate == lotto.ShiftDate && s.ShiftType == "Day" && lotto.ShiftType == "Night"))
+                                .OrderByDescending(s => s.ShiftDate).ThenByDescending(s => s.ShiftType)
+                                .FirstOrDefault();
+                            
+                            if (prevShift != null)
+                            {
+                                activeSales = lotto.TotalSales - prevShift.TotalSales;
+                                activePrizes = lotto.TotalPayouts - prevShift.TotalPayouts;
+                                activeTickets = lotto.TotalCancels - prevShift.TotalCancels;
+                                activeNetDue = lotto.NetDue - prevShift.NetDue;
+                            }
+                            else
+                            {
+                                // Fallback: If no previous shift found in range, assume cumulative is the activity (Start of time)
+                                activeSales = lotto.TotalSales;
+                                activePrizes = lotto.TotalPayouts;
+                                activeTickets = lotto.TotalCancels;
+                                activeNetDue = lotto.NetDue;
+                            }
+                        }
+
 
                         dailyReport.Shifts.Add(new ShiftReportDto {
                              ShiftId = lotto?.ShiftId ?? 0,
@@ -466,10 +492,9 @@ namespace GFC.BlazorServer.Services
                              BackupBagAmount = lotto?.BackupBagAmount ?? 0,
                              EnvelopeAmount = 0, // Day shifts always 0
                              BagRefillAmount = lotto?.BagRefillAmount ?? 0,
-                             // [FIX]: Recalculate Expected and Variance from machine activity to bypass corrupted DB math
                              NetSales = activeSales - activePrizes - activeTickets,
-                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0),
-                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0)),
+                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BackupBagAmount ?? 0) - (lotto?.BagRefillAmount ?? 0),
+                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BackupBagAmount ?? 0) - (lotto?.BagRefillAmount ?? 0)),
                              LotteryIncome = lotto?.LotteryIncome ?? 0,
                              IdentifiedFees = fees,
                              NetIncome = lotto?.NetIncome ?? 0,
@@ -510,6 +535,24 @@ namespace GFC.BlazorServer.Services
                         decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
                         decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
 
+                        // [REPAIR]: If activity fields are 0 but cumulative fields are populated (Historic bug),
+                        // try to find the previous shift in the current dataset to calculate the true delta.
+                        if (lotto != null && activeSales == 0 && lotto.TotalSales > 0)
+                        {
+                            var prevShift = lottoShifts
+                                .Where(s => s.ShiftDate < lotto.ShiftDate || (s.ShiftDate == lotto.ShiftDate && s.ShiftType == "Day" && lotto.ShiftType == "Night"))
+                                .OrderByDescending(s => s.ShiftDate).ThenByDescending(s => s.ShiftType)
+                                .FirstOrDefault();
+                            
+                            if (prevShift != null)
+                            {
+                                activeSales = lotto.TotalSales - prevShift.TotalSales;
+                                activePrizes = lotto.TotalPayouts - prevShift.TotalPayouts;
+                                activeTickets = lotto.TotalCancels - prevShift.TotalCancels;
+                                activeNetDue = lotto.NetDue - prevShift.NetDue;
+                            }
+                        }
+
 
                         dailyReport.Shifts.Add(new ShiftReportDto {
                              ShiftId = lotto?.ShiftId ?? 0,
@@ -527,8 +570,8 @@ namespace GFC.BlazorServer.Services
                              EnvelopeAmount = lotto?.EnvelopeAmount ?? 0,
                              BagRefillAmount = lotto?.BagRefillAmount ?? 0,
                              NetSales = activeSales - activePrizes - activeTickets,
-                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0),
-                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0)),
+                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BackupBagAmount ?? 0) - (lotto?.BagRefillAmount ?? 0),
+                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BackupBagAmount ?? 0) - (lotto?.BagRefillAmount ?? 0)),
                              LotteryIncome = lotto?.LotteryIncome ?? 0,
                              IdentifiedFees = fees,
                              NetIncome = lotto?.NetIncome ?? 0,
@@ -622,25 +665,33 @@ namespace GFC.BlazorServer.Services
             {
                 using var db = await _dbFactory.CreateDbContextAsync();
             var start = startDate.Date;
-            var end = endDate.Date;
+            var end = endDate.Date.AddDays(1); // Include entire end date
 
-            IQueryable<BarSaleEntry> query = db.BarSaleEntries.AsNoTracking();
+            IQueryable<BarSaleEntry> query = db.BarSaleEntries.IgnoreQueryFilters().AsNoTracking();
 
             // DIAGNOSTIC: Get raw count before any filters
             int rawCount = await query.CountAsync();
             IFinancialAnalyticsService.DiagnosticRawCount = rawCount;
-            Console.WriteLine($"[DIAGNOSTIC] Total BarSaleEntries in DB: {rawCount}");
+            Console.WriteLine($"[DIAGNOSTIC] Total BarSaleEntries in DB (Ignoring Filters): {rawCount}");
 
-            // Date filter (Keep this to avoid loading years of data)
-            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= start && (e.AdjustedSaleDate ?? e.SaleDate) <= end);
+            // Filter out truly deleted records unless we want them for diagnostics
+            query = query.Where(e => e.IsDeleted == false);
+
+            // Date filter
+            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= start && (e.AdjustedSaleDate ?? e.SaleDate) < end);
             
-            // Relaxed Status matching for debugging (handle trailing spaces or different casing)
-            // query = query.Where(e => e.Status != null && (e.Status.Trim() == "Submitted" || e.Status.Trim() == "Committed")); 
+            // Location Filter
+            if (location != "All" && !string.IsNullOrWhiteSpace(location))
+            {
+                if (location == "Main") query = query.Where(e => !e.IsRentalHall && e.Shift != "Hall");
+                else if (location == "Hall") query = query.Where(e => e.IsRentalHall || e.Shift == "Hall");
+            }
 
             if (!string.IsNullOrWhiteSpace(username) && username != "All")
             {
                 query = query.Where(e => 
                     (e.EmployeeUsername != null && e.EmployeeUsername.Trim() == username.Trim()) || 
+                    (e.ModifiedBy != null && e.ModifiedBy.Trim() == username.Trim()) ||
                     (e.CreatedBy != null && e.CreatedBy.Trim() == username.Trim())
                 );
             }
@@ -652,13 +703,15 @@ namespace GFC.BlazorServer.Services
                 Console.WriteLine($"[DIAGNOSTIC] data exists ({rawCountNoFilters} records) but is HIDDEN by query filter (IsDeleted=1).");
             }
 
-            var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+            var sys = await db.SystemSettings.AsNoTracking().OrderBy(s => s.Id).FirstOrDefaultAsync();
             decimal fallbackEmployeeTax = 0, fallbackEmployerTax = 0;
             if (sys != null)
             {
                 fallbackEmployeeTax = (sys.MaStateTaxRate + sys.PfmlEmployeeRate + sys.FicaEmployeeRate) / 100m;
                 fallbackEmployerTax = (sys.MaUnemploymentRate + sys.PfmlEmployerRate + sys.FicaEmployerRate) / 100m;
             }
+            
+            Console.WriteLine($"[FinancialService] Fetched settings. Rates: Emp {fallbackEmployeeTax:P2}, Employer {fallbackEmployerTax:P2}");
 
             var entries = await query
                 .Select(e => new {
@@ -666,7 +719,9 @@ namespace GFC.BlazorServer.Services
                     Hours = e.TotalHours ?? 0m,
                     Shift = e.Shift ?? "Day",
                     IsHall = e.IsRentalHall,
-                    User = !string.IsNullOrWhiteSpace(e.EmployeeUsername) ? e.EmployeeUsername : (!string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown"),
+                    User = !string.IsNullOrWhiteSpace(e.EmployeeUsername) ? e.EmployeeUsername : (!string.IsNullOrWhiteSpace(e.ModifiedBy) ? e.ModifiedBy : (!string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown")),
+                    CreatedBy = e.CreatedBy,
+                    ModifiedBy = e.ModifiedBy,
                     HistoricalRate = e.HourlyRate_AtTimeOfShift,
                     HistoricalEmployeeTax = e.TotalEmployeeTaxes_AtTimeOfShift,
                     HistoricalEmployerTax = e.TotalEmployerTaxes_AtTimeOfShift
@@ -754,25 +809,27 @@ namespace GFC.BlazorServer.Services
                     }
                 }
 
-                var totalHours = userEntries.Sum(e => e.Hours);
-
-                // Skip if they worked 0 hours
-                if (totalHours <= 0) continue;
-
-                var defaultRate = user.HourlyRate ?? 0;
-                
-                decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
-                decimal downstairsPay = 0, upstairsPay = 0;
-                decimal totalWithheld = 0, totalEmployerAddOn = 0;
-                decimal fedWh = 0, ficaSS = 0, ficaMed = 0, maIncomeTax = 0, maSui = 0, maPfml = 0, empSS = 0, empMed = 0;
-
-                foreach (var e in userEntries)
+                try 
                 {
-                    try 
+                    var totalHours = userEntries.Sum(e => e.Hours);
+
+                    // Skip if they worked 0 hours
+                    if (totalHours <= 0) continue;
+
+                    var defaultRate = user.HourlyRate ?? 0;
+                    
+                    decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
+                    decimal downstairsPay = 0, upstairsPay = 0;
+                    decimal totalWithheld = 0, totalEmployerAddOn = 0;
+                    decimal fedWh = 0, ficaSS = 0, ficaMed = 0, maIncomeTax = 0, maSui = 0, maPfml = 0, empSS = 0, empMed = 0;
+
+                    foreach (var e in userEntries)
                     {
-                        // [PRECEDENCE]: 1. Live Snapshot from Shift | 2. Yearly Database Override | 3. Current Live User Profile (Fallback)
-                        var shiftYear = e.Date.Year;
-                        var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
+                        try 
+                        {
+                            // [PRECEDENCE]: 1. Live Snapshot from Shift | 2. Yearly Database Override | 3. Current Live User Profile (Fallback)
+                            var shiftYear = e.Date.Year;
+                            var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
                         
                         decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
                         decimal shiftGross = e.Hours * rate;
@@ -884,6 +941,11 @@ namespace GFC.BlazorServer.Services
 
                 filteredResults.Add(dto);
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] Skip user {user.Username} due to calculation error: {ex.Message}");
+            }
+        }
 
             // [ORPHANS] Handle any entries that didn't match a user
             var orphanedEntries = entries.Where((e, idx) => !usedEntryIndices.Contains(idx)).ToList();
@@ -895,9 +957,10 @@ namespace GFC.BlazorServer.Services
                     MemberName = "Miscellaneous / Unmapped",
                     TotalHours = orphanedEntries.Sum(e => e.Hours),
                     EntryCount = orphanedEntries.Count,
-                    TotalPay = orphanedEntries.Sum(e => e.Hours * 15.0m), // Estimate
+                    TotalPay = orphanedEntries.Sum(e => e.Hours * 15.0m), // Estimate for unmapped
                     StartDate = start,
-                    EndDate = end
+                    EndDate = end,
+                    Notes = "Check records with empty EmployeeUsername"
                 };
                 foreach (var entryGroup in orphanedEntries.GroupBy(e => e.Date))
                     miscDto.DailyHours[entryGroup.Key] = entryGroup.Sum(e => e.Hours);
@@ -983,7 +1046,7 @@ namespace GFC.BlazorServer.Services
             snapshot.GrossPayroll = payroll.Sum(p => p.TotalPay);
             
             // 8. Tax Calculation based on SystemSettings (Id = 1)
-            var config = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            var config = await db.SystemSettings.AsNoTracking().OrderBy(s => s.Id).FirstOrDefaultAsync(s => s.Id == 1);
             if (config != null && snapshot.GrossPayroll > 0)
             {
                 snapshot.EmployerFica = snapshot.GrossPayroll * (config.FicaEmployerRate / 100m);

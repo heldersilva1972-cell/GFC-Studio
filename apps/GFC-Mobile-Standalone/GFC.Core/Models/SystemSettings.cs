@@ -98,6 +98,8 @@ public class SystemSettings
     public TimeSpan NightShiftEndTime { get; set; } = new TimeSpan(2, 0, 0);
     public bool LiquorEmailEnabled { get; set; } = false;
     public string? LiquorEmailSignature { get; set; }
+    public string? LiquorEmailFooter { get; set; }
+    public string? LiquorEmailCc { get; set; }
     public DateTime? LastSignInDrawExportUtc { get; set; }
     public decimal MaStateTaxRate { get; set; } = 5.0m;
     public decimal PfmlEmployeeRate { get; set; } = 0.35m;

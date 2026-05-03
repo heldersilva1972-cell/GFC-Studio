@@ -32,27 +32,27 @@ namespace GFC.Core.Models
         /// <summary>
         /// Gets or sets the .NET runtime version.
         /// </summary>
-        public string DotNetVersion { get; set; }
+        public string DotNetVersion { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the operating system architecture.
         /// </summary>
-        public string OsArchitecture { get; set; }
+        public string OsArchitecture { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the operating system description.
         /// </summary>
-        public string OsDescription { get; set; }
+        public string OsDescription { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the process architecture.
         /// </summary>
-        public string ProcessArchitecture { get; set; }
+        public string ProcessArchitecture { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the database connection string (for display purposes only).
         /// </summary>
-        public string ConnectionString { get; set; }
+        public string ConnectionString { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the timestamp of the last update.

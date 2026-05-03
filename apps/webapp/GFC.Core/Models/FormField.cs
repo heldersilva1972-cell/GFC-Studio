@@ -13,22 +13,22 @@ namespace GFC.Core.Models
         public int FormId { get; set; }
 
         [ForeignKey("FormId")]
-        public virtual Form Form { get; set; }
+        public virtual Form Form { get; set; } = default!;
 
         [Required]
         [StringLength(100)]
-        public string FieldType { get; set; } // e.g., "text", "email", "date", "textarea"
+        public string FieldType { get; set; } = string.Empty; // e.g., "text", "email", "date", "textarea"
 
         [Required]
         [StringLength(100)]
-        public string Label { get; set; }
+        public string Label { get; set; } = string.Empty;
 
-        public string Placeholder { get; set; }
+        public string Placeholder { get; set; } = string.Empty;
 
         public bool IsRequired { get; set; }
 
         public int Order { get; set; }
 
-        public string Options { get; set; } // Comma-separated for dropdowns
+        public string Options { get; set; } = string.Empty; // Comma-separated for dropdowns
     }
 }

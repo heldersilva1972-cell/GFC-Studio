@@ -14,7 +14,7 @@ public class StudioLock
     public int PageId { get; set; }
 
     [Required]
-    public string LockedBy { get; set; }
+    public string LockedBy { get; set; } = string.Empty;
 
     public DateTime LockedAt { get; set; }
 }

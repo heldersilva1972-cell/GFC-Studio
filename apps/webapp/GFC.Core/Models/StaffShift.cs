@@ -27,7 +27,7 @@ namespace GFC.Core.Models
         public DateTime? CustomEndTime { get; set; }
 
         [NotMapped]
-        public string StaffName { get; set; }
+        public string StaffName { get; set; } = string.Empty;
 
         [NotMapped]
         public DateTime StartTime => CustomStartTime ?? (ShiftType == 1 ? Date.Date.AddHours(9) : Date.Date.AddHours(18));

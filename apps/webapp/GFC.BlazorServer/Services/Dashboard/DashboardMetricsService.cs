@@ -64,14 +64,11 @@ public class DashboardMetricsService : IDashboardMetricsService
             var membershipMetricsTask = _memberRepository.GetDashboardMembershipMetricsAsync(currentYear, duesSettings?.GraceEndDate?.Date);
             
             var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(null, ct);
-            var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
-            var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
             var cardCountsTask = GetCardCountsAsync(ct);
             var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
             var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
             var staffTask = GetTonightStaffAsync(today, ct);
             var entryCountsTask = GetTodaysEntryCountsAsync(ct);
-            var boardAssignmentsTask = Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
             var unacknowledgedNotesTask = GetUnacknowledgedNotesAsync(ct);
             var recentActivitiesTask = GetRecentActivitiesAsync(ct); // No longer requires members list
 
@@ -89,8 +86,6 @@ public class DashboardMetricsService : IDashboardMetricsService
             // 3. Wait for all data tasks
             await Task.WhenAll(
                 membershipMetricsTask,
-                currentYearDuesTask, 
-                previousYearDuesTask, 
                 systemSettingsTask, 
                 alertSummaryTask,
                 cardCountsTask,
@@ -98,7 +93,6 @@ public class DashboardMetricsService : IDashboardMetricsService
                 barSalesTask,
                 staffTask,
                 entryCountsTask,
-                boardAssignmentsTask,
                 unacknowledgedNotesTask,
                 drawStatusTask,
                 recentActivitiesTask);
@@ -570,15 +564,16 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Where(m => m.Status != "INACTIVE" && m.Status != "DECEASED" && m.Status != "REJECTED")
                 .CountAsync(m => m.Status == "LIFE" || m.Status == "LIFE MEMBER" || 
                            db.BoardAssignments.Any(ba => ba.MemberID == m.MemberID && ba.TermYear == currentYear) ||
-                           db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear && dp.PaidDate != null) ||
-                           (isGracePeriodActive && db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear - 1 && dp.PaidDate != null)), ct);
+                           db.DuesPayments.Any(dp => dp.MemberId == m.MemberID && dp.Year == currentYear && dp.PaidDate != null) ||
+                           (isGracePeriodActive && db.DuesPayments.Any(dp => dp.MemberId == m.MemberID && dp.Year == currentYear - 1 && dp.PaidDate != null)), ct);
 
             // 2. Identify Recent Changes (Additions/Removals) for the "Recommended" flag
             // We only need to know IF there are changes, and maybe a few examples for the "reasons" list.
             var changes = await db.Members
                 .AsNoTracking()
                 .Where(m => (m.StatusChangeDate != null && m.StatusChangeDate > exportBuffer) ||
-                           db.DuesPayments.Any(dp => dp.MemberID == m.MemberID && dp.Year == currentYear && dp.PaidDate != null && dp.PaidDate > exportBuffer))
+                           db.DuesPayments.Any(dp => dp.MemberId == m.MemberID && dp.Year == currentYear && dp.PaidDate != null && dp.PaidDate > exportBuffer))
+                .OrderByDescending(m => m.StatusChangeDate ?? DateTime.MinValue)
                 .Select(m => new { m.MemberID, m.FirstName, m.LastName })
                 .Take(5)
                 .ToListAsync(ct);

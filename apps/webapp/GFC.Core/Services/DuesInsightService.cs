@@ -170,7 +170,6 @@ public class DuesInsightService : IDuesInsightService
     private async Task<List<DuesListItemDto>> GetProcessedDataInternalAsync(int year, CancellationToken cancellationToken)
     {
          // Temporarily simplified for sum-fetching
-         var originalTab = false; // dummy
          var allMembers = (await GetDuesAsync(year, true, cancellationToken)).ToList();
          allMembers.AddRange(await GetDuesAsync(year, false, cancellationToken));
          return allMembers;

@@ -11,16 +11,16 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(100)]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         [StringLength(500)]
-        public string Description { get; set; }
+        public string Description { get; set; } = string.Empty;
 
         // Navigation property for the fields in this form
         public virtual ICollection<FormField> FormFields { get; set; } = new List<FormField>();
 
         // For routing submissions
         [StringLength(100)]
-        public string SubmissionTarget { get; set; } // e.g., "RentalInquiries", "ContactSubmissions"
+        public string SubmissionTarget { get; set; } = string.Empty; // e.g., "RentalInquiries", "ContactSubmissions"
     }
 }

@@ -39,4 +39,5 @@ public interface IUserManagementService
     List<int> GetDefaultPageIds();
     void SetDefaultPageIds(List<int> pageIds);
     void ClearPermissionCache();
+    Task<GfcLoginResult> RefreshPermissionsAsync(string token);
 }

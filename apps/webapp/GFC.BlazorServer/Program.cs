@@ -63,6 +63,7 @@ public class Program
 
         builder.Services.AddRazorPages();
         builder.Services.AddMemoryCache();
+        builder.Services.AddDataProtection();
         builder.Services.AddRazorComponents()
             .AddInteractiveWebAssemblyComponents();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => 
@@ -89,7 +90,7 @@ public class Program
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedHost;
             // Clear known networks/proxies to trust all (since the tunnel is the only ingress)
-            options.KnownNetworks.Clear(); 
+            options.KnownIPNetworks.Clear(); 
             options.KnownProxies.Clear();
         });
 
@@ -304,10 +305,6 @@ public class Program
         builder.Services.AddScoped<ThemeService>();
         builder.Services.AddScoped<IOperationsService, OperationsService>();
         builder.Services.AddScoped<IEncryptionService, EncryptionService>();
-        builder.Services.AddScoped<PageDiscoveryService>();
-        builder.Services.AddHostedService<PageDiscoveryHostedService>();
-
-
         builder.Services.AddScoped<IDataProtectionService, DataProtectionService>();
 
         // Network Location Service (registered above as Scoped)
@@ -502,7 +499,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
                 // [AUTO-FIX 0] CRITICAL: Initialize Database Foundation if Missing
                 // This ensures the application can start even if the manual sqlcmd script failed
-                var initFinalPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "INITIALIZE_DATABASE_FINAL.sql");
+                var initFinalPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "INITIALIZE_DATABASE_FINAL.sql");
                 if (File.Exists(initFinalPath))
                 {
                     try 
@@ -576,7 +573,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
                 // [AUTO-FIX] Run the repair script if WebsiteSettings is missing
                 // This replaces the manual migration step since we aren't using EF Migrations in this environment
-                var scriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-systemsettings-columns.sql");
+                var scriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-systemsettings-columns.sql");
                 // Adjust path for published/different environments if needed, but this works for local dev
                 
                 if (File.Exists(scriptPath)) 
@@ -605,7 +602,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 }
 
                 // [AUTO-FIX 2] Run Security & Push Notification Schema Fixes
-                var pushSecurityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "apps", "webapp", "fix_security_schema.sql");
+                var pushSecurityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "apps", "webapp", "fix_security_schema.sql");
                 if (File.Exists(pushSecurityScriptPath))
                 {
                     Console.WriteLine($">>> Applying Security & Push Schema Fixes from: {pushSecurityScriptPath}");
@@ -627,35 +624,42 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
                 // [CRITICAL FIX 2] Force-Fix NULLs for new SystemSettings columns (AccessMode, etc.)
                 // This ensures "Data is Null" errors don't prevent app startup/operations
+                // [RESILIENCE] Split into individual updates to prevent one missing column from failing the entire batch
                 try 
                 {
-                    var fixNullsSysSql = @"
-                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
-                        BEGIN
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [AccessMode] = 'Open' WHERE [AccessMode] IS NULL OR [AccessMode] = 'Standard';
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [EnableOnboarding] = 0 WHERE [EnableOnboarding] IS NULL;
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [EnforceVpn] = 0 WHERE [EnforceVpn] IS NULL;
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [SafeModeEnabled] = 0 WHERE [SafeModeEnabled] IS NULL;
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [MagicLinkEnabled] = 1 WHERE [MagicLinkEnabled] IS NULL;
-                            UPDATE [dbo].[SystemSettings] SET 
-                                [HostingEnvironment] = 'Production' WHERE [HostingEnvironment] IS NULL;
-                             UPDATE [dbo].[SystemSettings] SET 
-                                [BackupFrequencyHours] = 24 WHERE [BackupFrequencyHours] IS NULL;
-                             UPDATE [dbo].[SystemSettings] SET 
-                                [LanSubnet] = '192.168.0.0/16' WHERE [LanSubnet] IS NULL OR [LanSubnet] = '192.168.1.0/24';
-                        END
-                    ";
-                    dbContext.Database.ExecuteSqlRaw(fixNullsSysSql);
-                    Console.WriteLine(">>> CRITICAL: Applied direct NULL fix for SystemSettings (AccessMode, etc).");
+                    if (dbContext.Database.GetDbConnection().State != System.Data.ConnectionState.Open)
+                        dbContext.Database.OpenConnection();
+
+                    var systemUpdates = new List<string>
+                    {
+                        "IF TYPE_NAME(COLUMNPROPERTY(OBJECT_ID('[dbo].[SystemSettings]'), 'AccessMode', 'ColumnId')) IN ('varchar', 'nvarchar') UPDATE [dbo].[SystemSettings] SET [AccessMode] = 'Open' WHERE [AccessMode] IS NULL OR [AccessMode] = 'Standard'",
+                        "IF TYPE_NAME(COLUMNPROPERTY(OBJECT_ID('[dbo].[SystemSettings]'), 'AccessMode', 'ColumnId')) IN ('int', 'tinyint', 'smallint') UPDATE [dbo].[SystemSettings] SET [AccessMode] = 0 WHERE [AccessMode] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [EnableOnboarding] = 0 WHERE [EnableOnboarding] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [EnforceVpn] = 0 WHERE [EnforceVpn] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [SafeModeEnabled] = 0 WHERE [SafeModeEnabled] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [MagicLinkEnabled] = 1 WHERE [MagicLinkEnabled] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [HostingEnvironment] = 'Production' WHERE [HostingEnvironment] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [BackupFrequencyHours] = 24 WHERE [BackupFrequencyHours] IS NULL",
+                        "UPDATE [dbo].[SystemSettings] SET [LanSubnet] = '192.168.0.0/16' WHERE [LanSubnet] IS NULL OR [LanSubnet] = '192.168.1.0/24'"
+                    };
+
+                    foreach (var sql in systemUpdates)
+                    {
+                        try 
+                        {
+                            dbContext.Database.ExecuteSqlRaw(sql);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log and continue - this prevents one missing column from blocking app start
+                            Console.WriteLine($">>> [Startup] SystemSettings partial update skipped/failed: {ex.Message}");
+                        }
+                    }
+                    Console.WriteLine(">>> CRITICAL: Completed SystemSettings NULL checks.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($">>> Error applying critical SystemSettings NULL fix: {ex.Message}");
+                    Console.WriteLine($">>> Error in SystemSettings NULL fix loop: {ex.Message}");
                 }
 
                 // [CRITICAL FIX 8] Add missing Sign-in Draw and Shift columns
@@ -729,7 +733,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 }
 
                 // [AUTO-FIX 2] Run the Video Security Tables script
-                var securityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-video-security-tables.sql");
+                var securityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-video-security-tables.sql");
                 if (File.Exists(securityScriptPath))
                 {
                     Console.WriteLine($">>> Applying Video Security Schema Fixes from: {securityScriptPath}");
@@ -755,7 +759,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 }
 
                 // [AUTO-FIX 3] Run the Public Reviews Table script
-                var reviewsScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-public-reviews-table.sql");
+                var reviewsScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-public-reviews-table.sql");
                 if (File.Exists(reviewsScriptPath))
                 {
                     Console.WriteLine($">>> Applying Public Reviews Schema Fixes from: {reviewsScriptPath}");
@@ -781,7 +785,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 }
 
                 // [AUTO-FIX 4] Run the Rental Management Fix script
-                var rentalScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "FixRentalManagement.sql");
+                var rentalScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "FixRentalManagement.sql");
                 if (File.Exists(rentalScriptPath))
                 {
                     Console.WriteLine($">>> Applying Rental Management Schema Fixes from: {rentalScriptPath}");
