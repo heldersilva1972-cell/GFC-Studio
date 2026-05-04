@@ -173,6 +173,33 @@ public class UserManagementService : IUserManagementService
         return await Task.FromResult(GetAllUsers());
     }
 
+    public async Task<List<UserListItemDto>> GetMobileAuthorizedUsersAsync()
+    {
+        var allUsers = GetAllUsers();
+        var mobileUsers = new List<UserListItemDto>();
+
+        foreach (var userDto in allUsers)
+        {
+            var user = GetUser(userDto.UserId);
+            if (user == null || !user.IsActive) continue;
+
+            var permissions = GetUserPagePermissions(user.UserId);
+            
+            // Authoritative Master-Switch Filter
+            bool hasMobileAccess = permissions.Any(p => 
+                p.CanAccess && 
+                !string.IsNullOrEmpty(p.PageRoute) && 
+                (p.PageRoute.Trim('/').ToLower() == "mobile" || p.PageRoute.Trim('/').ToLower() == "hub"));
+
+            if (hasMobileAccess)
+            {
+                mobileUsers.Add(userDto);
+            }
+        }
+
+        return await Task.FromResult(mobileUsers.OrderBy(u => u.Username).ToList());
+    }
+
     private HashSet<int> GetCurrentAndTransitionalDirectors()
     {
         var currentYear = DateTime.Now.Year;
@@ -665,5 +692,25 @@ public class UserManagementService : IUserManagementService
     public async Task<GFC.Core.Models.GfcLoginResult> RefreshPermissionsAsync(string token)
     {
         return await Task.FromResult(new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Not implemented for core service in mobile." });
+    }
+
+    public async Task<List<ActiveMemberDto>> GetEligibleDirectorsForUserCreationAsync()
+    {
+        return await Task.FromResult(GetEligibleDirectorsForUserCreation());
+    }
+
+    public async Task<List<ActiveMemberDto>> GetEligibleMembersForUserCreationAsync()
+    {
+        return await Task.FromResult(GetEligibleMembersForUserCreation());
+    }
+
+    public async Task<List<AppPage>> GetAllPagesAsync()
+    {
+        return await Task.FromResult(GetAllPages());
+    }
+
+    public async Task<List<AppPage>> GetActivePagesAsync()
+    {
+        return await Task.FromResult(GetActivePages());
     }
 }

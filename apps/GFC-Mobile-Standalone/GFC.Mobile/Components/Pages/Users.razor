@@ -1,0 +1,438 @@
+@page "/mobile/users"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.DTOs
+@using GFC.Core.Models
+@using GFC.Mobile.Services
+@inject IUserManagementService UserService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Users | GFC</PageTitle>
+
+<div class="mobile-page-container">
+    <!-- HEADER -->
+    <div class="sticky-top bg-white border-bottom shadow-sm">
+        <div class="container py-3 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-icon-round" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                    <i class="bi bi-chevron-left fs-4"></i>
+                </button>
+                <h5 class="mb-0 fw-bold">User Management</h5>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold shadow-sm" @onclick="OpenAddModal">
+                    <i class="bi bi-person-plus-fill me-1"></i> Add
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN SCROLLABLE CONTENT -->
+    <main class="page-scroll-area flex-grow-1">
+        <div class="container py-4">
+            <!-- USER LIST -->
+            @if (_loading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary opacity-50"></div>
+                </div>
+            }
+            else if (FilteredUsers.Any())
+            {
+                <div class="user-list d-flex flex-column gap-3">
+                    @foreach (var user in FilteredUsers.OrderBy(u => u.Username))
+                    {
+                        <div class="user-mobile-card animate-entrance @(!user.IsActive ? "inactive" : "")">
+                            <div class="d-flex align-items-center justify-content-between p-3" @onclick="() => ToggleUserExpansion(user.UserId)">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="user-icon @(user.IsAdmin ? "admin" : "bartender")">
+                                        <i class="bi @(user.IsAdmin ? "bi-shield-fill-check" : "bi-person-fill")"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold d-flex align-items-center gap-2">
+                                            @user.Username
+                                            @if (user.IsAdmin) { <span class="badge-mini admin">Admin</span> }
+                                            else { <span class="badge-mini bartender">Staff</span> }
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(user.MemberName))
+                                        {
+                                            <div class="x-small text-muted">@user.MemberName</div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="status-dot @(user.IsActive ? "active" : "inactive")"></div>
+                                    <i class="bi bi-chevron-right text-muted transition-icon @(_expandedUserId == user.UserId ? "rotate-90" : "")"></i>
+                                </div>
+                            </div>
+
+                            @if (_expandedUserId == user.UserId)
+                            {
+                                <div class="card-details border-top p-3 bg-light bg-opacity-50">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <button class="btn btn-outline-primary btn-sm w-100 rounded-pill py-2 shadow-sm" @onclick="() => OpenRoleModal(user)" disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi bi-shield-lock me-1"></i> Permissions & Roles
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn @(user.IsActive ? "btn-outline-danger" : "btn-success") btn-sm w-100 rounded-pill py-2" 
+                                                    @onclick="() => ToggleUserStatus(user)" disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi @(user.IsActive ? "bi-person-x" : "bi-person-check") me-1"></i> 
+                                                @(user.IsActive ? "Deactivate" : "Activate")
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                             <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2" 
+                                                    @onclick="() => ConfirmDeleteUser(user)" 
+                                                    disabled="@(user.Username.ToLower() == "admin")">
+                                                <i class="bi bi-trash me-1"></i> Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state text-center py-5">
+                    <i class="bi bi-people display-1 text-muted opacity-25"></i>
+                    <p class="mt-3 text-muted">No users found.</p>
+                </div>
+            }
+        </div>
+    </main>
+</div>
+
+<!-- PERMISSIONS MODAL -->
+@if (_showRoleModal && _selectedUser != null)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-2">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0">Permissions</h5>
+                    <button class="btn-close" @onclick="CloseModals"></button>
+                </div>
+                <div class="user-preview d-flex align-items-center gap-3 p-3 bg-light rounded-4">
+                    <div class="bg-primary rounded-circle text-white d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
+                        <i class="bi bi-person-fill fs-4"></i>
+                    </div>
+                    <div style="flex-grow: 1;">
+                        <div class="fw-bold fs-5">@(_selectedUser.Username)</div>
+                        <div class="x-small text-muted">Manage roles and access</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="drawer-body p-4">
+                <div class="role-options d-flex flex-column gap-3 mb-4">
+                    <div class="role-option p-3 rounded-4 border @(_newIsAdmin ? "border-primary bg-primary bg-opacity-10" : "")" 
+                         @onclick="() => _newIsAdmin = true">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <h6 class="fw-bold mb-0">System Administrator</h6>
+                            @if (_newIsAdmin) { <i class="bi bi-check-circle-fill text-primary"></i> }
+                        </div>
+                        <p class="x-small text-muted mb-0">Full access to all settings and controls.</p>
+                    </div>
+
+                    <div class="role-option p-3 rounded-4 border @(!_newIsAdmin ? "border-secondary bg-light" : "")" 
+                         @onclick="() => _newIsAdmin = false">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <h6 class="fw-bold mb-0">Regular Staff</h6>
+                            @if (!_newIsAdmin) { <i class="bi bi-check-circle-fill text-secondary"></i> }
+                        </div>
+                        <p class="x-small text-muted mb-0">Access based on assigned pages.</p>
+                    </div>
+                </div>
+
+                @if (!_newIsAdmin)
+                {
+                    <h6 class="text-primary small fw-bold mb-3">Page Access</h6>
+                    <div class="bg-light bg-opacity-50 rounded-4 border px-3 py-1">
+                        @foreach (var p in _allPages.OrderBy(p => p.PageName))
+                        {
+                            <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
+                                <span class="small">@p.PageName</span>
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input" type="checkbox" 
+                                           checked="@_selectedPermissions.Contains(p.PageId)"
+                                           @onchange="(e) => TogglePermission(p.PageId, (bool)e.Value!)" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="drawer-footer p-4 pt-0">
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold" @onclick="SaveUserChanges" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ADD USER MODAL -->
+@if (_showAddModal)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-2">
+                <h5 class="fw-bold mb-0">Add New User</h5>
+            </div>
+            
+            <div class="drawer-body p-4">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Select Member</label>
+                    <select class="form-select rounded-4 bg-light border-0 py-2" @bind="_newUserForm.MemberId">
+                        <option value="">-- Choose Member --</option>
+                        @foreach (var m in _availableMembers)
+                        {
+                            <option value="@m.MemberId">@m.DisplayName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" @bind="_newUserForm.IsAdmin" id="newUserAdmin" />
+                    <label class="form-check-label small" for="newUserAdmin">Grant Administrator Access</label>
+                </div>
+            </div>
+
+            <div class="drawer-footer p-4 pt-0">
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow" @onclick="SaveNewUser" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Create User
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .mobile-page-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+        z-index: 1050;
+    }
+
+    .page-scroll-area {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .btn-icon-round {
+        width: 40px; height: 40px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        background: transparent; border: none;
+        color: #0d6efd;
+    }
+
+    .user-mobile-card {
+        background: white; border-radius: 20px;
+        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.01);
+        overflow: hidden;
+    }
+
+    .user-icon {
+        width: 44px; height: 44px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.25rem;
+    }
+    .user-icon.admin { background: #fff7ed; color: #f97316; }
+    .user-icon.bartender { background: #f8fafc; color: #64748b; }
+
+    .badge-mini {
+        font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px;
+    }
+    .badge-mini.admin { background: #ffedd5; color: #9a3412; }
+    .badge-mini.bartender { background: #f1f5f9; color: #475569; }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .status-dot.active { background: #10b981; }
+    .status-dot.inactive { background: #cbd5e1; }
+
+    .transition-icon { transition: transform 0.2s ease; }
+    .rotate-90 { transform: rotate(90deg); }
+
+    .mobile-drawer-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.4); 
+        display: flex; align-items: flex-end; z-index: 2000;
+    }
+    .mobile-drawer {
+        width: 100%; background: white;
+        border-top-left-radius: 30px; border-top-right-radius: 30px;
+        max-height: 90vh; overflow-y: auto;
+    }
+
+    .x-small { font-size: 0.7rem; }
+    
+    .animate-slide-up { animation: slideUp 0.3s ease-out; }
+    @@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+</style>
+
+@code {
+    private List<UserListItemDto> _users = new();
+    private bool _loading = true;
+    private int? _expandedUserId;
+    private bool _saving;
+
+    private List<AppPage> _allPages = new();
+    private HashSet<int> _selectedPermissions = new();
+
+    private bool _showAddModal;
+    private List<ActiveMemberDto> _availableMembers = new();
+    private UserFormModel _newUserForm = new();
+
+    private bool _showRoleModal;
+    private UserListItemDto? _selectedUser;
+    private bool _newIsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        _loading = true;
+        _users = await UserService.GetUsersAsync();
+        
+        // Use proper async methods to avoid deadlocks
+        _allPages = await UserService.GetAllPagesAsync();
+        _availableMembers = await UserService.GetEligibleMembersForUserCreationAsync();
+        
+        _loading = false;
+    }
+
+    private IEnumerable<UserListItemDto> FilteredUsers => _users;
+
+    private void ToggleUserExpansion(int userId)
+    {
+        _expandedUserId = (_expandedUserId == userId) ? null : userId;
+    }
+
+    private void OpenAddModal()
+    {
+        _newUserForm = new UserFormModel { IsActive = true };
+        _showAddModal = true;
+    }
+
+    private void OpenRoleModal(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _newIsAdmin = user.IsAdmin;
+        
+        // Load current permissions
+        var perms = UserService.GetUserPagePermissions(user.UserId);
+        _selectedPermissions = perms.Select(p => p.PageId).ToHashSet();
+        
+        _showRoleModal = true;
+    }
+
+    private void CloseModals()
+    {
+        _showAddModal = false;
+        _showRoleModal = false;
+    }
+
+    private void TogglePermission(int pageId, bool isChecked)
+    {
+        if (isChecked) _selectedPermissions.Add(pageId);
+        else _selectedPermissions.Remove(pageId);
+    }
+
+    private async Task SaveUserChanges()
+    {
+        if (_selectedUser == null) return;
+        _saving = true;
+
+        try
+        {
+            UserService.UpdateUser(_selectedUser.UserId, _selectedUser.Username, null, _selectedUser.MemberId, null, null, _newIsAdmin, _selectedUser.IsActive);
+            
+            if (!_newIsAdmin)
+            {
+                UserService.SetUserPagePermissions(_selectedUser.UserId, _selectedPermissions.ToList(), "Admin");
+            }
+
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Save failed: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SaveNewUser()
+    {
+        if (string.IsNullOrEmpty(_newUserForm.MemberId)) return;
+        _saving = true;
+
+        try
+        {
+            var memberId = int.Parse(_newUserForm.MemberId);
+            var username = UserService.GenerateUsernameFromMember(memberId);
+            
+            var userId = UserService.CreateUser(username, "GFC123!", _newUserForm.IsAdmin, memberId, "Created via Mobile", "Admin", true);
+            
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Creation failed: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ToggleUserStatus(UserListItemDto user)
+    {
+        UserService.UpdateUser(user.UserId, user.Username, null, user.MemberId, null, null, user.IsAdmin, !user.IsActive);
+        await LoadUsers();
+    }
+
+    private async Task ConfirmDeleteUser(UserListItemDto user)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Delete user {user.Username}?");
+        if (confirmed)
+        {
+            await UserService.DeleteUserAsync(user.UserId);
+            await LoadUsers();
+        }
+    }
+
+    private class UserFormModel
+    {
+        public string MemberId { get; set; } = "";
+        public bool IsAdmin { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string Notes { get; set; } = "";
+        public string Username { get; set; } = "";
+    }
+}

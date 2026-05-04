@@ -34,5 +34,13 @@ public class VersionService : IVersionService
         var revision = GetRevision();
         return $"{developer} {year} - Revision {revision}";
     }
+
+    public string GetMobileVersion()
+    {
+        var developer = GetDeveloper();
+        var year = GetYear();
+        var revision = _configuration["ApplicationVersion:MobileRevision"] ?? "2.1.0";
+        return $"{developer} {year} - Revision {revision}";
+    }
 }
 

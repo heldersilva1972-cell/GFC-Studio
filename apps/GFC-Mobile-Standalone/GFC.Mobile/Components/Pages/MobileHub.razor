@@ -31,6 +31,12 @@
                     <button class="btn btn-link btn-sm p-0 text-primary text-decoration-none" @onclick="ManualSyncPermissionsAsync" disabled="@_isSyncingPermissions">
                         <i class="bi bi-arrow-repeat @(_isSyncingPermissions ? "spin" : "")"></i> Sync
                     </button>
+                    @if (_canInstall || !string.IsNullOrEmpty(_installInstructions))
+                    {
+                        <button class="btn btn-link btn-sm p-0 text-success text-decoration-none ms-2" @onclick="InstallAppAsync">
+                            <i class="bi bi-download"></i> Download App
+                        </button>
+                    }
                     @if (!string.IsNullOrEmpty(_syncFeedback))
                     {
                         <span class="extra-small @(_syncFeedback.Contains("Failed") ? "text-danger" : "text-success") animate-fade-in">
@@ -40,32 +46,6 @@
                 </div>
             </div>
 
-            @if (_showDiagnostics)
-            {
-                <div class="card border-0 shadow-sm rounded-4 mb-4 animate-entrance" style="background: #f8fafc; border: 1px solid #e2e8f0;">
-                    <div class="card-body p-3">
-                        <div class="d-flex align-items-center justify-content-between mb-2">
-                            <h6 class="fw-bold mb-0 text-primary small text-uppercase">Diagnostic Mode</h6>
-                            <button class="btn-close" style="font-size: 0.6rem;" @onclick="() => _showDiagnostics = false"></button>
-                        </div>
-                        <div class="small text-muted mb-2">Authenticated as: <strong>@Username</strong> (Admin: @IsAdmin)</div>
-                        <div class="bg-white p-2 rounded border small mb-2" style="max-height: 100px; overflow-y: auto; font-family: monospace;">
-                            @if (UserRoutes.Any()) {
-                                @string.Join(", ", UserRoutes)
-                            } else {
-                                <span class="text-danger italic">No mobile routes detected.</span>
-                            }
-                        </div>
-                        <div class="small mb-2">
-                            <strong>Janitor Hours Access:</strong> @(HasAccessTo("Janitor hours entry") ? "YES" : "NO") (@(UserRoutes.Contains("mobile/janitor-hours") ? "Route Present" : "Route Missing"))
-                        </div>
-                        <div class="mt-2 d-flex gap-2 justify-content-center">
-                            <button class="btn btn-danger btn-sm rounded-pill px-3 fw-bold" @onclick="ForceWipeAndResetAsync">Wipe Cache & Reset</button>
-                            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showDiagnostics = false">Close</button>
-                        </div>
-                    </div>
-                </div>
-            }
 
             @if (!IsLoading && _validMissingShifts.Any() && HasAccessTo("Shift Sales Alert"))
             {
@@ -127,7 +107,7 @@
                     }
 
 
-                    @if (HasAccessTo("liquor hub mobile"))
+                    @if (HasAccessTo("Liquor HUB"))
                     {
                         <div class="app-card animate-entrance stagger-2" @onclick='() => NavigateTo("/mobile/liquor/hub")'>
                             <div class="card-icon-box" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
@@ -439,6 +419,39 @@
     private int _versionClickCount = 0;
     private bool _isSyncingPermissions = false;
     private string? _syncFeedback;
+    private bool _canInstall = false;
+    private string? _installInstructions;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // [PWA] Check if the app can be installed
+            try {
+                var result = await JSRuntime.InvokeAsync<PwaInstallResult>("pwaInstaller.checkInstallability");
+                _canInstall = result.CanInstall;
+                _installInstructions = result.Instructions;
+                StateHasChanged();
+            } catch { }
+        }
+    }
+
+    private async Task InstallAppAsync()
+    {
+        try {
+            await JSRuntime.InvokeVoidAsync("pwaInstaller.install");
+            // Re-check after attempt
+            var result = await JSRuntime.InvokeAsync<PwaInstallResult>("pwaInstaller.checkInstallability");
+            _canInstall = result.CanInstall;
+            _installInstructions = result.Instructions;
+            StateHasChanged();
+        } catch { }
+    }
+
+    public class PwaInstallResult {
+        public bool CanInstall { get; set; }
+        public string? Instructions { get; set; }
+    }
 
     private async Task ForceWipeAndResetAsync()
     {
@@ -670,25 +683,39 @@
     {
         if (IsAdmin) return true;
 
-        var normalizedSearch = featureName.ToLower();
+        var normalizedSearch = featureName.ToLower().Trim();
 
-        // 1. Try matching by specific route patterns
+        // 1. Try matching by specific route patterns (High precision)
         var cleanRoutes = UserRoutes.Select(r => r.Trim('/').ToLower()).ToHashSet();
         bool routeMatch = normalizedSearch switch
         {
             "end of shift sales" => cleanRoutes.Contains("mobile/shift-report"),
+            "liquor hub" => cleanRoutes.Contains("mobile/liquor/hub"),
+            "liquor hub mobile" => cleanRoutes.Contains("mobile/liquor/hub"),
             "liquor hub (mobile)" => cleanRoutes.Contains("mobile/liquor/hub"),
             "income charts" => cleanRoutes.Contains("mobile/analytics"),
+            "income charts & analytics" => cleanRoutes.Contains("mobile/analytics"),
             "key cards" => cleanRoutes.Contains("mobile/keycards"),
+            "door key cards (mobile)" => cleanRoutes.Contains("mobile/keycards"),
             "mobile dues & payments" => cleanRoutes.Contains("mobile/dues"),
+            "dues & payments (mobile)" => cleanRoutes.Contains("mobile/dues"),
             "mobile user management" => cleanRoutes.Contains("mobile/users"),
             "shift sales alert" => cleanRoutes.Contains("widgets/shift-sales-alert"),
             "system vitals" => cleanRoutes.Contains("mobile/system/stats"),
+            "system vitals (mobile)" => cleanRoutes.Contains("mobile/system/stats"),
             "janitor hours entry" => cleanRoutes.Contains("mobile/janitor-hours"),
+            "janitor hours (mobile)" => cleanRoutes.Contains("mobile/janitor-hours"),
             _ => false
         };
 
         if (routeMatch) return true;
+
+        // 2. Fallback: Match by PageName (if the routes are slightly different in DB or switch is missing)
+        if (_userPermissions != null && _userPermissions.Any())
+        {
+            return _userPermissions.Any(p => p.CanAccess && 
+                (p.PageName.ToLower().Contains(normalizedSearch) || normalizedSearch.Contains(p.PageName.ToLower())));
+        }
 
         return false;
     }

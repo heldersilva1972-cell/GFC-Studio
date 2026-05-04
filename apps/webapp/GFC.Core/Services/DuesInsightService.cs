@@ -36,13 +36,58 @@ public class DuesInsightService : IDuesInsightService
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
     }
 
+    private static (List<DuesListItemDto> Records, DateTime Timestamp) _cache = (new(), DateTime.MinValue);
+    private static readonly SemaphoreSlim _cacheLock = new(1, 1);
+    private const int CacheDurationSeconds = 30;
+
     public async Task<IReadOnlyList<DuesListItemDto>> GetDuesAsync(int year, bool paidTab, CancellationToken cancellationToken = default)
     {
-        var members = await Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
-        var duesHistory = await Task.Run(() => _duesRepository.GetAllDues(), cancellationToken);
-        var waivers = await Task.Run(() => _waiverRepository.GetAllWaivers(), cancellationToken);
-        var boardAssignments = await Task.Run(() => _boardRepository.GetAllAssignments(), cancellationToken);
-        var settings = await Task.Run(() => _settingsRepository.GetSettingsForYear(year), cancellationToken);
+        var allRecords = await GetAllDuesInternalAsync(year, cancellationToken);
+        return allRecords.Where(r => r.Satisfied == paidTab).ToList();
+    }
+
+    public async Task<DuesSummaryDto> GetSummaryAsync(int year, CancellationToken cancellationToken = default)
+    {
+        // [OPTIMIZATION] Call internal method once to get all data, instead of calling GetDuesAsync twice.
+        // This eliminates redundant database queries and O(N) calculations.
+        var allRecords = await GetAllDuesInternalAsync(year, cancellationToken);
+        
+        var paidCount = allRecords.Count(d => d.Satisfied && !d.IsWaived && d.Status != MemberStatus.Pending);
+        var waivedCount = allRecords.Count(d => d.IsWaived && d.Status != MemberStatus.Pending);
+        var unpaidCount = allRecords.Count(d => !d.Satisfied && d.Status != MemberStatus.Pending);
+        var pendingCount = allRecords.Count(d => d.Status == MemberStatus.Pending);
+        var amountCollected = allRecords.Where(d => d.PaidDate.HasValue && !d.IsWaived).Sum(d => d.Amount ?? 0m);
+
+        return new DuesSummaryDto(year, paidCount, unpaidCount, waivedCount, amountCollected, pendingCount);
+    }
+
+    private async Task<List<DuesListItemDto>> GetAllDuesInternalAsync(int year, CancellationToken cancellationToken)
+    {
+        // [CACHE CHECK] Rapid-fire mobile syncs shouldn't hit the DB every time
+        await _cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_cache.Records.Any() && (DateTime.Now - _cache.Timestamp).TotalSeconds < CacheDurationSeconds)
+            {
+                return _cache.Records;
+            }
+        }
+        finally { _cacheLock.Release(); }
+
+        // [PERFORMANCE] Fetch all required data in parallel to minimize latency
+        var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
+        var duesHistoryTask = Task.Run(() => _duesRepository.GetAllDues(), cancellationToken);
+        var waiversTask = Task.Run(() => _waiverRepository.GetAllWaivers(), cancellationToken);
+        var boardAssignmentsTask = Task.Run(() => _boardRepository.GetAllAssignments(), cancellationToken);
+        var settingsTask = Task.Run(() => _settingsRepository.GetSettingsForYear(year), cancellationToken);
+
+        await Task.WhenAll(membersTask, duesHistoryTask, waiversTask, boardAssignmentsTask, settingsTask);
+
+        var members = await membersTask ?? new List<Member>();
+        var duesHistory = await duesHistoryTask ?? new List<DuesPayment>();
+        var waivers = await waiversTask ?? new List<DuesWaiverPeriod>();
+        var boardAssignments = await boardAssignmentsTask ?? new List<BoardAssignment>();
+        var settings = await settingsTask;
 
         var context = new OverdueCalculationService.DuesCalculationContext
         {
@@ -70,9 +115,6 @@ public class DuesInsightService : IDuesInsightService
             var isPaid = record != null && (record.PaidDate.HasValue || string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase));
             var isSatisfied = isPaid || isWaived;
 
-            if (paidTab && !isSatisfied) continue;
-            if (!paidTab && isSatisfied) continue;
-
             var overdueMonths = 0;
             var overdueDays = 0;
             DateTime? dueDate = null;
@@ -99,7 +141,6 @@ public class DuesInsightService : IDuesInsightService
             }
 
             List<int>? advanceYears = null;
-            // [FIX] Always check for future years even if current year is unpaid
             if (context.DuesByMember.TryGetValue(member.MemberID, out var allMemberDues))
             {
                 advanceYears = allMemberDues
@@ -109,15 +150,6 @@ public class DuesInsightService : IDuesInsightService
                     .ToList();
                 
                 if (advanceYears.Count == 0) advanceYears = null;
-
-                // [DIAGNOSTIC] Log specific info for Peter Asaro (ID 66) to troubleshoot future visibility
-                if (member.MemberID == 66)
-                {
-                    Console.WriteLine($"[DUES DEBUG] ID 66 (Asaro): Year={year}, PaidTab={paidTab}, IsPaid={isPaid}, IsSatisfied={isSatisfied}, AdvanceCount={advanceYears?.Count ?? 0}");
-                    if (allMemberDues != null) {
-                        foreach(var d in allMemberDues) Console.WriteLine($"   -> Found record for {d.Year}: Paid={d.PaidDate:d}, Type={d.PaymentType}");
-                    }
-                }
             }
 
             string? pendingReason = null;
@@ -151,29 +183,20 @@ public class DuesInsightService : IDuesInsightService
                 pendingReason));
         }
 
-        return list.OrderBy(i => i.FullName).ToList();
+        var result = list.OrderBy(i => i.FullName).ToList();
+
+        // [CACHE UPDATE]
+        await _cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            _cache = (result, DateTime.Now);
+        }
+        finally { _cacheLock.Release(); }
+
+        return result;
     }
 
-    public async Task<DuesSummaryDto> GetSummaryAsync(int year, CancellationToken cancellationToken = default)
-    {
-        var allRecords = await GetProcessedDataInternalAsync(year, cancellationToken);
-        
-        var paidCount = allRecords.Count(d => d.Satisfied && !d.IsWaived);
-        var waivedCount = allRecords.Count(d => d.IsWaived && d.Status != MemberStatus.Pending);
-        var unpaidCount = allRecords.Count(d => !d.Satisfied && d.Status != MemberStatus.Pending);
-        var pendingCount = allRecords.Count(d => d.Status == MemberStatus.Pending);
-        var amountCollected = allRecords.Where(d => d.PaidDate.HasValue && !d.IsWaived).Sum(d => d.Amount ?? 0m);
 
-        return new DuesSummaryDto(year, (int)paidCount, (int)unpaidCount, (int)waivedCount, amountCollected, (int)pendingCount);
-    }
-
-    private async Task<List<DuesListItemDto>> GetProcessedDataInternalAsync(int year, CancellationToken cancellationToken)
-    {
-         // Temporarily simplified for sum-fetching
-         var allMembers = (await GetDuesAsync(year, true, cancellationToken)).ToList();
-         allMembers.AddRange(await GetDuesAsync(year, false, cancellationToken));
-         return allMembers;
-    }
 
     public async Task<IEnumerable<int>> GetAvailableYearsAsync(CancellationToken cancellationToken = default)
     {

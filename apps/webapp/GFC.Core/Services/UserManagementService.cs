@@ -18,6 +18,8 @@ public class UserManagementService : IUserManagementService
     private readonly IBoardTermConfirmationService _boardTermConfirmationService;
     private readonly IDeviceTrustService _deviceTrustService; // [FIX] Now using Core Interface
     
+    public event Action? PermissionsUpdated;
+
     // PERFORMANCE CACHE: Persists across circuits (Static)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<GFC.Core.DTOs.MobilePermissionDto>> _userPermissionsCache = new();
@@ -122,6 +124,34 @@ public class UserManagementService : IUserManagementService
     {
         return await Task.FromResult(GetAllUsers());
     }
+
+    public async Task<List<UserListItemDto>> GetMobileAuthorizedUsersAsync()
+    {
+        var allUsers = GetAllUsers();
+        var mobileUsers = new List<UserListItemDto>();
+
+        foreach (var userDto in allUsers)
+        {
+            var user = GetUser(userDto.UserId);
+            if (user == null || !user.IsActive) continue;
+
+            var permissions = GetUserPagePermissions(user.UserId);
+            
+            // Authoritative Master-Switch Filter
+            bool hasMobileAccess = permissions.Any(p => 
+                p.CanAccess && 
+                !string.IsNullOrEmpty(p.PageRoute) && 
+                (p.PageRoute.Trim('/').ToLower() == "mobile" || p.PageRoute.Trim('/').ToLower() == "hub"));
+
+            if (hasMobileAccess)
+            {
+                mobileUsers.Add(userDto);
+            }
+        }
+
+        return await Task.FromResult(mobileUsers.OrderBy(u => u.Username).ToList());
+    }
+
 
     public List<UserListItemDto> GetAllUsers()
     {
@@ -677,8 +707,28 @@ public class UserManagementService : IUserManagementService
         _pagePermissionRepository.SetDefaultPageIds(pageIds);
     }
 
-    public async Task<GfcLoginResult> RefreshPermissionsAsync(string token)
+    public async Task<GFC.Core.Models.GfcLoginResult> RefreshPermissionsAsync(string token)
     {
-        return await Task.FromResult(new GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Not implemented for direct service call in webapp." });
+        return await Task.FromResult(new GFC.Core.Models.GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Not implemented for core service in mobile." });
+    }
+
+    public async Task<List<ActiveMemberDto>> GetEligibleDirectorsForUserCreationAsync()
+    {
+        return await Task.FromResult(GetEligibleDirectorsForUserCreation());
+    }
+
+    public async Task<List<ActiveMemberDto>> GetEligibleMembersForUserCreationAsync()
+    {
+        return await Task.FromResult(GetEligibleMembersForUserCreation());
+    }
+
+    public async Task<List<AppPage>> GetAllPagesAsync()
+    {
+        return await Task.FromResult(GetAllPages());
+    }
+
+    public async Task<List<AppPage>> GetActivePagesAsync()
+    {
+        return await Task.FromResult(GetActivePages());
     }
 }

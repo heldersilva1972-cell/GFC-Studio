@@ -125,14 +125,13 @@ window.pwaInstaller = (function () {
         if (!diagnostics.allPassed) {
             console.error('[PWA Installer] Installation requirements not met:', diagnostics);
 
-            // Show user-friendly error message
+            // Show user-friendly error message with technical details for debugging
             const issues = [];
-            if (!diagnostics.isHttps) issues.push('Site must be served over HTTPS');
-            if (!diagnostics.hasServiceWorker) issues.push('Service Worker not registered');
-            if (!diagnostics.hasManifest) issues.push('Web App Manifest not found');
-            if (!diagnostics.hasIcons) issues.push('Required icons not found');
+            if (!diagnostics.isHttps) issues.push('• Connection must be HTTPS (Secure)');
+            if (!diagnostics.hasServiceWorker) issues.push('• Service Worker not ready (Wait 10s)');
+            if (!diagnostics.hasManifest) issues.push('• App Manifest not found (404)');
 
-            alert('Cannot install app:\n\n' + issues.join('\n') + '\n\nPlease contact support.');
+            alert('Cannot install app yet:\n\n' + issues.join('\n') + '\n\nIf you just refreshed, please wait 10 seconds for the background systems to start and try again.');
             return false;
         }
 
@@ -234,7 +233,8 @@ window.pwaInstaller = (function () {
             console.error('[PWA Diagnostics] Manifest check failed:', e);
         }
 
-        results.allPassed = results.isHttps && results.hasServiceWorker && results.hasManifest && results.hasIcons;
+        // Final Verdict: Manifest and Service Worker are mandatory. 
+        results.allPassed = results.isHttps && results.hasServiceWorker && results.hasManifest;
 
         console.log('[PWA Diagnostics]', results);
         return results;

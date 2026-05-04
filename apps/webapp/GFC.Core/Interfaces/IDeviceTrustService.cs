@@ -34,7 +34,7 @@ public interface IDeviceTrustService
     void InvalidateTokenSession(string token);
     void InvalidateAllUserSessions();
     Task UpdateDeviceAsync(TrustedDevice device);
-    Task<string?> GenerateSetupCodeAsync(string deviceToken);
+    Task<string?> GenerateSetupCodeAsync(string deviceToken, int userId);
     Task<string?> ValidateSetupCodeAsync(string code);
     Task<int?> ValidateStationAutoLoginAsync(string stationToken, string username);
 }

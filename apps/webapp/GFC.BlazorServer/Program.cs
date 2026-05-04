@@ -94,14 +94,39 @@ public class Program
             options.KnownProxies.Clear();
         });
 
-        // [CORS] Allow Mobile App (WASM) to talk to this API
+        // [CORS] Unified Ecosystem Policy (Mobile, Next.js, Onboarding)
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("MobileAppPolicy", policy =>
+            options.AddPolicy("GfcEcosystemPolicy", policy =>
             {
-                policy.WithOrigins("http://localhost:7128", "https://localhost:7128")
+                policy.WithOrigins(
+                        "https://gfc.lovanow.com",       // Mobile Standalone (Production)
+                        "https://mobile.lovanow.com",    // New Mobile Hostname
+                        "http://mobile.lovanow.com",     // New Mobile Hostname (HTTP)
+                        "http://localhost:3000",           // Next.js Dev
+                        "https://setup.gfc.lovanow.com",  // Production Onboarding
+                        "http://localhost:7128",           // Mobile Standalone (HTTP)
+                        "https://localhost:7128",          // Mobile Standalone (HTTPS)
+                        "http://localhost:5215",           // Mobile Standalone Alternative
+                        "https://localhost:7157", 
+                        "http://localhost:7157",
+                        "https://localhost:7178", 
+                        "http://localhost:7178",
+                        "https://localhost:7179", 
+                        "http://localhost:7179"
+                    )
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials(); // REQUIRED for Cookie-based Auth in WASM
+            });
+
+            // [NEW] Explicit policy for Mobile App
+            options.AddPolicy("GfcMobilePolicy", policy =>
+            {
+                policy.WithOrigins("https://mobile.lovanow.com")
+                      .AllowAnyMethod()
                       .AllowAnyHeader()
-                      .AllowAnyMethod();
+                      .AllowCredentials();
             });
         });
 
@@ -110,16 +135,6 @@ public class Program
         {
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // [FIX] Allow HTTP on LAN
             options.Cookie.SameSite = SameSiteMode.Lax;
-        });
-
-        // Add CORS for Next.js frontend, Mobile PWA, and Onboarding Gateway
-        builder.Services.AddCors(options =>
-        {
-            options.AddPolicy("AllowNextJs",
-                builder => builder.WithOrigins("http://localhost:3000", "https://setup.gfc.lovanow.com", "https://localhost:7128", "http://localhost:5215", "http://localhost:7157", "https://localhost:7157", "https://localhost:7178", "http://localhost:7178", "https://localhost:7179", "http://localhost:7179")
-                                  .AllowAnyMethod()
-                                  .AllowAnyHeader()
-                                  .AllowCredentials());
         });
         
         // Add Rate Limiting for Onboarding API
@@ -137,7 +152,12 @@ public class Program
         });
         
         builder.Services.AddControllers();
-        builder.Services.AddAuthenticationCore();
+        builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultScheme = "GfcAuth";
+            options.DefaultChallengeScheme = "GfcAuth";
+        })
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, GFC.BlazorServer.Auth.GfcTokenAuthenticationHandler>("GfcAuth", null);
         builder.Services.AddAuthorizationCore(options =>
         {
             // [MOD] Relaxed to allow delegated access to admin pages. 
@@ -448,9 +468,9 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         app.UseBlazorFrameworkFiles();
         app.UseRouting();
         
-        // Enable CORS
-        app.UseCors("AllowNextJs");
-        app.UseCors("MobileAppPolicy");
+        // [CORS] Must be placed after UseRouting and before UseAuthorization
+        app.UseCors("GfcMobilePolicy");
+        app.UseCors("GfcEcosystemPolicy");
 
         // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
         // if (app.Environment.IsDevelopment())
@@ -475,27 +495,9 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
                 
-                // [REBOOT-PROOF FIX] Wait for SQL Server to become available
-                // When the host computer restarts, SQL Express may take longer to initialize than IIS.
-                // This retry loop ensures we don't 'fail forward' into a broken state.
-                bool sqlReady = false;
-                int sqlRetries = 0;
-                while (!sqlReady && sqlRetries < 12) // Try for ~1 minute
-                {
-                    try
-                    {
-                        dbContext.Database.OpenConnection();
-                        dbContext.Database.CloseConnection();
-                        sqlReady = true;
-                        Console.WriteLine(">>> [Startup] SQL Server connection verified.");
-                    }
-                    catch (Exception ex)
-                    {
-                        sqlRetries++;
-                        Console.WriteLine($">>> [Startup] Waiting for SQL Server... (Attempt {sqlRetries}/12): {ex.Message}");
-                        Thread.Sleep(5000); // 5 second gap
-                    }
-                }
+                // [RESILIENCE] Database connection is verified lazily by services or via HealthController.
+                // We no longer block the entire server startup thread for 60 seconds if SQL is offline.
+                Console.WriteLine(">>> [Startup] Proceeding with non-blocking initialization.");
 
                 // [AUTO-FIX 0] CRITICAL: Initialize Database Foundation if Missing
                 // This ensures the application can start even if the manual sqlcmd script failed
@@ -1225,7 +1227,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         app.MapHub<GFC.BlazorServer.Hubs.ControllerEventHub>("/controllereventhub");
         app.MapFallbackToPage("/_Host");
 
-        app.MapGet("/health", () => Results.Ok());
+
 
         // Auto-detect and set environment on startup
         using (var scope = app.Services.CreateScope())

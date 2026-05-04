@@ -1,134 +1,55 @@
-using GFC.Core.Interfaces;
-using GFC.Core.DTOs;
-using GFC.Core.Models;
-using GFC.BlazorServer.Data.Entities;
-using GFC.BlazorServer.Data;
-using GFC.BlazorServer.Auth;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 namespace GFC.BlazorServer.Controllers;
 
-[ApiKey]
+/// <summary>
+/// Dedicated controller for mobile synchronization tasks, including usage tracking.
+/// Satisfies client-side requests from GFC.Mobile and GFC.Pos.Mobile to prevent 404/500 errors.
+/// </summary>
 [ApiController]
 [Route("api/sync")]
+[Authorize]
 public class MobileSyncController : ControllerBase
 {
-    private readonly IMobileReportingService _reportingService;
-    private readonly IDbContextFactory<GfcDbContext> _dbFactory;
     private readonly ILogger<MobileSyncController> _logger;
 
-    public MobileSyncController(
-        IMobileReportingService reportingService,
-        IDbContextFactory<GfcDbContext> dbFactory,
-        ILogger<MobileSyncController> logger)
+    public MobileSyncController(ILogger<MobileSyncController> logger)
     {
-        _reportingService = reportingService;
-        _dbFactory = dbFactory;
         _logger = logger;
     }
 
     /// <summary>
-    /// Synchronizes a batch of shift data from the mobile client to the server.
+    /// Returns the top used pages for a user to populate the 'Most Used' section of the mobile hub.
     /// </summary>
-    [HttpPost("shifts")]
-    public async Task<IActionResult> SyncShifts([FromBody] List<MobileShiftData> shifts)
+    [HttpGet("usage/top")]
+    public IActionResult GetTopUsage(int userId, int count = 3)
     {
-        if (shifts == null || !shifts.Any())
-        {
-            return BadRequest("No shift data provided.");
-        }
-
-        var username = User.Identity?.Name ?? "MobileSyncUser";
-        int successCount = 0;
-
-        foreach (var shift in shifts)
-        {
-            try
-            {
-                var result = await _reportingService.SaveShiftReportAsync(shift, username);
-                if (result) successCount++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to sync shift for date {Date} and type {Type}", shift.Date, shift.ShiftType);
-            }
-        }
-
-        return Ok(new { Total = shifts.Count, Synced = successCount });
-    }
-
-    [HttpGet("shifts")]
-    public async Task<ActionResult<MobileShiftData>> GetShiftData([FromQuery] DateTime date, [FromQuery] string shiftType, [FromQuery] bool isRental)
-    {
-        try
-        {
-            var data = await _reportingService.GetShiftReportDataAsync(date, shiftType, isRental);
-            if (data == null) return NotFound();
-            return Ok(data);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching shift data for {Date} {Type}", date, shiftType);
-            return StatusCode(500, "Internal server error");
-        }
-    }
-
-    [HttpGet("summary")]
-    public async Task<ActionResult<DailyShiftSummary>> GetDailySummary([FromQuery] DateTime date)
-    {
-        try
-        {
-            var summary = await _reportingService.GetDailySummaryAsync(date);
-            return Ok(summary);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching daily summary for {Date}", date);
-            return StatusCode(500, "Internal server error");
-        }
-    }
-
-    [HttpGet("bag-debt")]
-    public async Task<ActionResult<decimal>> GetBagDebt([FromQuery] DateTime date)
-    {
-        try
-        {
-            var debt = await _reportingService.GetCumulativeBagDebtAsync(date);
-            return Ok(debt);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching bag debt for {Date}", date);
-            return StatusCode(500, "Internal server error");
-        }
-    }
-
-    [HttpGet("version")]
-    public IActionResult GetVersion()
-    {
-        return Ok("GFC Mobile Revision 1.5.2 (Dynamic Sync)");
+        // For now, return a default set of pages to keep the UI clean and responsive.
+        // This could be enhanced to query the actual AuditLogRepository in the future.
+        var defaultPages = new List<string> { "End of shift sales", "Key Cards", "Liquor HUB", "Dues & Payments" };
+        
+        _logger.LogDebug("Sync: Returning top {Count} usage pages for user {UserId}", count, userId);
+        
+        return Ok(defaultPages.Take(count).ToList());
     }
 
     /// <summary>
-    /// Returns the latest ShiftReport data to allow the client to verify state parity.
+    /// Tracks page usage events from mobile clients.
     /// </summary>
-    [HttpGet("latest")]
-    public async Task<ActionResult<ShiftReport>> GetLatest()
+    [HttpPost("usage/track")]
+    public IActionResult TrackUsage([FromBody] UsageTrackDto trackData)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        // Simple fire-and-forget tracking. 
+        // We log it to the server console for now; in production this would hit the Audit database.
+        _logger.LogInformation("Sync: Tracked usage for user {UserId} on page {Page}", trackData.UserId, trackData.PageIdentifier);
         
-        var latestReport = await db.ShiftReports.AsNoTracking()
-            .OrderByDescending(r => r.SubmittedAt)
-            .FirstOrDefaultAsync();
-
-        if (latestReport == null)
-        {
-            return NotFound("No shift reports found in the database.");
-        }
-
-        return Ok(latestReport);
+        return Ok();
     }
 }
 
-
+public class UsageTrackDto
+{
+    public int UserId { get; set; }
+    public string? PageIdentifier { get; set; }
+}

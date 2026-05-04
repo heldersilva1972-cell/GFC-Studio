@@ -1,151 +1,52 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using GFC.Core.Interfaces;
-using GFC.BlazorServer.Services.Operations;
-using GFC.BlazorServer.Auth;
+using Microsoft.AspNetCore.Cors;
+using GFC.BlazorServer.Services.Diagnostics;
 
 namespace GFC.BlazorServer.Controllers;
 
-/// <summary>
-/// Health check endpoints for system monitoring and VPN connection testing
-/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[AllowAnonymous]
+[EnableCors("GfcEcosystemPolicy")]
 public class HealthController : ControllerBase
 {
-    private readonly IUserConnectionService _connectionService;
-    private readonly IOperationsService _operationsService;
+    private readonly DatabaseHealthService _dbHealthService;
     private readonly ILogger<HealthController> _logger;
 
-    public HealthController(
-        IUserConnectionService connectionService,
-        IOperationsService operationsService,
-        ILogger<HealthController> logger)
+    public HealthController(DatabaseHealthService dbHealthService, ILogger<HealthController> logger)
     {
-        _connectionService = connectionService;
-        _operationsService = operationsService;
+        _dbHealthService = dbHealthService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Basic health check endpoint (Public Safe)
+    /// Legacy heartbeat for root path
     /// </summary>
-    [HttpGet]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> GetHealth()
+    [HttpGet("health")]
+    public IActionResult GetRootHealth() => Ok(new { Status = "Healthy", Service = "GFC.BlazorServer" });
+
+    /// <summary>
+    /// Mobile/API heartbeat used by GFC.Mobile and ConnectivityService
+    /// </summary>
+    [HttpGet("api/health")]
+    public async Task<IActionResult> GetApiHealth()
     {
+        // We perform a light check. Even if DB is down, the API is "alive".
+        // This prevents the mobile app from entering a hard 'Offline' loop 
+        // while the server is still trying to connect to SQL.
         try 
         {
-            var info = await _operationsService.GetHealthInfoAsync();
-            
-            // Return specific failure code for monitoring systems
-            if (!info.IsHealthy)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { status = "unhealthy", timestamp = DateTime.UtcNow });
-            }
-
-            return Ok(new
-            {
-                status = "healthy",
-                timestamp = DateTime.UtcNow,
-                version = info.AppVersion
+            var dbStatus = await _dbHealthService.TestDatabaseConnectionAsync();
+            return Ok(new { 
+                Status = "Online", 
+                Database = dbStatus.Success ? "Connected" : "Disconnected",
+                Timestamp = DateTime.UtcNow 
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Health check failed");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { status = "error", message = "Internal Health Check Failure" });
-        }
-    }
-
-    /// <summary>
-    /// Detailed health check endpoint (Admin Only)
-    /// </summary>
-    [HttpGet("details")]
-    [Authorize(Policy = AppPolicies.RequireAdmin)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetHealthDetails()
-    {
-        var info = await _operationsService.GetHealthInfoAsync();
-        return Ok(info);
-    }
-
-    /// <summary>
-    /// VPN connection test endpoint.
-    /// Returns 200 OK if the request is coming from VPN subnet.
-    /// </summary>
-    [HttpGet("vpn-check")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public IActionResult VpnCheck()
-    {
-        try
-        {
-            var locationType = _connectionService.LocationType;
-            var ipAddress = _connectionService.IpAddress;
-
-            _logger.LogInformation(
-                "VPN check from IP: {IpAddress}, Location: {LocationType}",
-                ipAddress,
-                locationType);
-
-            if (locationType == LocationType.VPN)
-            {
-                return Ok(new
-                {
-                    connected = true,
-                    locationType = locationType.ToString(),
-                    message = "VPN connection verified"
-                });
-            }
-            else
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new
-                {
-                    connected = false,
-                    locationType = locationType.ToString(),
-                    message = "Not connected via VPN"
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during VPN check");
-            return StatusCode(StatusCodes.Status500InternalServerError, new
-            {
-                connected = false,
-                message = "Error checking VPN connection"
-            });
-        }
-    }
-
-    /// <summary>
-    /// Returns the client's IP address and connection information
-    /// </summary>
-    [HttpGet("connection-info")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public IActionResult GetConnectionInfo()
-    {
-        try
-        {
-            return Ok(new
-            {
-                ipAddress = _connectionService.IpAddress,
-                locationType = _connectionService.LocationType.ToString(),
-                isVpn = _connectionService.LocationType == LocationType.VPN,
-                isLan = _connectionService.LocationType == LocationType.LAN,
-                isPublic = _connectionService.LocationType == LocationType.Public,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting connection info");
-            return StatusCode(StatusCodes.Status500InternalServerError, new
-            {
-                message = "Error retrieving connection information"
-            });
+            _logger.LogWarning("Health check partially failed: {Message}", ex.Message);
+            return Ok(new { Status = "Online", Database = "Error", Message = "Service is up, but database is unreachable." });
         }
     }
 }

@@ -40,7 +40,8 @@ public class MobileReportingController : ControllerBase
     [HttpGet("version")]
     public ActionResult<string> GetVersion()
     {
-        return _versionService.GetFullVersion();
+        // [FIX] Return the target mobile revision to prevent "Update Available" false positives
+        return ((GFC.BlazorServer.Services.VersionService)_versionService).GetMobileVersion();
     }
 
     [HttpGet("data")]

@@ -36,7 +36,7 @@ builder.Services.AddTransient<MobileAuthenticationHandler>();
 
 builder.Services.AddHttpClient("GFC_API", (sp, client) => {
     client.BaseAddress = new Uri(apiBaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(15);
+    client.Timeout = TimeSpan.FromSeconds(30);
 }).AddHttpMessageHandler<MobileAuthenticationHandler>();
 
 // Provide the default HttpClient from the factory
@@ -51,6 +51,12 @@ builder.Services.AddScoped<IUserManagementService, MobileUserManagementService>(
 builder.Services.AddScoped<IShiftComplianceService, MobileShiftComplianceService>();
 builder.Services.AddScoped<IUserUsageService, MobileUserUsageService>();
 builder.Services.AddScoped<IDeviceTrustService, MobileDeviceTrustService>();
+
+// [NEW] STANDALONE HUB SERVICES
+builder.Services.AddScoped<MobileAnalyticsService>();
+builder.Services.AddScoped<MobileKeyCardService>();
+builder.Services.AddScoped<MobileDuesService>();
+builder.Services.AddScoped<MobileDiagnosticsService>();
 
 // Auth Setup
 builder.Services.AddAuthorizationCore();

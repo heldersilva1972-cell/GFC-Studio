@@ -14,6 +14,25 @@ window.GfcConnectivity = {
         return navigator.onLine;
     },
 
+    checkHonestInternet: async function () {
+        if (!navigator.onLine) return false;
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 3000);
+            
+            // Use a reliable public endpoint with no-cors to avoid preflight blocks
+            await fetch('https://www.google.com/generate_204', { 
+                mode: 'no-cors',
+                cache: 'no-cache',
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    },
+
     _notify: function (isOnline) {
         if (this._dotnetRef) {
             this._dotnetRef.invokeMethodAsync('OnConnectivityChanged', isOnline);

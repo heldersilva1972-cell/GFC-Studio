@@ -18,7 +18,10 @@ public class DeviceTrustService : IDeviceTrustService
 {
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<DeviceTrustService> _logger;
-    private static readonly ConcurrentDictionary<string, (string Token, DateTime Expiry)> _pendingSetupCodes = new();
+    // Setup codes are persisted to DB so they survive IIS restarts and deployments.
+    // Stored as TrustedDevice records with IsStation=false, DeviceToken=the real token,
+    // StationName used as the lookup key (formatted code), expiry = 15 minutes.
+    private const string SetupCodePrefix = "SETUP_CODE:";
 
     public DeviceTrustService(
         IDbContextFactory<GfcDbContext> contextFactory,
@@ -607,47 +610,89 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
-    public async Task<string?> GenerateSetupCodeAsync(string deviceToken)
+    public async Task<string?> GenerateSetupCodeAsync(string deviceToken, int userId)
     {
-        // 1. Generate an 8-digit code (e.g. 1234 5678)
+        // 1. Generate an 8-digit code (e.g. 5345-6844)
         var randomBytes = new byte[4];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
         var code = (BitConverter.ToUInt32(randomBytes, 0) % 100000000).ToString("D8");
         var formattedCode = $"{code.Substring(0, 4)}-{code.Substring(4, 4)}";
 
-        // 2. Clear stale codes
-        var staleCodes = _pendingSetupCodes.Where(x => x.Value.Expiry < DateTime.UtcNow).Select(x => x.Key).ToList();
-        foreach (var sc in staleCodes) _pendingSetupCodes.TryRemove(sc, out _);
+        await using var context = await _contextFactory.CreateDbContextAsync();
 
-        // 3. Store with 15 minute expiry
-        _pendingSetupCodes[formattedCode] = (deviceToken, DateTime.UtcNow.AddMinutes(15));
-        
-        _logger.LogInformation("Generated Setup Recovery Code {Code} for token {TokenSnippet}", 
+        // 2. Remove any previous setup code records for this device token (cleanup)
+        var staleRecords = await context.TrustedDevices
+            .Where(d => d.StationName != null && d.StationName.StartsWith(SetupCodePrefix) && d.UserAgent == $"TARGET_TOKEN:{deviceToken}")
+            .ToListAsync();
+        if (staleRecords.Any()) context.TrustedDevices.RemoveRange(staleRecords);
+
+        // 3. Also prune expired setup code records globally
+        var expiredCodes = await context.TrustedDevices
+            .Where(d => d.StationName != null && d.StationName.StartsWith(SetupCodePrefix) && d.ExpiresAtUtc < DateTime.UtcNow)
+            .ToListAsync();
+        if (expiredCodes.Any()) context.TrustedDevices.RemoveRange(expiredCodes);
+
+        // 4. Persist the new setup code as a short-lived TrustedDevice record
+        // [FIX] DeviceToken has a unique index, so we cannot reuse the existing station's token here.
+        // We generate a safe unique string for DeviceToken and store the target token in UserAgent.
+        context.TrustedDevices.Add(new TrustedDevice
+        {
+            UserId = userId,
+            DeviceToken = $"SETUP_KEY:{Guid.NewGuid()}", 
+            StationName = $"{SetupCodePrefix}{formattedCode}",
+            UserAgent = $"TARGET_TOKEN:{deviceToken}", 
+            IpAddress = "0.0.0.0",
+            LastUsedUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(15),
+            IsRevoked = false,
+            IsStation = false
+        });
+
+        await context.SaveChangesAsync();
+
+        _logger.LogInformation("Generated Setup Recovery Code {Code} for token {TokenSnippet}",
             formattedCode, deviceToken.Substring(0, 8));
 
-        return await Task.FromResult(formattedCode);
+        return formattedCode;
     }
 
     public async Task<string?> ValidateSetupCodeAsync(string code)
     {
         if (string.IsNullOrWhiteSpace(code)) return null;
-        
+
+        // Normalize: handle both "53456844" and "5345-6844"
         var normalized = code.Trim().Replace(" ", "-");
         if (!normalized.Contains("-") && normalized.Length == 8)
-        {
             normalized = $"{normalized.Substring(0, 4)}-{normalized.Substring(4, 4)}";
+
+        var lookupKey = $"{SetupCodePrefix}{normalized}";
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.TrustedDevices
+            .OrderBy(d => d.Id)
+            .FirstOrDefaultAsync(d =>
+                d.StationName == lookupKey &&
+                d.UserAgent != null && d.UserAgent.StartsWith("TARGET_TOKEN:") &&
+                !d.IsRevoked &&
+                d.ExpiresAtUtc > DateTime.UtcNow);
+
+        if (record != null)
+        {
+            // Extract the real target token from the UserAgent field
+            var token = record.UserAgent?.Replace("TARGET_TOKEN:", "");
+            
+            // Consume the code — remove it so it can't be reused
+            context.TrustedDevices.Remove(record);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Setup code {Code} successfully redeemed.", normalized);
+            return token;
         }
 
-        if (_pendingSetupCodes.TryRemove(normalized, out var data))
-        {
-            if (data.Expiry > DateTime.UtcNow)
-            {
-                return await Task.FromResult(data.Token);
-            }
-        }
-        
-        return await Task.FromResult<string?>(null);
+        _logger.LogWarning("Setup code {Code} not found or expired.", normalized);
+        return null;
     }
 
     public async Task<int?> ValidateStationAutoLoginAsync(string stationToken, string username)

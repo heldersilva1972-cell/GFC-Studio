@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.WebAssembly.Http;
+using Microsoft.JSInterop;
+using Microsoft.Extensions.DependencyInjection;
 using GFC.Mobile.Services;
 
 namespace GFC.Mobile.Auth;
@@ -19,8 +21,26 @@ public class MobileAuthenticationHandler : DelegatingHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        // [WASM AUTH FIX] Force the browser to include cookies for cross-origin requests (e.g. background sync)
+        // [WASM AUTH FIX] Force the browser to include cookies for cross-origin requests
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+
+        // [STABILITY FIX] Inject token from localStorage into Authorization header
+        // This is the most reliable way to authenticate cross-origin standalone mobile apps.
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var js = scope.ServiceProvider.GetRequiredService<IJSRuntime>();
+            var token = await js.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            
+            if (!string.IsNullOrEmpty(token) && !request.Headers.Contains("Authorization"))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AUTH] Failed to inject auth header: {ex.Message}");
+        }
 
         var response = await base.SendAsync(request, cancellationToken);
 

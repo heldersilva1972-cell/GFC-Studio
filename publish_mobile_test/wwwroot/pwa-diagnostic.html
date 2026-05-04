@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Installation Diagnostic</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json?v=88">
+    <meta name="theme-color" content="#121212">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; line-height: 1.6; }
+        .card { background: #1e293b; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-top: 0; color: #38bdf8; display: flex; align-items: center; gap: 10px; }
+        .test-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #334155; }
+        .test-name { font-weight: 500; color: #cbd5e1; }
+        .status { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+        .pass { background: #065f46; color: #34d399; }
+        .fail { background: #7f1d1d; color: #f87171; }
+        .warn { background: #78350f; color: #fbbf24; }
+        .info { background: #1e3a8a; color: #60a5fa; }
+        pre { background: #000; padding: 10px; border-radius: 8px; font-size: 0.7rem; overflow-x: auto; color: #10b981; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1><i class="bi bi-shield-check"></i> Mobile Hub Diagnostic Tool</h1>
+        <p style="font-size: 0.85rem; color: #94a3b8;">Verifying PWA Installation Requirements (v88)</p>
+        
+        <div id="results">
+            <!-- Results injected here -->
+        </div>
+
+        <div style="margin-top: 24px;">
+            <button onclick="location.reload()" style="background: #38bdf8; color: #0f172a; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%;">
+                Run Tests Again
+            </button>
+            <a href="/" style="display: block; text-align: center; margin-top: 15px; color: #94a3b8; text-decoration: none; font-size: 0.85rem;">Return to Hub</a>
+        </div>
+    </div>
+
+    <script>
+        const resultsDiv = document.getElementById('results');
+
+        function addTest(name, status, details = '') {
+            const item = document.createElement('div');
+            item.className = 'test-item';
+            item.innerHTML = `
+                <span class="test-name">${name}</span>
+                <span class="status ${status.toLowerCase()}">${status}</span>
+            `;
+            resultsDiv.appendChild(item);
+            if (details) {
+                const pre = document.createElement('pre');
+                pre.innerText = details;
+                resultsDiv.appendChild(pre);
+            }
+        }
+
+        async function runTests() {
+            // 1. Connection Check
+            addTest('1. HTTPS Connection', location.protocol === 'https:' ? 'PASS' : 'FAIL', `Protocol: ${location.protocol}`);
+
+            // 2. Browser Check
+            const ua = navigator.userAgent;
+            addTest('2. Browser Information', 'INFO', ua);
+
+            // 3. Service Worker
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    if (registrations.length > 0) {
+                        addTest('3. Service Worker', 'PASS', `Active: ${registrations.length}\nPrimary: ${registrations[0].scope}`);
+                    } else {
+                        addTest('3. Service Worker', 'FAIL', 'No service worker registered for this scope.');
+                        
+                        // Try to register right now
+                        try {
+                            const reg = await navigator.serviceWorker.register('/service-worker.js?v=88');
+                            console.log("Diagnostic registration attempt success:", reg);
+                            addTest('3b. Auto-Registration Attempt', 'INFO', '✓ Attempted registration. Please reload this page.');
+                        } catch (regErr) {
+                            addTest('3b. Auto-Registration Attempt', 'FAIL', regErr.message);
+                        }
+                    }
+                } catch (e) {
+                    addTest('3. Service Worker', 'FAIL', e.message);
+                }
+            } else {
+                addTest('3. Service Worker', 'FAIL', 'Service workers not supported in this browser.');
+            }
+
+            // 4. Manifest Check
+            const manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink) {
+                try {
+                    const response = await fetch(manifestLink.href);
+                    if (response.ok) {
+                        const manifest = await response.json();
+                        addTest('4. Manifest Check', 'PASS', `Name: ${manifest.name}\nStart URL: ${manifest.start_url}\nID: ${manifest.id}`);
+                        
+                        // Icon check
+                        if (manifest.icons && manifest.icons.length > 0) {
+                            const iconPath = manifest.icons[0].src;
+                            try {
+                                const iconResp = await fetch(iconPath);
+                                if (iconResp.ok) {
+                                    addTest('5. Icon Validation', 'PASS', `Found: ${iconPath}`);
+                                } else {
+                                    addTest('5. Icon Validation', 'FAIL', `404 Not Found: ${iconPath}`);
+                                }
+                            } catch (iconErr) {
+                                addTest('5. Icon Validation', 'FAIL', `Network error fetching icon: ${iconPath}`);
+                            }
+                        }
+                    } else {
+                        addTest('4. Manifest Check', 'FAIL', `Manifest returned status: ${response.status}`);
+                    }
+                } catch (e) {
+                    addTest('4. Manifest Check', 'FAIL', `Error fetching manifest: ${e.message}`);
+                }
+            } else {
+                addTest('4. Manifest Check', 'FAIL', 'No manifest link found in HTML.');
+            }
+
+            // 6. Installation Prompt
+            if (window._pwaBeforeInstallPrompt) {
+                addTest('6. Install Prompt', 'PASS', 'Install prompt event captured and ready.');
+            } else {
+                addTest('6. Install Prompt', 'WARN', 'No install prompt detected yet. (Wait 30s or interact with page)');
+            }
+        }
+
+        runTests();
+    </script>
+</body>
+</html>

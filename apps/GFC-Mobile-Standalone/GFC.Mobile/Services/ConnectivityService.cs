@@ -36,8 +36,9 @@ public class MobileConnectivityService : IConnectivityService
     {
         try
         {
-            // 1. Instant Hardware Check
-            _isHardwareOnline = await _js.InvokeAsync<bool>("eval", "navigator.onLine");
+            // 1. [HONEST PROBE] Check actual internet access via JS (bypasses WASM CORS blocks)
+            _isHardwareOnline = await _js.InvokeAsync<bool>("GfcConnectivity.checkHonestInternet");
+
             if (!_isHardwareOnline) 
             {
                 _isServerReachable = false;
@@ -45,8 +46,8 @@ public class MobileConnectivityService : IConnectivityService
                 return false;
             }
 
-            // 2. Real API Heartbeat (with Cache Buster)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            // 2. Real API Heartbeat (Server level)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var timestamp = DateTime.Now.Ticks;
             var response = await _http.GetAsync($"api/health?t={timestamp}", cts.Token);
             
