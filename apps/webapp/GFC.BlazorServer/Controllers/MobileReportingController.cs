@@ -7,6 +7,7 @@ namespace GFC.BlazorServer.Controllers;
 
 [ApiController]
 [Route("api/mobile-reporting")]
+[Microsoft.AspNetCore.Cors.EnableCors("GfcEcosystemPolicy")]
 public class MobileReportingController : ControllerBase
 {
     private readonly IMobileReportingService _reportingService;

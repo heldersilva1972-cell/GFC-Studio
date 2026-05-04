@@ -562,11 +562,13 @@ public class AuthenticationService : IAuthenticationService
                 var rawPermissions = _pagePermissionRepository.GetUserPermissions(result.User.UserId).Where(p => p.CanAccess).ToList();
                 result.Permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
                 {
+                    PageId = p.Page?.PageId ?? 0,
                     PageName = p.Page?.PageName ?? "Unknown",
                     PageRoute = p.Page?.PageRoute ?? "",
                     Category = p.Page?.Category,
                     CanAccess = p.CanAccess,
-                    CanEdit = p.CanEdit
+                    CanEdit = p.CanEdit,
+                    ReceivePush = p.ReceivePush
                 }).ToList();
 
                 result.AllowedRoutes = result.Permissions

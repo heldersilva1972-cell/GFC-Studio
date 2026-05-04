@@ -256,7 +256,75 @@ public class MobileUserManagementService : IUserManagementService
 
     public async Task<GfcLoginResult> RefreshPermissionsAsync(string token)
     {
-        // Standalone PWA uses token-based background refresh logic in MobileHub.razor
-        return new GfcLoginResult { Code = LoginResultCode.Success };
+        try
+        {
+            // Standalone PWA uses token-based background refresh logic
+            // Fetch fresh permissions and user context from the server
+            Console.WriteLine($"[SYNC] Refreshing permissions for token: {token.Substring(0, Math.Min(token.Length, 8))}...");
+            var response = await _http.GetAsync($"api/mobile-auth/user?token={Uri.EscapeDataString(token)}");
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<GfcLoginResult>();
+                Console.WriteLine($"[SYNC] Server response Success: {result?.Success}, Permissions Count: {result?.Permissions?.Count ?? 0}");
+                if (result != null && result.Success && result.Permissions != null)
+                {
+                    // 1. Update internal memory cache
+                    UpdateCachedPermissions(result.Permissions);
+                    
+                    // 2. Update the permanent user-specific vault (for offline login fallback)
+                    if (result.User != null)
+                    {
+                        await SavePermissionsToCacheAsync(result.User.UserId, result.Permissions);
+                    }
+
+                    // 3. Update the global session state in localStorage (gfc_auth_state)
+                    // This ensures fresh permissions are picked up by the AuthProvider on next load
+                    try
+                    {
+                        var authJson = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+                        if (!string.IsNullOrEmpty(authJson))
+                        {
+                            using var doc = JsonDocument.Parse(authJson);
+                            var root = doc.RootElement;
+                            
+                            // Reconstruct the full AuthData object to ensure all fields are preserved
+                            var updatedData = new Dictionary<string, object>();
+                            foreach (var prop in root.EnumerateObject())
+                            {
+                                if (prop.Name.Equals("Permissions", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    updatedData["Permissions"] = result.Permissions;
+                                }
+                                else
+                                {
+                                    // Use GetRawText and re-deserialize to avoid JsonElement serialization issues
+                                    updatedData[prop.Name] = JsonSerializer.Deserialize<object>(prop.Value.GetRawText())!;
+                                }
+                            }
+                            
+                            // Ensure Permissions is present even if it wasn't there before
+                            if (!updatedData.Keys.Any(k => k.Equals("Permissions", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                updatedData["Permissions"] = result.Permissions;
+                            }
+
+                            await _jsRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_auth_state", JsonSerializer.Serialize(updatedData));
+                            Console.WriteLine("[SYNC] Global auth state updated in localStorage.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SYNC ERROR] Failed to update global auth state: {ex.Message}");
+                    }
+
+                    return result;
+                }
+            }
+            return new GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = "Server sync failed." };
+        }
+        catch (Exception ex)
+        {
+            return new GfcLoginResult { Code = LoginResultCode.Error, ErrorMessageForLog = ex.Message };
+        }
     }
 }

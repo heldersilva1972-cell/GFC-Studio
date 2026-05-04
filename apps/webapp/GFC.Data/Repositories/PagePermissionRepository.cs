@@ -235,7 +235,7 @@ public class PagePermissionRepository : IPagePermissionRepository
               INNER JOIN AppPages ap ON upp.PageId = ap.PageId
               WHERE upp.UserId = @UserId 
               AND upp.CanAccess = 1
-              AND (LOWER(LTRIM(ap.PageRoute, '/')) = @Route OR ap.PageRoute = @OriginalRoute)
+              AND (LOWER(REPLACE(ap.PageRoute, '/', '')) = REPLACE(@Route, '/', '') OR ap.PageRoute = @OriginalRoute)
               AND ap.IsActive = 1";
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@UserId", userId);
@@ -287,28 +287,33 @@ public class PagePermissionRepository : IPagePermissionRepository
         
         try
         {
-            // Clear existing permissions
-            const string deleteSql = "DELETE FROM UserPagePermissions WHERE UserId = @UserId";
-            using (var deleteCommand = new SqlCommand(deleteSql, connection, transaction))
+            // 1. Deactivate permissions not in the new list (preserving flags)
+            const string deactivateSql = "UPDATE UserPagePermissions SET CanAccess = 0 WHERE UserId = @UserId";
+            using (var deactivateCommand = new SqlCommand(deactivateSql, connection, transaction))
             {
-                deleteCommand.Parameters.AddWithValue("@UserId", userId);
-                deleteCommand.ExecuteNonQuery();
+                deactivateCommand.Parameters.AddWithValue("@UserId", userId);
+                deactivateCommand.ExecuteNonQuery();
             }
 
-            // Add new permissions
+            // 2. Add or Reactivate permissions in the new list
             foreach (var pageId in pageIds)
             {
-                const string insertSql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
-                      VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, @ReceivePush, @CanEdit)";
-                using var insertCommand = new SqlCommand(insertSql, connection, transaction);
-                insertCommand.Parameters.AddWithValue("@UserId", userId);
-                insertCommand.Parameters.AddWithValue("@PageId", pageId);
-                insertCommand.Parameters.AddWithValue("@GrantedBy", grantedBy);
-                insertCommand.Parameters.AddWithValue("@ReceivePush", 0); 
-                insertCommand.Parameters.AddWithValue("@CanEdit", 0);
-                insertCommand.ExecuteNonQuery();
-            }
+                const string mergeSql = @"
+                    MERGE UserPagePermissions AS target
+                    USING (SELECT @UserId AS UserId, @PageId AS PageId) AS source
+                    ON target.UserId = source.UserId AND target.PageId = source.PageId
+                    WHEN MATCHED THEN
+                        UPDATE SET CanAccess = 1, GrantedDate = GETDATE(), GrantedBy = @GrantedBy
+                    WHEN NOT MATCHED THEN
+                        INSERT (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
+                        VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, 0, 0);";
 
+                using var mergeCommand = new SqlCommand(mergeSql, connection, transaction);
+                mergeCommand.Parameters.AddWithValue("@UserId", userId);
+                mergeCommand.Parameters.AddWithValue("@PageId", pageId);
+                mergeCommand.Parameters.AddWithValue("@GrantedBy", grantedBy);
+                mergeCommand.ExecuteNonQuery();
+            }
 
             transaction.Commit();
         }

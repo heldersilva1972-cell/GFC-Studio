@@ -55,6 +55,13 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
+            // [CORS FIX] Explicitly bypass preflight OPTIONS requests
+            if (context.Request.Method == "OPTIONS")
+            {
+                await _next(context);
+                return;
+            }
+
             // 1a. EMERGENCY BYPASS for tokens
             if (context.Request.Query.ContainsKey("token"))
             {

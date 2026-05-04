@@ -10,36 +10,19 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Smart API Resolver: Prioritize config, then auto-detect if on a remote server, then fallback to localhost dev port
-var apiBaseUrl = builder.Configuration["ApiBaseUrl"];
-if (string.IsNullOrEmpty(apiBaseUrl))
-{
-    var currentUri = new Uri(builder.HostEnvironment.BaseAddress);
-    if (!currentUri.Host.Contains("localhost") && !currentUri.Host.Contains("127.0.0.1"))
-    {
-        // We are on a remote server (e.g. your-gfc-site.com). 
-        // Point the API to the root of the current host.
-        apiBaseUrl = $"{currentUri.Scheme}://{currentUri.Host}";
-        if (!currentUri.IsDefaultPort) apiBaseUrl += $":{currentUri.Port}";
-        apiBaseUrl += "/";
-    }
-    else
-    {
-        // We are developing locally.
-        apiBaseUrl = "https://localhost:7073/"; 
-    }
-}
+// Restore legacy HttpClient targeting
+var apiBaseUrl = "https://localhost:7073/";
 Console.WriteLine($"[GFC BOOT] API Target: {apiBaseUrl}");
 
 // --- HTTP INTERCEPTORS ---
 builder.Services.AddTransient<MobileAuthenticationHandler>();
 
-builder.Services.AddHttpClient("GFC_API", (sp, client) => {
-    client.BaseAddress = new Uri(apiBaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(30);
+// Authenticated HttpClient for local session
+builder.Services.AddHttpClient("GFC_API", client => {
+    client.BaseAddress = new Uri("https://localhost:7073/");
 }).AddHttpMessageHandler<MobileAuthenticationHandler>();
 
-// Provide the default HttpClient from the factory
+// Provide the authenticated HttpClient as the default
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("GFC_API"));
 
 // --- GFC Mobile Bridge Services ---

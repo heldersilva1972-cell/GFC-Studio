@@ -5,19 +5,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>GFC Mobile Hub</title>
-    <base href="./" />
+    <base href="/" />
     
-    <script>
-        // [CRITICAL] Global Error Monitor - Must be first to catch early boot failures
-        window.onerror = function(msg, url, line, col, error) {
-            const msgBox = document.getElementById('loader-msg');
-            if (msgBox) {
-                msgBox.innerHTML = '<span style="color: #ef4444; font-weight: bold;">Boot Error: ' + msg + '</span><br><small style="color: #94a3b8; font-size: 0.6rem;">' + url.split('/').pop() + ':' + line + '</small>';
-            }
-            console.error("[GFC BOOT ERROR]", {msg, url, line, col, error});
-            return false;
-        };
-    </script>
+
 
     <!-- SYSTEM FONTS AND ASSETS -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -44,7 +34,7 @@
     <meta name="theme-color" content="#f1f5f9" />
 
     <!-- Cache-Bust Manifest -->
-    <link href="manifest.json?v=92" rel="manifest" />
+    <link href="manifest.json" rel="manifest" />
 
     <style>
         :root {
@@ -109,13 +99,7 @@
             </div>
             <div class="loading-text" id="loader-msg">Establishing Secure Connection</div>
             
-            <div id="loading-timeout-action">
-                <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px;">Connecting to secure gateway...</p>
-                <div style="display: flex; gap: 10px; justify-content: center;">
-                    <a href="." class="diag-btn"><i class="bi bi-arrow-clockwise"></i> Retry</a>
-                    <a href="/pwa-diagnostic.html" class="diag-btn"><i class="bi bi-search"></i> Diagnostics</a>
-                </div>
-            </div>
+
         </div>
     </div>
 
@@ -125,78 +109,36 @@
         <span class="dismiss">🗙</span>
     </div>
     
-    <!-- SYSTEM SCRIPTS -->
-    <script src="js/connectivity.js?v=92"></script>
-    <script src="js/pwa-installer.js?v=92"></script>
+    <script src="js/connectivity.js"></script>
+    <script src="js/pwa-installer.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
     
     <script>
-        // PWA Early Capture
-        window._pwaBeforeInstallPrompt = null;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            window._pwaBeforeInstallPrompt = e;
-            console.log("[GFC PWA] Install prompt captured early");
-        });
+        window.getCookie = function (name) {
+            let matches = document.cookie.match(new RegExp(
+                "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+            ));
+            return matches ? decodeURIComponent(matches[1]) : null;
+        };
 
-        // Loading Timeout Monitor
-        setTimeout(() => {
-            const timeoutAction = document.getElementById('loading-timeout-action');
-            if (timeoutAction && document.getElementById('gfc-loader')) {
-                timeoutAction.style.display = 'block';
+        window.setCookie = function (name, value, days) {
+            var expires = "";
+            if (days) {
+                var date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                expires = "; expires=" + date.toUTCString();
             }
-        }, 10000);
+            var secure = location.protocol === 'https:' ? "; Secure" : "";
+            document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax" + secure;
+            console.log("Cookie set: " + name);
+        };
 
-        // Core Handshaking Helpers
-        window.getCookie = function(n){let m=document.cookie.match(new RegExp("(?:^|; )"+n.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g,'\\$1')+"=([^;]*)"));return m?decodeURIComponent(m[1]):null;};
-        window.setCookie = function(n,v,d){var e="";if(d){var t=new Date();t.setTime(t.getTime()+(d*24*60*60*1000));e="; expires="+t.toUTCString();}var s=location.protocol==='https:'?"; Secure":"";document.cookie=n+"="+(v||"")+e+"; path=/; SameSite=Lax"+s;};
+        window.verifyCookie = function (name) {
+            return document.cookie.split(';').some((item) => item.trim().startsWith(name + '='));
+        };
 
-        // Storage Worker Bridge
-        let gfcWorker = null;
-        const pendingRequests = new Map();
-
-        try {
-            gfcWorker = new Worker('gfc-storage-worker.js?v=92');
-            gfcWorker.onmessage = (e) => {
-                const { action, key, value } = e.data;
-                const resolver = pendingRequests.get(action === "getAll_result" ? "getAll" : (action + "_" + key));
-                if (resolver) { pendingRequests.delete(action === "getAll_result" ? "getAll" : (action + "_" + key)); resolver(value); }
-            };
-        } catch (e) { console.warn("Worker Init Failed:", e); }
-
-        window.gfcGetAsync = (key) => new Promise(res => {
-            if (!gfcWorker) return res(null);
-            const t = setTimeout(() => { pendingRequests.delete("get_result_" + key); res(null); }, 5000);
-            pendingRequests.set("get_result_" + key, (v) => { clearTimeout(t); res(v); });
-            gfcWorker.postMessage({ action: 'get', key });
-        });
-
-        window.gfcSetAsync = (key, value) => new Promise(res => {
-            if (!gfcWorker) return res(false);
-            const t = setTimeout(() => { pendingRequests.delete("set_result_" + key); res(false); }, 5000);
-            pendingRequests.set("set_result_" + key, (v) => { clearTimeout(t); res(true); });
-            gfcWorker.postMessage({ action: 'set', key, value });
-        });
-
-        window.getGfcItemAsync = async (key) => await window.gfcGetAsync(key);
-
-        // Service Worker Registration
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('service-worker.js?v=92').then(reg => {
-                    console.log("[GFC SW] Registered:", reg.scope);
-                }).catch(err => console.error("[GFC SW] Init Failed:", err));
-            });
-
-            // [UPDATE AUTO-RELOAD]
-            // When a new service worker is activated (skipWaiting), reload the page to apply changes
-            let refreshing = false;
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (refreshing) return;
-                refreshing = true;
-                console.log("[GFC SW] New version detected, reloading...");
-                window.location.reload();
-            });
+            navigator.serviceWorker.register('service-worker.js');
         }
     </script>
     

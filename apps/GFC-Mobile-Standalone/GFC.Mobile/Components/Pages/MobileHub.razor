@@ -493,6 +493,9 @@
     protected override async Task OnInitializedAsync()
     {
         // 1. Instant check for current state
+        var versionJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_app_version");
+        Console.WriteLine($"[HUB] Initializing Mobile Hub v{versionJson ?? "Unknown"}");
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
         var currentAppUser = AuthStateProvider.GetCurrentUser();
@@ -544,7 +547,7 @@
                 else _debugInfo = "NO_AUTH_DATA";
 
                 _userPermissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
-                UserRoutes = _userPermissions.Where(p => p.CanAccess).Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant()).ToHashSet();
+                UserRoutes = _userPermissions.Where(p => p.CanAccess).Select(p => (p.PageRoute ?? "").Trim('/').ToLowerInvariant()).ToHashSet();
 
                 // Step 2: Fire background server refresh AFTER the hub is rendered.
                 // This silently updates permissions if admin has changed them,
@@ -632,7 +635,11 @@
             
             if (result.Success && result.Permissions != null)
             {
-                var freshRoutes = result.Permissions.Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant()).ToHashSet();
+                var freshRoutes = result.Permissions
+                    .Where(p => p.CanAccess)
+                    .Select(p => (p.PageRoute ?? "").Trim('/').ToLowerInvariant())
+                    .Where(r => !string.IsNullOrEmpty(r))
+                    .ToHashSet();
                 
                 // [FORCE UPDATE] Always update the local state to ensure reactivity
                 _userPermissions = result.Permissions;
@@ -686,25 +693,26 @@
         var normalizedSearch = featureName.ToLower().Trim();
 
         // 1. Try matching by specific route patterns (High precision)
-        var cleanRoutes = UserRoutes.Select(r => r.Trim('/').ToLower()).ToHashSet();
+        // UserRoutes is already normalized to lowercase and trimmed in OnInitializedAsync
+        var cleanRoutes = UserRoutes;
         bool routeMatch = normalizedSearch switch
         {
-            "end of shift sales" => cleanRoutes.Contains("mobile/shift-report"),
-            "liquor hub" => cleanRoutes.Contains("mobile/liquor/hub"),
-            "liquor hub mobile" => cleanRoutes.Contains("mobile/liquor/hub"),
-            "liquor hub (mobile)" => cleanRoutes.Contains("mobile/liquor/hub"),
-            "income charts" => cleanRoutes.Contains("mobile/analytics"),
-            "income charts & analytics" => cleanRoutes.Contains("mobile/analytics"),
-            "key cards" => cleanRoutes.Contains("mobile/keycards"),
-            "door key cards (mobile)" => cleanRoutes.Contains("mobile/keycards"),
-            "mobile dues & payments" => cleanRoutes.Contains("mobile/dues"),
-            "dues & payments (mobile)" => cleanRoutes.Contains("mobile/dues"),
-            "mobile user management" => cleanRoutes.Contains("mobile/users"),
+            "end of shift sales" => cleanRoutes.Contains("mobile/shift-report") || cleanRoutes.Contains("shift-report"),
+            "liquor hub" => cleanRoutes.Contains("mobile/liquor/hub") || cleanRoutes.Contains("liquor/hub"),
+            "liquor hub mobile" => cleanRoutes.Contains("mobile/liquor/hub") || cleanRoutes.Contains("liquor/hub"),
+            "liquor hub (mobile)" => cleanRoutes.Contains("mobile/liquor/hub") || cleanRoutes.Contains("liquor/hub"),
+            "income charts" => cleanRoutes.Contains("mobile/analytics") || cleanRoutes.Contains("analytics"),
+            "income charts & analytics" => cleanRoutes.Contains("mobile/analytics") || cleanRoutes.Contains("analytics"),
+            "key cards" => cleanRoutes.Contains("mobile/keycards") || cleanRoutes.Contains("keycards"),
+            "door key cards (mobile)" => cleanRoutes.Contains("mobile/keycards") || cleanRoutes.Contains("keycards"),
+            "mobile dues & payments" => cleanRoutes.Contains("mobile/dues") || cleanRoutes.Contains("dues"),
+            "dues & payments (mobile)" => cleanRoutes.Contains("mobile/dues") || cleanRoutes.Contains("dues"),
+            "mobile user management" => cleanRoutes.Contains("mobile/users") || cleanRoutes.Contains("users"),
             "shift sales alert" => cleanRoutes.Contains("widgets/shift-sales-alert"),
-            "system vitals" => cleanRoutes.Contains("mobile/system/stats"),
-            "system vitals (mobile)" => cleanRoutes.Contains("mobile/system/stats"),
-            "janitor hours entry" => cleanRoutes.Contains("mobile/janitor-hours"),
-            "janitor hours (mobile)" => cleanRoutes.Contains("mobile/janitor-hours"),
+            "system vitals" => cleanRoutes.Contains("mobile/system/stats") || cleanRoutes.Contains("system/stats"),
+            "system vitals (mobile)" => cleanRoutes.Contains("mobile/system/stats") || cleanRoutes.Contains("system/stats"),
+            "janitor hours entry" => cleanRoutes.Contains("mobile/janitor-hours") || cleanRoutes.Contains("janitor-hours"),
+            "janitor hours (mobile)" => cleanRoutes.Contains("mobile/janitor-hours") || cleanRoutes.Contains("janitor-hours"),
             _ => false
         };
 

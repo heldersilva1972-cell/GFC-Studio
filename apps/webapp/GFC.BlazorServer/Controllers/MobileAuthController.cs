@@ -12,22 +12,29 @@ namespace GFC.BlazorServer.Controllers;
 [ApiController]
 [Route("api/mobile-auth")]
 [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+[Microsoft.AspNetCore.Cors.EnableCors("GfcEcosystemPolicy")]
 public class MobileAuthController : ControllerBase
 {
     private readonly CustomAuthenticationStateProvider _authStateProvider;
     private readonly IUserManagementService _userManagementService;
     private readonly IPagePermissionRepository _pagePermissionRepository;
+    private readonly ITrustedDeviceRepository _deviceTrustRepository;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<MobileAuthController> _logger;
 
     public MobileAuthController(
         AuthenticationStateProvider authStateProvider,
         IUserManagementService userManagementService,
         IPagePermissionRepository pagePermissionRepository,
+        ITrustedDeviceRepository deviceTrustRepository,
+        IUserRepository userRepository,
         ILogger<MobileAuthController> logger)
     {
         _authStateProvider = (CustomAuthenticationStateProvider)authStateProvider;
         _userManagementService = userManagementService;
         _pagePermissionRepository = pagePermissionRepository;
+        _deviceTrustRepository = deviceTrustRepository;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -130,18 +137,35 @@ public class MobileAuthController : ControllerBase
             await _authStateProvider.LoginWithDeviceTokenAsync(token);
         }
         
-        var user = _authStateProvider.GetCurrentUser();
+        // [NUCLEAR FIX] Bypass provider and fetch user directly from token if possible
+        AppUser? user = null;
+        if (!string.IsNullOrEmpty(token))
+        {
+            var session = await _deviceTrustRepository.GetByTokenAsync(token);
+            if (session != null && !session.IsRevoked && session.ExpiresAtUtc > DateTime.UtcNow)
+            {
+                user = _userRepository.GetById(session.UserId);
+            }
+        }
+
+        if (user == null) 
+        {
+            user = _authStateProvider.GetCurrentUser();
+        }
+
         if (user == null) return Unauthorized();
 
-        // [CRITICAL FIX] Fetch DIRECTLY from repository and map to DTOs, filtering ONLY granted permissions.
+        // Fetch DIRECTLY from repository and map to DTOs
         var rawPermissions = _pagePermissionRepository.GetUserPermissions(user.UserId).Where(p => p.CanAccess).ToList();
         var permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
         {
+            PageId = p.Page?.PageId ?? 0,
             PageName = p.Page?.PageName ?? "Unknown",
             PageRoute = p.Page?.PageRoute ?? "",
             Category = p.Page?.Category,
             CanAccess = p.CanAccess,
-            CanEdit = p.CanEdit
+            CanEdit = p.CanEdit,
+            ReceivePush = p.ReceivePush
         }).ToList();
         
         _logger.LogInformation("Mobile permissions requested for User {UserId}. Returning {Count} active routes.", user.UserId, permissions.Count);
@@ -150,9 +174,11 @@ public class MobileAuthController : ControllerBase
         {
             Code = GFC.Core.Models.LoginResultCode.Success,
             User = user,
+            DeviceToken = token,
             Permissions = permissions,
             AllowedRoutes = permissions
-                .Select(p => p.PageRoute.TrimStart('/').ToLowerInvariant())
+                .Select(p => (p.PageRoute ?? "").Trim('/').ToLowerInvariant())
+                .Where(r => !string.IsNullOrEmpty(r))
                 .ToList()
         });
     }

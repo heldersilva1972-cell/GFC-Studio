@@ -117,16 +117,8 @@ public class Program
                     )
                     .AllowAnyMethod()
                     .AllowAnyHeader()
-                    .AllowCredentials(); // REQUIRED for Cookie-based Auth in WASM
-            });
-
-            // [NEW] Explicit policy for Mobile App
-            options.AddPolicy("GfcMobilePolicy", policy =>
-            {
-                policy.WithOrigins("https://mobile.lovanow.com")
-                      .AllowAnyMethod()
-                      .AllowAnyHeader()
-                      .AllowCredentials();
+                    .AllowCredentials() // REQUIRED for Cookie-based Auth in WASM
+                    .SetIsOriginAllowed(origin => true); // [NUCLEAR FIX] Allow all origins in local/tunnel environment
             });
         });
 
@@ -425,10 +417,6 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddHostedService<ReimbursementReminderWorker>();
 
         var app = builder.Build();
-
-
-
-        // Configure the HTTP request pipeline.
         
         // [HTTPS FIX] Use Forwarded Headers MUST be before HSTS/HttpsRedirection
         app.UseForwardedHeaders();
@@ -451,25 +439,21 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
         provider.Mappings[".webmanifest"] = "application/manifest+json";
         provider.Mappings[".json"] = "application/json";
-        
+
+        // Map the /mobile request path to the physical wwwroot folder
+        var mobilePath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "GFC-Mobile-Standalone", "GFC.Mobile", "wwwroot"));
         app.UseStaticFiles(new StaticFileOptions
         {
-            ContentTypeProvider = provider,
-            OnPrepareResponse = ctx =>
-            {
-                // Set proper cache headers for PWA files
-                if (ctx.File.Name == "manifest.json" || ctx.File.Name == "service-worker.js")
-                {
-                    ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
-                }
-            }
+            FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(mobilePath),
+            RequestPath = "/mobile",
+            ContentTypeProvider = provider
         });
 
+        app.UseStaticFiles(); // Keep the default for other requests
         app.UseBlazorFrameworkFiles();
         app.UseRouting();
         
         // [CORS] Must be placed after UseRouting and before UseAuthorization
-        app.UseCors("GfcMobilePolicy");
         app.UseCors("GfcEcosystemPolicy");
 
         // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.

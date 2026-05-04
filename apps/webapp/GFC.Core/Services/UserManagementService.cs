@@ -593,7 +593,10 @@ public class UserManagementService : IUserManagementService
     public List<GFC.Core.DTOs.MobilePermissionDto> GetUserPagePermissions(int userId)
     {
         if (_userPermissionsCache.TryGetValue(userId, out var cached))
+        {
+            // Console.WriteLine($"[CACHE] Hit for user {userId}. Returning {cached.Count} permissions.");
             return cached;
+        }
 
         var rawPermissions = _pagePermissionRepository.GetUserPermissions(userId).ToList();
         var permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
@@ -606,6 +609,8 @@ public class UserManagementService : IUserManagementService
             CanEdit = p.CanEdit,
             ReceivePush = p.ReceivePush
         }).ToList();
+
+        Console.WriteLine($"[DB] Fetched {permissions.Count} permissions for user {userId}.");
 
         _userPermissionsCache.TryAdd(userId, permissions);
         return permissions;
