@@ -442,12 +442,19 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
         // Map the /mobile request path to the physical wwwroot folder
         var mobilePath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "GFC-Mobile-Standalone", "GFC.Mobile", "wwwroot"));
-        app.UseStaticFiles(new StaticFileOptions
+        if (Directory.Exists(mobilePath))
         {
-            FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(mobilePath),
-            RequestPath = "/mobile",
-            ContentTypeProvider = provider
-        });
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(mobilePath),
+                RequestPath = "/mobile",
+                ContentTypeProvider = provider
+            });
+        }
+        else
+        {
+            Console.WriteLine($">>> [WARNING] Mobile Standalone path not found at: {mobilePath}. Virtual path /mobile will not be served from this location.");
+        }
 
         app.UseStaticFiles(); // Keep the default for other requests
         app.UseBlazorFrameworkFiles();

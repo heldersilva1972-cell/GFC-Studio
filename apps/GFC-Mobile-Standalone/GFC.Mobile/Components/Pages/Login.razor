@@ -63,7 +63,29 @@
                     {
                         <div class="col-span-2 text-center py-4">
                             <i class="bi bi-person-x text-white-50" style="font-size: 2rem;"></i>
-                            <p class="text-white-50 mt-2 small">No mobile-authorized users found.<br/>Please connect to the server to download identities.</p>
+                            <p class="text-white-50 mt-2 small">No mobile-authorized users found.</p>
+                            
+                            @if (_serverReachable)
+                            {
+                                <p class="text-white-50 small mb-3">Please ensure permissions are set in the Admin grid.</p>
+                            }
+                            else
+                            {
+                                <p class="text-white-50 small mb-3">Please connect to the server to download identities.</p>
+                            }
+
+                            <button class="btn btn-outline-light btn-sm rounded-pill px-4" @onclick="RefreshUserListAsync" disabled="@_isCheckingConnection">
+                                @if (_isCheckingConnection)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    <span>Connecting...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-clockwise me-1"></i>
+                                    <span>Try Reconnect</span>
+                                }
+                            </button>
                         </div>
                     }
                     else
@@ -130,8 +152,17 @@
         }
     </div>
     <div class="text-center mt-3 opacity-50">
-        <small class="text-white">Revision: @VersionService.GetRevision()</small>
+        <small class="text-white" @onclick="OnRevisionClicked" style="cursor: pointer;">Revision: @VersionService.GetRevision()</small>
     </div>
+
+    @if (_showVaultReset)
+    {
+        <div class="text-center mt-2 animate-fade-in">
+            <button class="btn btn-danger btn-sm rounded-pill px-3" @onclick="ResetVaultAsync">
+                <i class="bi bi-trash3 me-1"></i> Reset Identity Vault
+            </button>
+        </div>
+    }
 </div>
 
 <style>
@@ -257,13 +288,15 @@
     private bool _showConfirmation = false;
     private bool _isCheckingConnection = true;
     private bool _serverReachable = true;
+    private int _revisionClickCount = 0;
+    private bool _showVaultReset = false;
 
     private enum LoginMode { PassCode, FastGrid }
 
     protected override async Task OnInitializedAsync()
     {
         // Fire and forget connection check to avoid blocking the UI
-        _ = CheckConnectionAsync();
+        _ = MonitorConnectionAsync();
 
         try {
             // ALWAYS fetch authorized mobile users for the login grid
@@ -295,6 +328,56 @@
                 }
             }
         } catch { }
+    }
+
+    private void OnRevisionClicked()
+    {
+        _revisionClickCount++;
+        if (_revisionClickCount >= 3)
+        {
+            _showVaultReset = true;
+        }
+    }
+
+    private async Task ResetVaultAsync()
+    {
+        try {
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_offline_users");
+            _fastLoginUsers.Clear();
+            _showVaultReset = false;
+            _revisionClickCount = 0;
+            await RefreshUserListAsync();
+        } catch { }
+    }
+
+    private async Task RefreshUserListAsync()
+    {
+        try {
+            var allUsers = await UserManagementService.GetMobileAuthorizedUsersAsync();
+            _fastLoginUsers = allUsers.Where(u => u.IsActive).ToList();
+            await InvokeAsync(StateHasChanged);
+        } catch { }
+    }
+
+    private async Task MonitorConnectionAsync()
+    {
+        // One initial check
+        await CheckConnectionAsync();
+        
+        // Loop while the page is alive
+        while (!_isSubmitting && Navigation.Uri.Contains("/login"))
+        {
+            var wasOffline = !_serverReachable;
+            await CheckConnectionAsync();
+            
+            // AUTO-RECOVERY: If we just came back online and the list is empty, refresh it!
+            if (wasOffline && _serverReachable && !_fastLoginUsers.Any())
+            {
+                await RefreshUserListAsync();
+            }
+
+            await Task.Delay(5000); // Check every 5 seconds
+        }
     }
 
     private async void HandleUsersUpdated()

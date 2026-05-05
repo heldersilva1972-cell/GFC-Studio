@@ -621,15 +621,9 @@ public class UserManagementService : IUserManagementService
         // 1. Check if the user's permission set is already in cache
         if (!_permissionCache.TryGetValue(userId, out var routes))
         {
-            // First check if user is admin (very fast check)
-            var user = _userRepository.GetById(userId);
-            if (user?.IsAdmin == true)
-            {
-                routes = new HashSet<string> { "*" }; // Admin wildcard
-                _permissionCache.TryAdd(userId, routes);
-                return true;
-            }
-
+            // [MOD] Removed automatic Admin wildcard bypass. 
+            // The permissions table should be the source of truth for visibility.
+            
             // 2. Load all permitted routes for this user into memory once
             var permissions = GetUserPagePermissions(userId);
             routes = permissions

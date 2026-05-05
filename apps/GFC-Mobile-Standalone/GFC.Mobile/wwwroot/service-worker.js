@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.1.99 (Vault Restore)
+// GFC Mobile Revision: 2.1.100 (Security Hardening)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

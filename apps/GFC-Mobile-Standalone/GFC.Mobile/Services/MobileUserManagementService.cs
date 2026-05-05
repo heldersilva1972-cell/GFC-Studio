@@ -96,6 +96,10 @@ public class MobileUserManagementService : IUserManagementService
         try {
             var timestamp = DateTime.UtcNow.Ticks;
             var users = await _http.GetFromJsonAsync<List<UserListItemDto>>($"api/mobile-auth/users?t={timestamp}");
+            
+            // [REFINED CACHE PROTECTION] 
+            // If the server call succeeded (200 OK), we TRUST the result even if it's empty.
+            // This ensures that revoking permissions or filtering Admins actually updates the phone.
             if (users != null)
             {
                 await _jsRuntime.InvokeVoidAsync("localStorage.setItem", UserCacheKey, JsonSerializer.Serialize(users));
@@ -103,6 +107,7 @@ public class MobileUserManagementService : IUserManagementService
             }
         } catch { }
 
+        // FALLBACK: If server is unreachable OR returned an empty list, try the local vault.
         try {
             var cachedJson = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", UserCacheKey);
             if (!string.IsNullOrEmpty(cachedJson))

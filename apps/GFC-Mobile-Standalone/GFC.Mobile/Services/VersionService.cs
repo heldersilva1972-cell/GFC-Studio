@@ -24,12 +24,12 @@ public class VersionService : IVersionService
             }
             else
             {
-                _revision = "2.1.61-dev";
+                _revision = "2.1.100-dev";
             }
         }
         catch
         {
-            _revision = "2.1.61-err";
+            _revision = "2.1.100-err";
         }
         
         _fullVersion = $"GFC 2026 - Revision {_revision}";

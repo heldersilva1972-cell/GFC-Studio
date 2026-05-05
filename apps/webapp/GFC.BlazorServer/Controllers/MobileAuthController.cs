@@ -40,12 +40,15 @@ public class MobileAuthController : ControllerBase
 
     [HttpGet("users")]
     [AllowAnonymous]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public ActionResult<List<UserListItemDto>> GetUsers()
     {
         try
         {
             var allUsers = _userManagementService.GetAllUsers();
             var mobileUsers = new List<UserListItemDto>();
+
+            _logger.LogInformation("[MOBILE-AUTH] Filtering {Count} users for quick-login grid...", allUsers.Count);
 
             foreach (var userDto in allUsers)
             {
@@ -54,15 +57,21 @@ public class MobileAuthController : ControllerBase
 
                 var permissions = _userManagementService.GetUserPagePermissions(user.UserId);
                 
-                // Authoritative Master-Switch Filter
-                bool hasMobileAccess = permissions.Any(p => 
-                    p.CanAccess && 
-                    !string.IsNullOrEmpty(p.PageRoute) && 
-                    (p.PageRoute.Trim('/').ToLower() == "mobile" || p.PageRoute.Trim('/').ToLower() == "hub"));
+                // Authoritative Master-Switch Filter: 
+                // Any user with at least one active permission in the MOBILE HUB category is authorized.
+                // [MOD] Admins are EXCLUDED from the quick-grid for security; they must use Manual Login.
+                bool isExplicitAdmin = user.IsAdmin || user.Username.ToLower() == "admin";
+                bool hasMobileHubPerm = permissions.Any(p => p.CanAccess && p.Category?.ToUpper() == "MOBILE HUB");
 
-                if (hasMobileAccess)
+                if (!isExplicitAdmin && hasMobileHubPerm)
                 {
+                    _logger.LogInformation("[MOBILE-AUTH] AUTHORIZED: {Username} (ID: {UserId})", user.Username, user.UserId);
                     mobileUsers.Add(userDto);
+                }
+                else
+                {
+                    _logger.LogDebug("[MOBILE-AUTH] SKIPPED: {Username} (Admin: {IsAdmin}, HasPerm: {HasPerm})", 
+                        user.Username, isExplicitAdmin, hasMobileHubPerm);
                 }
             }
 

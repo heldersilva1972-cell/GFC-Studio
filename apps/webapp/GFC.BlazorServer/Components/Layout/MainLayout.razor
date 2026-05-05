@@ -682,18 +682,23 @@ else
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             _currentUsername = authState.User.Identity?.Name ?? "Unknown";
             
-            _isAdmin = authState.User.IsInRole(AppRoles.Admin);
-            
             // [NEW] Zero-latency station detection via claims
             _isStation = authState.User.HasClaim("IsStation", "true");
 
-            if (!_isAdmin)
+            // Check roles first
+            _isAdmin = authState.User.IsInRole("Admin") || authState.User.IsInRole("Administrator");
+            
+            // Fallback to database flag (most reliable)
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null && currentUser.IsAdmin)
             {
-                var currentUser = AuthStateProvider.GetCurrentUser();
-                if (currentUser != null)
-                {
-                    _isAdmin = currentUser.IsAdmin;
-                }
+                _isAdmin = true;
+            }
+            
+            // [FORCE] Hardcoded safety for the 'admin' username
+            if (_currentUsername.ToLower() == "admin")
+            {
+                _isAdmin = true;
             }
         }
         catch
