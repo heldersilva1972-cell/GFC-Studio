@@ -80,6 +80,12 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo       ^<remove fileExtension=".webmanifest" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" /^>
 >>"%PS_PATH%" echo     ^</staticContent^>
+>>"%PS_PATH%" echo     ^<httpCompression^>
+>>"%PS_PATH%" echo       ^<dynamicTypes^>
+>>"%PS_PATH%" echo         ^<add mimeType="application/octet-stream" enabled="true" /^>
+>>"%PS_PATH%" echo         ^<add mimeType="application/wasm" enabled="true" /^>
+>>"%PS_PATH%" echo       ^</dynamicTypes^>
+>>"%PS_PATH%" echo     ^</httpCompression^>
 >>"%PS_PATH%" echo     ^<rewrite^>
 >>"%PS_PATH%" echo       ^<rules^>
 >>"%PS_PATH%" echo         ^<rule name="SPA fallback routing" stopProcessing="true"^>
