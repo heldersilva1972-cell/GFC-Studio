@@ -1,4 +1,4 @@
-// GFC POS Revision: 2.25.0
+// GFC POS Revision: 2.31.0
 // Caution! Be sure you understand the caveats before using an offline-first
 // service worker. See https://aka.ms/blazor-offline-first
 

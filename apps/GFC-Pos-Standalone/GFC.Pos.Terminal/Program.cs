@@ -11,10 +11,10 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 // Configure HttpClient to point to the GFC Blazor Server API
-// Assuming the server is running on https://localhost:7073
+// Pointing to production hostname for pos.lovanow.com standalone deployment
 builder.Services.AddScoped(sp => new HttpClient 
 { 
-    BaseAddress = new Uri("https://localhost:7073/") 
+    BaseAddress = new Uri("https://gfc.lovanow.com/") 
 });
 
 builder.Services.AddBlazoredToast();

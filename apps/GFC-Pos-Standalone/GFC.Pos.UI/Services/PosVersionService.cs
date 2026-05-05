@@ -6,9 +6,10 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.27.0"; 
+    public string GetRevision() => "2.31.0"; 
     
     // REVISION HISTORY:
+    // 2.31.0: Finalized production API targeting and CORS configuration for pos.lovanow.com.
     // 2.27.0: Centered Janitor Hours layout and improved header text visibility.
     // 2.26.0: Fixed payroll mapping issues and stabilized mobile reporting hub.
     // 2.25.0: Removed back navigation button from header for a cleaner UI.

@@ -29,7 +29,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo     $apps = @(
 >>"%PS_PATH%" echo         @{ Name="GFCWebApp"; Live="C:\inetpub\GFCWebApp"; Staging="webapp"; Backup="C:\inetpub\history_webapp" },
 >>"%PS_PATH%" echo         @{ Name="GFCMobile"; Live="C:\inetpub\wwwroot\GFCMobile"; Staging="mobile"; Backup="C:\inetpub\history_mobile" },
->>"%PS_PATH%" echo         @{ Name="GFCPos";    Live="C:\inetpub\GFCPos";    Staging="pos";    Backup="C:\inetpub\history_pos" }
+>>"%PS_PATH%" echo         @{ Name="GFCPOS";    Live="C:\inetpub\wwwroot\GFCPOS";    Staging="pos";    Backup="C:\inetpub\history_pos" }
 >>"%PS_PATH%" echo     )
 >>"%PS_PATH%" echo     Import-Module WebAdministration -ErrorAction SilentlyContinue
 >>"%PS_PATH%" echo     foreach ($app in $apps) {
@@ -41,8 +41,8 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo         $ts = Get-Date -Format "yyyyMMdd_HHmmss"
 >>"%PS_PATH%" echo         $bp = Join-Path $app.Backup "Backup_$ts"
 >>"%PS_PATH%" echo         if (Test-Path $app.Live) { Copy-Item -Path "$($app.Live)\*" -Destination $bp -Recurse -Force -ErrorAction SilentlyContinue }
->>"%PS_PATH%" echo         if ($app.Name -eq "GFCMobile") {
->>"%PS_PATH%" echo             Write-Step "Flattening GFCMobile deployment..."
+>>"%PS_PATH%" echo         if ($app.Name -eq "GFCMobile" -or $app.Name -eq "GFCPOS") {
+>>"%PS_PATH%" echo             Write-Step "Flattening $($app.Name) deployment..."
 >>"%PS_PATH%" echo             $sourceWwwroot = Join-Path $appStaging "wwwroot"
 >>"%PS_PATH%" echo             robocopy $sourceWwwroot $app.Live /S /E /PURGE /XD "history" /XF "appsettings.Production.json" "web.config" ^| Out-Null
 >>"%PS_PATH%" echo             $liveWebConfig = Join-Path $app.Live "web.config"

@@ -11,8 +11,8 @@ dotnet publish "apps\webapp\GFC.BlazorServer\GFC.BlazorServer.csproj" -c Release
 echo [2/3] Publishing Mobile Standalone...
 dotnet publish "apps\GFC-Mobile-Standalone\GFC.Mobile\GFC.Mobile.csproj" -c Release -o "publish_output\mobile"
 
-echo [3/3] Publishing POS Standalone...
-dotnet publish "apps\GFC-Pos-Standalone\GFC.Pos.Mobile\GFC.Pos.Mobile.csproj" -c Release -o "publish_output\pos"
+echo [3/3] Publishing POS Standalone (Web Terminal)...
+dotnet publish "apps\GFC-Pos-Standalone\GFC.Pos.Terminal\GFC.Pos.Terminal.csproj" -c Release -o "publish_output\pos"
 
 if errorlevel 1 (
     echo [ERROR] One or more builds failed.

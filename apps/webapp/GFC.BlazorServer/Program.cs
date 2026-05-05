@@ -103,6 +103,8 @@ public class Program
                         "https://gfc.lovanow.com",       // Mobile Standalone (Production)
                         "https://mobile.lovanow.com",    // New Mobile Hostname
                         "http://mobile.lovanow.com",     // New Mobile Hostname (HTTP)
+                        "https://pos.lovanow.com",       // Standalone POS (Production)
+                        "http://pos.lovanow.com",        // Standalone POS (HTTP)
                         "http://localhost:3000",           // Next.js Dev
                         "https://setup.gfc.lovanow.com",  // Production Onboarding
                         "http://localhost:7128",           // Mobile Standalone (HTTP)
