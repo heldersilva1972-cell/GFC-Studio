@@ -32,8 +32,17 @@ public class MobileConnectivityService : IConnectivityService
     public bool IsHardwareOnline => _isHardwareOnline;
     public bool IsServerReachable => _isServerReachable;
 
+    private DateTime _lastCheckTime = DateTime.MinValue;
+    private bool _lastReachableResult = true;
+
     public async Task<bool> CanReachableServerAsync()
     {
+        // [OPTIMIZATION] Cache the result for 2 seconds to prevent concurrent hangs
+        if ((DateTime.Now - _lastCheckTime).TotalSeconds < 2)
+        {
+            return _lastReachableResult;
+        }
+
         try
         {
             // 1. [HONEST PROBE] Check actual internet access via JS (bypasses WASM CORS blocks)
@@ -43,22 +52,28 @@ public class MobileConnectivityService : IConnectivityService
             {
                 _isServerReachable = false;
                 _isOnline = false;
+                _lastReachableResult = false;
+                _lastCheckTime = DateTime.Now;
                 return false;
             }
 
             // 2. Real API Heartbeat (Server level)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)); // Reduced from 5s to 3s for snappier UI
             var timestamp = DateTime.Now.Ticks;
             var response = await _http.GetAsync($"api/health?t={timestamp}", cts.Token);
             
             _isServerReachable = response.IsSuccessStatusCode;
             _isOnline = _isServerReachable;
+            _lastReachableResult = _isOnline;
+            _lastCheckTime = DateTime.Now;
             return _isOnline;
         }
         catch
         {
             _isServerReachable = false;
             _isOnline = false;
+            _lastReachableResult = false;
+            _lastCheckTime = DateTime.Now;
             return false;
         }
     }

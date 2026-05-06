@@ -52,7 +52,8 @@ public class MobileUserManagementService : IUserManagementService
     public async Task RefreshPermissionsInBackgroundAsync(int userId)
     {
         try {
-            var permissions = await _http.GetFromJsonAsync<List<GFC.Core.DTOs.MobilePermissionDto>>($"api/mobile-users-mgmt/permissions/{userId}");
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var permissions = await _http.GetFromJsonAsync<List<GFC.Core.DTOs.MobilePermissionDto>>($"api/mobile-users-mgmt/permissions/{userId}", cts.Token);
             if (permissions != null)
             {
                 UpdateCachedPermissions(permissions);
@@ -95,11 +96,10 @@ public class MobileUserManagementService : IUserManagementService
     {
         try {
             var timestamp = DateTime.UtcNow.Ticks;
-            var users = await _http.GetFromJsonAsync<List<UserListItemDto>>($"api/mobile-auth/users?t={timestamp}");
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var users = await _http.GetFromJsonAsync<List<UserListItemDto>>($"api/mobile-auth/users?t={timestamp}", cts.Token);
             
             // [REFINED CACHE PROTECTION] 
-            // If the server call succeeded (200 OK), we TRUST the result even if it's empty.
-            // This ensures that revoking permissions or filtering Admins actually updates the phone.
             if (users != null)
             {
                 await _jsRuntime.InvokeVoidAsync("localStorage.setItem", UserCacheKey, JsonSerializer.Serialize(users));
@@ -141,7 +141,8 @@ public class MobileUserManagementService : IUserManagementService
         try
         {
             var timestamp = DateTime.UtcNow.Ticks;
-            var freshUsers = await _http.GetFromJsonAsync<List<UserListItemDto>>($"api/mobile-auth/users?t={timestamp}");
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var freshUsers = await _http.GetFromJsonAsync<List<UserListItemDto>>($"api/mobile-auth/users?t={timestamp}", cts.Token);
             
             if (freshUsers != null)
             {

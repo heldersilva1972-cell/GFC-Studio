@@ -10,8 +10,22 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Restore legacy HttpClient targeting
-var apiBaseUrl = "https://localhost:7073/";
+// Dynamic API Targeting: Use current origin root, fallback to production
+var currentOrigin = builder.HostEnvironment.BaseAddress;
+var apiBaseUrl = currentOrigin;
+
+if (currentOrigin.Contains("localhost"))
+{
+    apiBaseUrl = "https://localhost:7073/";
+}
+else
+{
+    // [CRITICAL] The Mobile Hub is hosted as a standalone static site on mobile.lovanow.com
+    // but the API resides on the main WebApp at gfc.lovanow.com.
+    apiBaseUrl = "https://gfc.lovanow.com/";
+}
+
+Console.WriteLine($"[GFC BOOT] Origin: {currentOrigin}");
 Console.WriteLine($"[GFC BOOT] API Target: {apiBaseUrl}");
 
 // --- HTTP INTERCEPTORS ---
@@ -19,7 +33,7 @@ builder.Services.AddTransient<MobileAuthenticationHandler>();
 
 // Authenticated HttpClient for local session
 builder.Services.AddHttpClient("GFC_API", client => {
-    client.BaseAddress = new Uri("https://localhost:7073/");
+    client.BaseAddress = new Uri(apiBaseUrl);
 }).AddHttpMessageHandler<MobileAuthenticationHandler>();
 
 // Provide the authenticated HttpClient as the default

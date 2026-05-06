@@ -137,11 +137,15 @@ public class UserManagementService : IUserManagementService
 
             var permissions = GetUserPagePermissions(user.UserId);
             
-            // Authoritative Master-Switch Filter
-            bool hasMobileAccess = permissions.Any(p => 
+            // Inclusive Filter
+            bool hasMobileAccess = user.IsAdmin || permissions.Any(p => 
                 p.CanAccess && 
-                !string.IsNullOrEmpty(p.PageRoute) && 
-                (p.PageRoute.Trim('/').ToLower() == "mobile" || p.PageRoute.Trim('/').ToLower() == "hub"));
+                ((p.Category?.ToUpper() == "MOBILE HUB") || 
+                 (p.PageName != null && p.PageName.Contains("(Mobile)")) ||
+                 (p.PageRoute != null && p.PageRoute.TrimStart('/').ToLower().StartsWith("mobile/"))));
+
+            // [SECURITY] Exclude 'admin' from quick-login grid
+            if (user.Username.ToLower() == "admin") continue;
 
             if (hasMobileAccess)
             {

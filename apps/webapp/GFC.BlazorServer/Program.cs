@@ -442,20 +442,45 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         provider.Mappings[".webmanifest"] = "application/manifest+json";
         provider.Mappings[".json"] = "application/json";
 
-        // Map the /mobile request path to the physical wwwroot folder
-        var mobilePath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "GFC-Mobile-Standalone", "GFC.Mobile", "wwwroot"));
+        // Map the /mobile request path to the physical folder
+        // [PRIORITY 1] Check the standard IIS deployment path first
+        var mobilePath = @"C:\inetpub\wwwroot\GFCMobile";
+        
+        // [PRIORITY 2] Fallback to source code path for local development
+        if (!Directory.Exists(mobilePath))
+        {
+            mobilePath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "GFC-Mobile-Standalone", "GFC.Mobile", "wwwroot"));
+        }
+
         if (Directory.Exists(mobilePath))
         {
+            Console.WriteLine($">>> [GFC BOOT] Serving /mobile from: {mobilePath}");
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(mobilePath),
                 RequestPath = "/mobile",
-                ContentTypeProvider = provider
+                ContentTypeProvider = provider,
+                OnPrepareResponse = ctx =>
+                {
+                    // [CACHE BUSTING] Ensure version and service worker files are NEVER cached
+                    var path = ctx.File.Name.ToLower();
+                    if (path == "service-worker.js" || path == "version.json" || path == "manifest.json" || path.EndsWith(".boot.json"))
+                    {
+                        ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+                        ctx.Context.Response.Headers.Append("Pragma", "no-cache");
+                        ctx.Context.Response.Headers.Append("Expires", "0");
+                    }
+                    else
+                    {
+                        // Cache other assets for 1 day for performance
+                        ctx.Context.Response.Headers.Append("Cache-Control", "public, max-age=86400");
+                    }
+                }
             });
         }
         else
         {
-            Console.WriteLine($">>> [WARNING] Mobile Standalone path not found at: {mobilePath}. Virtual path /mobile will not be served from this location.");
+            Console.WriteLine($">>> [WARNING] Mobile Hub folder not found. Virtual path /mobile will not be served.");
         }
 
         app.UseStaticFiles(); // Keep the default for other requests

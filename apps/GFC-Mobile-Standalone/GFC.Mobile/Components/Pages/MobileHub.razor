@@ -11,6 +11,7 @@
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
 @inject IVersionService VersionService
+@inject IMobileReportingService ReportingService
 @using GFC.Mobile.Components.Shared
 @using System.Text.Json
 @attribute [Authorize]
@@ -338,6 +339,11 @@
 </style>
 
 @code {
+    public void Dispose()
+    {
+        UserService.PermissionsUpdated -= OnPermissionsUpdated;
+    }
+
     private string Username { get; set; } = "...";
     private bool IsLoading { get; set; } = true;
     private HashSet<string> UserRoutes { get; set; } = new();
@@ -403,11 +409,26 @@
         _syncFeedback = "Syncing...";
         StateHasChanged();
 
+        // [VERSION CHECK] Also check for updates when manual syncing
+        try {
+            var serverVersion = await ReportingService.GetServerVersionAsync();
+            var clientVersion = VersionService.GetFullVersion();
+            if (serverVersion != "Offline" && serverVersion != clientVersion)
+            {
+                Console.WriteLine($"[GFC SYNC] Version mismatch detected: S={serverVersion}, C={clientVersion}. Triggering reload...");
+                await JSRuntime.InvokeVoidAsync("eval", "window.location.reload(true)");
+                return; 
+            }
+        } catch { }
+
         var currentAppUser = (AuthStateProvider as GFC.Mobile.Auth.CustomAuthenticationStateProvider)?.GetCurrentUser();
         if (currentAppUser != null)
         {
             await RefreshPermissionsInBackgroundAsync(currentAppUser.UserId);
         }
+
+        // Trigger an immediate outbox flush too
+        await ReportingService.FlushOutboxAsync();
 
         _isSyncingPermissions = false;
         StateHasChanged();
@@ -429,7 +450,7 @@
     protected override async Task OnInitializedAsync()
     {
         // 1. Instant check for current state
-        var versionJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_app_version");
+        var versionJson = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_app_version");
         Console.WriteLine($"[HUB] Initializing Mobile Hub v{versionJson ?? "Unknown"}");
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -449,7 +470,7 @@
                 UserService.PermissionsUpdated += OnPermissionsUpdated;
 
                 // Step 1: Read permissions from localStorage IMMEDIATELY
-                var localAuth = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+                var localAuth = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_auth_state");
 
                 if (!string.IsNullOrEmpty(localAuth))
                 {
@@ -480,7 +501,10 @@
                         _debugInfo = "PARSE_FAIL: " + ex.Message;
                     }
                 }
-                else _debugInfo = "NO_AUTH_DATA";
+                else 
+                {
+                    _debugInfo = "NO_AUTH_DATA";
+                }
 
                 _userPermissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
                 UserRoutes = _userPermissions.Where(p => p.CanAccess).Select(p => (p.PageRoute ?? "").Trim('/').ToLowerInvariant()).ToHashSet();
@@ -495,13 +519,9 @@
                 _ = RefreshPermissionsInBackgroundAsync(currentAppUser.UserId);
             }
             
-            
             _isCircutAlive = true;
             IsLoading = false; 
         }
-
-        // 2. Background refresh disabled to prevent reload loop
-        // _ = RefreshData();
     }
 
     private async Task RefreshData()
@@ -552,7 +572,7 @@
     {
         try
         {
-            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            var token = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_device_token");
             if (string.IsNullOrEmpty(token)) return;
 
             Console.WriteLine($"[HUB] Refreshing permissions for User {userId}...");
@@ -603,11 +623,6 @@
                 
             InvokeAsync(StateHasChanged);
         }
-    }
-
-    public void Dispose()
-    {
-        UserService.PermissionsUpdated -= OnPermissionsUpdated;
     }
 
     private async Task ReloadSessionAsync()
@@ -667,7 +682,7 @@
     {
         try
         {
-            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            var token = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_device_token");
             await AuthStateProvider.LogoutAsync(token);
             await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
             await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);

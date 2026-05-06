@@ -36,7 +36,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo         $appStaging = Join-Path $staging $app.Staging
 >>"%PS_PATH%" echo         if (-not (Test-Path $appStaging)) { Write-Host "Skipping $($app.Name) - No staging folder" ; continue }
 >>"%PS_PATH%" echo         Write-Step "Deploying $($app.Name)..." "Yellow"
->>"%PS_PATH%" echo         try { Stop-Website $app.Name ; Stop-WebAppPool $app.Name } catch {}
+>>"%PS_PATH%" echo         try { Stop-Website $app.Name ; Stop-WebAppPool $app.Name ; Start-Sleep -s 5 } catch {}
 >>"%PS_PATH%" echo         if (-not (Test-Path $app.Backup)) { New-Item -ItemType Directory -Path $app.Backup ^| Out-Null }
 >>"%PS_PATH%" echo         $ts = Get-Date -Format "yyyyMMdd_HHmmss"
 >>"%PS_PATH%" echo         $bp = Join-Path $app.Backup "Backup_$ts"
@@ -106,7 +106,12 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo     Write-Step "Cleaning up..."
 >>"%PS_PATH%" echo     Remove-Item $staging -Recurse -Force
 >>"%PS_PATH%" echo     Write-Host "FULL SUITE DEPLOYMENT SUCCESSFUL" -ForegroundColor Green
->>"%PS_PATH%" echo } catch { Write-Host "!!! FAILED !!!" -ForegroundColor Red ; Write-Host $_.Exception.Message -ForegroundColor Yellow }
+>>"%PS_PATH%" echo     if (Test-Path $desktopPath) { Remove-Item $desktopPath -Force }
+>>"%PS_PATH%" echo } catch { 
+>>"%PS_PATH%" echo     Write-Host "!!! FAILED !!!" -ForegroundColor Red ; Write-Host $_.Exception.Message -ForegroundColor Yellow 
+>>"%PS_PATH%" echo     Write-Host "Restarting apps..." -ForegroundColor Cyan
+>>"%PS_PATH%" echo     foreach ($app in $apps) { try { Start-WebAppPool $app.Name ; Start-Website $app.Name } catch {} }
+>>"%PS_PATH%" echo }
 >>"%PS_PATH%" echo Read-Host "Press Enter to finish"
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_PATH%"

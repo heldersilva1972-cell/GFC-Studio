@@ -47,8 +47,10 @@ public class MobileAuthController : ControllerBase
         {
             var allUsers = _userManagementService.GetAllUsers();
             var mobileUsers = new List<UserListItemDto>();
+            var ua = Request.Headers["User-Agent"].ToString();
 
-            _logger.LogInformation("[MOBILE-AUTH] Filtering {Count} users for quick-login grid...", allUsers.Count);
+            Console.WriteLine($"[MOBILE-DIAG] GetUsers hit. UA: {ua} | Total users in DB: {allUsers.Count}");
+            _logger.LogInformation("[MOBILE-AUTH] Filtering {Count} users for quick-login grid (UA: {UA})...", allUsers.Count, ua);
 
             foreach (var userDto in allUsers)
             {
@@ -57,21 +59,29 @@ public class MobileAuthController : ControllerBase
 
                 var permissions = _userManagementService.GetUserPagePermissions(user.UserId);
                 
-                // Authoritative Master-Switch Filter: 
-                // Any user with at least one active permission in the MOBILE HUB category is authorized.
-                // [MOD] Admins are EXCLUDED from the quick-grid for security; they must use Manual Login.
-                bool isExplicitAdmin = user.IsAdmin || user.Username.ToLower() == "admin";
-                bool hasMobileHubPerm = permissions.Any(p => p.CanAccess && p.Category?.ToUpper() == "MOBILE HUB");
+                // Broad Filter: Include anyone with access to 'Mobile Hub' category 
+                // OR any page containing '(Mobile)' OR any route starting with 'mobile/'
+                bool hasMobileAccess = permissions.Any(p => p.CanAccess && 
+                    (p.Category?.ToUpper() == "MOBILE HUB" || 
+                     (p.PageName != null && p.PageName.Contains("(Mobile)")) ||
+                     (p.PageRoute != null && p.PageRoute.TrimStart('/').ToLower().StartsWith("mobile/"))));
 
-                if (!isExplicitAdmin && hasMobileHubPerm)
+                // [SECURITY] Exclude the primary 'admin' account from the quick-login grid.
+                // The admin must log in using the 'Manual Login' form with username/passcode.
+                if (user.Username.ToLower() == "admin")
+                {
+                    _logger.LogInformation("[MOBILE-AUTH] HIDDEN: admin account (Exempt from grid)");
+                    continue;
+                }
+
+                if (hasMobileAccess || user.IsAdmin)
                 {
                     _logger.LogInformation("[MOBILE-AUTH] AUTHORIZED: {Username} (ID: {UserId})", user.Username, user.UserId);
                     mobileUsers.Add(userDto);
                 }
                 else
                 {
-                    _logger.LogDebug("[MOBILE-AUTH] SKIPPED: {Username} (Admin: {IsAdmin}, HasPerm: {HasPerm})", 
-                        user.Username, isExplicitAdmin, hasMobileHubPerm);
+                    _logger.LogDebug("[MOBILE-AUTH] SKIPPED: {Username} (No mobile permissions found)", user.Username);
                 }
             }
 

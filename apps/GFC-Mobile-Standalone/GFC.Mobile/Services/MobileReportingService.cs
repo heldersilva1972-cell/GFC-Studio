@@ -88,7 +88,8 @@ public class MobileReportingService : IMobileReportingService
             }
 
             var url = $"/api/mobile-reporting/data?date={date:yyyy-MM-dd}&shiftType={shiftType}&isRental={isRental}";
-            var serverData = await _http.GetFromJsonAsync<MobileShiftData>(url);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var serverData = await _http.GetFromJsonAsync<MobileShiftData>(url, cts.Token);
             
             if (serverData == null) serverData = new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
 
@@ -125,7 +126,8 @@ public class MobileReportingService : IMobileReportingService
         try {
             if (!await _connectivity.GateAsync("IsShiftSubmitted")) return false;
             var url = $"/api/mobile-reporting/is-submitted?date={date:yyyy-MM-dd}&shiftType={shiftType}&isRental={isRental}";
-            return await _http.GetFromJsonAsync<bool>(url);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<bool>(url, cts.Token);
         } catch { return false; }
     }
 
@@ -184,7 +186,8 @@ public class MobileReportingService : IMobileReportingService
             if (!await _connectivity.GateAsync("GetCarryoverCash")) return 1200;
 
             var url = $"/api/mobile-reporting/carryover?date={date:yyyy-MM-dd}&shiftType={shiftType}";
-            return await _http.GetFromJsonAsync<decimal>(url);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<decimal>(url, cts.Token);
         }
         catch { return 1200; }
     }
@@ -195,7 +198,8 @@ public class MobileReportingService : IMobileReportingService
         {
             if (!await _connectivity.GateAsync("GetBagDebt")) return 0;
             var url = $"/api/mobile-reporting/bag-debt?date={date:yyyy-MM-dd}";
-            return await _http.GetFromJsonAsync<decimal>(url);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<decimal>(url, cts.Token);
         }
         catch { return 0; }
     }
@@ -206,7 +210,8 @@ public class MobileReportingService : IMobileReportingService
         {
             if (!await _connectivity.GateAsync("GetDailySummary")) return new DailyShiftSummary();
             var url = $"/api/mobile-reporting/summary?date={date:yyyy-MM-dd}";
-            return await _http.GetFromJsonAsync<DailyShiftSummary>(url) ?? new DailyShiftSummary();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<DailyShiftSummary>(url, cts.Token) ?? new DailyShiftSummary();
         }
         catch { return new DailyShiftSummary(); }
     }
@@ -215,7 +220,9 @@ public class MobileReportingService : IMobileReportingService
     {
         try { 
             if (!await _connectivity.GateAsync("GetVersion")) return "Offline";
-            return await _http.GetStringAsync("/api/mobile-reporting/version"); 
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var timestamp = DateTime.UtcNow.Ticks;
+            return await _http.GetStringAsync($"/api/mobile-reporting/version?t={timestamp}", cts.Token); 
         }
         catch { return "GFC Mobile Revision 2.1.51 (Settlement Hardening)"; }
     }
@@ -228,7 +235,8 @@ public class MobileReportingService : IMobileReportingService
                 return new LotteryCommissionRate { Year = year };
 
             var url = $"/api/mobile-reporting/lottery-rate?year={year}";
-            return await _http.GetFromJsonAsync<LotteryCommissionRate>(url) ?? new LotteryCommissionRate { Year = year };
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return await _http.GetFromJsonAsync<LotteryCommissionRate>(url, cts.Token) ?? new LotteryCommissionRate { Year = year };
         }
         catch { return new LotteryCommissionRate { Year = year }; }
     }
@@ -364,7 +372,8 @@ public class MobileReportingService : IMobileReportingService
                     var endpoint = entry.Type == "SubmitShiftReport" ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
                     
                     Console.WriteLine($"[SYNC TRACE] Delivering legacy {entry.Type} for {data.Date:yyyy-MM-dd} as {user}...");
-                    var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Allow more time for large payloads
+                    var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data, cts.Token);
                     
                     if (resp.IsSuccessStatusCode) {
                         Console.WriteLine($"[SYNC TRACE] ✓ Legacy {entry.Id} delivered.");
@@ -414,7 +423,8 @@ public class MobileReportingService : IMobileReportingService
                                 
                                 Console.WriteLine($"[SYNC TRACE] Attempting delivery for {data.Date:yyyy-MM-dd} {data.ShiftType} as {user} to {endpoint}");
                                 
-                                var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data);
+                                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                                var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data, cts.Token);
                                 
                                 if (resp.IsSuccessStatusCode) {
                                     Console.WriteLine($"[SYNC TRACE] ✓ SUCCESS: {key} delivered.");

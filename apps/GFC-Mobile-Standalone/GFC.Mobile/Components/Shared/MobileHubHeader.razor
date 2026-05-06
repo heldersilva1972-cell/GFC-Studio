@@ -6,6 +6,7 @@
 @inject IJSRuntime JSRuntime
 @inject IMobileReportingService ReportingService
 @inject IConnectivityService Connectivity
+@inject ICustomAuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 
 <div class="mobile-hub-header d-flex align-items-center justify-content-between px-3 py-2">
@@ -227,19 +228,26 @@
     private bool IsServerNewer(string serverFullVersion)
     {
         try {
-            var serverRev = serverFullVersion.Split("Revision ").LastOrDefault();
+            // [HARDENED PARSING] Look for the version number pattern (e.g., 2.1.102)
+            var parts = serverFullVersion.Split(new[] { "Revision ", "v.", "v" }, StringSplitOptions.RemoveEmptyEntries);
+            var serverRev = parts.LastOrDefault()?.Trim();
             var clientRev = VersionService.GetRevision();
             
             if (string.IsNullOrEmpty(serverRev) || string.IsNullOrEmpty(clientRev)) return false;
 
-            var sParts = serverRev.Split('.').Select(int.Parse).ToArray();
-            var cParts = clientRev.Split('.').Select(int.Parse).ToArray();
+            // Handle potential trailing text like "(Settlement Hardening)"
+            if (serverRev.Contains(" ")) serverRev = serverRev.Split(' ')[0];
 
-            for (int i = 0; i < Math.Min(sParts.Length, cParts.Length); i++) {
-                if (sParts[i] > cParts[i]) return true;
-                if (sParts[i] < cParts[i]) return false;
+            var sParts = serverRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
+            var cParts = clientRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
+
+            for (int i = 0; i < Math.Max(sParts.Length, cParts.Length); i++) {
+                int s = i < sParts.Length ? sParts[i] : 0;
+                int c = i < cParts.Length ? cParts[i] : 0;
+                if (s > c) return true;
+                if (s < c) return false;
             }
-            return sParts.Length > cParts.Length;
+            return false;
         } catch { return false; }
     }
 
@@ -278,18 +286,38 @@
         {
             // [VERSION CHECK] - No guessing!
             try {
-                if (await Connectivity.GateAsync("VersionCheck")) {
+                // [FORCE PROBE] Ensure we have the latest connectivity status before checking version
+                await Connectivity.CanReachableServerAsync();
+
+                if (Connectivity.IsServerReachable) {
                     var serverVersion = await ReportingService.GetServerVersionAsync();
-                    if (!string.IsNullOrEmpty(serverVersion) && IsServerNewer(serverVersion))
+                    if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
                     {
+                        Console.WriteLine($"[GFC UPDATE] New version detected: {serverVersion}. Current: {VersionService.GetRevision()}");
                         _hasUpdate = true;
+
+                        // [AUTO-UPDATE] Trigger reload if on safe pages (Hub/Login)
+                        var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri).ToLower();
+                        bool isSafePage = string.IsNullOrEmpty(relativeUri) || 
+                                         relativeUri == "mobile" || 
+                                         relativeUri == "mobile/" || 
+                                         relativeUri == "login" ||
+                                         relativeUri.Contains("login");
+
+                        if (isSafePage)
+                        {
+                            Console.WriteLine("[GFC UPDATE] On safe page. Triggering auto-reload...");
+                            await RefreshApp();
+                        }
                     }
                 }
             } catch { }
 
             // 2. [BATCH SYNC]
-            if (!await Connectivity.GateAsync("OutboxSync")) return;        // Trigger the unified service-level sync
-            await ReportingService.FlushOutboxAsync();
+            if (await Connectivity.GateAsync("OutboxSync")) 
+            {
+                await ReportingService.FlushOutboxAsync();
+            }
         }
         catch { /* Never crash the header */ }
         finally {
@@ -306,6 +334,14 @@
     }
 
     private void GoHome() => Navigation.NavigateTo("/mobile");
-    private async Task HandleLogout() => await JSRuntime.InvokeVoidAsync("location.assign", "/login");
-    private async Task RefreshApp() => await JSRuntime.InvokeVoidAsync("location.reload", true);
+    private async Task HandleLogout()
+    {
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+    private async Task RefreshApp() 
+    {
+        // [FORCE RELOAD] Bypass cache and ensure the new service worker takes over
+        await JSRuntime.InvokeVoidAsync("eval", "window.location.reload(true)"); 
+    }
 }

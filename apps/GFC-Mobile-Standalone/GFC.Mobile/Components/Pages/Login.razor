@@ -12,6 +12,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
+@inject IMobileReportingService ReportingService
 @implements IDisposable
 
 <style>
@@ -63,29 +64,33 @@
                     {
                         <div class="col-span-2 text-center py-4">
                             <i class="bi bi-person-x text-white-50" style="font-size: 2rem;"></i>
-                            <p class="text-white-50 mt-2 small">No mobile-authorized users found.</p>
+                            <p class="text-white-50 mt-2 small">No identities visible in grid.</p>
                             
-                            @if (_serverReachable)
+                            @if (_isStationMode)
                             {
-                                <p class="text-white-50 small mb-3">Please ensure permissions are set in the Admin grid.</p>
-                            }
-                            else
-                            {
-                                <p class="text-white-50 small mb-3">Please connect to the server to download identities.</p>
+                                <div class="alert alert-warning py-1 px-2 mx-auto mt-2" style="max-width: 250px; font-size: 0.75rem;">
+                                    <i class="bi bi-info-circle me-1"></i> Station Mode: Filtering Active
+                                </div>
                             }
 
-                            <button class="btn btn-outline-light btn-sm rounded-pill px-4" @onclick="RefreshUserListAsync" disabled="@_isCheckingConnection">
-                                @if (_isCheckingConnection)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                    <span>Connecting...</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-clockwise me-1"></i>
-                                    <span>Try Reconnect</span>
-                                }
-                            </button>
+                            <div class="d-flex flex-column gap-2 mt-3 align-items-center">
+                                <button class="btn btn-outline-light btn-sm rounded-pill px-4 w-75" @onclick='() => SetMode(LoginMode.PassCode)'>
+                                    <i class="bi bi-keyboard me-1"></i> Manual Login
+                                </button>
+
+                                <button class="btn btn-link btn-sm text-white-50 text-decoration-none" @onclick="RefreshUserListAsync" disabled="@_isCheckingConnection">
+                                    @if (_isCheckingConnection)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>Connecting...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-clockwise me-1"></i>
+                                        <span>Refresh Identities</span>
+                                    }
+                                </button>
+                            </div>
                         </div>
                     }
                     else
@@ -300,7 +305,9 @@
 
         try {
             // ALWAYS fetch authorized mobile users for the login grid
+            Console.WriteLine($"[LOGIN-DIAG] Fetching users from {Http.BaseAddress}api/mobile-auth/users...");
             var allUsers = await UserManagementService.GetMobileAuthorizedUsersAsync();
+            Console.WriteLine($"[LOGIN-DIAG] Received {allUsers.Count} users.");
             _fastLoginUsers = allUsers.Where(u => u.IsActive).ToList();
             
             // Subscribe to automatic background updates (Reconciliation Logic)
@@ -343,9 +350,11 @@
     {
         try {
             await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_offline_users");
-            _fastLoginUsers.Clear();
+            await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", "", -1);
             _showVaultReset = false;
-            _revisionClickCount = 0;
+            _error = "Vault and Station Identity cleared. Reconnecting...";
+            StateHasChanged();
+            await Task.Delay(1000);
             await RefreshUserListAsync();
         } catch { }
     }
@@ -376,8 +385,37 @@
                 await RefreshUserListAsync();
             }
 
+            // [AUTO-UPDATE] Check for new revision while logged out
+            try {
+                var serverVersion = await ReportingService.GetServerVersionAsync();
+                if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+                {
+                    Console.WriteLine("[GFC UPDATE] New version detected on login screen. Auto-reloading...");
+                    await JSRuntime.InvokeVoidAsync("location.reload", true);
+                }
+            } catch { }
+
             await Task.Delay(5000); // Check every 5 seconds
         }
+    }
+
+    private bool IsServerNewer(string serverFullVersion)
+    {
+        try {
+            var serverRev = serverFullVersion.Split("Revision ").LastOrDefault();
+            var clientRev = VersionService.GetRevision();
+            
+            if (string.IsNullOrEmpty(serverRev) || string.IsNullOrEmpty(clientRev)) return false;
+
+            var sParts = serverRev.Split('.').Select(int.Parse).ToArray();
+            var cParts = clientRev.Split('.').Select(int.Parse).ToArray();
+
+            for (int i = 0; i < Math.Min(sParts.Length, cParts.Length); i++) {
+                if (sParts[i] > cParts[i]) return true;
+                if (sParts[i] < cParts[i]) return false;
+            }
+            return sParts.Length > cParts.Length;
+        } catch { return false; }
     }
 
     private async void HandleUsersUpdated()

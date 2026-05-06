@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.1.100 (Security Hardening)
+// GFC Mobile Revision: 2.2.3 (Major Stability Release)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

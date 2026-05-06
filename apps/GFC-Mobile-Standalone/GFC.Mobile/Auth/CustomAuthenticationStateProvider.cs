@@ -215,7 +215,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
             var deviceToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
             if (!string.IsNullOrEmpty(deviceToken))
             {
-                await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", deviceToken);
+                // [FIX] Add a short timeout to prevent logout hangs when offline
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", deviceToken, cts.Token);
             }
         }
         catch
