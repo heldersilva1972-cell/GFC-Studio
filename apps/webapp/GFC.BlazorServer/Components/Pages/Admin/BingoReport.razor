@@ -1,0 +1,241 @@
+@page "/admin/bingo"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@using global::System.Security.Claims
+@inject GfcDbContext DbContext
+@inject NavigationManager Navigation
+@inject GFC.Core.Interfaces.IUserManagementService UserService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Bingo Reports | GFC Admin</PageTitle>
+
+<div class="admin-container p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="fw-black text-dark mb-1">BINGO REPORTS</h1>
+            <p class="text-muted">Financial audit and analysis for Bingo sessions.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0"><i class="bi bi-calendar3"></i></span>
+                <input type="date" class="form-control border-start-0" @bind="StartDate" />
+                <span class="input-group-text bg-white border-0">to</span>
+                <input type="date" class="form-control" @bind="EndDate" />
+                <button class="btn btn-primary px-4" @onclick="LoadData">FILTER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STATS CARDS -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="stat-card glass-card p-3 shadow-sm border-start border-primary border-4">
+                <div class="text-muted extra-small fw-black text-uppercase">Total Gross</div>
+                <div class="fs-4 fw-black text-dark">@Sessions.Sum(s => s.TotalGrossReceipts).ToString("C2")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card glass-card p-3 shadow-sm border-start border-danger border-4">
+                <div class="text-muted extra-small fw-black text-uppercase">Total Prizes</div>
+                <div class="fs-4 fw-black text-dark">@Sessions.Sum(s => s.TotalPrizesPaid).ToString("C2")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card glass-card p-3 shadow-sm border-start border-warning border-4">
+                <div class="text-muted extra-small fw-black text-uppercase">Lottery Take</div>
+                <div class="fs-4 fw-black text-dark">@Sessions.Sum(s => s.TotalLotteryTake).ToString("C2")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card glass-card p-3 shadow-sm border-start border-success border-4">
+                <div class="text-muted extra-small fw-black text-uppercase">Net Proceeds</div>
+                <div class="fs-4 fw-black text-success">@Sessions.Sum(s => (s.TotalGrossReceipts - s.TotalPrizesPaid - s.TotalLotteryTake - s.TotalClubTake)).ToString("C2")</div>
+            </div>
+        </div>
+    </div>
+
+    @if (Loading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (!Sessions.Any())
+    {
+        <div class="text-center py-5 glass-card">
+            <i class="bi bi-inbox text-muted fs-1"></i>
+            <p class="mt-2 text-muted fw-bold">No Bingo sessions found for this period.</p>
+        </div>
+    }
+    else
+    {
+        <div class="glass-card shadow-sm overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="bg-light">
+                        <tr class="extra-small fw-black text-muted text-uppercase">
+                            <th class="ps-4">Date</th>
+                            <th>Admission</th>
+                            <th>Gross Receipts</th>
+                            <th>Prizes Paid</th>
+                            <th>Lottery (5%)</th>
+                            <th>Club Take</th>
+                            <th>Net Proceeds</th>
+                            <th class="pe-4 text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var session in Sessions)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="fw-black text-dark">@session.SessionDate.ToShortDateString()</div>
+                                    <div class="extra-small text-muted">@session.SessionDate.DayOfWeek</div>
+                                </td>
+                                <td><span class="badge bg-light text-dark border">@session.AdmissionCount</span></td>
+                                <td class="fw-bold">@session.TotalGrossReceipts.ToString("C2")</td>
+                                <td class="text-danger">@session.TotalPrizesPaid.ToString("C2")</td>
+                                <td class="text-warning fw-bold">@session.TotalLotteryTake.ToString("C2")</td>
+                                <td class="text-indigo">@session.TotalClubTake.ToString("C2")</td>
+                                <td class="fw-black text-success">@((session.TotalGrossReceipts - session.TotalPrizesPaid - session.TotalLotteryTake - session.TotalClubTake).ToString("C2"))</td>
+                                <td class="pe-4 text-end">
+                                    <button class="btn btn-sm btn-light rounded-pill px-3" @onclick="() => OpenDetail(session)">
+                                        <i class="bi bi-eye me-1"></i> VIEW
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@if (SelectedSession != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                <div class="modal-header border-0 p-4 pb-0">
+                    <div>
+                        <h5 class="modal-title fw-black">BINGO SESSION DETAIL</h5>
+                        <p class="text-muted small mb-0">@SelectedSession.SessionDate.ToLongDateString()</p>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => SelectedSession = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-4">
+                        <div class="col-3">
+                            <div class="bg-light p-2 rounded-3 text-center border">
+                                <div class="extra-small fw-black text-muted text-uppercase">Admission</div>
+                                <div class="fw-black">@SelectedSession.AdmissionCount</div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="bg-light p-2 rounded-3 text-center border">
+                                <div class="extra-small fw-black text-muted text-uppercase">Sheet Count</div>
+                                <div class="fw-black">@SelectedSession.GameEntries.Sum(e => e.SheetsSold)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive rounded-4 border overflow-hidden">
+                        <table class="table table-sm mb-0">
+                            <thead class="bg-light">
+                                <tr class="extra-small fw-black text-muted">
+                                    <th class="ps-3">Sheet Color</th>
+                                    <th>Game</th>
+                                    <th>Sold</th>
+                                    <th>Price</th>
+                                    <th>Gross</th>
+                                    <th>Payout</th>
+                                    <th>Lottery %</th>
+                                    <th>Club %</th>
+                                    <th>Net</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                    @foreach (var entry in SelectedSession.GameEntries.OrderBy(e => e.SheetColor))
+                                    {
+                                        <tr>
+                                            <td class="extra-small fw-bold ps-3">@entry.SheetColor - @entry.GameName</td>
+                                            <td class="extra-small text-end">@entry.SheetsSold</td>
+                                            <td class="extra-small text-end">@entry.PricePerSheet.ToString("C2")</td>
+                                            <td class="extra-small text-end fw-black">@entry.GrossReceipts.ToString("C2")</td>
+                                            <td class="extra-small text-end text-danger fw-bold">@entry.PrizePaid.ToString("C2")</td>
+                                            <td class="extra-small text-end text-warning">@((entry.LotteryPercent * 100).ToString("N1"))%</td>
+                                            <td class="extra-small text-end text-indigo">@((entry.ClubPercent * 100).ToString("N1"))%</td>
+                                            <td class="extra-small text-end fw-black text-success">@entry.NetProceeds.ToString("C2")</td>
+                                        </tr>
+                                    }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .extra-small { font-size: 0.65rem; }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 16px;
+    }
+    .text-indigo { color: #4c6ef5; }
+</style>
+
+@code {
+    private bool Loading { get; set; } = true;
+    private DateTime StartDate { get; set; } = DateTime.Today.AddMonths(-1);
+    private DateTime EndDate { get; set; } = DateTime.Today;
+    private List<BingoSession> Sessions { get; set; } = new();
+    private BingoSession SelectedSession { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await HasAccess()) 
+        {
+            Navigation.NavigateTo("/access-denied");
+            return;
+        }
+        await LoadData();
+    }
+
+    private async Task<bool> HasAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.IsInRole("Admin")) return true;
+
+        var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            var permissions = UserService.GetUserPagePermissions(userId);
+            return permissions.Any(p => p.PageRoute == "/admin/bingo");
+        }
+        return false;
+    }
+
+    private async Task LoadData()
+    {
+        Loading = true;
+        Sessions = await DbContext.BingoSessions
+            .Include(s => s.GameEntries)
+            .Where(s => s.SessionDate >= StartDate && s.SessionDate <= EndDate && !s.IsDeleted)
+            .OrderByDescending(s => s.SessionDate)
+            .ToListAsync();
+        Loading = false;
+    }
+
+    private void OpenDetail(BingoSession session)
+    {
+        SelectedSession = session;
+    }
+}

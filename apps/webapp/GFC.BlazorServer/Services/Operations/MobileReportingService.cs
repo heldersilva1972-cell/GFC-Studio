@@ -433,6 +433,73 @@ public class MobileReportingService : IMobileReportingService
 
     // [INTERFACE SATISFACTION] The server-side service is the destination and does not need a local outbox.
     public Task FlushOutboxAsync() => Task.CompletedTask;
+
+    // BINGO
+    public async Task<List<BingoSheetDefinition>> GetBingoProgramAsync()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.BingoSheetDefinitions
+            .Include(s => s.Games)
+            .Where(s => s.IsActive && !s.IsDeleted)
+            .OrderBy(s => s.DisplayOrder)
+            .ToListAsync();
+    }
+
+    public async Task<List<BingoAdmissionDefinition>> GetBingoAdmissionsAsync()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.BingoAdmissionDefinitions
+            .Where(a => a.IsActive && !a.IsDeleted)
+            .OrderBy(a => a.DisplayOrder)
+            .ToListAsync();
+    }
+
+    public async Task<bool> SubmitBingoSessionAsync(BingoSession session, string username)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        
+        session.CreatedAt = DateTime.UtcNow;
+        session.CreatedBy = username;
+        session.Status = "Submitted";
+
+        foreach (var entry in session.GameEntries)
+        {
+            entry.CreatedAt = DateTime.UtcNow;
+            entry.CreatedBy = username;
+        }
+
+        if (session.AdmissionEntries != null)
+        {
+            foreach (var entry in session.AdmissionEntries)
+            {
+                entry.CreatedAt = DateTime.UtcNow;
+                entry.CreatedBy = username;
+            }
+        }
+
+        db.BingoSessions.Add(session);
+        await db.SaveChangesAsync();
+        return true;
+    }
+    public async Task<BingoSettingsDto> GetBingoSettingsAsync()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var settings = await db.SystemSettings.FirstOrDefaultAsync();
+        var tiers = await db.BingoPayoutTiers
+            .Where(t => !t.IsDeleted)
+            .OrderBy(t => t.MinAdmissions)
+            .Select(t => new BingoPayoutTierDto 
+            { 
+                MinAdmissions = t.MinAdmissions, 
+                PayoutPercentage = t.PayoutPercentage 
+            })
+            .ToListAsync();
+
+        return new BingoSettingsDto
+        {
+            BasePrice = settings?.BingoBaseAdmissionPrice ?? 15.00m,
+            CardPrice = settings?.BingoAdditionalCardPrice ?? 3.00m,
+            PayoutTiers = tiers
+        };
+    }
 }
-
-

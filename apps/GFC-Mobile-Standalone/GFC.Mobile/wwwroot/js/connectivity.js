@@ -125,7 +125,7 @@ window.GfcOutbox = {
             const store = tx.objectStore(STORE_NAME);
             return new Promise((resolve) => {
                 const req = store.get(key);
-                req.onsuccess = () => resolve(req.result ? JSON.stringify(req.result.data) : null);
+                req.onsuccess = () => resolve(req.result ? req.result.data : null);
                 req.onerror = () => resolve(null);
             });
         } catch (e) {

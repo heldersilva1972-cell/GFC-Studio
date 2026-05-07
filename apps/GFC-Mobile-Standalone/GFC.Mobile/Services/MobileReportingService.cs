@@ -227,6 +227,124 @@ public class MobileReportingService : IMobileReportingService
         catch { return "GFC Mobile Revision 2.1.51 (Settlement Hardening)"; }
     }
 
+    // ─── BINGO OPERATIONS ───
+
+    public async Task<List<BingoSheetDefinition>> GetBingoProgramAsync()
+    {
+        const string cacheKey = "gfc_bingo_program_cache";
+        
+        // 1. Try server first (Only if online)
+        try
+        {
+            if (await _connectivity.GateAsync("GetBingoProgram"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var program = await _http.GetFromJsonAsync<List<BingoSheetDefinition>>("/api/bingo/program", cts.Token);
+                if (program != null && program.Any())
+                {
+                    // Update cache
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", cacheKey, program);
+                    return program;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Server fetch failed: {ex.Message}");
+        }
+
+        // 2. Fallback to Local Cache
+        try
+        {
+            var cached = await _js.InvokeAsync<List<BingoSheetDefinition>>("window.gfcGetAsync", cacheKey);
+            if (cached != null) return cached;
+        }
+        catch { }
+
+        return new List<BingoSheetDefinition>(); // Empty if all fails
+    }
+    public async Task<List<BingoAdmissionDefinition>> GetBingoAdmissionsAsync()
+    {
+        const string cacheKey = "gfc_bingo_admissions_cache";
+        
+        try
+        {
+            if (await _connectivity.GateAsync("GetBingoAdmissions"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var admissions = await _http.GetFromJsonAsync<List<BingoAdmissionDefinition>>("/api/bingo/admissions", cts.Token);
+                if (admissions != null && admissions.Any())
+                {
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", cacheKey, admissions);
+                    return admissions;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Server fetch admissions failed: {ex.Message}");
+        }
+
+        try
+        {
+            var cached = await _js.InvokeAsync<List<BingoAdmissionDefinition>>("window.gfcGetAsync", cacheKey);
+            if (cached != null) return cached;
+        }
+        catch { }
+
+        return new List<BingoAdmissionDefinition>();
+    }
+
+    public async Task<BingoSettingsDto> GetBingoSettingsAsync()
+    {
+        const string cacheKey = "gfc_bingo_settings_cache";
+        
+        try
+        {
+            if (await _connectivity.GateAsync("GetBingoSettings"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var settings = await _http.GetFromJsonAsync<BingoSettingsDto>("/api/bingo/settings", cts.Token);
+                if (settings != null)
+                {
+                    // [FORCE REFRESH] Always overwrite cache with fresh server data
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", cacheKey, settings);
+                    return settings;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Server fetch settings failed: {ex.Message}");
+        }
+
+        try
+        {
+            var cached = await _js.InvokeAsync<BingoSettingsDto>("window.gfcGetAsync", cacheKey);
+            if (cached != null) return cached;
+        }
+        catch { }
+
+        return new BingoSettingsDto(); // Default $15/$1
+    }
+
+    public async Task<bool> SubmitBingoSessionAsync(BingoSession session, string username)
+    {
+        session.CreatedBy = username;
+        session.Status = "Submitted";
+
+        // Save to Vault (Individual Key for reliability)
+        var vaultKey = $"gfc_bingo_outbox_{session.SessionDate:yyyy-MM-dd}_{Guid.NewGuid().ToString().Substring(0, 8)}";
+        await _js.InvokeVoidAsync("window.gfcSetAsync", vaultKey, session);
+
+        _ = RefreshPendingCountAsync();
+
+        if (_connectivity.IsOnline)
+            _ = FlushOutboxAsync();
+
+        return true;
+    }
+
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {
         try
@@ -405,43 +523,40 @@ public class MobileReportingService : IMobileReportingService
                 foreach (var item in vaultItems.EnumerateArray()) {
                     try {
                         var key = item.GetProperty("key").GetString();
-                        Console.WriteLine($"[SYNC TRACE] Inspecting vault key: {key}");
-                        
-                        if (key != null && key.StartsWith("gfc_outbox_")) {
-                            Console.WriteLine($"[SYNC TRACE] FOUND MATCH: {key}");
+                        if (key == null) continue;
+
+                        if (key.StartsWith("gfc_outbox_") || key.StartsWith("gfc_bingo_outbox_")) {
                             var dataElement = item.GetProperty("data");
+                            var isBingo = key.StartsWith("gfc_bingo_outbox_");
                             
                             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                            var data = JsonSerializer.Deserialize<MobileShiftData>(dataElement.GetRawText(), options);
                             
-                            if (data != null) {
-                                var user = string.IsNullOrEmpty(data.ModifiedBy) ? "System.Outbox" : data.ModifiedBy;
-                                
-                                // Determine endpoint based on data status
-                                var isSubmit = string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase);
-                                var endpoint = isSubmit ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
-                                
-                                Console.WriteLine($"[SYNC TRACE] Attempting delivery for {data.Date:yyyy-MM-dd} {data.ShiftType} as {user} to {endpoint}");
-                                
-                                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                                var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data, cts.Token);
-                                
-                                if (resp.IsSuccessStatusCode) {
-                                    Console.WriteLine($"[SYNC TRACE] ✓ SUCCESS: {key} delivered.");
-                                    await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                                    await RefreshPendingCountAsync();
-                                } else {
-                                    var errorBody = await resp.Content.ReadAsStringAsync();
-                                    Console.WriteLine($"[SYNC TRACE] ✗ FAILED: {key} (Status: {resp.StatusCode}, Error: {errorBody})");
-                                    if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) {
-                                        Console.WriteLine("[SYNC TRACE] !!! Unauthorized. Stopping sync loop.");
-                                        return; // Stop processing the rest of the vault if auth is dead
+                            if (isBingo) {
+                                var bingoData = JsonSerializer.Deserialize<BingoSession>(dataElement.GetRawText(), options);
+                                if (bingoData != null) {
+                                    Console.WriteLine($"[SYNC TRACE] Delivering Bingo session for {bingoData.SessionDate:yyyy-MM-dd}...");
+                                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                                    var resp = await _http.PostAsJsonAsync($"/api/bingo/session", bingoData, cts.Token);
+                                    if (resp.IsSuccessStatusCode) {
+                                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                        await RefreshPendingCountAsync();
                                     }
                                 }
                             } else {
-                                Console.WriteLine($"[SYNC TRACE] ! SKIP: Could not deserialize data for {key}");
-                                var raw = dataElement.GetRawText();
-                                Console.WriteLine($"[SYNC TRACE] RAW DATA (first 200 chars): {(raw.Length > 200 ? raw.Substring(0, 200) : raw)}");
+                                var data = JsonSerializer.Deserialize<MobileShiftData>(dataElement.GetRawText(), options);
+                                if (data != null) {
+                                    var user = string.IsNullOrEmpty(data.ModifiedBy) ? "System.Outbox" : data.ModifiedBy;
+                                    var isSubmit = string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase);
+                                    var endpoint = isSubmit ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
+                                    
+                                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                                    var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data, cts.Token);
+                                    
+                                    if (resp.IsSuccessStatusCode) {
+                                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                        await RefreshPendingCountAsync();
+                                    }
+                                }
                             }
                         }
                     } catch (Exception loopEx) {
@@ -466,7 +581,7 @@ public class MobileReportingService : IMobileReportingService
             if (vaultItemsRaw.ValueKind == JsonValueKind.Array) {
                 foreach (var item in vaultItemsRaw.EnumerateArray()) {
                     var k = item.GetProperty("key").GetString();
-                    if (k != null && k.StartsWith("gfc_outbox_")) vaultCount++;
+                    if (k != null && (k.StartsWith("gfc_outbox_") || k.StartsWith("gfc_bingo_outbox_"))) vaultCount++;
                 }
             }
         } catch { }

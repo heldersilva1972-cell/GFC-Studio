@@ -6,9 +6,12 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.33.0"; 
+    public string GetRevision() => "2.36.0"; 
     
     // REVISION HISTORY:
+    // 2.36.0: Automated background menu refresh upon terminal lock (idle, security, or manual) to ensure data parity.
+    // 2.35.0: Added 'CANCEL CORRECTION' button to allow exiting correction mode without saving changes.
+    // 2.34.0: Implemented smart API redirection for localhost and added environment status labels to header.
     // 2.33.0: Fixed Argument_InvalidHandle by hardening IIS compression rules and registering Service Worker.
     // 2.32.0: Added .dat to Service Worker manifest and synchronized versioning to resolve 404 startup hangs.
     // 2.31.0: Finalized production API targeting and CORS configuration for pos.lovanow.com.

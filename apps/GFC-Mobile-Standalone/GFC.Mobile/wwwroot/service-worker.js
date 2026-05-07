@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.2.3 (Major Stability Release)
+// GFC Mobile Revision: 2.4.5 (Auto-Clear Input Behavior Fix)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

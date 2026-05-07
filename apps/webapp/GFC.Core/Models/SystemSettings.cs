@@ -119,4 +119,7 @@ public class SystemSettings
     public string? MaEmployerAccountNumber { get; set; }
     public string? FederalEmployerIdNumber { get; set; }
     public decimal GlobalLiquorPourSize { get; set; } = 1.5m;
+
+    public decimal BingoBaseAdmissionPrice { get; set; } = 15.00m;
+    public decimal BingoAdditionalCardPrice { get; set; } = 3.00m;
 }

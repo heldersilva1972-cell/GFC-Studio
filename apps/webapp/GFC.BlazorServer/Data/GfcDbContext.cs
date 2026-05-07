@@ -153,6 +153,15 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Finance.FinanceCategory> FinanceCategories => Set<GFC.Core.Models.Finance.FinanceCategory>();
     public DbSet<GFC.Core.Models.Finance.FinancePayment> FinancePayments => Set<GFC.Core.Models.Finance.FinancePayment>();
 
+    // BINGO
+    public DbSet<BingoSession> BingoSessions => Set<BingoSession>();
+    public DbSet<BingoGameEntry> BingoGameEntries => Set<BingoGameEntry>();
+    public DbSet<BingoSheetDefinition> BingoSheetDefinitions => Set<BingoSheetDefinition>();
+    public DbSet<BingoGameDefinition> BingoGameDefinitions => Set<BingoGameDefinition>();
+    public DbSet<BingoAdmissionDefinition> BingoAdmissionDefinitions => Set<BingoAdmissionDefinition>();
+    public DbSet<BingoAdmissionEntry> BingoAdmissionEntries => Set<BingoAdmissionEntry>();
+    public DbSet<BingoPayoutTier> BingoPayoutTiers => Set<BingoPayoutTier>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -180,6 +189,27 @@ public class GfcDbContext : DbContext
             entity.ToTable("TaxStandardDeductions", "dbo");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<BingoAdmissionDefinition>(entity =>
+        {
+            entity.ToTable("BingoAdmissionDefinitions", "dbo");
+            entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(a => !a.IsDeleted);
+        });
+
+        modelBuilder.Entity<BingoAdmissionEntry>(entity =>
+        {
+            entity.ToTable("BingoAdmissionEntries", "dbo");
+            entity.Property(e => e.PriceAtTime).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<BingoPayoutTier>(entity =>
+        {
+            entity.ToTable("BingoPayoutTiers", "dbo");
+            entity.Property(e => e.PayoutPercentage).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
         // Standard "Gold Standard" Query Filter for Soft Deletes
@@ -795,6 +825,54 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.MediaAssetId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // BINGO
+        modelBuilder.Entity<BingoSession>(entity =>
+        {
+            entity.ToTable("BingoSessions");
+            entity.HasKey(e => e.Id);
+            entity.HasMany(e => e.GameEntries)
+                  .WithOne(e => e.Session)
+                  .HasForeignKey(e => e.SessionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.TotalGrossReceipts).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.TotalPrizesPaid).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.TotalLotteryTake).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.TotalClubTake).HasColumnType("decimal(18, 2)");
+        });
+
+        modelBuilder.Entity<BingoGameEntry>(entity =>
+        {
+            entity.ToTable("BingoGameEntries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PricePerSheet).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.GrossReceipts).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.PrizePaid).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.LotteryTake).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.ClubTake).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.NetProceeds).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.LotteryPercent).HasColumnType("decimal(18, 4)");
+            entity.Property(e => e.ClubPercent).HasColumnType("decimal(18, 4)");
+        });
+
+        modelBuilder.Entity<BingoSheetDefinition>(entity =>
+        {
+            entity.ToTable("BingoSheetDefinitions");
+            entity.HasKey(e => e.Id);
+            entity.HasMany(e => e.Games)
+                  .WithOne(e => e.Sheet)
+                  .HasForeignKey(e => e.SheetDefinitionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.DefaultPrice).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.LotteryPercentage).HasColumnType("decimal(18, 4)");
+            entity.Property(e => e.ClubPercentage).HasColumnType("decimal(18, 4)");
+        });
+
+        modelBuilder.Entity<BingoGameDefinition>(entity =>
+        {
+            entity.ToTable("BingoGameDefinitions");
+            entity.HasKey(e => e.Id);
         });
 
         // Trusted Devices (Session Management)

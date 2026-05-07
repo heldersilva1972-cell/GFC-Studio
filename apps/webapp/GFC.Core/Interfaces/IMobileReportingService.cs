@@ -17,6 +17,12 @@ public interface IMobileReportingService
     Task<int> GetPendingCountAsync();
     int PendingCount { get; }
     event Action? OutboxChanged;
+
+    // BINGO
+    Task<List<BingoSheetDefinition>> GetBingoProgramAsync();
+    Task<List<BingoAdmissionDefinition>> GetBingoAdmissionsAsync();
+    Task<BingoSettingsDto> GetBingoSettingsAsync();
+    Task<bool> SubmitBingoSessionAsync(BingoSession session, string username);
 }
 
 public class DailyShiftSummary

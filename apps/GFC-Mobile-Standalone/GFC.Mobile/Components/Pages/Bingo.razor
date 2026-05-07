@@ -1,0 +1,2125 @@
+@page "/mobile/bingo"
+@using GFC.Mobile.Components.Shared
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+@inject NavigationManager Navigation
+@inject IMobileReportingService ReportingService
+@inject IJSRuntime JSRuntime
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Bingo Tracking | GFC Mobile</PageTitle>
+
+                <!-- HEADER MERGED INTO HUB HEADER -->
+                <MobileHubHeader IsConnected="@_isCircutAlive" ShiftType="Bingo" Username="@_currentUsername">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="d-flex align-items-center bg-white rounded-pill px-3 py-1 border shadow-sm">
+                            <div class="me-2">
+                                <label class="d-block mb-0 text-uppercase fw-bold text-muted" style="font-size: 0.45rem; letter-spacing: 0.05em;">Date</label>
+                                <input type="date" class="bg-transparent border-0 p-0 fw-black text-primary" style="font-size: 0.8rem; outline: none; width: 125px;" 
+                                       value="@SessionDate.ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
+                            </div>
+                        </div>
+
+                        <div class="text-end position-relative" style="cursor: pointer; min-width: 100px;" @onclick="() => _showSummaryDetail = !_showSummaryDetail">
+                            <div class="text-uppercase fw-black text-muted d-flex align-items-center justify-content-end" style="font-size: 0.5rem; letter-spacing: 0.1em;">
+                                NET <i class="bi @(_showSummaryDetail ? "bi-chevron-up" : "bi-chevron-down") ms-1"></i>
+                            </div>
+                            <div class="fw-black text-success" style="font-size: 1rem; line-height: 1;">@TotalNetProceeds.ToString("C2")</div>
+
+                            @if (_showSummaryDetail)
+                            {
+                                <div class="header-summary-dropdown shadow-lg p-3 bg-dark text-white rounded-4 border border-light border-opacity-10">
+                                    <div class="detail-row mb-1"><span>Attendance</span> <span class="fw-black">@AdmissionCount</span></div>
+                                    <div class="detail-row mb-1"><span>Gross Revenue</span> <span class="fw-black text-white">@TotalGross.ToString("C2")</span></div>
+                                    <div class="detail-row mb-1 text-danger"><span>Prizes Paid</span> <span class="fw-black">-@TotalPrizes.ToString("C2")</span></div>
+                                    <div class="detail-row mb-1 text-warning"><span>Lottery Fees</span> <span class="fw-black">-@TotalLotteryTake.ToString("C2")</span></div>
+                                    <div class="detail-row text-success pt-2 border-top mt-2"><span>TOTAL PROFIT</span> <span class="fw-black">@TotalNetProceeds.ToString("C2")</span></div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </MobileHubHeader>
+<div class="tablet-body">
+    <div class="glass-page-container mobile-version">
+        @if (Loading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 mt-5">
+                <div class="loader-ring mb-3"></div>
+                <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Loading Bingo Session...</span>
+            </div>
+        }
+        else
+        {
+            <div class="page-content-wrapper">
+
+                        <!-- COMPACT ADMISSION SUMMARY BAR -->
+                        <div class="admission-summary-bar mb-3" @onclick="() => _showAdmissionPopup = true">
+                            <div class="summary-left">
+                                <div class="summary-item main">
+                                    <label>TOTAL ATTENDANCE</label>
+                                    <div class="val">@AdmissionPacks.Sum(p => p.Sold)</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>ADMISSION REVENUE</label>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="val text-primary">@AdmissionPacks.Sum(p => p.Sold * p.Price).ToString("C2")</div>
+                                        <button class="btn btn-primary rounded-pill px-3 py-1 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => _showAdmissionAudit = true">
+                                            <i class="bi bi-file-earmark-text-fill"></i> STATEMENT
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-divider"></div>
+                            
+                            <div class="summary-right flex-wrap">
+                                @foreach (var pack in AdmissionPacks)
+                                {
+                                    <div class="pack-badge @(pack.Sold > 0 ? "has-data" : "empty")">
+                                        <div class="badge-accent" style="background: @pack.DisplayColor"></div>
+                                        <div class="badge-content">
+                                            <span class="pack-name">@pack.Name</span>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <span class="pack-val">@pack.Sold</span>
+                                                @if (pack.Sold > 0)
+                                                {
+                                                    <span class="pack-total-small">(@((pack.Sold * pack.Price).ToString("C0")))</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                            
+                            <div class="summary-action">
+                                <i class="bi bi-people-fill"></i>
+                            </div>
+                        </div>
+
+                        <div class="section-divider mb-3">
+                            <span>FLOOR SALES TRACKING</span>
+                        </div>
+
+                        <!-- FLOOR SALES SUMMARY BAR -->
+                        <div class="floor-sales-summary-bar mb-4" @onclick="() => _showFloorSalesPopup = true">
+                            <div class="summary-left">
+                                <div class="summary-item main">
+                                    <label>FLOOR SHEETS</label>
+                                    <div class="val">@Sheets.Sum(s => s.ManualSold)</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>FLOOR REVENUE</label>
+                                    <div class="val text-success">@Sheets.Sum(s => s.ManualSold * s.Price).ToString("C2")</div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-divider"></div>
+                            
+                            <div class="summary-right flex-wrap">
+                                @foreach (var sheet in Sheets.Where(s => s.ManualSold > 0))
+                                {
+                                    <div class="pack-badge has-data floor">
+                                        <div class="badge-accent" style="background: @sheet.DisplayColor"></div>
+                                        <div class="badge-content">
+                                            <span class="pack-name">@sheet.ColorName</span>
+                                            <div class="d-flex align-items-baseline gap-2">
+                                                <span class="pack-val">@sheet.ManualSold</span>
+                                                <span class="pack-total-small">(@((sheet.ManualSold * sheet.Price).ToString("C0")))</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                            
+                            <div class="summary-action">
+                                <i class="bi bi-cart-fill"></i>
+                            </div>
+                        </div>
+
+                        <!-- FLOOR SALES MODAL -->
+                        @if (_showFloorSalesPopup)
+                        {
+                            <div class="admission-modal-overlay" @onclick="CloseEntryModals">
+                                <div class="admission-modal-content shadow-lg" @onclick:stopPropagation>
+                                    <div class="modal-header-compact">
+                                        <h5 class="fw-black mb-0">FLOOR SALES ENTRY</h5>
+                                        <button class="btn-close-compact" @onclick="CloseEntryModals">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="modal-body-compact p-3">
+                                        <div class="admissions-expanded-list">
+                                            @foreach (var sheet in Sheets.Where(s => !s.IsAdmissionOnly))
+                                            {
+                                                <div id="floor-row-@sheet.ColorName" class="admission-entry-row p-3 rounded-4 mb-2 border-2 @(_activeField == sheet.ColorName + "_Sold" ? "border-success bg-success-subtle shadow-sm" : "bg-white border-light")" 
+                                                     @onclick='() => ActivateField(sheet.ColorName + "_Sold")'>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div class="d-flex align-items-center gap-3">
+                                                            <div class="color-dot-large" style="background: @sheet.DisplayColor"></div>
+                                                            <div class="d-flex flex-column">
+                                                                <span class="fw-black text-uppercase" style="font-size: 0.9rem;">@sheet.ColorName</span>
+                                                                <span class="extra-small text-muted fw-bold">@sheet.Price.ToString("C2") PER SHEET</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="d-flex align-items-center gap-4">
+                                                            <div class="text-end">
+                                                                <span class="extra-small text-muted d-block">TOTAL</span>
+                                                                <span class="fw-black">@((sheet.ManualSold * sheet.Price).ToString("C2"))</span>
+                                                            </div>
+                                                            <div class="entry-val-large @(_activeField == sheet.ColorName + "_Sold" ? "focused-success" : "")">
+                                                                @(_activeField == sheet.ColorName + "_Sold" ? (_currentBuffer == "" ? "" : _currentBuffer) : sheet.ManualSold)
+                                                                @if (_activeField == sheet.ColorName + "_Sold") { <span class="cursor-blink">|</span> }
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="modal-footer-compact p-3 bg-light rounded-bottom-4">
+                                        <button class="btn btn-success w-100 rounded-pill fw-black py-3 shadow" @onclick="CloseEntryModals">
+                                            DONE & CLOSE
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- ADMISSION ENTRY MODAL (existing) -->
+                        @if (_showAdmissionPopup)
+                        {
+                            <div class="admission-modal-overlay" @onclick="CloseEntryModals">
+                                <div class="admission-modal-content shadow-lg" @onclick:stopPropagation>
+                                    <div class="modal-header-compact">
+                                        <h5 class="fw-black mb-0">ADMISSION ENTRY</h5>
+                                        <button class="btn-close-compact" @onclick="CloseEntryModals">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="modal-body-compact p-3">
+                                        <div class="admissions-expanded-list">
+                                            @foreach (var pack in AdmissionPacks)
+                                            {
+                                                <div id="admin-row-@pack.Id" class="admission-entry-row p-3 rounded-4 mb-2 border-2 @(_activeField == "Pack_" + pack.Id ? "border-primary bg-primary-subtle shadow-sm" : "bg-white border-light")" 
+                                                     @onclick='() => ActivateField("Pack_" + pack.Id)'>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div class="d-flex align-items-center gap-3">
+                                                            <div class="color-dot-large" style="background: @pack.DisplayColor"></div>
+                                                            <div class="d-flex flex-column">
+                                                                <div class="d-flex align-items-center gap-2">
+                                                                    <span class="fw-black text-uppercase" style="font-size: 0.9rem;">@pack.Name</span>
+                                                                    <button class="btn btn-link p-0 text-muted" @onclick:stopPropagation="true" @onclick="() => _selectedPackDetail = pack">
+                                                                        <i class="bi bi-info-circle-fill"></i>
+                                                                    </button>
+                                                                </div>
+                                                                <span class="extra-small text-muted fw-bold">@pack.Price.ToString("C2") PER PACK</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="d-flex align-items-center gap-4">
+                                                            <div class="text-end">
+                                                                <span class="extra-small text-muted d-block">TOTAL</span>
+                                                                <span class="fw-black">@((pack.Sold * pack.Price).ToString("C2"))</span>
+                                                            </div>
+                                                            <div class="entry-val-large @(_activeField == "Pack_" + pack.Id ? "focused" : "")">
+                                                                @(_activeField == "Pack_" + pack.Id ? (_currentBuffer == "" ? "" : _currentBuffer) : pack.Sold)
+                                                                @if (_activeField == "Pack_" + pack.Id) { <span class="cursor-blink">|</span> }
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="modal-footer-compact p-3 bg-light rounded-bottom-4">
+                                        <button class="btn btn-primary w-100 rounded-pill fw-black py-3 shadow" @onclick="CloseEntryModals">
+                                            DONE & CLOSE
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+
+                        <div class="section-divider mb-3">
+                            <span>BINGO PROGRAM</span>
+                        </div>
+
+                        <!-- SHEETS GRID -->
+                        <div class="bingo-tiles-grid">
+                            @foreach (var sheet in Sheets)
+                            {
+                                <div class="bingo-tile @(!_showFloorSalesPopup && !_showAdmissionPopup && _activeField.StartsWith(sheet.ColorName) ? "active-tile" : "")" 
+                                     style="--accent-color: @sheet.DisplayColor; cursor: pointer;" @onclick="() => OpenSheetDetail(sheet)">
+                                    <div class="tile-accent" style="background: @sheet.DisplayColor"></div>
+                                    <div class="tile-header">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="color-dot" style="background: @sheet.DisplayColor"></div>
+                                            <span class="tile-title">@sheet.ColorName</span>
+                                        </div>
+                                        <div class="d-flex gap-1 flex-wrap justify-content-end">
+                                            @if (sheet.IsIncludedInAdmission && sheet.IsAdmissionOnly)
+                                            {
+                                                <span class="badge rounded-pill bg-primary text-white border shadow-sm" style="font-size: 0.5rem;">STANDARD</span>
+                                            }
+                                            else if (sheet.IsIncludedInAdmission && !sheet.IsAdmissionOnly)
+                                            {
+                                                <span class="badge rounded-pill bg-info text-dark border shadow-sm" style="font-size: 0.5rem;">SPECIAL (INCL)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge rounded-pill bg-secondary text-white border shadow-sm" style="font-size: 0.5rem;">FLOOR SALE</span>
+                                            }
+
+                                            @if (sheet.PayoutMode == 1)
+                                            {
+                                                <span class="badge rounded-pill bg-warning text-dark border shadow-sm" style="font-size: 0.5rem;">50/50</span>
+                                            }
+                                            else if (sheet.PayoutMode == 2)
+                                            {
+                                                <span class="badge rounded-pill bg-success text-white border shadow-sm" style="font-size: 0.5rem;">GROSS %</span>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <div class="tile-body">
+                                        <div class="tile-stat-multi mb-3">
+                                            <div class="stat-main">
+                                                <label>TOTAL SOLD</label>
+                                                <div class="val">
+                                                    @sheet.Sold
+                                                </div>
+                                            </div>
+                                            <div class="stat-breakdown">
+                                                @if (sheet.IsAdmissionOnly)
+                                                {
+                                                    <div class="break-item w-100 text-center">
+                                                        <label>STANDARD PROGRAM</label>
+                                                        <span class="fw-black">@AdmissionCount PLAYERS</span>
+                                                    </div>
+                                                }
+                                                else if (sheet.IsIncludedInAdmission)
+                                                {
+                                                    <div class="break-item">
+                                                        <label>9-PACK</label>
+                                                        <span class="fw-black">@AdmissionCount</span>
+                                                    </div>
+                                                    <div class="break-item">
+                                                        <label>FLOOR</label>
+                                                        <span class="fw-black">@sheet.ManualSold</span>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="break-item w-100 text-center">
+                                                        <label>FLOOR SALE ONLY</label>
+                                                        <span class="fw-black">@sheet.ManualSold SOLD</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+
+                                        <div class="tile-games-list">
+                                            @foreach (var game in sheet.Games)
+                                            {
+                                                <div class="tile-game-item">
+                                                    <span class="game-name">@game.Name</span>
+                                                    <span class="game-payout text-primary fw-black">@CalculateGamePayout(sheet, game).ToString("C2")</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <div class="tile-footer">
+                                        @if (sheet.IsAdmissionOnly)
+                                        {
+                                            <div class="footer-stat w-100 text-center">
+                                                <span class="label">INCLUDED IN ADMISSION</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="footer-stat">
+                                                <span class="label">CLUB PROFIT</span>
+                                                <span class="value text-success fw-bold">@CalculateClubTake(sheet).ToString("C2")</span>
+                                            </div>
+                                            <div class="footer-stat text-end">
+                                                <span class="label">LOTTERY</span>
+                                                <span class="value">@CalculateLotteryTake(sheet).ToString("C2")</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                <!-- FLOATING KEYPAD OVERLAY -->
+                @if (_showFloatingKeypad)
+                {
+                    <div class="floating-keypad-container">
+                        <MobileKeypad OnKeyPressed="KeyPressed" 
+                                      OnBackspacePressed="BackspaceCurrentField" 
+                                      OnNextPressed="HandleNext" 
+                                      OnSubmitPressed="HandleSubmit"
+                                      OnClosePressed="CloseKeypad"
+                                      Disabled="false"
+                                      PulseSubmit="@(TotalGross > 0)" />
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    /* Responsive Grid for Tiles */
+    .bingo-tiles-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 15px;
+        width: 100%;
+    }
+
+    /* Floating Tile Design */
+    .tablet-header-pill {
+        background: white;
+        border-radius: 50px;
+        height: 70px;
+        border: 1px solid rgba(0,0,0,0.05);
+        margin-top: 5px;
+    }
+
+    .header-summary-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        width: 260px;
+        z-index: 4000;
+        margin-top: 15px;
+        background: #1e293b !important;
+        padding: 20px !important;
+        border-radius: 24px !important;
+        animation: slide-down 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .detail-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+    }
+
+    .detail-row:last-child {
+        margin-bottom: 0;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .bingo-tile {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        border-radius: 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        cursor: pointer;
+    }
+
+    .bingo-tile:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.1);
+    }
+
+    .bingo-tile.active-tile {
+        border-color: var(--bs-primary);
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+    }
+
+    .tile-accent {
+        height: 4px;
+        width: 100%;
+    }
+
+    .tile-header {
+        padding: 12px 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+    }
+
+    .tile-title {
+        font-weight: 900;
+        text-transform: uppercase;
+        font-size: 0.8rem;
+        letter-spacing: 0.05em;
+        color: #1e293b;
+        text-shadow: 0 0 1px rgba(255,255,255,0.8);
+    }
+
+    .color-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .icon-circle {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+    }
+
+    .tile-body {
+        padding: 15px;
+        flex-grow: 1;
+    }
+
+    .tile-stat-row {
+        display: flex;
+        gap: 10px;
+    }
+
+    .tile-stat {
+        flex: 1;
+        background: #f8fafc;
+        border-radius: 12px;
+        padding: 8px 12px;
+        border: 2px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .tile-stat.focused {
+        background: white;
+        border-color: var(--bs-primary);
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
+    }
+
+    .tile-stat label {
+        display: block;
+        font-size: 0.55rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-bottom: 2px;
+    }
+
+    .tile-stat .val {
+        font-weight: 900;
+        font-size: 1.1rem;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.5rem;
+    }
+
+    .tile-stat .val.disabled {
+        color: #cbd5e1;
+        font-size: 0.9rem;
+    }
+
+    .tile-games-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .tile-game-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 4px 8px;
+        background: rgba(0,0,0,0.02);
+        border-radius: 6px;
+    }
+
+    .game-name {
+        color: #64748b;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 120px;
+    }
+
+    .tile-footer {
+        padding: 10px 15px;
+        background: #f8fafc;
+        display: flex;
+        justify-content: space-between;
+        border-top: 1px solid rgba(0, 0, 0, 0.03);
+    }
+
+    .footer-stat .label {
+        display: block;
+        font-size: 0.5rem;
+        font-weight: 800;
+        color: #94a3b8;
+    }
+
+    .footer-stat .value {
+        font-weight: 900;
+        font-size: 0.75rem;
+    }
+
+    .section-divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #94a3b8;
+        font-size: 0.6rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+    }
+
+    .section-divider::after {
+        background: rgba(0,0,0,0.05);
+    }
+
+    .admissions-expanded-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .admission-entry-row {
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid rgba(0,0,0,0.05) !important;
+    }
+
+    .admission-entry-row:hover {
+        background: #f8fafc;
+    }
+
+    .bg-light-primary {
+        background-color: rgba(13, 110, 253, 0.03) !important;
+    }
+
+    .bg-light-soft {
+        background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    .admission-summary-bar {
+        background: white;
+        border-radius: 20px;
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .admission-summary-bar:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    }
+
+    .summary-left {
+        display: flex;
+        gap: 30px;
+    }
+
+    .summary-item.main {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .summary-item.main label {
+        font-size: 0.6rem;
+        font-weight: 900;
+        color: #94a3b8;
+        text-transform: uppercase;
+        margin-bottom: 0px;
+    }
+
+    .summary-item.main .val {
+        font-size: 1.5rem;
+        font-weight: 950;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .summary-divider {
+        width: 2px;
+        height: 40px;
+        background: #f1f5f9;
+    }
+
+    .summary-right {
+        flex: 1;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .scroll-x::-webkit-scrollbar { display: none; }
+
+    .pack-badge {
+        background: white;
+        border: 2px solid #e2e8f0;
+        border-radius: 16px;
+        overflow: hidden;
+        display: flex;
+        min-width: 140px;
+        height: 54px;
+        transition: all 0.2s;
+    }
+
+    .pack-badge.has-data {
+        background: white;
+        border-color: #3b82f6;
+        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.1);
+    }
+
+    .badge-accent {
+        width: 6px;
+    }
+
+    .page-content-wrapper {
+        padding: 20px;
+        padding-top: 10px;
+        max-width: 100%;
+    }
+
+    .badge-content {
+        padding: 0 15px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        flex-grow: 1;
+    }
+
+    .pack-name {
+        font-size: 0.65rem;
+        font-weight: 900;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        margin-bottom: 2px;
+    }
+
+    .pack-badge.has-data .pack-name {
+        color: #64748b;
+    }
+
+    .pack-val {
+        font-size: 1.4rem;
+        font-weight: 950;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .pack-badge.has-data .pack-val {
+        color: #3b82f6;
+    }
+
+    .pack-total-small {
+        font-size: 0.85rem;
+        font-weight: 800;
+        color: #64748b;
+    }
+
+    .summary-action {
+        width: 40px;
+        height: 40px;
+        background: #f1f5f9;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+        font-size: 1.2rem;
+    }
+
+    /* Modal Styles */
+    .admission-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.6);
+        backdrop-filter: blur(5px);
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .admission-modal-content {
+        background: #f1f5f9;
+        width: 100%;
+        max-width: 500px;
+        border-radius: 28px;
+        display: flex;
+        flex-direction: column;
+        max-height: 90vh;
+    }
+
+    .modal-header-compact {
+        padding: 20px 25px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: white;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+        border-radius: 28px 28px 0 0;
+    }
+
+    .btn-close-compact {
+        background: #f8fafc;
+        border: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+    }
+
+    .modal-body-compact {
+        overflow-y: auto;
+        flex-grow: 1;
+    }
+
+    .bg-primary-subtle { background-color: rgba(13, 110, 253, 0.08) !important; }
+
+    .color-dot-large {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+    }
+
+    .entry-val-large {
+        font-weight: 950;
+        font-size: 2rem;
+        min-width: 80px;
+        text-align: center;
+        border-radius: 16px;
+        padding: 8px 16px;
+        background: white;
+        border: 3px solid #e2e8f0;
+        color: #1e293b;
+    }
+
+    .entry-val-large.focused {
+        border-color: var(--bs-primary);
+        color: var(--bs-primary);
+        box-shadow: 0 8px 20px rgba(13, 110, 253, 0.15);
+    }
+
+    .entry-val-large.focused-success {
+        border-color: var(--bs-success);
+        color: var(--bs-success);
+        box-shadow: 0 8px 20px rgba(25, 135, 84, 0.15);
+    }
+
+    .bg-success-subtle { background-color: rgba(25, 135, 84, 0.08) !important; }
+
+    .tile-stat-multi {
+        display: flex;
+        background: #f8fafc;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+
+    .stat-main {
+        flex: 1.2;
+        padding: 10px 15px;
+        background: white;
+        border-right: 1px solid #f1f5f9;
+        transition: all 0.2s;
+    }
+
+    .stat-main.focused {
+        background: #eff6ff;
+        border: 2px solid #3b82f6;
+    }
+
+    .stat-main label {
+        display: block;
+        font-size: 0.5rem;
+        font-weight: 900;
+        color: #94a3b8;
+        margin-bottom: 2px;
+    }
+
+    .stat-main .val {
+        font-size: 1.4rem;
+        font-weight: 950;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .stat-breakdown {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #f8fafc;
+    }
+
+    .break-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 4px 12px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .break-item:last-child { border-bottom: none; }
+
+    .break-item label {
+        font-size: 0.45rem;
+        font-weight: 800;
+        color: #64748b;
+        margin: 0;
+    }
+
+    .break-item span {
+        font-size: 0.8rem;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .admission-summary-bar, .floor-sales-summary-bar {
+        background: white;
+        border-radius: 20px;
+        padding: 15px 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        cursor: pointer;
+        transition: transform 0.2s;
+        border: 1px solid rgba(13, 110, 253, 0.1);
+        height: auto;
+        min-height: 80px;
+    }
+
+    .floor-sales-summary-bar:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    }
+
+    .pack-badge.floor {
+        border-color: rgba(25, 135, 84, 0.2);
+    }
+
+    .pack-badge.floor.has-data {
+        border-color: #198754;
+        box-shadow: 0 4px 10px rgba(25, 135, 84, 0.1);
+    }
+
+    .pack-badge.floor.has-data .pack-val {
+        color: #198754;
+    }
+
+    .entry-val {
+        font-weight: 900;
+        font-size: 1.4rem;
+        min-width: 60px;
+        text-align: center;
+        border-radius: 12px;
+        padding: 6px 12px;
+        border: 2px solid transparent;
+        background: #f1f5f9;
+        color: #1e293b;
+        transition: all 0.2s;
+    }
+
+    .entry-val.focused {
+        border-color: var(--bs-primary);
+        background: white;
+        color: var(--bs-primary);
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
+    }
+
+    .cursor-blink {
+        width: 2px;
+        height: 1.2rem;
+        background: var(--bs-primary);
+        margin-left: 2px;
+        animation: blink 1s infinite;
+    }
+
+    @@keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+
+    /* Layout Constraints */
+    .tablet-body {
+        overflow-y: auto !important;
+        height: calc(100vh - 56px) !important;
+        margin-top: 56px;
+        background: #f8fafc;
+        position: relative;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-dot.bg-success { background-color: #198754; box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.1); }
+    .status-dot.bg-warning { background-color: #ffc107; box-shadow: 0 0 0 4px rgba(255, 193, 7, 0.1); }
+
+    .tablet-col-left {
+        flex: 1;
+        width: 100%;
+    }
+
+    /* Floating Keypad Overlay */
+    .floating-keypad-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 8000;
+        animation: slide-up 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @@keyframes slide-up {
+        from { transform: translateY(100px) scale(0.9); opacity: 0; }
+        to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .header-summary-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        width: 220px;
+        z-index: 4000;
+        margin-top: 10px;
+        animation: slide-down 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @@keyframes slide-down {
+        from { transform: translateY(-10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* SHEET DETAIL MODAL */
+    .sheet-detail-modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 95%;
+        max-width: 550px;
+        max-height: 90vh;
+        background: white;
+        border-radius: 32px;
+        z-index: 5000;
+        box-shadow: 0 30px 90px rgba(0,0,0,0.4);
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.2);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .detail-header {
+        padding: 25px 30px;
+        color: white;
+        position: relative;
+    }
+
+    .detail-body {
+        padding: 30px;
+        background: #f8fafc;
+        overflow-y: auto;
+        flex: 1;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .math-card {
+        background: white;
+        border-radius: 20px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .math-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .math-row:last-child { border-bottom: none; }
+
+    .math-row.total {
+        margin-top: 10px;
+        padding-top: 15px;
+        border-top: 2px solid #f1f5f9;
+        font-weight: 900;
+        font-size: 1.1rem;
+    }
+
+    .math-label {
+        color: #64748b;
+        font-weight: 700;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .math-val {
+        color: #1e293b;
+        font-weight: 900;
+    }
+
+    .math-val.neg { color: #dc2626; }
+    .math-val.pos { color: #059669; }
+
+    .game-detail-item {
+        background: white;
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+        border: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Hide number input arrows */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none; 
+        margin: 0; 
+    }
+    input[type=number] { -moz-appearance: textfield; }
+</style>
+
+@if (_selectedSheet != null)
+{
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 4500;" @onclick="() => _selectedSheet = null"></div>
+    <div class="sheet-detail-modal animate-zoom-in">
+        <div class="detail-header" style="background: @_selectedSheet.DisplayColor">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="fw-black text-uppercase mb-0" style="letter-spacing: -0.02em; color: @(_selectedSheet.ColorName.ToLower() == "white" ? "#1e293b" : "white"); text-shadow: @(_selectedSheet.ColorName.ToLower() == "white" ? "0 0 1px rgba(255,255,255,0.8)" : "0 1px 2px rgba(0,0,0,0.2)")">@_selectedSheet.ColorName</h2>
+                    <div class="d-flex align-items-center gap-2 mt-1">
+                        <span class="badge bg-white bg-opacity-20 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.65rem;">
+                            @_selectedSheet.Price.ToString("C2") PER SHEET
+                        </span>
+                        @if (_selectedSheet.PayoutMode == 1)
+                        {
+                            <span class="badge bg-warning text-dark rounded-pill px-3 py-1 fw-bold" style="font-size: 0.65rem;">50/50 MODE</span>
+                        }
+                        else if (_selectedSheet.PayoutMode == 2)
+                        {
+                            <span class="badge bg-info text-dark rounded-pill px-3 py-1 fw-bold" style="font-size: 0.65rem;">GROSS % MODE</span>
+                        }
+                    </div>
+                </div>
+                <button class="btn btn-link text-white p-0 border-0 fs-3" @onclick="() => _selectedSheet = null">
+                    <i class="bi bi-x-circle-fill"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="detail-body">
+            <!-- SOLD BREAKDOWN -->
+            <div class="row g-2 mb-4">
+                @if (!_selectedSheet.IsAdmissionOnly)
+                {
+                    <div class="col-6">
+                        <div class="math-card text-center mb-0 h-100 p-2">
+                            <label class="math-label d-block mb-1">Floor Sold</label>
+                            <div class="math-val fs-4">@_selectedSheet.ManualSold</div>
+                        </div>
+                    </div>
+                }
+                <div class="@(_selectedSheet.IsAdmissionOnly ? "col-12" : "col-6")">
+                    <div class="math-card text-center mb-0 h-100 p-2">
+                        <label class="math-label d-block mb-1">Admis. Sold</label>
+                        <div class="math-val fs-4">@(_selectedSheet.IsIncludedInAdmission ? AdmissionCount : 0)</div>
+                    </div>
+                </div>
+                @if (!_selectedSheet.IsAdmissionOnly)
+                {
+                    <div class="col-6">
+                        <div class="math-card text-center mb-0 h-100 p-2">
+                            <label class="math-label d-block mb-1">Lottery</label>
+                            <div class="math-val text-danger fw-bold" style="font-size: 0.9rem;">-@CalculateLotteryTake(_selectedSheet).ToString("C2")</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="math-card text-center mb-0 h-100 p-2">
+                            <label class="math-label d-block mb-1">Club Profit</label>
+                            <div class="math-val text-success fw-bold" style="font-size: 0.9rem;">+@CalculateClubTake(_selectedSheet).ToString("C2")</div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="col-12 mt-2">
+                        <div class="alert alert-info py-2 mb-0 text-center" style="font-size: 0.75rem;">
+                            <i class="bi bi-info-circle me-1"></i> PART OF THE ADMISSION PACKAGE
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- MATH BREAKDOWN -->
+            @if (!_selectedSheet.IsAdmissionOnly)
+            {
+                <div class="math-card">
+                    <div class="math-row">
+                        <span class="math-label">Gross Revenue (@_selectedSheet.Sold sheets)</span>
+                        <span class="math-val">@((_selectedSheet.Sold * _selectedSheet.Price).ToString("C2"))</span>
+                    </div>
+                    @if (_selectedSheet.IsIncludedInAdmission)
+                    {
+                        <div class="math-row opacity-75">
+                            <span class="math-label small">Incl. from Admissions</span>
+                            <span class="math-val small text-muted">@((AdmissionCount * _selectedSheet.Price).ToString("C2"))</span>
+                        </div>
+                        @if (_selectedSheet.ManualSold > 0)
+                        {
+                            <div class="math-row opacity-75">
+                                <span class="math-label small">Extra Floor Sales</span>
+                                <span class="math-val small text-muted">@((_selectedSheet.ManualSold * _selectedSheet.Price).ToString("C2"))</span>
+                            </div>
+                        }
+                    }
+                    
+                    <div class="math-row">
+                        <span class="math-label">Lottery Fee (@(_selectedSheet.LotteryPercentage * 100)% )</span>
+                        <span class="math-val neg">- @CalculateLotteryTake(_selectedSheet).ToString("C2")</span>
+                    </div>
+
+                    <div class="math-row border-top pt-2">
+                        <span class="math-label fw-bold">Deductions</span>
+                        <span class="math-val neg fw-bold">- @((CalculateLotteryTake(_selectedSheet) + _selectedSheet.Games.Sum(g => CalculateGamePayout(_selectedSheet, g))).ToString("C2"))</span>
+                    </div>
+
+                    <div class="math-row">
+                        <span class="math-label">Total Prizes Paid</span>
+                        <span class="math-val neg">- @_selectedSheet.Games.Sum(g => CalculateGamePayout(_selectedSheet, g)).ToString("C2")</span>
+                    </div>
+
+                    <div class="math-row total">
+                        <span class="math-label text-dark">Net Club Profit</span>
+                        <span class="math-val pos">@CalculateSheetNet(_selectedSheet).ToString("C2")</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="math-card py-5 text-center border-2" style="background: #f8fafc; border-style: dashed; border-color: #3b82f6;">
+                    <div class="mb-3">
+                        <i class="bi bi-gift text-primary" style="font-size: 3rem; opacity: 0.5;"></i>
+                    </div>
+                    <label class="math-label d-block mb-1 text-primary fw-black">STANDARD PROGRAM</label>
+                    <div class="text-dark fw-black fs-4 text-uppercase">Included with Admission</div>
+                    <small class="text-muted d-block mt-2 mx-auto" style="max-width: 200px;">This color is provided to every player and funded by the door money.</small>
+                </div>
+            }
+
+            <!-- GAME PAYOUTS -->
+            <label class="math-label mb-2 d-block px-1">Game Payout Details</label>
+            <div class="tile-games-list">
+                @foreach (var game in _selectedSheet.Games)
+                {
+                    <div class="game-detail-item @(game.IsVariablePayout ? "bg-primary-subtle border-primary border-opacity-25" : "")">
+                        <div class="flex-grow-1" style="max-width: 160px;">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="fw-black text-dark d-block text-truncate" style="font-size: 0.85rem;">@game.Name</span>
+                                @if (game.IsVariablePayout)
+                                {
+                                    <span class="badge bg-primary rounded-pill extra-small px-2" style="font-size: 0.5rem;">VAR</span>
+                                }
+                            </div>
+                            <div class="extra-small text-muted fw-bold">
+                                @if (_selectedSheet.PayoutMode != 0)
+                                {
+                                    @("CALCULATED " + (_selectedSheet.PayoutMode == 1 ? "50/50" : "PERCENTAGE"))
+                                }
+                                else if (game.IsVariablePayout)
+                                {
+                                    @("MANUAL ENTRY")
+                                }
+                                else
+                                {
+                                    var pct = GetCurrentPayoutPercentage();
+                                    if (pct < 100m)
+                                    {
+                                        @("SCALED AT " + pct.ToString("N1") + "%")
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <!-- WINNER INPUT -->
+                        <div class="d-flex flex-column align-items-center mx-2" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game))'>
+                            <label class="extra-small text-muted fw-bold mb-0" style="font-size: 0.55rem;">WINNERS</label>
+                            <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary" : "bg-light")" 
+                                 style="width: 60px; height: 35px; border-radius: 10px; font-size: 1.1rem;">
+                                @(_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)) ? (_currentBuffer == "" ? "" : _currentBuffer) : game.WinnerCount)
+                                @if (_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game))) { <span class="cursor-blink">|</span> }
+                            </div>
+                        </div>
+                        
+                        <div class="text-end flex-grow-1">
+                            @{
+                                var totalPayout = CalculateGamePayout(_selectedSheet, game);
+                                var perWinner = game.WinnerCount > 0 ? totalPayout / game.WinnerCount : totalPayout;
+                            }
+                            
+                            @if (_selectedSheet.PayoutMode == 0 && game.IsVariablePayout)
+                            {
+                                <div class="input-group input-group-sm ms-auto" style="width: 100px;" @onclick:stopPropagation="true">
+                                    <span class="input-group-text bg-white border-primary border-opacity-25 fw-bold p-1">$</span>
+                                    <input type="number" inputmode="decimal" class="form-control border-primary border-opacity-25 fw-black text-primary p-1" 
+                                           value="@game.Payout" 
+                                           @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) { game.Payout = v; RecalculateSheetTotals(); } })"
+                                           @onfocus="OnInputFocus" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="fw-black text-primary fs-5" style="line-height: 1;">@totalPayout.ToString("C2")</div>
+                            }
+
+                            @if (game.WinnerCount > 1)
+                            {
+                                <div class="mt-1 bg-primary bg-opacity-10 rounded-3 px-2 py-1 d-inline-block border border-primary border-opacity-20 shadow-sm">
+                                    <span class="fw-black text-primary fs-6">@perWinner.ToString("C2")</span>
+                                    <span class="extra-small fw-bold text-primary opacity-75 ms-1" style="font-size: 0.5rem;">EACH</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button class="btn btn-light flex-grow-1 py-3 rounded-pill fw-bold shadow-sm" @onclick="RefreshSettingsManually">
+                    <i class="bi bi-arrow-clockwise me-1"></i> REFRESH RULES
+                </button>
+                <button class="btn btn-primary flex-grow-1 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _selectedSheet = null">
+                    CLOSE
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_selectedPackDetail != null)
+{
+    var basePack = AdmissionPacks.OrderBy(p => GetAdmitCount(p.Name)).FirstOrDefault();
+    var basePrice = basePack?.Price ?? 15.00m;
+    var baseCount = 9;
+    var currentAdmitCount = GetAdmitCount(_selectedPackDetail.Name);
+    var extraCount = currentAdmitCount - baseCount;
+    var extraPrice = _selectedPackDetail.Price - basePrice;
+
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 5500;" @onclick="() => _selectedPackDetail = null"></div>
+    <div class="sheet-detail-modal animate-zoom-in" style="z-index: 6000; border-top: 8px solid #3b82f6;">
+        <div class="detail-header bg-primary bg-opacity-10 text-dark">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="fw-black text-uppercase mb-0" style="letter-spacing: -0.02em;">@_selectedPackDetail.Name</h2>
+                    <span class="badge bg-primary rounded-pill px-3 py-1 fw-bold text-uppercase" style="font-size: 0.65rem;">ADMISSION STRUCTURE</span>
+                </div>
+                <button class="btn btn-link text-muted p-0 border-0 fs-3" @onclick="() => _selectedPackDetail = null">
+                    <i class="bi bi-x-circle-fill"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="detail-body">
+            <!-- PACK COMPOSITION -->
+            <div class="math-card">
+                <div class="math-row">
+                    <span class="math-label">Base Admission (9 Squares)</span>
+                    <span class="math-val">@basePrice.ToString("C2")</span>
+                </div>
+                @if (extraCount > 0)
+                {
+                    <div class="math-row">
+                        <span class="math-label">Additional Cards (@extraCount Squares)</span>
+                        <span class="math-val">@extraPrice.ToString("C2")</span>
+                    </div>
+                }
+                <div class="math-row total">
+                    <span class="math-label text-dark">Total Pack Price</span>
+                    <span class="math-val text-primary">@_selectedPackDetail.Price.ToString("C2")</span>
+                </div>
+            </div>
+
+            @if (_selectedPackDetail.Sold > 0)
+            {
+                <!-- SESSION TOTAL FOR THIS PACK -->
+                <div class="section-divider mb-3"><span>SESSION TOTALS (@_selectedPackDetail.Sold SOLD)</span></div>
+                <div class="math-card" style="background: #eff6ff; border-color: #bfdbfe;">
+                    <div class="math-row">
+                        <span class="math-label">Base Revenue (@(_selectedPackDetail.Sold) @baseCount-packs)</span>
+                        <span class="math-val">@((_selectedPackDetail.Sold * basePrice).ToString("C2"))</span>
+                    </div>
+                    @if (extraCount > 0)
+                    {
+                        <div class="math-row">
+                            <span class="math-label">Add-on Revenue (@(_selectedPackDetail.Sold * extraCount) extra cards)</span>
+                            <span class="math-val">@((_selectedPackDetail.Sold * extraPrice).ToString("C2"))</span>
+                        </div>
+                    }
+                    <div class="math-row total" style="border-top-color: #bfdbfe;">
+                        <span class="math-label text-primary">Total Revenue</span>
+                        <span class="math-val text-primary" style="font-size: 1.4rem;">@((_selectedPackDetail.Sold * _selectedPackDetail.Price).ToString("C2"))</span>
+                    </div>
+                </div>
+            }
+
+            <button class="btn btn-outline-primary w-100 py-3 rounded-pill fw-black mt-2" @onclick="() => _selectedPackDetail = null">
+                CLOSE BREAKDOWN
+            </button>
+        </div>
+    </div>
+}
+
+@if (_showAdmissionAudit)
+{
+    var baseRate = _bingoSettings.BasePrice;
+    var cardRate = _bingoSettings.CardPrice;
+    
+    // Total Stats
+    var tSold = AdmissionPacks.Sum(p => p.Sold);
+    
+    // Detailed Totals Calculation
+    decimal tBaseRev = 0;
+    decimal tExtraRev = 0;
+    int tExtraCards = 0;
+
+    foreach (var p in AdmissionPacks)
+    {
+        if (p.Sold <= 0) continue;
+        var pSize = GetAdmitCount(p.Name);
+        var pExtraCards = Math.Max(0, (pSize - 9) / 3);
+        var pBasePortionPerUnit = baseRate + (pExtraCards * cardRate);
+        var pAddOnPortionPerUnit = p.Price - pBasePortionPerUnit;
+
+        tBaseRev += p.Sold * pBasePortionPerUnit;
+        tExtraRev += p.Sold * pAddOnPortionPerUnit;
+        tExtraCards += p.Sold * pExtraCards;
+    }
+    
+    var tGrandRev = tBaseRev + tExtraRev;
+
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 5500;" @onclick="() => _showAdmissionAudit = false"></div>
+    <div class="sheet-detail-modal animate-zoom-in" style="z-index: 6000; border-top: 8px solid #2563eb;">
+        <div class="detail-header bg-primary bg-opacity-10 text-dark">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="fw-black text-uppercase mb-0" style="letter-spacing: -0.02em;">ADMISSION STATEMENT</h2>
+                    <span class="badge bg-primary rounded-pill px-3 py-1 fw-bold text-uppercase" style="font-size: 0.65rem;">SESSION-WIDE SUMMARY</span>
+                </div>
+                <button class="btn btn-link text-muted p-0 border-0 fs-3" @onclick="() => _showAdmissionAudit = false">
+                    <i class="bi bi-x-circle-fill"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="detail-body">
+            <div class="math-card">
+                <div class="math-row">
+                    <span class="math-label">Base Rate (9-Pack)</span>
+                    <span class="math-val">@baseRate.ToString("C2")</span>
+                </div>
+                <div class="math-row">
+                    <span class="math-label">Extra Card Rate (3 Sq)</span>
+                    <span class="math-val">@cardRate.ToString("C2")</span>
+                </div>
+                <div class="math-row pt-2 border-top">
+                    <span class="math-label">Total Players</span>
+                    <span class="math-val">@tSold</span>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <div class="math-card text-center mb-0 h-100" style="background: #f0fdf4; border-color: #bbf7d0;">
+                        <label class="math-label d-block mb-1 text-success">Base Revenue</label>
+                        <div class="math-val fs-3 text-success">@tBaseRev.ToString("C2")</div>
+                        <span class="extra-small fw-bold opacity-50">@tSold BASE SHEETS</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="math-card text-center mb-0 h-100" style="background: #eff6ff; border-color: #bfdbfe;">
+                        <label class="math-label d-block mb-1 text-primary">Add-on Revenue</label>
+                        <div class="math-val fs-3 text-primary">@tExtraRev.ToString("C2")</div>
+                        <span class="extra-small fw-bold opacity-50">@tExtraCards EXTRA CARDS</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="math-card border-2" style="background: white; border-color: #2563eb;">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="math-label text-primary d-block">Grand Total Revenue</span>
+                        <div class="fw-black text-dark" style="font-size: 2.2rem; line-height: 1;">@tGrandRev.ToString("C2")</div>
+                    </div>
+                    <div class="text-end">
+                        <i class="bi bi-cash-stack text-primary opacity-25" style="font-size: 3rem;"></i>
+                    </div>
+                </div>
+            </div>
+
+            @if (Sheets.Any(s => s.IsAdmissionOnly))
+            {
+                <div class="math-card mt-3" style="background: #f8fafc; border-style: dashed; border-color: #2563eb;">
+                    <label class="math-label d-block mb-2 text-primary fw-black">BASE PROGRAM BREAKDOWN</label>
+                    <div class="math-row">
+                        <span class="math-label">Combined Lottery (5.0%)</span>
+                        <span class="math-val neg">- @StandardLotteryFee.ToString("C2")</span>
+                    </div>
+                    <div class="math-row">
+                        <span class="math-label">Standard Game Prizes</span>
+                        <span class="math-val neg">- @Sheets.Where(s => s.IsAdmissionOnly).Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g))).ToString("C2")</span>
+                    </div>
+                    <div class="math-row total pt-2 mt-2 border-top">
+                        <span class="math-label text-dark">BASE PROGRAM PROFIT</span>
+                        <span class="math-val text-success fw-bold">@AdmissionClubProfit.ToString("C2")</span>
+                    </div>
+                </div>
+            }
+
+            <!-- INDIVIDUAL PACKAGE BREAKDOWN -->
+            <div class="section-divider mb-2 mt-4"><span>PACKAGE BREAKDOWN</span></div>
+            <div class="math-card p-0 overflow-hidden mb-3" style="max-height: 250px; overflow-y: auto !important; background: #f8fafc;">
+                @foreach (var p in AdmissionPacks.Where(x => x.Sold > 0))
+                {
+                    var pSize = GetAdmitCount(p.Name);
+                    var pExtraCards = Math.Max(0, (pSize - 9) / 3);
+                    var pBasePortion = baseRate + (pExtraCards * cardRate);
+                    var pAddOnPortion = p.Price - pBasePortion;
+
+                    <div class="p-3 border-bottom bg-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="fw-black text-uppercase d-block text-primary" style="font-size: 0.85rem;">@p.Name</span>
+                                <span class="text-muted fw-bold" style="font-size: 0.65rem;">@p.Sold SOLD AT @p.Price.ToString("C2")</span>
+                            </div>
+                            <div class="text-end">
+                                <span class="fw-black text-dark" style="font-size: 1.1rem;">@((p.Sold * p.Price).ToString("C2"))</span>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 mt-2">
+                            <div class="flex-grow-1 bg-light rounded-3 p-2 border border-light-subtle">
+                                <label class="d-block text-uppercase text-muted fw-bold mb-0" style="font-size: 0.5rem;">Base Portion (incl. Squares)</label>
+                                <span class="fw-black text-dark" style="font-size: 0.8rem;">@((p.Sold * pBasePortion).ToString("C2"))</span>
+                            </div>
+                            @if (pAddOnPortion > 0)
+                            {
+                                <div class="flex-grow-1 bg-light rounded-3 p-2 border border-light-subtle">
+                                    <label class="d-block text-uppercase text-muted fw-bold mb-0" style="font-size: 0.5rem;">Add-on Sheets Portion</label>
+                                    <span class="fw-black text-primary" style="font-size: 0.8rem;">@((p.Sold * pAddOnPortion).ToString("C2"))</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (!AdmissionPacks.Any(x => x.Sold > 0))
+                {
+                    <div class="p-4 text-center text-muted fw-bold opacity-50 small">NO ADMISSIONS SOLD YET</div>
+                }
+            </div>
+
+            <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg mt-3" @onclick="() => _showAdmissionAudit = false">
+                CLOSE STATEMENT
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool Loading { get; set; } = true;
+    private bool _isCircutAlive = true;
+    private string _syncStatus = "Synced";
+    private string _currentUsername = "...";
+    private DateTime SessionDate { get; set; } = DateTime.Today;
+    
+    private string _activeField = "";
+    private string _currentBuffer = "";
+    private bool _showAdmissionPopup = false;
+    private bool _showFloorSalesPopup = false;
+    private bool _showFloatingKeypad = false;
+    private bool _showSummaryDetail = false;
+    private bool _isOffline = false;
+    private string _lastSavedText = "INITIALIZING...";
+    private DateTime? _lastSavedTime;
+    private BingoSheet? _selectedSheet;
+    private AdmissionPack? _selectedPackDetail;
+    private bool _showAdmissionAudit = false;
+    private BingoSettingsDto _bingoSettings = new();
+
+    private int GetAdmitCount(string name)
+    {
+        try {
+            var parts = name.Split(' ');
+            if (int.TryParse(parts.Last(), out var val)) return val;
+            return 9;
+        } catch { return 9; }
+    }
+
+    private void OpenSheetDetail(BingoSheet sheet)
+    {
+        _selectedSheet = sheet;
+        StateHasChanged();
+    }
+
+    private void ToggleAdmissions() => _showAdmissionPopup = !_showAdmissionPopup;
+    private void CloseKeypad() { _showFloatingKeypad = false; _activeField = ""; }
+    private void CloseEntryModals() 
+    { 
+        _showAdmissionPopup = false; 
+        _showFloorSalesPopup = false; 
+        _showFloatingKeypad = false; 
+        _activeField = ""; 
+    }
+    private List<AdmissionPack> AdmissionPacks { get; set; } = new();
+
+    private List<BingoSheet> Sheets { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _currentUsername = authState.User.Identity?.Name ?? "Staff";
+        
+        try 
+        {
+            _isOffline = false;
+            // 1. ALWAYS ATTEMPT TO FETCH LATEST FROM SERVER
+            var programTask = ReportingService.GetBingoProgramAsync();
+            var admissionsTask = ReportingService.GetBingoAdmissionsAsync();
+            var settingsTask = ReportingService.GetBingoSettingsAsync();
+            
+            await Task.WhenAll(programTask, admissionsTask, settingsTask);
+            
+            var program = await programTask;
+            var admissions = await admissionsTask;
+            _bingoSettings = await settingsTask;
+
+            if (program != null && program.Any())
+            {
+                Sheets = program.Select(p => new BingoSheet 
+                { 
+                    ColorName = p.ColorName, 
+                    DisplayColor = p.DisplayColor,
+                    Price = p.DefaultPrice,
+                    PayoutMode = p.PayoutMode,
+                    IsAdmissionOnly = p.IsAdmissionOnly,
+                    IsIncludedInAdmission = p.IsIncludedInAdmission,
+                    LotteryPercentage = p.LotteryPercentage,
+                    ClubPercentage = p.ClubPercentage,
+                    Games = p.Games.OrderBy(g => g.DisplayOrder).Select(g => new BingoGame 
+                    { 
+                        Name = g.GameName,
+                        DefaultPayout = g.DefaultPayout,
+                        IsVariablePayout = g.IsVariablePayout,
+                        Payout = g.DefaultPayout 
+                    }).ToList()
+                }).ToList();
+            }
+
+            if (admissions != null && admissions.Any())
+            {
+                AdmissionPacks = admissions.Select(a => new AdmissionPack 
+                { 
+                    Id = a.Id, 
+                    Name = a.Name, 
+                    DisplayColor = a.DisplayColor, 
+                    Price = a.Price
+                }).ToList();
+            }
+
+            // 2. IF SUCCESSFUL, UPDATE LOCAL CACHE FOR OFFLINE USE
+            if (Sheets.Any() && AdmissionPacks.Any())
+            {
+                var setup = new BingoSetupCache 
+                { 
+                    Sheets = Sheets, 
+                    AdmissionPacks = AdmissionPacks,
+                    Settings = _bingoSettings 
+                };
+                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", "gfc_bingo_setup_cache", setup);
+            }
+        }
+        catch (Exception ex)
+        {
+            _isOffline = true;
+            // 3. IF OFFLINE OR SERVER ERROR, FALLBACK TO LOCAL CACHE
+            Console.WriteLine($"Offline fallback: {ex.Message}");
+            var cachedSetup = await JSRuntime.InvokeAsync<BingoSetupCache>("window.gfcGetAsync", "gfc_bingo_setup_cache");
+            
+            if (cachedSetup != null)
+            {
+                Sheets = cachedSetup.Sheets;
+                AdmissionPacks = cachedSetup.AdmissionPacks;
+                if (cachedSetup.Settings != null) _bingoSettings = cachedSetup.Settings;
+            }
+            else if (!Sheets.Any())
+            {
+                InitializeDefaultProgram();
+            }
+        }
+
+        if (!AdmissionPacks.Any())
+        {
+            AdmissionPacks = new List<AdmissionPack> { new AdmissionPack { Id = 1, Name = "Standard Pack 9", DisplayColor = "#3b82f6", Price = 20 } };
+        }
+
+        _activeField = "Pack_" + AdmissionPacks[0].Id;
+
+        await LoadDraftAsync();
+        Loading = false;
+    }
+
+    private class BingoSetupCache
+    {
+        public List<BingoSheet> Sheets { get; set; } = new();
+        public List<AdmissionPack> AdmissionPacks { get; set; } = new();
+        public BingoSettingsDto? Settings { get; set; }
+    }
+
+    private void InitializeDefaultProgram()
+    {
+        Sheets = new List<BingoSheet>
+        {
+            new BingoSheet { ColorName = "Blue", DisplayColor = "#3b82f6", IsIncludedInAdmission = true, IsAdmissionOnly = true, LotteryPercentage = 0.05m, ClubPercentage = 0.05m, Games = new List<BingoGame> { new BingoGame { Name = "Any Bingo" } }, PayoutMode = 0 },
+            new BingoSheet { ColorName = "Orange", DisplayColor = "#f97316", IsIncludedInAdmission = true, IsAdmissionOnly = true, LotteryPercentage = 0.05m, ClubPercentage = 0.05m, Games = new List<BingoGame> { new BingoGame { Name = "Double Bingo" } }, PayoutMode = 0 },
+            new BingoSheet { ColorName = "Yellow", DisplayColor = "#eab308", IsIncludedInAdmission = true, IsAdmissionOnly = false, LotteryPercentage = 0.05m, ClubPercentage = 0.50m, Games = new List<BingoGame> { new BingoGame { Name = "Coverall" } }, PayoutMode = 1 }
+        };
+    }
+
+    private async Task RefreshSettingsManually()
+    {
+        try 
+        {
+            var settings = await ReportingService.GetBingoSettingsAsync();
+            if (settings != null)
+            {
+                _bingoSettings = settings;
+                StateHasChanged();
+                await JSRuntime.InvokeVoidAsync("alert", "Bingo rules synchronized with server!");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Sync failed: " + ex.Message);
+        }
+    }
+
+    private async Task ActivateField(string field)
+    {
+        _activeField = field;
+        _currentBuffer = "";
+        _showFloatingKeypad = true;
+
+        // Auto-scroll modal row into view
+        if (_showFloorSalesPopup && field.EndsWith("_Sold"))
+        {
+            var color = field.Split('_')[0];
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('floor-row-{color}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
+        }
+        else if (_showAdmissionPopup && field.StartsWith("Pack_"))
+        {
+            var id = field.Replace("Pack_", "");
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('admin-row-{id}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
+        }
+    }
+
+    private void KeyPressed(string key)
+    {
+        _currentBuffer += key;
+        UpdateFieldValue();
+        _ = SaveDraftAsync();
+    }
+
+    private void BackspaceCurrentField()
+    {
+        if (_currentBuffer.Length > 0)
+        {
+            _currentBuffer = _currentBuffer.Substring(0, _currentBuffer.Length - 1);
+            UpdateFieldValue();
+            _ = SaveDraftAsync();
+        }
+    }
+
+    private void UpdateFieldValue()
+    {
+        if (_activeField.StartsWith("Pack_"))
+        {
+            if (int.TryParse(_activeField.Replace("Pack_", ""), out var id))
+            {
+                var pack = AdmissionPacks.FirstOrDefault(p => p.Id == id);
+                if (pack != null)
+                {
+                    if (int.TryParse(_currentBuffer, out var val)) pack.Sold = val;
+                    else pack.Sold = 0;
+                    
+                    RecalculateSheetTotals();
+                }
+            }
+        }
+        else if (_activeField.Contains("_Winner_"))
+        {
+            var parts = _activeField.Split('_');
+            var color = parts[0];
+            var gameIdx = int.Parse(parts[2]);
+            
+            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
+            if (sheet != null && gameIdx < sheet.Games.Count)
+            {
+                if (int.TryParse(_currentBuffer, out var val)) sheet.Games[gameIdx].WinnerCount = val;
+                else sheet.Games[gameIdx].WinnerCount = 1;
+            }
+        }
+        else
+        {
+            var parts = _activeField.Split('_');
+            var color = parts[0];
+            var type = parts[1];
+            
+            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
+            if (sheet == null) return;
+
+            if (type == "Sold")
+            {
+                if (int.TryParse(_currentBuffer, out var val)) sheet.ManualSold = val;
+                else sheet.ManualSold = 0;
+                
+                RecalculateSheetTotals();
+            }
+        }
+    }
+
+    private void RecalculateSheetTotals()
+    {
+        foreach (var sheet in Sheets)
+        {
+            // Reset to manual entry
+            sheet.Sold = sheet.ManualSold;
+            
+            // Add quantity from ALL admission packs IF this sheet is marked as "Included in Admission"
+            if (sheet.IsIncludedInAdmission)
+            {
+                sheet.Sold += AdmissionPacks.Sum(p => p.Sold);
+            }
+            
+            // Recalculate payouts for all games in this sheet (for 50/50)
+            foreach(var g in sheet.Games) g.Payout = CalculateGamePayout(sheet, g);
+        }
+    }
+
+    private void HandleNext()
+    {
+        if (_activeField.StartsWith("Pack_"))
+        {
+            if (int.TryParse(_activeField.Replace("Pack_", ""), out var id))
+            {
+                var index = AdmissionPacks.FindIndex(p => p.Id == id);
+                if (index < AdmissionPacks.Count - 1) ActivateField("Pack_" + AdmissionPacks[index + 1].Id);
+                else if (_showAdmissionPopup) ActivateField("Pack_" + AdmissionPacks[0].Id); // Loop in modal
+                else ActivateField(Sheets[0].ColorName + "_Sold");
+            }
+        }
+        else
+        {
+            var parts = _activeField.Split('_');
+            var color = parts[0];
+            var sheetIndex = Sheets.FindIndex(s => s.ColorName == color);
+            
+            if (sheetIndex < Sheets.Count - 1) ActivateField(Sheets[sheetIndex + 1].ColorName + "_Sold");
+            else if (_showFloorSalesPopup) ActivateField(Sheets[0].ColorName + "_Sold"); // Loop in modal
+            else ActivateField("Pack_" + AdmissionPacks[0].Id);
+        }
+    }
+
+    private async Task OnDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var date))
+        {
+            SessionDate = date;
+            await LoadDraftAsync();
+        }
+    }
+
+    // MATH
+    private int AdmissionCount => AdmissionPacks.Sum(p => p.Sold);
+    private decimal TotalAdmissionRevenue => AdmissionPacks.Sum(p => p.Sold * p.Price);
+    private decimal TotalFloorRevenue => Sheets.Sum(s => s.ManualSold * s.Price);
+    private decimal TotalGross => TotalAdmissionRevenue + TotalFloorRevenue;
+    private decimal TotalPrizes => Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)));
+    
+    // The "Standard Program" is the revenue reserved for the Base games ($15 + extra squares)
+    private decimal StandardProgramRevenue => (AdmissionCount * _bingoSettings.BasePrice) + (TotalExtraCards * _bingoSettings.CardPrice);
+
+    private int TotalExtraCards => AdmissionPacks.Sum(p => p.Sold * (GetAdmitCount(p.Name) - 9) / 3);
+
+    // Standard Program Lottery (5% of the Standard Revenue)
+    private decimal StandardLotteryFee => StandardProgramRevenue * 0.05m;
+    
+    // Total Lottery is Standard Lottery + Individual Lotteries for Specials
+    private decimal TotalLotteryTake => StandardLotteryFee + Sheets.Where(s => !s.IsAdmissionOnly).Sum(CalculateLotteryTake);
+    
+    // Admission Only Club Profit (Remainder of Standard Program Revenue after paying its prizes)
+    private decimal AdmissionClubProfit => StandardProgramRevenue > 0
+        ? StandardProgramRevenue - StandardLotteryFee - Sheets.Where(s => s.IsAdmissionOnly).Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)))
+        : 0m;
+
+    private decimal TotalClubTake => Sheets.Where(s => !s.IsAdmissionOnly).Sum(CalculateClubTake) + AdmissionClubProfit;
+    
+    private decimal TotalNetProceeds => TotalGross - TotalPrizes - TotalLotteryTake;
+
+    private decimal CalculateLotteryTake(BingoSheet sheet) 
+    {
+        // For specials, we calculate lottery based on their total sold (including the portion inside packs)
+        // This is correct because we subtracted their price from the "Standard Program" revenue above.
+        return (sheet.Sold * sheet.Price) * sheet.LotteryPercentage;
+    }
+
+    private decimal CalculateClubTake(BingoSheet sheet)
+    {
+        var gross = sheet.Sold * sheet.Price;
+        if (sheet.PayoutMode == 1) // 50/50 Split (Sequential)
+        {
+            var afterLottery = gross - CalculateLotteryTake(sheet);
+            return afterLottery * sheet.ClubPercentage;
+        }
+        return gross * sheet.ClubPercentage;
+    }
+
+    private decimal CalculateSheetNet(BingoSheet sheet)
+    {
+        var gross = sheet.Sold * sheet.Price;
+        var lottery = CalculateLotteryTake(sheet);
+        var prizes = sheet.Games.Sum(g => CalculateGamePayout(sheet, g));
+        
+        return gross - lottery - prizes;
+    }
+
+    private decimal GetCurrentPayoutPercentage()
+    {
+        if (_bingoSettings.PayoutTiers == null || !_bingoSettings.PayoutTiers.Any()) return 100m;
+        
+        var admissions = AdmissionCount;
+        var tier = _bingoSettings.PayoutTiers
+            .Where(t => t.MinAdmissions <= admissions)
+            .OrderByDescending(t => t.MinAdmissions)
+            .FirstOrDefault();
+            
+        return tier?.PayoutPercentage ?? _bingoSettings.PayoutTiers.Min(t => t.PayoutPercentage);
+    }
+
+
+
+    private decimal CalculateGamePayout(BingoSheet sheet, BingoGame game)
+    {
+        if (sheet.PayoutMode == 1 || sheet.PayoutMode == 2)
+        {
+            var gross = sheet.Sold * sheet.Price;
+            decimal availableForPrizes;
+
+            if (sheet.PayoutMode == 1) // Sequential
+            {
+                // For the prize calculation, we must deduct the THEORETICAL lottery and club take
+                // from the total gross, even if those sheets were included in admission.
+                var theoreticalLottery = gross * sheet.LotteryPercentage;
+                var theoreticalClub = (gross - theoreticalLottery) * sheet.ClubPercentage;
+                availableForPrizes = gross - theoreticalLottery - theoreticalClub;
+            }
+            else // Mode 2: Additive (Gross %)
+            {
+                var totalDeductionPercent = sheet.LotteryPercentage + sheet.ClubPercentage;
+                availableForPrizes = gross * (1 - totalDeductionPercent);
+            }
+            
+            var gameCount = sheet.Games?.Count ?? 1;
+            if (gameCount == 0) gameCount = 1;
+
+            return availableForPrizes / gameCount;
+        }
+
+        // Mode 0: Fixed Prize (Tiered)
+        if (game.IsVariablePayout) return game.Payout;
+
+        var basePrize = game.DefaultPayout;
+        var tierPercentage = GetCurrentPayoutPercentage();
+        return basePrize * (tierPercentage / 100m);
+    }
+
+
+
+    // PERSISTENCE
+    private async Task SaveDraftAsync()
+    {
+        var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
+        var data = new BingoDraft { AdmissionPacks = AdmissionPacks, Sheets = Sheets };
+        await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, data);
+        _lastSavedTime = DateTime.Now;
+        _lastSavedText = "SAVED LOCALLY";
+        StateHasChanged();
+    }
+
+    private async Task LoadDraftAsync()
+    {
+        try 
+        {
+            var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
+            var draft = await JSRuntime.InvokeAsync<BingoDraft>("window.gfcGetAsync", key);
+            
+            if (draft != null)
+            {
+                foreach (var dPack in draft.AdmissionPacks)
+                {
+                    var p = AdmissionPacks.FirstOrDefault(x => x.Id == dPack.Id);
+                    if (p != null) p.Sold = dPack.Sold;
+                }
+                foreach (var dSheet in draft.Sheets)
+                {
+                    var s = Sheets.FirstOrDefault(x => x.ColorName == dSheet.ColorName);
+                    if (s != null)
+                    {
+                        s.ManualSold = dSheet.ManualSold;
+                        foreach (var dGame in dSheet.Games)
+                        {
+                            var g = s.Games.FirstOrDefault(x => x.Name == dGame.Name);
+                            if (g != null) g.Payout = dGame.Payout;
+                        }
+                    }
+                }
+                RecalculateSheetTotals();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Draft error: {ex.Message}");
+            // Don't remove it, let's keep it in case it's a temporary issue
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (TotalGross <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Cannot submit a session with zero sales.");
+            return;
+        }
+
+        var session = new BingoSession
+        {
+            SessionDate = SessionDate,
+            AdmissionCount = AdmissionCount,
+            TotalGrossReceipts = TotalGross,
+            TotalPrizesPaid = TotalPrizes,
+            TotalLotteryTake = TotalLotteryTake,
+            TotalClubTake = TotalClubTake,
+            Status = "Submitted",
+            AdmissionEntries = AdmissionPacks.Where(p => p.Sold > 0).Select(p => new BingoAdmissionEntry
+            {
+                AdmissionDefinitionId = p.Id,
+                Quantity = p.Sold,
+                PriceAtTime = p.Price
+            }).ToList(),
+            GameEntries = Sheets.SelectMany(s => s.Games.Select(g => new BingoGameEntry
+            {
+                SheetColor = s.ColorName,
+                GameName = g.Name,
+                SheetsSold = s.Sold,
+                PricePerSheet = s.Price,
+                GrossReceipts = s.Sold * s.Price,
+                PrizePaid = CalculateGamePayout(s, g),
+                LotteryPercent = s.LotteryPercentage,
+                ClubPercent = s.ClubPercentage,
+                LotteryTake = (s.Sold * s.Price) * s.LotteryPercentage,
+                ClubTake = s.PayoutMode == 1 ? ((s.Sold * s.Price) - ((s.Sold * s.Price) * s.LotteryPercentage)) * s.ClubPercentage : (s.Sold * s.Price) * s.ClubPercentage,
+                NetProceeds = CalculateSheetNet(s) / s.Games.Count 
+            })).ToList()
+        };
+
+        var success = await ReportingService.SubmitBingoSessionAsync(session, _currentUsername);
+        if (success)
+        {
+            var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
+            await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", key);
+            Navigation.NavigateTo("/mobile");
+        }
+    }
+
+    public class BingoSheet
+    {
+        public string ColorName { get; set; } = "";
+        public string DisplayColor { get; set; } = "";
+        public int ManualSold { get; set; }
+        public int Sold { get; set; }
+        public decimal Price { get; set; }
+        public List<BingoGame> Games { get; set; } = new();
+        public int PayoutMode { get; set; }
+        public bool IsIncludedInAdmission { get; set; }
+        public decimal LotteryPercentage { get; set; }
+        public decimal ClubPercentage { get; set; }
+        public bool IsAdmissionOnly { get; set; }
+    }
+
+    public class BingoGame
+    {
+        public string Name { get; set; } = "";
+        public decimal Payout { get; set; }
+        public decimal DefaultPayout { get; set; }
+        public bool IsVariablePayout { get; set; }
+        public int WinnerCount { get; set; } = 1;
+    }
+
+    public class AdmissionPack
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string DisplayColor { get; set; } = "";
+        public decimal Price { get; set; }
+        public int Sold { get; set; }
+    }
+
+    public class BingoDraft
+    {
+        public DateTime Date { get; set; } = DateTime.Now;
+        public List<AdmissionPack> AdmissionPacks { get; set; } = new();
+        public List<BingoSheet> Sheets { get; set; } = new();
+    }
+
+    private async Task OnInputFocus(FocusEventArgs e)
+    {
+        // On tablet, select all text when an input is focused to make it easier to overwrite
+        await JSRuntime.InvokeVoidAsync("eval", "document.activeElement?.select()");
+    }
+}

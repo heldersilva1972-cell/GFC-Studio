@@ -320,7 +320,7 @@
             }
             <span class="terminal-id">@TerminalName.ToUpper()</span>
             
-            <div class="user-indicator-pill" @onclick="() => CurrentUserName = string.Empty">
+            <div class="user-indicator-pill" @onclick="LockTerminal">
                 <div class="user-avatar">
                     <i class="bi bi-person-fill"></i>
                 </div>
@@ -353,7 +353,7 @@
             <!-- Server Indicator -->
             <div class="hub-heartbeat-container">
                 <div class="hub-heartbeat-dot @(Connectivity.IsServerReachable ? "online" : "offline")"></div>
-                <span class="heartbeat-label">SERVER</span>
+                <span class="heartbeat-label">@Connectivity.EnvironmentName</span>
             </div>
 
             <div class="d-flex flex-column align-items-center" style="line-height: 1.1; min-width: 140px;">
@@ -410,6 +410,14 @@
             <button class="btn-settings-icon" @onclick="() => showSettingsModal = true" title="Settings">
                 <i class="bi bi-gear-fill @(forceTrainingMode ? "text-danger" : "")"></i>
             </button>
+            @if (_isCorrectionMode)
+            {
+                <button class="btn btn-danger rounded-pill px-4 fw-black ms-2 animate__animated animate__pulse animate__infinite" 
+                        @onclick="CancelCorrection" 
+                        style="font-size: 0.7rem; letter-spacing: 1px; height: 44px; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);">
+                    CANCEL CORRECTION
+                </button>
+            }
             <button class="btn-shift" @onclick='() => { _inventoryPullDraft.Clear(); _currentCloseOutStep = CloseOutStep.PromptInventory; }'>
                 <i class="bi bi-door-closed-fill"></i>
                 <span>CLOSE SHIFT OUT</span>
@@ -803,7 +811,7 @@
                     </div>
                     <div class="hub-heartbeat-container">
                         <div class="hub-heartbeat-dot @(Connectivity.IsServerReachable ? "online" : "offline")"></div>
-                        <span class="heartbeat-label text-white opacity-75">SERVER</span>
+                        <span class="heartbeat-label text-white opacity-75">@Connectivity.EnvironmentName</span>
                     </div>
                 </div>
             </div>
@@ -1140,7 +1148,7 @@
                 if ((DateTime.Now - _lastActivity).TotalMinutes >= _idleTimeoutMinutes)
                 {
                     Console.WriteLine($"[POS] IDLE TIMEOUT: No activity for {_idleTimeoutMinutes}m. Locking station.");
-                    CurrentUserName = string.Empty;
+                    LockTerminal();
                     await InvokeAsync(StateHasChanged);
                 }
             }
@@ -1157,7 +1165,7 @@
                     if (!isStillAuth)
                     {
                         Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
-                        CurrentUserName = string.Empty;
+                        LockTerminal();
                         await InvokeAsync(StateHasChanged);
                     }
                 }
@@ -1187,6 +1195,13 @@
         PosService.OutboxChanged -= OnOutboxChanged;
     }
 
+    private void LockTerminal()
+    {
+        if (string.IsNullOrEmpty(CurrentUserName)) return;
+        CurrentUserName = string.Empty;
+        _ = RefreshData(); // Background update for next operator
+    }
+
     private async Task RefreshData()
     {
         Console.WriteLine("[POS] Refreshing Menu Data...");
@@ -1198,6 +1213,7 @@
             DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
             DbTokens = menu.Tokens;
             if (!Categories.Contains(ActiveCategory)) ActiveCategory = Categories.FirstOrDefault() ?? "BEER";
+            await InvokeAsync(StateHasChanged);
         }
         else
         {
@@ -1544,6 +1560,14 @@
         
         _showCorrectionConfirm = false;
         showSettingsModal = false;
+    }
+
+    private void CancelCorrection()
+    {
+        _isCorrectionMode = false;
+        _originalSaleAmount = 0;
+        _correctingSaleId = null;
+        ClearCart();
     }
     private void HandleNumPad(string k) 
     { 

@@ -23,6 +23,13 @@ public class ApplicationDbContext : DbContext
     public DbSet<TaxBracket> TaxBrackets { get; set; } = null!;
     public DbSet<TaxStandardDeduction> TaxStandardDeductions { get; set; } = null!;
 
+    // BINGO
+    public DbSet<BingoSession> BingoSessions { get; set; } = null!;
+    public DbSet<BingoGameEntry> BingoGameEntries { get; set; } = null!;
+    public DbSet<BingoSheetDefinition> BingoSheetDefinitions { get; set; } = null!;
+    public DbSet<BingoGameDefinition> BingoGameDefinitions { get; set; } = null!;
+
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -259,6 +266,39 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<TaxStandardDeduction>(entity =>
         {
             entity.ToTable("TaxStandardDeductions");
+            entity.HasKey(e => e.Id);
+        });
+
+        // BINGO
+        modelBuilder.Entity<BingoSession>(entity =>
+        {
+            entity.ToTable("BingoSessions");
+            entity.HasKey(e => e.Id);
+            entity.HasMany(e => e.GameEntries)
+                  .WithOne(e => e.Session)
+                  .HasForeignKey(e => e.SessionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BingoGameEntry>(entity =>
+        {
+            entity.ToTable("BingoGameEntries");
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<BingoSheetDefinition>(entity =>
+        {
+            entity.ToTable("BingoSheetDefinitions");
+            entity.HasKey(e => e.Id);
+            entity.HasMany(e => e.Games)
+                  .WithOne(e => e.Sheet)
+                  .HasForeignKey(e => e.SheetDefinitionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BingoGameDefinition>(entity =>
+        {
+            entity.ToTable("BingoGameDefinitions");
             entity.HasKey(e => e.Id);
         });
     }

@@ -15,6 +15,10 @@ public interface IMobileReportingService
     Task<DailyShiftSummary> GetDailySummaryAsync(DateTime date);
     Task<string> GetServerVersionAsync();
     Task<LotteryCommissionRate> GetLotteryRateAsync(int year);
+    Task<List<BingoSheetDefinition>> GetBingoProgramAsync();
+    Task<List<BingoAdmissionDefinition>> GetBingoAdmissionsAsync();
+    Task<BingoSettingsDto> GetBingoSettingsAsync();
+    Task<bool> SubmitBingoSessionAsync(BingoSession session, string username);
     Task FlushOutboxAsync();
     Task<int> GetPendingCountAsync();
     int PendingCount { get; }

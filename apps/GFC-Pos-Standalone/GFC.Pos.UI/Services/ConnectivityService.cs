@@ -20,6 +20,8 @@ public class ConnectivityService : IAsyncDisposable
     public bool IsHardwareOnline => _isHardwareOnline;
     public bool IsServerReachable => _isServerReachable;
 
+    public string EnvironmentName => _http.BaseAddress?.ToString().Contains("localhost") == true ? "LOCAL HOST" : "PRODUCTION";
+
     public event Action<bool>? ConnectivityChanged;
 
     public ConnectivityService(IJSRuntime js, HttpClient http)

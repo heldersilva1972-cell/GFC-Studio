@@ -67,4 +67,25 @@ public class MobileReportingService : IMobileReportingService
         return await _http.GetFromJsonAsync<LotteryCommissionRate>($"api/mobile-reporting/lottery-rate?year={year}") 
                ?? new LotteryCommissionRate { Year = year };
     }
+
+    public async Task<List<BingoSheetDefinition>> GetBingoProgramAsync()
+    {
+        return await _http.GetFromJsonAsync<List<BingoSheetDefinition>>("api/bingo/program") ?? new List<BingoSheetDefinition>();
+    }
+
+    public async Task<List<BingoAdmissionDefinition>> GetBingoAdmissionsAsync()
+    {
+        return await _http.GetFromJsonAsync<List<BingoAdmissionDefinition>>("api/bingo/admissions") ?? new List<BingoAdmissionDefinition>();
+    }
+
+    public async Task<bool> SubmitBingoSessionAsync(BingoSession session, string username)
+    {
+        var response = await _http.PostAsJsonAsync("api/bingo/session", session);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<BingoSettingsDto> GetBingoSettingsAsync()
+    {
+        return await _http.GetFromJsonAsync<BingoSettingsDto>("api/bingo/settings") ?? new BingoSettingsDto();
+    }
 }
