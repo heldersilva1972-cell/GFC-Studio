@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.4.5 (Auto-Clear Input Behavior Fix)
+// GFC Mobile Revision: 2.4.6 (Environment Detection Labels)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

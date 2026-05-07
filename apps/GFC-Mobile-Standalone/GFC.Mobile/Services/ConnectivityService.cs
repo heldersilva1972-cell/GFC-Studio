@@ -7,6 +7,7 @@ public interface IConnectivityService
     bool IsOnline { get; }
     bool IsHardwareOnline { get; }
     bool IsServerReachable { get; }
+    string EnvironmentName { get; }
     event Action<bool>? ConnectivityChanged;
     Task InitializeAsync();
     Task DisposeAsync();
@@ -31,6 +32,8 @@ public class MobileConnectivityService : IConnectivityService
     public bool IsOnline => _isOnline;
     public bool IsHardwareOnline => _isHardwareOnline;
     public bool IsServerReachable => _isServerReachable;
+
+    public string EnvironmentName => _http.BaseAddress?.ToString().Contains("localhost") == true ? "LOCAL HOST" : "PRODUCTION";
 
     private DateTime _lastCheckTime = DateTime.MinValue;
     private bool _lastReachableResult = true;
