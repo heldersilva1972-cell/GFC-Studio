@@ -6,9 +6,11 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.36.0"; 
+    public string GetRevision() => "2.38.0"; 
     
     // REVISION HISTORY:
+    // 2.38.0: Refined Bingo financial logic (Standard game 0% club share) and synchronized suite-wide revisions.
+    // 2.37.0: Standardized Bingo Progressive entry and implemented forced program synchronization for mobile floor staff.
     // 2.36.0: Automated background menu refresh upon terminal lock (idle, security, or manual) to ensure data parity.
     // 2.35.0: Added 'CANCEL CORRECTION' button to allow exiting correction mode without saving changes.
     // 2.34.0: Implemented smart API redirection for localhost and added environment status labels to header.

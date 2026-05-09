@@ -26,6 +26,9 @@ namespace GFC.Core.Models
 
         [Column(TypeName = "decimal(18, 2)")]
         public decimal TotalClubTake { get; set; }
+        
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal RoundingAdjustment { get; set; }
 
         public string Status { get; set; } = "Draft";
 

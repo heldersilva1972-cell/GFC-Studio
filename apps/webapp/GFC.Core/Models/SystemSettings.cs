@@ -122,4 +122,5 @@ public class SystemSettings
 
     public decimal BingoBaseAdmissionPrice { get; set; } = 15.00m;
     public decimal BingoAdditionalCardPrice { get; set; } = 3.00m;
+    public int BingoPayoutRoundingMode { get; set; } = 0; // 0: None, 1: Round Up, 2: Round Down
 }

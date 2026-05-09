@@ -11,6 +11,13 @@ namespace GFC.Core.Models
         public int DisplayOrder { get; set; }
         public decimal DefaultPayout { get; set; }
         public bool IsVariablePayout { get; set; }
+        public int PayoutMode { get; set; }
+        public bool IsProgressive { get; set; }
+        public int ProgressiveBallGoal { get; set; }
+        public int CurrentProgressiveBallGoal { get; set; }
+        public decimal ProgressiveJackpotAmount { get; set; }
+        public decimal ProgressiveConsolationAmount { get; set; }
+        public DateTime? DateLastProgressed { get; set; }
         public virtual BingoSheetDefinition Sheet { get; set; } = null!;
     }
 }

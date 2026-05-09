@@ -51,6 +51,5 @@ public abstract class BaseEntity
     /// Safety Lock (Optimistic Concurrency). 
     /// Prevents data loss if two people edit the same record at once.
     /// </summary>
-    [Timestamp]
-    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+    public byte[]? RowVersion { get; set; }
 }

@@ -161,10 +161,25 @@ public class GfcDbContext : DbContext
     public DbSet<BingoAdmissionDefinition> BingoAdmissionDefinitions => Set<BingoAdmissionDefinition>();
     public DbSet<BingoAdmissionEntry> BingoAdmissionEntries => Set<BingoAdmissionEntry>();
     public DbSet<BingoPayoutTier> BingoPayoutTiers => Set<BingoPayoutTier>();
+    public DbSet<BingoExpenseCategory> BingoExpenseCategories => Set<BingoExpenseCategory>();
+    public DbSet<BingoLotteryTransaction> BingoLotteryTransactions => Set<BingoLotteryTransaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        // [PROFESSIONAL SYNC FIX] Configure Concurrency Tokens (RowVersion) for all entities inheriting from BaseEntity.
+        // This replaces the [Timestamp] attribute, allowing the API to accept mobile data without 'RowVersion'
+        // while still enforcing database-level concurrency protection.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (typeof(BaseEntity).IsAssignableFrom(entityType.ClrType))
+            {
+                modelBuilder.Entity(entityType.ClrType)
+                    .Property("RowVersion")
+                    .IsRowVersion();
+            }
+        }
 
         modelBuilder.Entity<YearlyWage>(entity =>
         {
@@ -840,6 +855,7 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.TotalPrizesPaid).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.TotalLotteryTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.TotalClubTake).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.RoundingAdjustment).HasColumnType("decimal(18, 2)");
         });
 
         modelBuilder.Entity<BingoGameEntry>(entity =>
@@ -854,6 +870,7 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.NetProceeds).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.LotteryPercent).HasColumnType("decimal(18, 4)");
             entity.Property(e => e.ClubPercent).HasColumnType("decimal(18, 4)");
+            entity.Property(e => e.RoundingAdjustment).HasColumnType("decimal(18, 2)");
         });
 
         modelBuilder.Entity<BingoSheetDefinition>(entity =>
@@ -873,6 +890,27 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("BingoGameDefinitions");
             entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<BingoExpenseCategory>(entity =>
+        {
+            entity.ToTable("BingoExpenseCategories", "dbo");
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<BingoLotteryTransaction>(entity =>
+        {
+            entity.ToTable("BingoLotteryTransactions", "dbo");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Amount).HasColumnType("decimal(18, 2)");
+            entity.HasOne(e => e.Category)
+                  .WithMany()
+                  .HasForeignKey(e => e.CategoryId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Session)
+                  .WithMany()
+                  .HasForeignKey(e => e.SessionId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Trusted Devices (Session Management)

@@ -15,6 +15,8 @@ public class MobileReportingService : IMobileReportingService
     }
 
     public int PendingCount => 0;
+    public DateTime? LastSyncTime => null;
+    public string? LastSyncStatus => null;
     public Task<int> GetPendingCountAsync() => Task.FromResult(0);
     public Task FlushOutboxAsync() => Task.CompletedTask;
     public event Action? OutboxChanged;

@@ -28,5 +28,24 @@ namespace GFC.Core.Models
         public decimal DefaultPayout { get; set; }
 
         public bool IsVariablePayout { get; set; }
+
+        public int PayoutMode { get; set; } // 0: Fixed, 1: 50/50 Sequential, 2: Gross % Additive
+        public bool IsProgressive { get; set; }
+        public int ProgressiveBallGoal { get; set; }
+        public int CurrentProgressiveBallGoal { get; set; }
+        
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal ProgressiveJackpotAmount { get; set; }
+        
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal ProgressiveConsolationAmount { get; set; }
+
+        public DateTime? DateLastProgressed { get; set; }
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal? LotteryPercentage { get; set; }
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal? ClubPercentage { get; set; }
     }
 }

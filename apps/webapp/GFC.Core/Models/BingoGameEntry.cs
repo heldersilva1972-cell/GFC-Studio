@@ -45,5 +45,10 @@ namespace GFC.Core.Models
 
         [Column(TypeName = "decimal(18, 2)")]
         public decimal NetProceeds { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal RoundingAdjustment { get; set; }
+
+        public int BallsCalled { get; set; }
     }
 }

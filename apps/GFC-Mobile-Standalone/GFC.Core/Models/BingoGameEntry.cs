@@ -17,6 +17,8 @@ namespace GFC.Core.Models
         public decimal LotteryTake { get; set; }
         public decimal ClubTake { get; set; }
         public decimal NetProceeds { get; set; }
+        public decimal RoundingAdjustment { get; set; }
+        public int BallsCalled { get; set; }
 
         public virtual BingoSession Session { get; set; } = null!;
     }

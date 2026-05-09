@@ -26,6 +26,8 @@ public class MobileReportingService : IMobileReportingService
     public event Action? OutboxChanged;
 
     public int PendingCount { get; private set; }
+    public DateTime? LastSyncTime { get; private set; }
+    public string? LastSyncStatus { get; private set; }
 
     private readonly SemaphoreSlim _syncLock = new(1, 1);
     private readonly Timer _syncTimer;
@@ -426,7 +428,7 @@ public class MobileReportingService : IMobileReportingService
             if (vaultItemsRaw.ValueKind == JsonValueKind.Array) {
                 foreach (var item in vaultItemsRaw.EnumerateArray()) {
                     var k = item.GetProperty("key").GetString();
-                    if (k != null && k.StartsWith("gfc_outbox_")) vaultCount++;
+                    if (k != null && (k.StartsWith("gfc_outbox_") || k.StartsWith("gfc_bingo_outbox_"))) vaultCount++;
                 }
             }
         } catch { }
@@ -476,8 +478,6 @@ public class MobileReportingService : IMobileReportingService
         var all = await LoadOutboxAsync();
         if (all.Any()) {
             Console.WriteLine($"[SYNC TRACE] Processing {all.Count} legacy items...");
-            var first = all.First();
-            Console.WriteLine($"[SYNC TRACE] DEBUG: First item Type='{first.Type}', PayloadLength={first.Payload?.Length ?? -1}");
             var remaining = new List<OutboxEntry>();
             foreach (var entry in all) {
                 try {
@@ -490,7 +490,7 @@ public class MobileReportingService : IMobileReportingService
                     var endpoint = entry.Type == "SubmitShiftReport" ? "/api/mobile-reporting/submit" : "/api/mobile-reporting/save";
                     
                     Console.WriteLine($"[SYNC TRACE] Delivering legacy {entry.Type} for {data.Date:yyyy-MM-dd} as {user}...");
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Allow more time for large payloads
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                     var resp = await _http.PostAsJsonAsync($"{endpoint}?username={user}", data, cts.Token);
                     
                     if (resp.IsSuccessStatusCode) {
@@ -503,32 +503,23 @@ public class MobileReportingService : IMobileReportingService
                     }
                 } catch (Exception ex) { 
                     Console.WriteLine($"[SYNC TRACE] !!! Legacy processing error for {entry.Id}: {ex.Message}");
-                    Console.WriteLine($"[SYNC TRACE] RAW PAYLOAD (first 200 chars): {(entry.Payload?.Length > 200 ? entry.Payload.Substring(0, 200) : entry.Payload)}");
                     remaining.Add(entry); 
                 }
             }
             await SaveOutboxAsync(remaining);
-        } else {
-            Console.WriteLine("[SYNC TRACE] No legacy items in queue.");
         }
 
-        // 2. [GLOBAL VAULT SWEEP] Process Individual-key Reports (Revision 2.1.30)
+        // 2. [GLOBAL VAULT SWEEP] Process Individual-key Reports
         try {
-            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            var vaultItemsRaw = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
             
-            if (vaultItems.ValueKind == JsonValueKind.Array) {
-                int count = vaultItems.GetArrayLength();
-                if (count > 0) Console.WriteLine($"[SYNC TRACE] Found {count} potential items in vault.");
-                
-                foreach (var item in vaultItems.EnumerateArray()) {
+            if (vaultItemsRaw.ValueKind == JsonValueKind.Array) {
+                foreach (var item in vaultItemsRaw.EnumerateArray()) {
                     try {
                         var key = item.GetProperty("key").GetString();
-                        if (key == null) continue;
-
-                        if (key.StartsWith("gfc_outbox_") || key.StartsWith("gfc_bingo_outbox_")) {
+                        if (key != null && (key.StartsWith("gfc_outbox_") || key.StartsWith("gfc_bingo_outbox_"))) {
                             var dataElement = item.GetProperty("data");
                             var isBingo = key.StartsWith("gfc_bingo_outbox_");
-                            
                             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                             
                             if (isBingo) {
@@ -540,6 +531,12 @@ public class MobileReportingService : IMobileReportingService
                                     if (resp.IsSuccessStatusCode) {
                                         await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                         await RefreshPendingCountAsync();
+                                        LastSyncStatus = "Success";
+                                        Console.WriteLine($"[SYNC TRACE] ✓ Bingo session for {bingoData.SessionDate:yyyy-MM-dd} delivered.");
+                                    } else {
+                                        var err = await resp.Content.ReadAsStringAsync();
+                                        LastSyncStatus = $"Error: {resp.StatusCode}";
+                                        Console.WriteLine($"[SYNC TRACE] ✗ Bingo delivery failed: {resp.StatusCode} - {err}");
                                     }
                                 }
                             } else {
@@ -570,6 +567,10 @@ public class MobileReportingService : IMobileReportingService
 
         // 3. Final count update
         await RefreshPendingCountAsync();
+        
+        LastSyncTime = DateTime.Now;
+        if (string.IsNullOrEmpty(LastSyncStatus)) LastSyncStatus = "Success";
+        OutboxChanged?.Invoke();
     }
 
     public async Task<int> GetPendingCountAsync()

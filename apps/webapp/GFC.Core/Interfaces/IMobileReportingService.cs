@@ -16,6 +16,8 @@ public interface IMobileReportingService
     Task FlushOutboxAsync();
     Task<int> GetPendingCountAsync();
     int PendingCount { get; }
+    DateTime? LastSyncTime { get; }
+    string? LastSyncStatus { get; }
     event Action? OutboxChanged;
 
     // BINGO

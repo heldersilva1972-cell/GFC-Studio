@@ -24,11 +24,17 @@
                             </div>
                         </div>
 
+                        <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.6rem;" @onclick="RefreshBingoProgram" disabled="@_isSyncing">
+                            @if (_isSyncing) { <span class="spinner-border spinner-border-sm"></span> }
+                            else { <i class="bi bi-arrow-clockwise"></i> }
+                            SYNC PROGRAM
+                        </button>
+
                         <div class="text-end position-relative" style="cursor: pointer; min-width: 100px;" @onclick="() => _showSummaryDetail = !_showSummaryDetail">
                             <div class="text-uppercase fw-black text-muted d-flex align-items-center justify-content-end" style="font-size: 0.5rem; letter-spacing: 0.1em;">
                                 NET <i class="bi @(_showSummaryDetail ? "bi-chevron-up" : "bi-chevron-down") ms-1"></i>
                             </div>
-                            <div class="fw-black text-success" style="font-size: 1rem; line-height: 1;">@TotalNetProceeds.ToString("C2")</div>
+                            <div class="fw-black @(TotalNetProceeds < 0 ? "text-danger" : "text-success")" style="font-size: 1rem; line-height: 1;">@TotalNetProceeds.ToString("C2")</div>
 
                             @if (_showSummaryDetail)
                             {
@@ -37,7 +43,7 @@
                                     <div class="detail-row mb-1"><span>Gross Revenue</span> <span class="fw-black text-white">@TotalGross.ToString("C2")</span></div>
                                     <div class="detail-row mb-1 text-danger"><span>Prizes Paid</span> <span class="fw-black">-@TotalPrizes.ToString("C2")</span></div>
                                     <div class="detail-row mb-1 text-warning"><span>Lottery Fees</span> <span class="fw-black">-@TotalLotteryTake.ToString("C2")</span></div>
-                                    <div class="detail-row text-success pt-2 border-top mt-2"><span>TOTAL PROFIT</span> <span class="fw-black">@TotalNetProceeds.ToString("C2")</span></div>
+                                    <div class="detail-row @(TotalNetProceeds < 0 ? "text-danger" : "text-success") pt-2 border-top mt-2"><span>@(TotalNetProceeds < 0 ? "TOTAL LOSS" : "TOTAL PROFIT")</span> <span class="fw-black">@TotalNetProceeds.ToString("C2")</span></div>
                                 </div>
                             }
                         </div>
@@ -256,7 +262,7 @@
                         <div class="bingo-tiles-grid">
                             @foreach (var sheet in Sheets)
                             {
-                                <div class="bingo-tile @(!_showFloorSalesPopup && !_showAdmissionPopup && _activeField.StartsWith(sheet.ColorName) ? "active-tile" : "")" 
+                                <div class="bingo-tile @(sheet.IsClosedOut ? "completed-tile" : "") @(!_showFloorSalesPopup && !_showAdmissionPopup && _activeField.StartsWith(sheet.ColorName) ? "active-tile" : "")" 
                                      style="--accent-color: @sheet.DisplayColor; cursor: pointer;" @onclick="() => OpenSheetDetail(sheet)">
                                     <div class="tile-accent" style="background: @sheet.DisplayColor"></div>
                                     <div class="tile-header">
@@ -267,9 +273,18 @@
                                         <div class="d-flex gap-1 flex-wrap justify-content-end">
                                             @if (sheet.IsClosedOut)
                                             {
-                                                <span class="badge rounded-pill bg-success text-white border shadow-sm" style="font-size: 0.5rem;">
-                                                    <i class="bi bi-check-circle-fill"></i> COMPLETED
-                                                </span>
+                                                @if (sheet.IsSynced)
+                                                {
+                                                    <span class="badge rounded-pill bg-success text-white border shadow-sm" style="font-size: 0.5rem;">
+                                                        <i class="bi bi-check-circle-fill"></i> COMPLETED
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge rounded-pill bg-warning text-dark border shadow-sm animate-pulse" style="font-size: 0.5rem;">
+                                                        <i class="bi bi-cloud-arrow-up-fill"></i> PENDING SYNC
+                                                    </span>
+                                                }
                                             }
                                             else if (sheet.IsIncludedInAdmission && sheet.IsAdmissionOnly)
                                             {
@@ -465,6 +480,17 @@
     .bingo-tile.active-tile {
         border-color: var(--bs-primary);
         box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+    }
+
+    .bingo-tile.completed-tile {
+        opacity: 0.85;
+        background: rgba(240, 253, 244, 0.8);
+        border-color: rgba(34, 197, 94, 0.2);
+    }
+
+    .bingo-tile.completed-tile:hover {
+        opacity: 1;
+        background: rgba(240, 253, 244, 0.95);
     }
 
     .tile-accent {
@@ -1291,23 +1317,44 @@
         </div>
 
         <div class="detail-body">
+            @if (_selectedSheet.IsClosedOut)
+            {
+                @if (_selectedSheet.IsSynced)
+                {
+                    <div class="alert alert-success py-2 mb-3 rounded-4 d-flex align-items-center justify-content-center gap-2 border-0 shadow-sm animate-fade-in" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2) !important;">
+                        <i class="bi bi-check-circle-fill text-success"></i>
+                        <span class="fw-black text-uppercase text-success" style="font-size: 0.75rem;">This color is marked as COMPLETED</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-warning py-2 mb-3 rounded-4 d-flex align-items-center justify-content-center gap-2 border-0 shadow-sm animate-fade-in" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2) !important;">
+                        <i class="bi bi-cloud-arrow-up-fill text-warning"></i>
+                        <span class="fw-black text-uppercase text-warning" style="font-size: 0.75rem;">Completed Offline (PENDING SYNC)</span>
+                    </div>
+                }
+            }
+
             <!-- SOLD BREAKDOWN -->
             <div class="row g-2 mb-3">
                 @if (!_selectedSheet.IsAdmissionOnly)
                 {
-                    <div class="col-6">
+                    <div class="@(_selectedSheet.IsIncludedInAdmission ? "col-6" : "col-12")">
                         <div class="math-card text-center mb-0 h-100 p-2">
                             <label class="math-label d-block mb-1">Additional Purchased</label>
                             <div class="math-val fs-4">@_selectedSheet.ManualSold</div>
                         </div>
                     </div>
                 }
-                <div class="@(_selectedSheet.IsAdmissionOnly ? "col-12" : "col-6")">
-                    <div class="math-card text-center mb-0 h-100 p-2">
-                        <label class="math-label d-block mb-1">Admission Sold</label>
-                        <div class="math-val fs-4">@(_selectedSheet.IsIncludedInAdmission ? AdmissionCount : 0)</div>
+                @if (_selectedSheet.IsIncludedInAdmission)
+                {
+                    <div class="@(_selectedSheet.IsAdmissionOnly ? "col-12" : "col-6")">
+                        <div class="math-card text-center mb-0 h-100 p-2">
+                            <label class="math-label d-block mb-1">Admission Sold</label>
+                            <div class="math-val fs-4">@AdmissionCount</div>
+                        </div>
                     </div>
-                </div>
+                }
                 @if (!_selectedSheet.IsAdmissionOnly)
                 {
                     <div class="col-6">
@@ -1425,14 +1472,23 @@
                                     <span class="badge bg-primary rounded-pill extra-small px-2" style="font-size: 0.5rem;">VARIABLE</span>
                                 }
                             </div>
-                            <div class="extra-small text-muted fw-bold">
-                                @if (_selectedSheet.PayoutMode != 0)
+                            <div class="extra-small fw-bold">
+                                @if (game.IsProgressive)
                                 {
-                                    @("CALCULATED " + (_selectedSheet.PayoutMode == 1 ? "50/50" : "PERCENTAGE"))
+                                    <div class="mt-2 p-2 rounded bg-primary bg-opacity-10 border border-primary border-opacity-25">
+                                        <div class="d-flex align-items-center justify-content-center text-primary fw-bold">
+                                            <i class="bi bi-rocket-takeoff-fill me-2"></i> 
+                                            JACKPOT GOAL: @(game.CurrentBallGoal > 0 ? game.CurrentBallGoal : "NOT SET") BALLS OR LESS
+                                        </div>
+                                    </div>
+                                }
+                                else if (game.PayoutMode != 0)
+                                {
+                                    <span class="text-muted text-uppercase">CALCULATED @(game.PayoutMode == 1 ? "50/50" : "PERCENTAGE")</span>
                                 }
                                 else if (game.IsVariablePayout)
                                 {
-                                    @("MANUAL ENTRY")
+                                    <span class="text-muted text-uppercase">MANUAL ENTRY</span>
                                 }
                                 else
                                 {
@@ -1443,7 +1499,7 @@
                                     }
                                     else
                                     {
-                                        @("STANDARD PRIZE")
+                                        <span class="text-muted text-uppercase">STANDARD PRIZE</span>
                                     }
                                 }
                             </div>
@@ -1453,11 +1509,24 @@
                         <div class="d-flex flex-column align-items-center mx-2" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game))'>
                             <label class="extra-small text-muted fw-bold mb-0" style="font-size: 0.55rem;">WINNERS</label>
                             <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary" : "bg-light")" 
-                                 style="width: 60px; height: 35px; border-radius: 10px; font-size: 1.1rem;">
+                                 style="width: 55px; height: 35px; border-radius: 10px; font-size: 1.1rem;">
                                 @(_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)) ? (_currentBuffer == "" ? "" : _currentBuffer) : game.WinnerCount)
                                 @if (_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game))) { <span class="cursor-blink">|</span> }
                             </div>
                         </div>
+
+                        @if (game.IsProgressive)
+                        {
+                            <!-- BALLS CALLED INPUT (Only shown for progressives) -->
+                            <div class="d-flex flex-column align-items-center mx-2" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game))'>
+                                <label class="extra-small text-muted fw-bold mb-0" style="font-size: 0.55rem;">BALLS</label>
+                                <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary" : "bg-light")" 
+                                     style="width: 55px; height: 35px; border-radius: 10px; font-size: 1.1rem;">
+                                    @(_activeField == (_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game)) ? (_currentBuffer == "" ? "" : _currentBuffer) : (game.BallsCalled == 0 ? "-" : game.BallsCalled))
+                                    @if (_activeField == (_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game))) { <span class="cursor-blink">|</span> }
+                                </div>
+                            </div>
+                        }
                         
                         <div class="text-end flex-grow-1">
                             @{
@@ -1496,9 +1565,18 @@
                 @if (!_openedFromSummary)
                 {
                     <div class="col-8">
-                        <button class="btn btn-success w-100 py-3 rounded-pill fw-black shadow-lg d-flex align-items-center justify-content-center gap-2" @onclick="RequestCloseOut">
-                            <i class="bi bi-cloud-upload-fill"></i> CLOSE OUT COLOR
-                        </button>
+                        @if (_selectedSheet.IsClosedOut)
+                        {
+                            <button class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-lg d-flex align-items-center justify-content-center gap-2" @onclick="() => { _selectedSheet.IsClosedOut = false; StateHasChanged(); }">
+                                <i class="bi bi-pencil-fill"></i> EDIT THIS COLOR
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-success w-100 py-3 rounded-pill fw-black shadow-lg d-flex align-items-center justify-content-center gap-2" @onclick="RequestCloseOut">
+                                <i class="bi bi-cloud-upload-fill"></i> CLOSE OUT COLOR
+                            </button>
+                        }
                     </div>
                 }
                 <div class="@(_openedFromSummary ? "col-12" : "col-4")">
@@ -1777,7 +1855,7 @@
                                         {
                                             var sAdmission = s.IsIncludedInAdmission ? AdmissionCount : 0;
                                             var sManual = s.ManualSold;
-                                            var sGross = (sAdmission * s.Price) + (sManual * s.Price);
+                                            var sGross = GetAllocatedAdmissionGross(s) + (sManual * s.Price);
                                             var sPrizes = s.Games.Sum(g => CalculateGamePayout(s, g));
                                             var sNet = CalculateSheetNet(s);
                                             <tr class="summary-row-clickable" @onclick="() => OpenSheetFromSummary(s)">
@@ -1797,7 +1875,7 @@
                                                 <td class="text-center fw-black">@s.Sold</td>
                                                 <td class="text-end">@sGross.ToString("C2")</td>
                                                 <td class="text-end text-danger fw-bold">@sPrizes.ToString("C2")</td>
-                                                <td class="text-end fw-black text-success">@sNet.ToString("C2")</td>
+                                                <td class="text-end fw-black @(sNet >= 0 ? "text-success" : "text-danger")">@sNet.ToString("C2")</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -1931,6 +2009,29 @@
     </div>
 }
 
+@if (_showSessionLockedNotice)
+{
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 9000;" @onclick="() => _showSessionLockedNotice = false"></div>
+    <div class="sheet-detail-modal animate-zoom-in" style="z-index: 9500; max-width: 420px; border-top: 8px solid #f59e0b; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+        <div class="detail-body p-4 text-center">
+            <div class="mb-3">
+                <div class="d-inline-flex align-items-center justify-content-center bg-warning bg-opacity-10 rounded-circle" style="width: 80px; height: 80px;">
+                    <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+            <h4 class="fw-black text-uppercase mb-3" style="letter-spacing: -0.02em;">Session Configuration Locked</h4>
+            <p class="text-muted mb-4 px-2" style="font-size: 0.9rem; line-height: 1.5;">
+                You cannot modify <strong>@_lockedAction</strong> because the <strong>@_lockedColor</strong> sheet has already been closed out. 
+                <br/><br/>
+                To make changes, you must first click <strong>'EDIT'</strong> on the <strong>@_lockedColor</strong> sheet to unlock the session.
+            </p>
+            <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showSessionLockedNotice = false">
+                UNDERSTOOD
+            </button>
+        </div>
+    </div>
+}
+
 @code {
     private bool Loading { get; set; } = true;
     private bool _isCircutAlive = true;
@@ -1938,6 +2039,7 @@
     private string _currentUsername = "...";
     private DateTime SessionDate { get; set; } = DateTime.Today;
     private Timer? _inactivityTimer;
+    private Timer? _syncTimer;
     private DateTime _lastActivity = DateTime.Now;
     
     private string _activeField = "";
@@ -1947,6 +2049,19 @@
     private bool _showFloatingKeypad = false;
     private bool _showSummaryDetail = false;
     private bool _isOffline = false;
+    private bool _isSyncing = false;
+    private async Task ShowToast(string title, string message, string type = "success")
+    {
+        await JSRuntime.InvokeVoidAsync("Swal.fire", new {
+            title = title,
+            text = message,
+            icon = type,
+            timer = 2000,
+            showConfirmButton = false,
+            toast = true,
+            position = "top-end"
+        });
+    }
     private string _lastSavedText = "INITIALIZING...";
     private DateTime? _lastSavedTime;
     private BingoSheet? _selectedSheet;
@@ -1954,6 +2069,9 @@
     private bool _showAdmissionAudit = false;
     private BingoSettingsDto _bingoSettings = new();
     private bool _showScalingTiers = false;
+    private bool _showSessionLockedNotice = false;
+    private string _lockedAction = "";
+    private string _lockedColor = "";
 
     private BingoPayoutTierDto? GetCurrentTier()
     {
@@ -1978,8 +2096,21 @@
     private void RequestCloseOut() => _showCloseOutConfirmation = true;
     private void CancelCloseOut() => _showCloseOutConfirmation = false;
 
+    private void ShowLockedSessionNotice(string action)
+    {
+        _lockedAction = action;
+        _lockedColor = Sheets.FirstOrDefault(s => s.IsClosedOut)?.ColorName ?? "a color";
+        _showSessionLockedNotice = true;
+        StateHasChanged();
+    }
+
     private void OpenAdditionalSalesEntry()
     {
+        if (Sheets.Any(s => s.IsClosedOut))
+        {
+            ShowLockedSessionNotice("Additional Sales");
+            return;
+        }
         CloseAllModals();
         _showFloorSalesPopup = true;
         StateHasChanged();
@@ -1987,6 +2118,11 @@
 
     private void OpenAdmissionEntry()
     {
+        if (Sheets.Any(s => s.IsClosedOut))
+        {
+            ShowLockedSessionNotice("Admission Counts");
+            return;
+        }
         CloseAllModals();
         _showAdmissionPopup = true;
         StateHasChanged();
@@ -2076,23 +2212,43 @@
 
             if (program != null && program.Any())
             {
-                Sheets = program.Select(p => new BingoSheet 
-                { 
-                    ColorName = p.ColorName, 
-                    DisplayColor = p.DisplayColor,
-                    Price = p.DefaultPrice,
-                    PayoutMode = p.PayoutMode,
-                    IsAdmissionOnly = p.IsAdmissionOnly,
-                    IsIncludedInAdmission = p.IsIncludedInAdmission,
-                    LotteryPercentage = p.LotteryPercentage,
-                    ClubPercentage = p.ClubPercentage,
-                    Games = p.Games.OrderBy(g => g.DisplayOrder).Select(g => new BingoGame 
+                Sheets = program.Select(p => {
+                    var games = p.Games.OrderBy(g => g.DisplayOrder).Select(g => new BingoGame 
                     { 
                         Name = g.GameName,
                         DefaultPayout = g.DefaultPayout,
                         IsVariablePayout = g.IsVariablePayout,
-                        Payout = g.DefaultPayout 
-                    }).ToList()
+                        Payout = g.DefaultPayout,
+                        PayoutMode = g.PayoutMode,
+                        IsProgressive = g.IsProgressive,
+                        CurrentBallGoal = g.CurrentProgressiveBallGoal,
+                        JackpotAmount = g.ProgressiveJackpotAmount,
+                        ConsolationAmount = g.ProgressiveConsolationAmount
+                    }).ToList();
+
+                    // FALLBACK: If no games are defined, create a default "Main Game" 
+                    // so the user can still enter winners and balls in the tracker.
+                    if (!games.Any())
+                    {
+                        games.Add(new BingoGame { 
+                            Name = "Standard Game", 
+                            PayoutMode = p.PayoutMode,
+                            DefaultPayout = p.DefaultPrice // Use sheet price as default if no games
+                        });
+                    }
+
+                    return new BingoSheet 
+                    { 
+                        ColorName = p.ColorName, 
+                        DisplayColor = p.DisplayColor,
+                        Price = p.DefaultPrice,
+                        PayoutMode = p.PayoutMode,
+                        IsAdmissionOnly = p.IsAdmissionOnly,
+                        IsIncludedInAdmission = p.IsIncludedInAdmission,
+                        LotteryPercentage = p.LotteryPercentage,
+                        ClubPercentage = p.ClubPercentage,
+                        Games = games
+                    };
                 }).ToList();
             }
 
@@ -2118,8 +2274,10 @@
                 await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", "gfc_bingo_setup_cache", setup);
             }
 
-            // Inactivity timer
+            // Timers
             _inactivityTimer = new Timer(CheckInactivity, null, 60000, 60000);
+            _syncTimer = new Timer(async _ => await BackgroundSyncAsync(), null, 30000, 30000);
+
             await JSRuntime.InvokeVoidAsync("eval", @"
                 window.resetBingoTimer = () => { DotNet.invokeMethodAsync('GFC.Mobile', 'ResetInactivityTimer'); };
                 window.addEventListener('mousedown', window.resetBingoTimer);
@@ -2155,6 +2313,60 @@
 
         await LoadDraftAsync();
         Loading = false;
+    }
+
+    private async Task RefreshBingoProgram()
+    {
+        _isSyncing = true;
+        StateHasChanged();
+        try
+        {
+            var program = await ReportingService.GetBingoProgramAsync();
+            if (program != null && program.Any())
+            {
+                Sheets = program.Select(p => {
+                    var games = p.Games.OrderBy(g => g.DisplayOrder).Select(g => new BingoGame 
+                    { 
+                        Name = g.GameName,
+                        IsProgressive = g.IsProgressive,
+                        JackpotAmount = g.ProgressiveJackpotAmount,
+                        ConsolationAmount = g.ProgressiveConsolationAmount,
+                        DefaultPayout = g.DefaultPayout,
+                        CurrentBallGoal = g.CurrentProgressiveBallGoal,
+                        Payout = g.IsProgressive ? g.ProgressiveConsolationAmount : g.DefaultPayout
+                    }).ToList();
+
+                    if (!games.Any())
+                    {
+                        games.Add(new BingoGame { 
+                            Name = "Standard Game", 
+                            DefaultPayout = p.DefaultPrice * 50, 
+                            Payout = p.DefaultPrice * 50
+                        });
+                    }
+
+                    return new BingoSheet 
+                    { 
+                        ColorName = p.ColorName, 
+                        DisplayColor = p.DisplayColor,
+                        IsIncludedInAdmission = p.IsIncludedInAdmission,
+                        Price = p.DefaultPrice,
+                        Games = games
+                    };
+                }).ToList();
+                
+                await ShowToast("Bingo Program Updated", "The latest game definitions have been downloaded.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowToast("Update Failed", "Could not reach the server to refresh the program.", "danger");
+        }
+        finally
+        {
+            _isSyncing = false;
+            StateHasChanged();
+        }
     }
 
     private class BingoSetupCache
@@ -2194,6 +2406,21 @@
 
     private async Task ActivateField(string field)
     {
+        // 1. If any sheet is closed, block admission (Pack_) changes
+        if (field.StartsWith("Pack_") && Sheets.Any(s => s.IsClosedOut))
+        {
+            ShowLockedSessionNotice("Admission Counts");
+            return;
+        }
+
+        // 2. Prevent editing fields for a specifically closed sheet (Winners, Balls, Sheet-specific Sold)
+        if (field.Contains("_"))
+        {
+            var color = field.Split('_')[0];
+            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
+            if (sheet != null && sheet.IsClosedOut) return;
+        }
+
         _activeField = field;
         _currentBuffer = "";
         _showFloatingKeypad = true;
@@ -2257,6 +2484,19 @@
                 else sheet.Games[gameIdx].WinnerCount = 1;
             }
         }
+        else if (_activeField.Contains("_Balls_"))
+        {
+            var parts = _activeField.Split('_');
+            var color = parts[0];
+            var gameIdx = int.Parse(parts[2]);
+            
+            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
+            if (sheet != null && gameIdx < sheet.Games.Count)
+            {
+                if (int.TryParse(_currentBuffer, out var val)) sheet.Games[gameIdx].BallsCalled = val;
+                else sheet.Games[gameIdx].BallsCalled = 0;
+            }
+        }
         else
         {
             var parts = _activeField.Split('_');
@@ -2312,10 +2552,52 @@
             var color = parts[0];
             var sheetIndex = Sheets.FindIndex(s => s.ColorName == color);
             
-            if (sheetIndex < Sheets.Count - 1) ActivateField(Sheets[sheetIndex + 1].ColorName + "_Sold");
-            else if (_showFloorSalesPopup) ActivateField(Sheets[0].ColorName + "_Sold"); // Loop in modal
-            else ActivateField("Pack_" + AdmissionPacks[0].Id);
+            if (_activeField.Contains("_Winner_"))
+            {
+                var gameIdx = int.Parse(parts[2]);
+                var sheet = Sheets[sheetIndex];
+                
+                if (sheet.Games[gameIdx].IsProgressive)
+                {
+                    ActivateField(color + "_Balls_" + gameIdx);
+                }
+                else
+                {
+                    // Skip Balls and go to next game or next sheet
+                    if (gameIdx < sheet.Games.Count - 1) ActivateField(color + "_Winner_" + (gameIdx + 1));
+                    else if (_openedFromSummary) CloseAllModals();
+                    else HandleNextSheet(sheetIndex);
+                }
+            }
+            else if (_activeField.Contains("_Balls_"))
+            {
+                var gameIdx = int.Parse(parts[2]);
+                var sheet = Sheets[sheetIndex];
+                
+                if (gameIdx < sheet.Games.Count - 1)
+                {
+                    ActivateField(color + "_Winner_" + (gameIdx + 1));
+                }
+                else
+                {
+                    // End of games for this sheet
+                    if (_openedFromSummary) CloseAllModals();
+                    else HandleNextSheet(sheetIndex);
+                }
+            }
+            else // _Sold
+            {
+                if (sheetIndex < Sheets.Count - 1) ActivateField(Sheets[sheetIndex + 1].ColorName + "_Sold");
+                else if (_showFloorSalesPopup) ActivateField(Sheets[0].ColorName + "_Sold"); // Loop in modal
+                else ActivateField("Pack_" + AdmissionPacks[0].Id);
+            }
         }
+    }
+
+    private void HandleNextSheet(int currentSheetIndex)
+    {
+        if (currentSheetIndex < Sheets.Count - 1) ActivateField(Sheets[currentSheetIndex + 1].ColorName + "_Sold");
+        else ActivateField("Pack_" + AdmissionPacks[0].Id);
     }
 
     private async Task OnDateChanged(ChangeEventArgs e)
@@ -2333,6 +2615,7 @@
     private decimal TotalFloorRevenue => Sheets.Sum(s => s.ManualSold * s.Price);
     private decimal TotalGross => TotalAdmissionRevenue + TotalFloorRevenue;
     private decimal TotalPrizes => Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)));
+    private decimal TotalRoundingAdjustment => Sheets.Sum(s => s.Games.Sum(g => CalculateGameRoundingAdjustment(s, g)));
     
     // The "Standard Program" is the revenue reserved for the Base games ($15 + extra squares)
     private decimal StandardProgramRevenue => (AdmissionCount * _bingoSettings.BasePrice) + (TotalExtraCards * _bingoSettings.CardPrice);
@@ -2342,43 +2625,56 @@
     // Standard Program Lottery (5% of the Standard Revenue)
     private decimal StandardLotteryFee => StandardProgramRevenue * 0.05m;
     
-    // Total Lottery is Standard Lottery + Individual Lotteries for Specials
-    private decimal TotalLotteryTake => StandardLotteryFee + Sheets.Where(s => !s.IsAdmissionOnly).Sum(CalculateLotteryTake);
+    // Total Lottery is the sum of all individual sheet lotteries (now including distributed admission lottery)
+    private decimal TotalLotteryTake => Sheets.Sum(CalculateLotteryTake);
     
-    // Admission Only Club Profit (Remainder of Standard Program Revenue after paying its prizes)
-    private decimal AdmissionClubProfit => StandardProgramRevenue > 0
-        ? StandardProgramRevenue - StandardLotteryFee - Sheets.Where(s => s.IsAdmissionOnly).Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)))
-        : 0m;
-
-    private decimal TotalClubTake => Sheets.Where(s => !s.IsAdmissionOnly).Sum(CalculateClubTake) + AdmissionClubProfit;
+    // Total Club Take is the final bottom line after prizes and lottery
+    private decimal TotalClubTake => Sheets.Sum(CalculateClubTake);
     
     private decimal TotalNetProceeds => TotalGross - TotalPrizes - TotalLotteryTake;
 
+    private decimal GetAllocatedAdmissionGross(BingoSheet sheet)
+    {
+        if (!sheet.IsIncludedInAdmission || AdmissionCount <= 0) return 0;
+        
+        // If it's a special with a fixed price included in the pack, its value is that price
+        if (!sheet.IsAdmissionOnly && sheet.Price > 0) return AdmissionCount * sheet.Price;
+        
+        // If it's an "Admission Only" sheet (Standard program), it shares the remaining admission pool
+        if (sheet.IsAdmissionOnly)
+        {
+            var standardSheets = Sheets.Where(s => s.IsAdmissionOnly).ToList();
+            if (standardSheets.Count == 0) return 0;
+            
+            // Pool is Total Admission Revenue minus the value already attributed to priced specials
+            var totalSpecialsAdmissionGross = Sheets.Where(s => !s.IsAdmissionOnly && s.IsIncludedInAdmission).Sum(s => AdmissionCount * s.Price);
+            var totalPoolForStandards = TotalAdmissionRevenue - totalSpecialsAdmissionGross;
+            
+            return totalPoolForStandards / standardSheets.Count;
+        }
+        
+        return 0;
+    }
+
     private decimal CalculateLotteryTake(BingoSheet sheet) 
     {
-        // For specials, we calculate lottery based on their total sold (including the portion inside packs)
-        // This is correct because we subtracted their price from the "Standard Program" revenue above.
-        return (sheet.Sold * sheet.Price) * sheet.LotteryPercentage;
+        var gross = GetAllocatedAdmissionGross(sheet) + (sheet.ManualSold * sheet.Price);
+        return gross * sheet.LotteryPercentage;
     }
 
     private decimal CalculateClubTake(BingoSheet sheet)
     {
-        var gross = sheet.Sold * sheet.Price;
-        if (sheet.PayoutMode == 1) // 50/50 Split (Sequential)
-        {
-            var afterLottery = gross - CalculateLotteryTake(sheet);
-            return afterLottery * sheet.ClubPercentage;
-        }
-        return gross * sheet.ClubPercentage;
-    }
-
-    private decimal CalculateSheetNet(BingoSheet sheet)
-    {
-        var gross = sheet.Sold * sheet.Price;
+        var gross = GetAllocatedAdmissionGross(sheet) + (sheet.ManualSold * sheet.Price);
         var lottery = CalculateLotteryTake(sheet);
         var prizes = sheet.Games.Sum(g => CalculateGamePayout(sheet, g));
         
         return gross - lottery - prizes;
+    }
+
+    private decimal CalculateSheetNet(BingoSheet sheet)
+    {
+        // For reporting, Sheet Net is effectively what the Club keeps
+        return CalculateClubTake(sheet);
     }
 
     private decimal GetCurrentPayoutPercentage()
@@ -2398,18 +2694,46 @@
 
     private decimal CalculateGamePayout(BingoSheet sheet, BingoGame game)
     {
-        if (sheet.PayoutMode == 1 || sheet.PayoutMode == 2)
+        var rawPayout = CalculateGamePayoutRaw(sheet, game);
+
+        // Apply Rounding (Nearest Dollar)
+        if (_bingoSettings.PayoutRoundingMode == 1) // Round Up
+            return Math.Ceiling(rawPayout);
+        if (_bingoSettings.PayoutRoundingMode == 2) // Round Down
+            return Math.Floor(rawPayout);
+            
+        return rawPayout;
+    }
+
+    private decimal CalculateGameRoundingAdjustment(BingoSheet sheet, BingoGame game)
+    {
+        if (_bingoSettings.PayoutRoundingMode == 0) return 0;
+        var rounded = CalculateGamePayout(sheet, game);
+        var raw = CalculateGamePayoutRaw(sheet, game);
+        return rounded - raw;
+    }
+
+    private decimal CalculateGamePayoutRaw(BingoSheet sheet, BingoGame game)
+    {
+        if (game.IsProgressive)
+        {
+            if (game.WinnerCount == 0) return 0;
+            if (game.BallsCalled == 0) return 0;
+
+            return game.BallsCalled <= game.CurrentBallGoal 
+                ? game.JackpotAmount 
+                : game.ConsolationAmount;
+        }
+
+        if (game.PayoutMode == 1 || game.PayoutMode == 2)
         {
             var gross = sheet.Sold * sheet.Price;
             decimal availableForPrizes;
 
-            if (sheet.PayoutMode == 1) // Sequential
+            if (game.PayoutMode == 1) // 50/50 Split
             {
-                // For the prize calculation, we must deduct the THEORETICAL lottery and club take
-                // from the total gross, even if those sheets were included in admission.
-                var theoreticalLottery = gross * sheet.LotteryPercentage;
-                var theoreticalClub = (gross - theoreticalLottery) * sheet.ClubPercentage;
-                availableForPrizes = gross - theoreticalLottery - theoreticalClub;
+                var lottery = gross * sheet.LotteryPercentage;
+                availableForPrizes = (gross - lottery) * (1 - sheet.ClubPercentage);
             }
             else // Mode 2: Additive (Gross %)
             {
@@ -2417,21 +2741,13 @@
                 availableForPrizes = gross * (1 - totalDeductionPercent);
             }
             
-            var gameCount = sheet.Games?.Count ?? 1;
-            if (gameCount == 0) gameCount = 1;
-
-            return availableForPrizes / gameCount;
+            return availableForPrizes;
         }
 
-        // Mode 0: Fixed Prize (Tiered)
-        if (game.IsVariablePayout) return game.Payout;
-
-        var basePrize = game.DefaultPayout;
-        var tierPercentage = GetCurrentPayoutPercentage();
-        return basePrize * (tierPercentage / 100m);
+        // Mode 0: Fixed Prize (Adjusted by attendance)
+        var pct = GetCurrentPayoutPercentage() / 100m;
+        return game.DefaultPayout * pct;
     }
-
-
 
     // PERSISTENCE
     private async Task SaveDraftAsync()
@@ -2472,6 +2788,7 @@
                             {
                                 g.Payout = dGame.Payout;
                                 g.WinnerCount = dGame.WinnerCount;
+                                g.BallsCalled = dGame.BallsCalled;
                             }
                         }
                     }
@@ -2490,23 +2807,71 @@
     {
         if (_selectedSheet == null) return;
         
-        // Save locally first
+        // Mark as closed locally immediately
+        _selectedSheet.IsClosedOut = true;
+        _selectedSheet.IsSynced = false; // Assume pending until server confirms
+        _showCloseOutConfirmation = false;
+
+        // Save locally first so the "Closed" state is persisted even if the next part fails
         await SaveDraftAsync();
         
         // Prepare session object for the server
         var session = PrepareSessionObject();
-        session.Status = "Partial"; // Indicate this is an incremental update
+        session.Status = "Partial"; 
         
-        _showCloseOutConfirmation = false;
-        var success = await ReportingService.SubmitBingoSessionAsync(session, _currentUsername);
-        
-        if (success)
+        try
         {
-            _selectedSheet.IsClosedOut = true;
+            var success = await ReportingService.SubmitBingoSessionAsync(session, _currentUsername);
+            if (success)
+            {
+                _selectedSheet.IsSynced = true;
+                await SaveDraftAsync(); // Update local draft with synced status
+                await ShowToast("Closed & Synced", $"{_selectedSheet.ColorName} data has been saved to the server.");
+            }
+            else
+            {
+                await ShowToast("Saved Offline", $"{_selectedSheet.ColorName} is closed locally and will sync when online.", "warning");
+            }
+        }
+        catch
+        {
+            // Fail silently on server error, we have the local backup
+            await ShowToast("Saved Offline", $"{_selectedSheet.ColorName} is closed locally and will sync when online.", "warning");
         }
         
         _selectedSheet = null;
         StateHasChanged();
+    }
+
+    private async Task BackgroundSyncAsync()
+    {
+        if (_isSyncing || !Sheets.Any(s => s.IsClosedOut && !s.IsSynced)) return;
+
+        try
+        {
+            _isSyncing = true;
+            // Submit the entire session state
+            var session = PrepareSessionObject();
+            session.Status = "Partial";
+
+            var success = await ReportingService.SubmitBingoSessionAsync(session, _currentUsername);
+            if (success)
+            {
+                // Mark all closed sheets as synced
+                foreach (var s in Sheets.Where(s => s.IsClosedOut)) s.IsSynced = true;
+                await SaveDraftAsync();
+                await InvokeAsync(StateHasChanged);
+                Console.WriteLine("Background sync successful.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Background sync failed: {ex.Message}");
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
     }
 
     private BingoSession PrepareSessionObject()
@@ -2519,6 +2884,7 @@
             TotalPrizesPaid = TotalPrizes,
             TotalLotteryTake = TotalLotteryTake,
             TotalClubTake = TotalClubTake,
+            RoundingAdjustment = TotalRoundingAdjustment,
             Status = "Submitted",
             AdmissionEntries = AdmissionPacks.Where(p => p.Sold > 0).Select(p => new BingoAdmissionEntry
             {
@@ -2534,11 +2900,13 @@
                 PricePerSheet = s.Price,
                 GrossReceipts = s.Sold * s.Price,
                 PrizePaid = CalculateGamePayout(s, g),
+                RoundingAdjustment = CalculateGameRoundingAdjustment(s, g),
                 LotteryPercent = s.LotteryPercentage,
                 ClubPercent = s.ClubPercentage,
-                LotteryTake = (s.Sold * s.Price) * s.LotteryPercentage,
-                ClubTake = s.PayoutMode == 1 ? ((s.Sold * s.Price) - ((s.Sold * s.Price) * s.LotteryPercentage)) * s.ClubPercentage : (s.Sold * s.Price) * s.ClubPercentage,
-                NetProceeds = CalculateSheetNet(s) / s.Games.Count 
+                LotteryTake = CalculateLotteryTake(s) / s.Games.Count,
+                ClubTake = CalculateClubTake(s) / s.Games.Count,
+                NetProceeds = CalculateSheetNet(s) / s.Games.Count,
+                BallsCalled = g.BallsCalled
             })).ToList()
         };
     }
@@ -2581,6 +2949,7 @@
         public decimal ClubPercentage { get; set; }
         public bool IsAdmissionOnly { get; set; }
         public bool IsClosedOut { get; set; }
+        public bool IsSynced { get; set; } = true;
     }
 
     public class BingoGame
@@ -2590,6 +2959,12 @@
         public decimal DefaultPayout { get; set; }
         public bool IsVariablePayout { get; set; }
         public int WinnerCount { get; set; } = 1;
+        public int PayoutMode { get; set; }
+        public bool IsProgressive { get; set; }
+        public int CurrentBallGoal { get; set; }
+        public decimal JackpotAmount { get; set; }
+        public decimal ConsolationAmount { get; set; }
+        public int BallsCalled { get; set; }
     }
 
     public class AdmissionPack

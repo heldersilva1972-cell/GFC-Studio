@@ -13,20 +13,33 @@
 <PageTitle>Bingo Setup | GFC Admin</PageTitle>
 
 <div class="admin-container p-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="fw-black text-dark mb-1">BINGO SETUP</h1>
-            <p class="text-muted">Manage sheet colors, admission packs, and game programs.</p>
-        </div>
-        <div class="d-flex gap-2">
-            <button class="btn @(ActiveTab == "Sheets" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Sheets"'>
-                BINGO SHEETS
-            </button>
-            <button class="btn @(ActiveTab == "Admissions" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Admissions"'>
-                ADMISSIONS
-            </button>
+    <div class="sticky-top bg-white border-bottom shadow-sm mb-4" style="z-index: 1020; margin: -1.5rem -1.5rem 1.5rem -1.5rem; padding: 1.5rem 1.5rem 1rem 1.5rem;">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="fw-black text-dark mb-1">BINGO SETUP</h1>
+                <p class="text-muted mb-0 text-uppercase extra-small fw-bold">Manage sheet colors, admission packs, and game programs.</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn @(ActiveTab == "Sheets" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Sheets"'>
+                    BINGO SHEETS
+                </button>
+                <button class="btn @(ActiveTab == "Admissions" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Admissions"'>
+                    ADMISSIONS
+                </button>
+                <button class="btn @(ActiveTab == "Financials" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Financials"'>
+                    PERCENTAGES
+                </button>
+            </div>
         </div>
     </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger shadow-sm rounded-4 mb-4">
+            <h6 class="fw-black mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i> CRITICAL ERROR</h6>
+            <p class="small mb-0">@ErrorMessage</p>
+        </div>
+    }
 
     @if (Loading)
     {
@@ -57,8 +70,9 @@
                                         else if (sheet.IsIncludedInAdmission && !sheet.IsAdmissionOnly) { <span class="badge bg-info-subtle text-info border border-info border-opacity-10">SPECIAL (INCL)</span> }
                                         else { <span class="badge bg-secondary-subtle text-secondary border border-secondary border-opacity-10">FLOOR ONLY</span> }
                                         
-                                        @if (sheet.PayoutMode == 1) { <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-10">50/50</span> }
-                                        else if (sheet.PayoutMode == 2) { <span class="badge bg-success-subtle text-success border border-success border-opacity-10">GROSS %</span> }
+                                        @if (sheet.PayoutMode == 1 || sheet.Games.Any(g => g.PayoutMode == 1)) { <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-10">50/50</span> }
+                                        else if (sheet.PayoutMode == 2 || sheet.Games.Any(g => g.PayoutMode == 2)) { <span class="badge bg-success-subtle text-success border border-success border-opacity-10">GROSS %</span> }
+                                        @if (sheet.Games.Any(g => g.IsProgressive)) { <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-10">PROGRESSIVE</span> }
                                     </div>
                                 </div>
                                 <div class="dropdown">
@@ -109,6 +123,14 @@
                         <span class="input-group-text">$</span>
                         <input type="number" class="form-control fw-bold" @bind="SystemSettings.BingoAdditionalCardPrice" />
                     </div>
+                </div>
+                <div>
+                    <label class="extra-small fw-black text-muted text-uppercase d-block mb-1">Payout Rounding</label>
+                    <select class="form-select form-select-sm fw-bold" @bind="SystemSettings.BingoPayoutRoundingMode" style="width: 160px;">
+                        <option value="0">None (Exact)</option>
+                        <option value="1">Round Up ($1.00)</option>
+                        <option value="2">Round Down ($1.00)</option>
+                    </select>
                 </div>
                 <div class="d-flex align-items-end">
                     <button class="btn btn-sm btn-outline-primary fw-bold rounded-pill px-3" @onclick="SaveGlobalSettings">
@@ -245,274 +267,458 @@
             }
         </div>
     }
+    else if (ActiveTab == "Financials")
+    {
+        <div class="glass-card shadow-sm border p-0 overflow-hidden rounded-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light sticky-table-header">
+                        <tr class="extra-small text-muted fw-black text-uppercase">
+                            <th class="ps-4 py-3">Bingo Sheet</th>
+                            <th class="py-3">Category</th>
+                            <th class="py-3 text-center">Payout Mode</th>
+                            <th class="py-3 text-center">State Tax</th>
+                            <th class="py-3 text-center">Club Share</th>
+                            <th class="py-3 text-center">Player Payout</th>
+                            <th class="py-3 text-center">Overrides</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sheet in Sheets.OrderBy(s => s.DisplayOrder))
+                        {
+                            var lot = sheet.LotteryPercentage * 100;
+                            var isStandard = sheet.IsIncludedInAdmission && sheet.IsAdmissionOnly;
+                            var clubInput = isStandard ? 0.0m : sheet.ClubPercentage * 100;
+                            var hasOverrides = sheet.Games.Any(g => g.LotteryPercentage.HasValue || g.ClubPercentage.HasValue);
+                            
+                            // Effective math matching the edit modal
+                            decimal clubEff, playerEff;
+                            if (sheet.PayoutMode == 1) { // 50/50 split math
+                                clubEff = (100 - lot) * (clubInput / 100);
+                            } else { // gross/fixed additive math
+                                clubEff = clubInput;
+                            }
+                            playerEff = 100 - lot - clubEff;
+
+                            <tr class="bg-light bg-opacity-50">
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="rounded-circle shadow-sm" style="width: 14px; height: 14px; background: @sheet.DisplayColor; border: 1px solid rgba(0,0,0,0.1);"></div>
+                                        <span class="fw-black text-uppercase">@sheet.ColorName (SHEET DEFAULT)</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (isStandard) { <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-10" style="font-size: 0.65rem;">STANDARD</span> }
+                                    else if (sheet.IsIncludedInAdmission && !sheet.IsAdmissionOnly) { <span class="badge bg-info-subtle text-info border border-info border-opacity-10" style="font-size: 0.65rem;">SPECIAL</span> }
+                                    else { <span class="badge bg-secondary-subtle text-secondary border border-secondary border-opacity-10" style="font-size: 0.65rem;">FLOOR ONLY</span> }
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-flex flex-column align-items-center">
+                                        <span class="fw-bold small text-muted">@(sheet.PayoutMode == 0 ? "FIXED" : sheet.PayoutMode == 1 ? "50/50" : "GROSS %")</span>
+                                        @if (sheet.Games.Any(g => g.IsProgressive)) { <span class="extra-small fw-black text-primary text-uppercase mt-1" style="font-size: 0.55rem;">Progressive Incl.</span> }
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-danger-subtle text-danger fw-black px-2 py-1 rounded-pill" style="font-size: 0.75rem;">@lot.ToString("N1")%</span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-primary-subtle text-primary fw-black px-2 py-1 rounded-pill" style="font-size: 0.75rem;">@clubEff.ToString("N1")%</span>
+                                    @if (isStandard) { 
+                                        <div class="extra-small text-muted opacity-50 cursor-help" style="font-size: 0.5rem;" title="Profit is the remainder of Admission Revenue after paying State Tax and Game Prizes.">
+                                            <i class="bi bi-info-circle me-1"></i>NET REMAINDER
+                                        </div> 
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-success-subtle text-success fw-black px-2 py-1 rounded-pill" style="font-size: 0.75rem;">@playerEff.ToString("N1")%</span>
+                                    @if (isStandard) { <div class="extra-small text-muted opacity-50" style="font-size: 0.5rem;">(FROM ADMISSIONS)</div> }
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-muted extra-small fw-black text-uppercase">Sheet Base</span>
+                                </td>
+                            </tr>
+
+                            @foreach (var game in sheet.Games.OrderBy(g => g.DisplayOrder))
+                            {
+                                bool hasOverride = game.LotteryPercentage.HasValue || game.ClubPercentage.HasValue;
+                                decimal gLot = (game.LotteryPercentage ?? sheet.LotteryPercentage) * 100;
+                                decimal gClubInput = (game.ClubPercentage ?? sheet.ClubPercentage) * 100;
+                                
+                                decimal gClubEff, gPlayerEff;
+                                if (game.PayoutMode == 1) { // 50/50
+                                    gClubEff = (100 - gLot) * (gClubInput / 100);
+                                } else {
+                                    gClubEff = gClubInput;
+                                }
+                                gPlayerEff = 100 - gLot - gClubEff;
+
+                                <tr>
+                                    <td class="ps-5 py-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi bi-arrow-return-right text-muted opacity-50"></i>
+                                            <span class="small fw-bold">@game.GameName</span>
+                                        </div>
+                                    </td>
+                                    <td></td>
+                                    <td class="text-center">
+                                        <div class="d-flex flex-column align-items-center">
+                                            <span class="extra-small fw-bold text-muted">@(game.PayoutMode == 0 ? "FIXED" : game.PayoutMode == 1 ? "50/50" : "GROSS %")</span>
+                                            @if (game.IsProgressive) { <span class="extra-small fw-black text-primary text-uppercase" style="font-size: 0.55rem;">Progressive</span> }
+                                        </div>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="extra-small fw-bold @(game.LotteryPercentage.HasValue ? "text-danger" : "text-muted")">@gLot.ToString("N1")%</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="extra-small fw-bold @(game.ClubPercentage.HasValue ? "text-primary" : "text-muted")">@gClubEff.ToString("N1")%</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="extra-small fw-black @(hasOverride ? "text-success" : "text-muted")">@gPlayerEff.ToString("N1")%</span>
+                                    </td>
+                                    <td class="text-center">
+                                        @if (hasOverride)
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-25" style="font-size: 0.6rem;">
+                                                <i class="bi bi-sliders me-1"></i> CUSTOM
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="extra-small text-muted opacity-50">SHARED</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
 </div>
 
-@if (ShowSheetModal)
+@if (ShowSheetModal && EditingSheet != null)
 {
     <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
-                <div class="modal-header border-0 p-4">
+                <div class="modal-header border-0 p-4 pb-0">
                     <h5 class="modal-title fw-black">@(EditingSheet.Id == 0 ? "NEW BINGO SHEET" : "EDIT BINGO SHEET")</h5>
                     <button type="button" class="btn-close" @onclick="() => ShowSheetModal = false"></button>
                 </div>
-                <div class="modal-body p-4 pt-0">
-                    <div class="row g-2">
-                        <!-- IDENTITY ROW -->
-                        <div class="col-md-5">
-                            <label class="form-label extra-small fw-black text-muted mb-1">COLOR NAME</label>
-                            <input type="text" class="form-control form-control-sm" @bind="EditingSheet.ColorName" placeholder="e.g. White" @onfocus="OnInputFocus" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label extra-small fw-black text-muted mb-1">UI COLOR</label>
-                            <input type="color" class="form-control form-control-color form-control-sm w-100" @bind="EditingSheet.DisplayColor" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label extra-small fw-black text-muted mb-1">ORDER</label>
-                            <input type="number" class="form-control form-control-sm" @bind="EditingSheet.DisplayOrder" @onfocus="OnInputFocus" />
-                        </div>
+                <div class="modal-body p-4 pt-2">
+                    <div class="row g-4">
+                        <!-- LEFT COLUMN: Sheet Settings & Payout Preview -->
+                        <div class="col-lg-5">
+                            <div class="bg-light p-4 rounded-4 h-100">
+                                <div class="row g-3">
+                                    <div class="col-md-8">
+                                        <label class="form-label extra-small fw-black text-muted mb-1 text-uppercase">Color Name</label>
+                                        <input type="text" class="form-control fw-black" @bind="EditingSheet.ColorName" placeholder="e.g. White" @onfocus="OnInputFocus" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label extra-small fw-black text-muted mb-1 text-uppercase">Display</label>
+                                        <div class="d-flex gap-2">
+                                            <input type="color" class="form-control form-control-color w-100 border-0" @bind="EditingSheet.DisplayColor" />
+                                            <input type="number" class="form-control text-center fw-black" @bind="EditingSheet.DisplayOrder" style="width: 60px;" @onfocus="OnInputFocus" />
+                                        </div>
+                                    </div>
 
-                        <!-- SALES ROW REDESIGNED WITH TOGGLES -->
-                        <div class="col-md-7">
-                            <div class="p-3 border rounded-3 bg-light h-100">
-                                <label class="form-label extra-small fw-black text-muted d-block mb-2">GAME CATEGORY</label>
-                                <div class="d-flex flex-column gap-2">
-                                    <div class="form-check form-switch m-0 d-flex align-items-center">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="cat-std"
-                                               checked="@(_uiCategory == 1)" 
-                                               @onchange="() => SetGameCategory(1)">
-                                        <label class="form-check-label fw-bold small ms-2" for="cat-std">STANDARD (9-PACK)</label>
+                                    <div class="col-12">
+                                        <label class="form-label extra-small fw-black text-muted d-block mb-2 text-uppercase">Game Category</label>
+                                        <div class="btn-group w-100 shadow-sm rounded-pill overflow-hidden" role="group">
+                                            <input type="radio" class="btn-check" name="cat" id="cat1" checked="@(_uiCategory == 1)" @onchange="() => SetGameCategory(1)">
+                                            <label class="btn btn-outline-primary border-0 fw-bold py-2" for="cat1" style="font-size: 0.7rem;">STANDARD</label>
+                                            
+                                            <input type="radio" class="btn-check" name="cat" id="cat2" checked="@(_uiCategory == 2)" @onchange="() => SetGameCategory(2)">
+                                            <label class="btn btn-outline-primary border-0 fw-bold py-2" for="cat2" style="font-size: 0.7rem;">SPECIAL</label>
+                                            
+                                            <input type="radio" class="btn-check" name="cat" id="cat3" checked="@(_uiCategory == 3)" @onchange="() => SetGameCategory(3)">
+                                            <label class="btn btn-outline-primary border-0 fw-bold py-2" for="cat3" style="font-size: 0.7rem;">FLOOR ONLY</label>
+                                        </div>
                                     </div>
-                                    <div class="form-check form-switch m-0 d-flex align-items-center">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="cat-spec"
-                                               checked="@(_uiCategory == 2)" 
-                                               @onchange="() => SetGameCategory(2)">
-                                        <label class="form-check-label fw-bold small ms-2" for="cat-spec">SPECIAL (INCL. W/ ADMIT)</label>
+
+                                    <div class="col-12">
+                                        <div class="p-3 border rounded-4 bg-white shadow-sm">
+                                            @if (_uiCategory == 1) {
+                                                <div class="text-center py-2">
+                                                    <i class="bi bi-lock-fill text-muted mb-1 d-block fs-4"></i>
+                                                    <span class="extra-small fw-black text-muted text-uppercase">9-Pack (Admissions Only)</span>
+                                                </div>
+                                            } else if (_uiCategory == 2) {
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <label class="extra-small fw-black text-muted mb-0">ALLOW FLOOR SALES?</label>
+                                                    <div class="form-check form-switch m-0">
+                                                        <input class="form-check-input" type="checkbox" role="switch" checked="@(!EditingSheet.IsAdmissionOnly)" @onchange="@(e => OnFloorSalesToggle((bool)(e.Value ?? true)))">
+                                                    </div>
+                                                </div>
+                                                @if (!EditingSheet.IsAdmissionOnly) {
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text bg-light border-0 fw-bold">$</span>
+                                                        <input type="number" step="0.50" class="form-control border-0 bg-light fw-black" @bind="EditingSheet.DefaultPrice" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                }
+                                            } else {
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <label class="extra-small fw-black text-primary mb-0"><i class="bi bi-cart-check-fill me-1"></i> FLOOR SALE PRICE</label>
+                                                    <div class="input-group input-group-sm" style="width: 120px;">
+                                                        <span class="input-group-text bg-light border-0 fw-bold">$</span>
+                                                        <input type="number" step="0.50" class="form-control border-0 bg-light fw-black" @bind="EditingSheet.DefaultPrice" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
                                     </div>
-                                    <div class="form-check form-switch m-0 d-flex align-items-center">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="cat-floor"
-                                               checked="@(_uiCategory == 3)" 
-                                               @onchange="() => SetGameCategory(3)">
-                                        <label class="form-check-label fw-bold small ms-2" for="cat-floor">FLOOR SALE ONLY</label>
+
+                                    <div class="col-12">
+                                        <div class="p-3 border rounded-4 bg-white shadow-sm">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <label class="extra-small fw-black text-muted mb-0 text-uppercase">Sheet Default Structure</label>
+                                                @if (_uiCategory != 1) {
+                                                    <select class="form-select form-select-sm fw-bold border-0 bg-light rounded-pill px-3" style="width: 140px; font-size: 0.7rem;" @bind="EditingSheet.PayoutMode">
+                                                        <option value="0">FIXED</option>
+                                                        <option value="1">50/50 SPLIT</option>
+                                                        <option value="2">GROSS %</option>
+                                                    </select>
+                                                } else {
+                                                    <span class="badge bg-light text-muted border px-3 rounded-pill fw-bold" style="font-size: 0.65rem;">FIXED PRIZES</span>
+                                                }
+                                            </div>
+
+                                            @if (_uiCategory == 1) {
+                                                <div class="py-3 px-2 border rounded-4 bg-light bg-opacity-25 text-center mb-3">
+                                                    <div class="d-flex justify-content-center gap-4">
+                                                        <div>
+                                                            <div class="fw-black text-danger fs-5">5%</div>
+                                                            <div class="extra-small text-muted fw-bold">TAX</div>
+                                                        </div>
+                                                        <div>
+                                                            <div class="fw-black text-primary fs-5">0%</div>
+                                                            <div class="extra-small text-muted fw-bold">CLUB</div>
+                                                        </div>
+                                                        <div>
+                                                            <div class="fw-black text-success fs-5">95%</div>
+                                                            <div class="extra-small text-muted fw-bold">POOL</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3 p-2 bg-white rounded-3 border border-primary border-opacity-10 shadow-sm">
+                                                        <div class="extra-small fw-black text-primary text-uppercase mb-1"><i class="bi bi-info-circle-fill me-1"></i> Standard Profit Logic</div>
+                                                        <div class="extra-small text-muted italic" style="line-height: 1.2;">
+                                                            Club profit/loss is the <strong>remaining balance</strong> of Admission Revenue after 5% State Tax is paid and Fixed Game Prizes are distributed.
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            } else {
+                                                <div class="row g-3">
+                                                    <div class="col-6 text-center">
+                                                        <label class="extra-small fw-black text-danger d-block mb-1">DEFAULT TAX</label>
+                                                        <div class="input-group input-group-sm">
+                                                            <input type="number" step="0.1" class="form-control fw-bold border-danger border-opacity-25" value="@(EditingSheet.LotteryPercentage * 100)" 
+                                                                   @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) EditingSheet.LotteryPercentage = v / 100m; })" 
+                                                                   @onfocus="OnInputFocus" />
+                                                            <span class="input-group-text fw-bold border-danger border-opacity-25 text-danger">%</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6 text-center border-start">
+                                                        <label class="extra-small fw-black text-primary d-block mb-1">DEFAULT CLUB %</label>
+                                                        <div class="input-group input-group-sm">
+                                                            <input type="number" step="0.1" class="form-control fw-bold border-primary border-opacity-25" value="@(EditingSheet.ClubPercentage * 100)" 
+                                                                   @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) EditingSheet.ClubPercentage = v / 100m; })" 
+                                                                   @onfocus="OnInputFocus" />
+                                                            <span class="input-group-text fw-bold border-primary border-opacity-25 text-primary">%</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+
+                                            <div class="mt-4 pt-2 border-top">
+                                                @{
+                                                    var lotPct = _uiCategory == 1 ? 5.0m : EditingSheet.LotteryPercentage * 100;
+                                                    var clubInputPct = _uiCategory == 1 ? 0.0m : EditingSheet.ClubPercentage * 100;
+                                                    decimal clubTotalPct, playerPct;
+                                                    string playerLabel;
+
+                                                    if (_uiCategory == 1 || EditingSheet.PayoutMode == 0) { 
+                                                        clubTotalPct = clubInputPct;
+                                                        playerPct = 100 - lotPct - clubTotalPct;
+                                                        playerLabel = _uiCategory == 1 ? "9-PACK" : "PRIZES";
+                                                    } else { 
+                                                        if (EditingSheet.PayoutMode == 1) clubTotalPct = (100 - lotPct) * (clubInputPct / 100);
+                                                        else clubTotalPct = clubInputPct;
+                                                        playerPct = 100 - lotPct - clubTotalPct;
+                                                        playerLabel = "PLAYERS";
+                                                    }
+                                                }
+                                                <div class="d-flex justify-content-between mb-1 px-1">
+                                                    <span class="extra-small fw-black text-muted">EFFECTIVE SHEET DISTRIBUTION</span>
+                                                    @if (_uiCategory != 1) { <span class="extra-small italic text-muted">Applies to all non-overridden games</span> }
+                                                </div>
+                                                <div class="progress shadow-sm" style="height: 10px; border-radius: 5px; overflow: hidden; background: #eee;">
+                                                    <div class="progress-bar bg-danger" style="width: @lotPct%;" title="Lottery"></div>
+                                                    <div class="progress-bar bg-primary" style="width: @clubTotalPct%;" title="Club"></div>
+                                                    <div class="progress-bar bg-success" style="width: @playerPct%;" title="Players"></div>
+                                                </div>
+                                                <div class="d-flex justify-content-between mt-2" style="font-size: 0.65rem; font-weight: 800;">
+                                                    <span class="text-danger">STATE: @lotPct.ToString("N1")%</span>
+                                                    <span class="text-primary">CLUB: @clubTotalPct.ToString("N1")%</span>
+                                                    <span class="text-success">@playerLabel: @playerPct.ToString("N1")%</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-5">
-                            @if (_uiCategory == 1)
-                            {
-                                @* STANDARD (9-PACK) - Never sold on floor *@
-                                <div class="p-3 border rounded-3 bg-secondary bg-opacity-10 h-100 d-flex flex-column align-items-center justify-content-center text-center">
-                                    <i class="bi bi-lock-fill fs-4 text-muted mb-1"></i>
-                                    <span class="extra-small fw-black text-muted text-uppercase">STANDARD (PACK ONLY)</span>
-                                    <p class="extra-small text-muted mt-1 mb-0 italic">No floor sales allowed</p>
-                                </div>
-                            }
-                            else if (_uiCategory == 2)
-                            {
-                                @* SPECIAL (INCL. W/ ADMIT) - Floor sales are OPTIONAL *@
-                                <div class="p-3 border rounded-3 bg-light h-100">
-                                    <label class="form-label extra-small fw-black text-muted d-block mb-2">ALLOW FLOOR SALES?</label>
-                                    <div class="form-check form-switch m-0 d-flex align-items-center">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="allow-floor"
-                                               checked="@(!EditingSheet.IsAdmissionOnly)" 
-                                               @onchange="@(e => OnFloorSalesToggle((bool)(e.Value ?? true)))">
-                                        <label class="form-check-label fw-black text-primary ms-2" for="allow-floor">@(EditingSheet.IsAdmissionOnly ? "NO" : "YES")</label>
-                                    </div>
-                                    <p class="extra-small text-muted mt-2 mb-0 italic">Can players buy extras on the floor?</p>
-                                </div>
-                            }
-                            else
-                            {
-                                @* FLOOR SALE ONLY - Always allowed on floor *@
-                                <div class="p-3 border rounded-3 bg-primary bg-opacity-10 h-100 d-flex flex-column align-items-center justify-content-center text-center border-primary border-opacity-25">
-                                    <i class="bi bi-cart-check-fill fs-4 text-primary mb-1"></i>
-                                    <span class="extra-small fw-black text-primary text-uppercase">FLOOR SALE ONLY</span>
-                                    <p class="extra-small text-muted mt-1 mb-0 italic">Sold individually on the floor</p>
-                                </div>
-                            }
-                        </div>
 
-                        <!-- PRICE ROW (Only if floor sales allowed) -->
-                        <div class="col-12">
-                            @if (!EditingSheet.IsAdmissionOnly)
-                            {
-                                <div class="p-2 border rounded-3 bg-white">
-                                    <div class="row align-items-center">
-                                        <div class="col-6">
-                                            <label class="form-label extra-small fw-black text-muted mb-0">FLOOR SALE PRICE (PER SHEET)</label>
-                                        </div>
-                                        <div class="col-6">
-                                            <div class="input-group input-group-sm">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" step="0.50" class="form-control fw-black text-primary" @bind="EditingSheet.DefaultPrice" @onfocus="OnInputFocus" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="p-2 border rounded-3 bg-primary bg-opacity-10 text-center">
-                                    <span class="extra-small fw-black text-primary"><i class="bi bi-info-circle-fill me-1"></i> THIS GAME IS PROVIDED AT THE DOOR ONLY — NO FLOOR SALES ALLOWED</span>
-                                </div>
-                            }
-                        </div>
-
-                        <!-- PAYOUT SETTINGS -->
-                        <div class="col-12">
-                            <div class="p-3 border rounded-3 bg-white shadow-sm mt-1">
-                                @if (_uiCategory == 1)
-                                {
-                                    @* STANDARD (9-PACK) - Locked to Base Program Logic *@
-                                    <div class="text-center py-2 mb-2 bg-dark rounded-pill">
-                                        <span class="badge bg-transparent text-white fw-black" style="font-size: 0.65rem;">
-                                            <i class="bi bi-lock-fill me-1"></i> BASE PROGRAM: FIXED PAYOUT | COMBINED FINANCIALS
-                                        </span>
-                                    </div>
-                                    <div class="row g-2">
-                                        <div class="col-6">
-                                            <div class="p-2 border rounded-3 bg-light text-center">
-                                                <label class="extra-small fw-black text-muted d-block mb-0">STATE %</label>
-                                                <span class="fw-black text-danger">5.0%</span>
-                                            </div>
-                                        </div>
-                                        <div class="col-6">
-                                            <div class="p-2 border rounded-3 bg-light text-center">
-                                                <label class="extra-small fw-black text-muted d-block mb-0">CLUB %</label>
-                                                <span class="fw-black text-primary">5.0%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                                else
-                                {
-                                    @* SPECIAL & FLOOR - Fully Flexible *@
-                                    <label class="form-label extra-small fw-black text-muted d-block mb-2">PAYOUT MODE</label>
-                                    <div class="d-flex gap-2 mb-3">
-                                        <button type="button" class="btn btn-sm flex-grow-1 @(EditingSheet.PayoutMode == 0 ? "btn-dark fw-black" : "btn-outline-secondary")" 
-                                                @onclick="() => { EditingSheet.PayoutMode = 0; StateHasChanged(); }">FIXED PRIZE</button>
-                                        <button type="button" class="btn btn-sm flex-grow-1 @(EditingSheet.PayoutMode == 1 ? "btn-dark fw-black" : "btn-outline-secondary")" 
-                                                @onclick="() => { EditingSheet.PayoutMode = 1; EditingSheet.ClubPercentage = 0.5m; StateHasChanged(); }">50/50 SPLIT</button>
-                                        <button type="button" class="btn btn-sm flex-grow-1 @(EditingSheet.PayoutMode == 2 ? "btn-dark fw-black" : "btn-outline-secondary")" 
-                                                @onclick="() => { EditingSheet.PayoutMode = 2; StateHasChanged(); }">GROSS %</button>
-                                    </div>
-
-                                    <div class="row g-2 align-items-end">
-                                        <div class="col-md-6">
-                                            <label class="form-label extra-small fw-black text-muted mb-1">LOTTERY %</label>
-                                            <div class="input-group input-group-sm">
-                                                <input type="number" step="0.1" class="form-control fw-bold" value="@(EditingSheet.LotteryPercentage * 100)" 
-                                                       @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) EditingSheet.LotteryPercentage = v / 100m; })" 
-                                                       @onfocus="OnInputFocus" />
-                                                <span class="input-group-text fw-bold">%</span>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label extra-small fw-black text-muted mb-1">@(EditingSheet.PayoutMode == 1 ? "SPLIT %" : "CLUB %")</label>
-                                            <div class="input-group input-group-sm">
-                                                <input type="number" step="0.1" class="form-control fw-bold" value="@(EditingSheet.ClubPercentage * 100)" 
-                                                       @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) EditingSheet.ClubPercentage = v / 100m; })" 
-                                                       @onfocus="OnInputFocus" />
-                                                <span class="input-group-text fw-bold">%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-
-                                <!-- MINI VISUAL PREVIEW -->
-                                @{
-                                    var lotPct = _uiCategory == 1 ? 5.0m : EditingSheet.LotteryPercentage * 100;
-                                    var clubInputPct = _uiCategory == 1 ? 5.0m : EditingSheet.ClubPercentage * 100;
-                                    decimal clubTotalPct, playerPct;
-                                    string playerLabel;
-
-                                    if (_uiCategory == 1 || EditingSheet.PayoutMode == 0) { 
-                                        clubTotalPct = clubInputPct;
-                                        playerPct = 100 - lotPct - clubTotalPct;
-                                        playerLabel = _uiCategory == 1 ? "9-Pack Prizes" : "Remaining Pot";
-                                    } else if (EditingSheet.PayoutMode == 1) { 
-                                        clubTotalPct = (100 - lotPct) * (clubInputPct / 100);
-                                        playerPct = 100 - lotPct - clubTotalPct;
-                                        playerLabel = "Players";
-                                    } else { 
-                                        clubTotalPct = clubInputPct;
-                                        playerPct = 100 - lotPct - clubTotalPct;
-                                        playerLabel = "Players";
-                                    }
-                                }
-                                <div class="progress mt-3" style="height: 16px; border-radius: 8px; overflow: hidden; background-color: #f1f5f9; border: 1px solid #e2e8f0;">
-                                    <div class="progress-bar bg-danger shadow-sm" style="width: @lotPct%;" title="Lottery"></div>
-                                    <div class="progress-bar bg-primary shadow-sm" style="width: @clubTotalPct%;" title="Club"></div>
-                                    <div class="progress-bar bg-success shadow-sm" style="width: @playerPct%;" title="Players"></div>
-                                </div>
-                                <div class="d-flex justify-content-between mt-1" style="font-size: 0.6rem; font-weight: 800;">
-                                    <span class="text-danger">STATE: @lotPct.ToString("N1")%</span>
-                                    <span class="text-primary text-center">CLUB: @clubTotalPct.ToString("N1")%</span>
-                                    <span class="text-success text-end">@playerLabel.ToUpper(): @playerPct.ToString("N1")%</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="col-12">
-                            <hr />
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <label class="extra-small fw-black text-muted text-uppercase mb-0 px-2">Games in this Sheet</label>
-                                <button class="btn btn-xs btn-outline-primary fw-bold rounded-pill" style="font-size: 0.65rem;" @onclick="AddGameToEditor">
+                        <!-- RIGHT COLUMN: Games List -->
+                        <div class="col-lg-7">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <label class="extra-small fw-black text-muted text-uppercase mb-0 px-2">Games & Specific Overrides</label>
+                                <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm fw-bold" @onclick="AddGameToEditor">
                                     <i class="bi bi-plus-lg me-1"></i> ADD GAME
                                 </button>
                             </div>
-                            
-                            <div class="d-flex gap-2 align-items-center mb-1 px-3 text-muted extra-small fw-black text-uppercase" style="letter-spacing: 0.05em;">
-                                <div style="width: 40px;" class="text-center">#</div>
-                                <div class="flex-grow-1">Game Name</div>
-                                @if (EditingSheet.PayoutMode == 0)
-                                {
-                                    <div style="width: 110px;" class="text-center">Base Prize</div>
-                                }
-                                <div style="width: 20px;"></div>
-                            </div>
-                            <div class="d-flex flex-column gap-2">
+
+                            <div class="d-flex flex-column gap-3 overflow-auto pr-2" style="max-height: 580px; padding-bottom: 20px;">
                                 @foreach (var game in EditingSheet.Games.OrderBy(g => g.DisplayOrder))
                                 {
-                                    <div class="d-flex gap-2 align-items-center mb-2 bg-light p-2 rounded-3 border">
-                                        <div style="width: 40px;">
-                                            <input type="number" class="form-control form-control-sm fw-bold border-0 bg-transparent text-center" @bind="game.DisplayOrder" @onfocus="OnInputFocus" />
+                                    <div class="bg-white p-3 rounded-4 border shadow-sm border-opacity-50">
+                                        <div class="d-flex gap-3 align-items-center">
+                                            <div style="width: 40px;">
+                                                <label class="extra-small fw-black text-muted d-block text-center mb-1">#</label>
+                                                <input type="number" class="form-control form-control-sm fw-black text-center border-0 bg-light" @bind="game.DisplayOrder" @onfocus="OnInputFocus" />
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <label class="extra-small fw-black text-muted d-block mb-1">GAME NAME</label>
+                                                <input type="text" class="form-control form-control-sm fw-black border-0 bg-light text-uppercase" @bind="game.GameName" placeholder="e.g. Regular Bingo" @onfocus="OnInputFocus" />
+                                            </div>
+                                            <div class="d-flex align-items-end pt-3">
+                                                <button class="btn btn-sm btn-light text-danger rounded-circle border-0" @onclick="() => EditingSheet.Games.Remove(game)">
+                                                    <i class="bi bi-trash-fill"></i>
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div class="flex-grow-1">
-                                            <input type="text" class="form-control form-control-sm border-0 fw-bold" @bind="game.GameName" placeholder="Game Name" @onfocus="OnInputFocus" />
-                                        </div>
-                                        @if (EditingSheet.PayoutMode == 0)
-                                        {
-                                            <div style="width: 110px;">
-                                                <div class="input-group input-group-sm">
-                                                    <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
-                                                    <input type="number" class="form-control border-0 fw-black" @bind="game.DefaultPayout" @onfocus="OnInputFocus" />
+
+                                        <div class="row g-2 mt-2 align-items-center">
+                                            <div class="col-md-5">
+                                                <select class="form-select form-select-sm fw-bold border-0 bg-light rounded-3" @bind="game.PayoutMode">
+                                                    <option value="0">FIXED PRIZE</option>
+                                                    <option value="1">50/50 SPLIT</option>
+                                                    <option value="2">GROSS %</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-7">
+                                                <div class="form-check form-switch m-0 d-flex align-items-center justify-content-end">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="prog-@game.GetHashCode()" @bind="game.IsProgressive">
+                                                    <label class="form-check-label fw-black text-uppercase ms-2 @(game.IsProgressive ? "text-primary" : "text-muted")" for="prog-@game.GetHashCode()" style="font-size: 0.65rem;">
+                                                        PROGRESSIVE
+                                                    </label>
                                                 </div>
                                             </div>
-                                        }
-                                        <button class="btn btn-sm btn-link text-danger p-0 ms-2" @onclick="() => EditingSheet.Games.Remove(game)">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
+                                        </div>
+
+                                        <div class="mt-2 p-2 rounded-3 @(game.IsProgressive ? "bg-primary bg-opacity-10 border border-primary border-opacity-10" : "bg-light border-0")">
+                                            @if (game.IsProgressive) {
+                                                <div class="row g-2">
+                                                    <div class="col-4">
+                                                        <label class="extra-small fw-black text-muted d-block">BALL GOAL</label>
+                                                        <input type="number" class="form-control form-control-sm fw-black" @bind="game.ProgressiveBallGoal" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <label class="extra-small fw-black text-muted d-block">JACKPOT ($)</label>
+                                                        <input type="number" class="form-control form-control-sm fw-black text-success" @bind="game.ProgressiveJackpotAmount" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <label class="extra-small fw-black text-muted d-block">CONSOL. ($)</label>
+                                                        <input type="number" class="form-control form-control-sm fw-black text-danger" @bind="game.ProgressiveConsolationAmount" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                </div>
+                                            } else if (game.PayoutMode == 0) {
+                                                <div class="d-flex justify-content-between align-items-center px-2">
+                                                    <label class="extra-small fw-black text-muted mb-0">BASE PRIZE</label>
+                                                    <div class="input-group input-group-sm" style="width: 100px;">
+                                                        <span class="input-group-text bg-white border-0 fw-bold">$</span>
+                                                        <input type="number" class="form-control border-0 fw-black" @bind="game.DefaultPayout" @onfocus="OnInputFocus" />
+                                                    </div>
+                                                </div>
+                                            } else {
+                                                <div class="text-center py-1">
+                                                    <span class="extra-small fw-bold text-muted text-uppercase" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-calculator me-1"></i> Based on total sheet sales
+                                                    </span>
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- GAME FINANCIAL OVERRIDE -->
+                                        <div class="mt-2 border-top pt-2">
+                                            @{
+                                                bool hasOverride = game.LotteryPercentage.HasValue || game.ClubPercentage.HasValue;
+                                                decimal gLot = (game.LotteryPercentage ?? (_uiCategory == 1 ? 0.05m : EditingSheet.LotteryPercentage)) * 100;
+                                                decimal gClub = (game.ClubPercentage ?? (_uiCategory == 1 ? 0.0m : EditingSheet.ClubPercentage)) * 100;
+                                                decimal gTotalClub = (game.PayoutMode == 1) ? (100 - gLot) * (gClub / 100) : gClub;
+                                                decimal gPlayer = 100 - gLot - gTotalClub;
+                                            }
+                                            
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="extra-small fw-black @(hasOverride ? "text-primary" : "text-muted") text-uppercase">
+                                                        <i class="bi @(hasOverride ? "bi-sliders" : "bi-link-45deg")"></i> 
+                                                        @(hasOverride ? "CUSTOM FINANCIALS" : "SHARED FINANCIALS")
+                                                    </span>
+                                                    <div class="progress" style="height: 4px; width: 60px; border-radius: 2px;">
+                                                        <div class="progress-bar bg-danger" style="width: @gLot%;"></div>
+                                                        <div class="progress-bar bg-primary" style="width: @gTotalClub%;"></div>
+                                                        <div class="progress-bar bg-success" style="width: @gPlayer%;"></div>
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-xs p-0 text-primary fw-bold" style="font-size: 0.6rem;" @onclick="() => { if(hasOverride) { game.LotteryPercentage = null; game.ClubPercentage = null; } else { game.LotteryPercentage = EditingSheet.LotteryPercentage; game.ClubPercentage = EditingSheet.ClubPercentage; } }">
+                                                    @(hasOverride ? "RESET TO SHEET" : "OVERRIDE")
+                                                </button>
+                                            </div>
+
+                                            @if (hasOverride)
+                                            {
+                                                <div class="row g-2">
+                                                    <div class="col-6">
+                                                        <div class="input-group input-group-sm">
+                                                            <span class="input-group-text extra-small fw-bold border-0 bg-transparent text-danger p-1">STATE</span>
+                                                            <input type="number" step="0.1" class="form-control form-control-sm fw-bold border-0 bg-light rounded-3 text-center" 
+                                                                   value="@gLot" 
+                                                                   @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) game.LotteryPercentage = v / 100m; })" 
+                                                                   @onfocus="OnInputFocus" />
+                                                            <span class="input-group-text extra-small border-0 bg-transparent text-muted p-1">%</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="input-group input-group-sm">
+                                                            <span class="input-group-text extra-small fw-bold border-0 bg-transparent text-primary p-1">CLUB</span>
+                                                            <input type="number" step="0.1" class="form-control form-control-sm fw-bold border-0 bg-light rounded-3 text-center" 
+                                                                   value="@(game.ClubPercentage.HasValue ? game.ClubPercentage.Value * 100 : gClub)" 
+                                                                   @onchange="@(e => { if (decimal.TryParse(e.Value?.ToString(), out var v)) game.ClubPercentage = v / 100m; })" 
+                                                                   @onfocus="OnInputFocus" />
+                                                            <span class="input-group-text extra-small border-0 bg-transparent text-muted p-1">%</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex justify-content-between px-1" style="font-size: 0.6rem;">
+                                                    <span class="text-muted">Using Sheet: <span class="fw-bold">@gLot.ToString("N1")% State</span> / <span class="fw-bold">@gClub.ToString("N1")% Club</span></span>
+                                                    <span class="text-success fw-black">@gPlayer.ToString("N1")% PAYOUT</span>
+                                                </div>
+                                            }
+                                        </div>
                                     </div>
                                 }
-                            </div>
-                            
-                            <div class="mt-3 p-2 bg-light rounded-3 border">
-                                <p class="extra-small text-muted mb-0 italic" style="line-height: 1.4;">
-                                    <i class="bi bi-info-circle-fill me-1 text-primary"></i> 
-                                    <b>Payout Logic:</b> 
-                                    <br/>- <b>Fixed:</b> Adjusted by attendance tiers.
-                                    <br/>- <b>50/50 Split:</b> (Gross - Lottery) × Split %.
-                                    <br/>- <b>Gross %:</b> Gross × (100% - Lottery% - Fee%).
-                                </p>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer border-0 p-4">
-                    <button class="btn btn-light rounded-pill px-4" @onclick="() => ShowSheetModal = false">CANCEL</button>
-                    <button class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="SaveSheet">SAVE CHANGES</button>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <button class="btn btn-light rounded-pill px-4 fw-bold" @onclick="() => ShowSheetModal = false">CANCEL</button>
+                    <button class="btn btn-primary rounded-pill px-4 fw-bold shadow" @onclick="SaveSheet">SAVE CHANGES</button>
                 </div>
             </div>
         </div>
@@ -563,7 +769,16 @@
     </div>
 }
 
+
+
 <style>
+    .sticky-table-header th {
+        position: sticky;
+        top: 106px;
+        z-index: 1010;
+        background: #f8f9fa !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
     .extra-small { font-size: 0.65rem; }
     .glass-card {
         background: rgba(255, 255, 255, 0.7);
@@ -585,6 +800,7 @@
 
 @code {
     private bool Loading { get; set; } = true;
+    private string ErrorMessage { get; set; }
     private string ActiveTab { get; set; } = "Sheets";
     private List<BingoSheetDefinition> Sheets { get; set; } = new();
     private List<BingoAdmissionDefinition> Admissions { get; set; } = new();
@@ -624,26 +840,34 @@
 
     private async Task LoadData()
     {
-        Loading = true;
-        Sheets = await DbContext.BingoSheetDefinitions
-            .Include(s => s.Games)
-            .Where(s => !s.IsDeleted)
-            .OrderBy(s => s.DisplayOrder)
-            .ToListAsync();
-            
+        try 
+        {
+            Loading = true;
+            Sheets = await DbContext.BingoSheetDefinitions
+                .Include(s => s.Games)
+                .Where(s => !s.IsDeleted)
+                .OrderBy(s => s.DisplayOrder)
+                .ToListAsync();
+                
             Admissions = await DbContext.BingoAdmissionDefinitions
-            .Where(a => !a.IsDeleted)
-            .OrderBy(a => a.DisplayOrder)
-            .ToListAsync();
+                .Where(a => !a.IsDeleted)
+                .OrderBy(a => a.DisplayOrder)
+                .ToListAsync();
 
-        PayoutTiers = await DbContext.BingoPayoutTiers
-            .Where(t => !t.IsDeleted)
-            .OrderBy(t => t.MinAdmissions)
-            .ToListAsync();
+            PayoutTiers = await DbContext.BingoPayoutTiers
+                .Where(t => !t.IsDeleted)
+                .OrderBy(t => t.MinAdmissions)
+                .ToListAsync();
 
-        SystemSettings = await DbContext.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
-            
-        Loading = false;
+            SystemSettings = await DbContext.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
+                
+            Loading = false;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message + (ex.InnerException != null ? " -> " + ex.InnerException.Message : "");
+            Loading = false;
+        }
     }
 
     private async Task SaveGlobalSettings()
@@ -653,8 +877,9 @@
         {
             existing.BingoBaseAdmissionPrice = SystemSettings.BingoBaseAdmissionPrice;
             existing.BingoAdditionalCardPrice = SystemSettings.BingoAdditionalCardPrice;
+            existing.BingoPayoutRoundingMode = SystemSettings.BingoPayoutRoundingMode;
             await DbContext.SaveChangesAsync();
-            await JSRuntime.InvokeVoidAsync("alert", "Admission rates updated successfully!");
+            await JSRuntime.InvokeVoidAsync("alert", "Settings updated successfully!");
         }
     }
 
@@ -725,7 +950,15 @@
                     GameName = g.GameName, 
                     DisplayOrder = g.DisplayOrder, 
                     DefaultPayout = g.DefaultPayout,
-                    IsVariablePayout = g.IsVariablePayout
+                    IsVariablePayout = g.IsVariablePayout,
+                    PayoutMode = g.PayoutMode,
+                    IsProgressive = g.IsProgressive,
+                    ProgressiveBallGoal = g.ProgressiveBallGoal,
+                    CurrentProgressiveBallGoal = g.CurrentProgressiveBallGoal,
+                    ProgressiveJackpotAmount = g.ProgressiveJackpotAmount,
+                    ProgressiveConsolationAmount = g.ProgressiveConsolationAmount,
+                    LotteryPercentage = g.LotteryPercentage,
+                    ClubPercentage = g.ClubPercentage
                 }).ToList()
             };
 
@@ -781,8 +1014,33 @@
                 target.DisplayOrder = EditingSheet.DisplayOrder;
                 target.PayoutMode = EditingSheet.PayoutMode;
 
-                DbContext.BingoGameDefinitions.RemoveRange(target.Games);
-                target.Games = EditingSheet.Games;
+                // Robust collection update: Clear existing and add new to ensure EF tracks the changes correctly
+                target.Games.Clear();
+                foreach (var g in EditingSheet.Games)
+                {
+                    // For new progressives, initialize the current goal to the starting goal if not set
+                    if (g.IsProgressive && g.CurrentProgressiveBallGoal == 0) 
+                        g.CurrentProgressiveBallGoal = g.ProgressiveBallGoal;
+                    
+                    g.SheetDefinitionId = target.Id;
+                    target.Games.Add(new BingoGameDefinition 
+                    {
+                        GameName = g.GameName,
+                        DisplayOrder = g.DisplayOrder,
+                        DefaultPayout = g.DefaultPayout,
+                        IsVariablePayout = g.IsVariablePayout,
+                        PayoutMode = g.PayoutMode,
+                        IsProgressive = g.IsProgressive,
+                        ProgressiveBallGoal = g.ProgressiveBallGoal,
+                        CurrentProgressiveBallGoal = g.CurrentProgressiveBallGoal,
+                        ProgressiveJackpotAmount = g.ProgressiveJackpotAmount,
+                        ProgressiveConsolationAmount = g.ProgressiveConsolationAmount,
+                        LotteryPercentage = g.LotteryPercentage,
+                        ClubPercentage = g.ClubPercentage,
+                        SheetDefinitionId = target.Id,
+                        IsActive = true
+                    });
+                }
             }
         }
         await DbContext.SaveChangesAsync();
@@ -819,6 +1077,8 @@
                 EditingSheet.IsIncludedInAdmission = true;
                 EditingSheet.IsAdmissionOnly = true; // Lock to NO floor sales
                 EditingSheet.DefaultPrice = 0;
+                EditingSheet.LotteryPercentage = 0.05m;
+                EditingSheet.ClubPercentage = 0.0m;
                 break;
             case 2: // Special (Incl w/ Admit)
                 EditingSheet.IsIncludedInAdmission = true;

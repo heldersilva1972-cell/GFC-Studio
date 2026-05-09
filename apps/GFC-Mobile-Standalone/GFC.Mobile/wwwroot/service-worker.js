@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.4.6 (Environment Detection Labels)
+// GFC Mobile Revision: 2.4.16 (Bingo Session Locking Logic)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
