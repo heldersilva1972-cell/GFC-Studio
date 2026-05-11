@@ -136,8 +136,9 @@
                     <table class="table mb-0 table-sm">
                         <thead class="bg-light">
                             <tr>
-                                <th class="ps-3 py-2 border-0 small">Item Name</th>
+                                <th class="ps-3 py-2 border-0 small">Item / Category</th>
                                 <th class="text-center py-2 border-0 small">Sold</th>
+                                <th class="text-end pe-3 py-2 border-0 small">Total</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -145,15 +146,40 @@
                                 var sales = ParseSummary(_selectedReport.SalesSummaryJson);
                                 if (!sales.Any())
                                 {
-                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
+                                    <tr><td colspan="3" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
                                 }
                                 else
                                 {
-                                    foreach (var item in sales.OrderByDescending(x => x.Value))
+                                    var groupedHistory = sales
+                                        .Select(kvp => {
+                                            var product = _menuItems.FirstOrDefault(i => i.Name == kvp.Key);
+                                            return new { 
+                                                Name = kvp.Key, 
+                                                Quantity = kvp.Value, 
+                                                Category = product?.Category ?? "MISC",
+                                                Price = product?.Price ?? 0,
+                                                Total = kvp.Value * (product?.Price ?? 0)
+                                            };
+                                        })
+                                        .GroupBy(x => x.Category)
+                                        .OrderBy(g => g.Key);
+
+                                    foreach (var group in groupedHistory)
                                     {
-                                        <tr>
-                                            <td class="ps-3 py-2 fw-bold text-dark small">@item.Key.ToUpper()</td>
-                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@item.Value</span></td>
+                                        <tr class="bg-light">
+                                            <td colspan="3" class="ps-3 py-2 fw-black text-primary small border-bottom">@group.Key.ToUpper()</td>
+                                        </tr>
+                                        foreach (var item in group.OrderByDescending(x => x.Quantity))
+                                        {
+                                            <tr>
+                                                <td class="ps-4 py-2 fw-bold text-dark small">@item.Name.ToUpper()</td>
+                                                <td class="text-center py-2"><span class="badge bg-light text-primary border fw-black" style="font-size: 0.8rem; padding: 4px 10px;">@item.Quantity</span></td>
+                                                <td class="text-end pe-3 py-2 small fw-bold">@item.Total.ToString("C")</td>
+                                            </tr>
+                                        }
+                                        <tr class="table-group-divider">
+                                            <td colspan="2" class="ps-3 py-2 text-muted small fw-black text-uppercase">@group.Key Subtotal</td>
+                                            <td class="text-end pe-3 py-2 small fw-black text-primary">@group.Sum(x => x.Total).ToString("C")</td>
                                         </tr>
                                     }
                                 }
@@ -209,6 +235,7 @@
     private List<PosZReportDto>? _reports;
     private PosZReportDto? _selectedReport;
     private Dictionary<int, string> _itemNames = new();
+    private List<PosItemDto> _menuItems = new();
     private string TerminalName = "TERMINAL 1";
 
     private void GoBack() => Navigation.NavigateTo("/");
@@ -218,10 +245,11 @@
         TerminalName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "GfcPos_TerminalName") ?? "TERMINAL 1";
         _reports = await PosService.GetZReportsAsync(TerminalName);
         
-        // Fetch menu to get item names for pulling
+        // Fetch menu to get item names and categories
         var menu = await PosService.GetMenuAsync();
         if (menu != null)
         {
+            _menuItems = menu.Items;
             _itemNames = menu.Items.ToDictionary(x => x.Id, x => x.Name);
         }
     }

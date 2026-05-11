@@ -108,7 +108,14 @@ public class PosApiController : ControllerBase
                 TotalAmount = saleDto.TotalAmount,
                 PaymentType = saleDto.PaymentType,
                 ItemsJson = saleDto.ItemsJson,
-                IsSynced = true
+                IsSynced = true,
+                AmountReceived = saleDto.AmountReceived,
+                ChangeDue = saleDto.ChangeDue,
+                OriginalTotal = saleDto.OriginalTotal,
+                IsVoided = saleDto.IsVoided,
+                IsCorrection = saleDto.IsCorrection,
+                OriginalSaleId = saleDto.OriginalSaleId,
+                AdjustmentReason = saleDto.AdjustmentReason
             };
 
             db.PosSales.Add(sale);
@@ -121,8 +128,12 @@ public class PosApiController : ControllerBase
                 {
                     foreach (var item in items.Where(i => i.Id > 0))
                     {
-                        // Note: Using a default system user ID (1) for POS adjustments
-                        await _liquorService.AdjustStockAsync(item.Id, 1, -item.Quantity, $"POS Sale: {item.Name}");
+                        try {
+                            // Note: Using a default system user ID (1) for POS adjustments
+                            await _liquorService.AdjustStockAsync(item.Id, 1, -item.Quantity, $"POS Sale: {item.Name}");
+                        } catch (Exception invEx) {
+                            _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", item.Id, item.Name, invEx.Message);
+                        }
                     }
                 }
             }
@@ -215,7 +226,10 @@ public class PosApiController : ControllerBase
             BartenderName = sale.BartenderName,
             TotalAmount = sale.TotalAmount,
             PaymentType = sale.PaymentType,
-            ItemsJson = sale.ItemsJson
+            ItemsJson = sale.ItemsJson,
+            AmountReceived = sale.AmountReceived,
+            ChangeDue = sale.ChangeDue,
+            OriginalTotal = sale.OriginalTotal
         });
     }
 

@@ -20,6 +20,7 @@ public interface IMobileReportingService
     Task<BingoSettingsDto> GetBingoSettingsAsync();
     Task<bool> SubmitBingoSessionAsync(BingoSession session, string username);
     Task FlushOutboxAsync();
+    Task PurgeOutboxAsync();
     Task<int> GetPendingCountAsync();
     int PendingCount { get; }
     DateTime? LastSyncTime { get; }

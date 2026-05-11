@@ -3,15 +3,16 @@
 @using Microsoft.AspNetCore.Authorization
 
 @using GFC.Core.Interfaces
+@implements IDisposable
 @inject NavigationManager Navigation
 @inject ICustomAuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
-@implements IDisposable
 @inject IShiftComplianceService ShiftComplianceService
 @inject IJSRuntime JSRuntime
 @inject HttpClient Http
 @inject IVersionService VersionService
 @inject IMobileReportingService ReportingService
+@inject IConnectivityService Connectivity
 @using GFC.Mobile.Components.Shared
 @using System.Text.Json
 @attribute [Authorize]
@@ -416,9 +417,31 @@
         await JSRuntime.InvokeVoidAsync("location.assign", "/login");
     }
 
+    private async Task ClearCacheAndLogout()
+    {
+        _syncFeedback = "Clearing Cache...";
+        StateHasChanged();
+        
+        await JSRuntime.InvokeVoidAsync("localStorage.clear");
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", true);
+    }
+
     private async Task ManualSyncPermissionsAsync()
     {
         if (_isSyncingPermissions) return;
+
+        // [OFFLINE GUARD]
+        if (!Connectivity.IsServerReachable)
+        {
+            _syncFeedback = "Server Offline";
+            StateHasChanged();
+            await Task.Delay(2000);
+            _syncFeedback = null;
+            StateHasChanged();
+            return;
+        }
+
         _isSyncingPermissions = true;
         _syncFeedback = "Syncing...";
         StateHasChanged();
@@ -652,34 +675,29 @@
 
     private bool HasAccessTo(string featureName)
     {
-        // [MOD] Removed automatic Admin bypass. Permissions MUST be set in the registry.
-        // if (IsAdmin) return true; 
         if (UserPageNames == null || UserRoutes == null) return false;
+        
+        // [ADMIN OVERRIDE] Safety fallback: if they are an admin, they should see everything
+        // even if the registry sync is currently failing.
+        if (IsAdmin) return true;
 
-        var normalizedSearch = featureName.ToLower().Trim();
+        var normalizedSearch = featureName.Trim().ToLowerInvariant();
 
-        // 1. Try matching by EXACT PageName (Case-Insensitive)
+        if (UserRoutes.Contains(normalizedSearch)) return true;
         if (UserPageNames.Contains(normalizedSearch)) return true;
 
-        // 2. Try matching by Route (More reliable if names have minor differences)
-        // Check if any of the user's allowed routes match the expected route for this feature
-        bool routeMatch = normalizedSearch switch
+        // Route-based mapping for legacy or descriptive names
+        return normalizedSearch switch
         {
             "end of shift sales" => UserRoutes.Contains("mobile/shift-report"),
             "janitor hours entry" => UserRoutes.Contains("mobile/janitor-hours"),
+            "income charts" => UserRoutes.Contains("mobile/analytics"),
+            "key cards" => UserRoutes.Contains("mobile/keycards"),
+            "dues" => UserRoutes.Contains("mobile/dues"),
             "liquor hub (mobile)" => UserRoutes.Contains("mobile/liquor/hub"),
-            "income charts & analytics" => UserRoutes.Contains("mobile/analytics"),
-            "door key cards (mobile)" => UserRoutes.Contains("mobile/keycards"),
-            "dues & payments (mobile)" => UserRoutes.Contains("mobile/dues"),
-            "mobile user management" => UserRoutes.Contains("mobile/users"),
-            "system vitals (mobile)" => UserRoutes.Contains("mobile/system/stats"),
-            "bingo tracking (mobile)" => UserRoutes.Contains("mobile/bingo"),
+            "bingo tracking" => UserRoutes.Contains("mobile/bingo"),
             _ => false
         };
-
-        if (routeMatch) return true;
-
-        return false;
     }
 
     private void NavigateTo(string route)

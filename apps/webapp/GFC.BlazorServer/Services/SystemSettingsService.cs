@@ -380,6 +380,13 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.LiquorEmailCc = settings.LiquorEmailCc;
         existingSettings.GlobalLiquorPourSize = settings.GlobalLiquorPourSize;
 
+        // Revisions (Safe attempt)
+        try {
+            existingSettings.WebappRevision = settings.WebappRevision;
+            existingSettings.MobileRevision = settings.MobileRevision;
+            existingSettings.PosRevision = settings.PosRevision;
+        } catch { /* Columns not in DB yet */ }
+
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 

@@ -1,0 +1,301 @@
+@page "/admin/bingo/expenses"
+@layout GFC.BlazorServer.Components.Layout.FullPageLayout
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@using global::System.Security.Claims
+@using global::System.Globalization
+@inject GfcDbContext DbContext
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject GFC.Core.Interfaces.IUserManagementService UserService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Bingo Expense Center | GFC Admin</PageTitle>
+
+<div class="expense-center">
+    <div class="container py-5">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-icon shadow-sm" @onclick='() => Navigation.NavigateTo("/admin/bingo")'>
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+                <h2 class="fw-black text-slate mb-0">EXPENSE CENTER</h2>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="balance-pill shadow-sm bg-white px-4 py-2 rounded-pill">
+                    <small class="text-muted fw-bold extra-small d-block text-end" style="line-height: 1;">ACCOUNT BALANCE</small>
+                    <span class="fw-black fs-4 @(AccountBalance >= 0 ? "text-success" : "text-danger")">@AccountBalance.ToString("C2")</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Entry Form -->
+            <div class="col-lg-7">
+                <div class="card border-0 shadow-sm rounded-4 p-4">
+                    <div class="row g-4">
+                        <div class="col-12">
+                            <label class="form-label fw-bold text-muted small mb-1">AMOUNT</label>
+                            <div class="input-group input-group-lg bg-light rounded-3 overflow-hidden">
+                                <span class="input-group-text border-0 bg-transparent ps-4 fw-black fs-3 text-muted">$</span>
+                                <input type="number" step="0.01" class="form-control border-0 bg-transparent fw-black fs-1 py-3" @bind="NewExpense.Amount" placeholder="0.00" autofocus />
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-muted small mb-1">CATEGORY</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select form-select-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.CategoryId">
+                                    <option value="">Select Category...</option>
+                                    @foreach (var cat in ExpenseCategories)
+                                    {
+                                        <option value="@cat.Id">@cat.Name</option>
+                                    }
+                                </select>
+                                <button class="btn btn-light rounded-3 px-3" @onclick="() => OpenCategoryModal()" title="Manage Categories">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-muted small mb-1">TRANSACTION TYPE</label>
+                            <div class="d-flex gap-2 p-1 bg-light rounded-3">
+                                <button class='btn flex-grow-1 rounded-2 fw-bold @(NewExpense.Type == "Expense" ? "btn-danger shadow-sm" : "text-muted")' 
+                                        @onclick='() => NewExpense.Type = "Expense"'>EXPENSE</button>
+                                <button class='btn flex-grow-1 rounded-2 fw-bold @(NewExpense.Type == "Income" ? "btn-success shadow-sm" : "text-muted")' 
+                                        @onclick='() => NewExpense.Type = "Income"'>DEPOSIT</button>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold text-muted small mb-1">PAYEE / EXPENSE</label>
+                            <input type="text" class="form-control form-control-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.Description" placeholder="Enter payee or expense detail..." />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-muted small mb-1">DATE</label>
+                            <input type="date" class="form-control form-control-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.Date" />
+                        </div>
+
+                        <div class="col-12 pt-2">
+                            <button class="btn btn-primary btn-lg w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="AddExpense">
+                                RECORD @NewExpense.Type.ToUpper()
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Activity Only -->
+            <div class="col-lg-5">
+                <div class="card border-0 shadow-sm rounded-4 h-100 d-flex flex-column overflow-hidden">
+                    <div class="card-header bg-white border-0 p-4 pb-2 d-flex justify-content-between align-items-center">
+                        <h5 class="fw-black text-slate mb-0">MANUAL ENTRIES</h5>
+                        <span class="badge bg-light text-muted rounded-pill">LAST 20</span>
+                    </div>
+                    
+                    <div class="card-body p-0 overflow-auto" style="max-height: 500px;">
+                        @if (!ManualExpenses.Any())
+                        {
+                            <div class="text-center py-5 text-muted opacity-50">
+                                <i class="bi bi-receipt-cutoff fs-1 d-block mb-2"></i>
+                                <span class="small fw-bold">No manual expenses found</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var tx in ManualExpenses.Take(20))
+                                {
+                                    <div class="list-group-item border-0 border-bottom-1 px-4 py-3">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <div class="fw-black text-slate small">@(string.IsNullOrEmpty(tx.Description) ? tx.Category?.Name ?? "General" : tx.Description)</div>
+                                                <div class="extra-small text-muted fw-bold mt-1">
+                                                    @tx.Date.ToString("MMM dd, yyyy") • <span class="text-primary">@(tx.Category?.Name ?? "Uncategorized")</span>
+                                                </div>
+                                            </div>
+                                            <div class="text-end">
+                                                <div class='fw-black fs-5 @(tx.Amount >= 0 ? "text-success" : "text-danger")'>@tx.Amount.ToString("C2")</div>
+                                                <button class="btn btn-link btn-sm text-danger p-0 text-decoration-none" @onclick="() => DeleteTransaction(tx)">
+                                                    <i class="bi bi-trash-fill"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="mt-auto p-4 bg-light bg-opacity-50">
+                        <button class="btn btn-white shadow-sm w-100 fw-bold rounded-3 text-slate" @onclick='() => Navigation.NavigateTo("/admin/bingo")'>
+                            <i class="bi bi-speedometer2 me-2"></i> RETURN TO DASHBOARD
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (ShowCategoryModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.4); z-index: 1060; backdrop-filter: blur(5px);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header border-0 p-4 pb-0">
+                    <h5 class="modal-title fw-black">MANAGE CATEGORIES</h5>
+                    <button type="button" class="btn-close" @onclick="() => ShowCategoryModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-4 p-3 bg-light rounded-3">
+                        <label class="form-label fw-bold small text-muted">NEW CATEGORY NAME</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control border-0 fw-bold" @bind="EditingCategory.Name" placeholder="Category Name..." />
+                            <button class="btn btn-primary px-4 fw-bold" @onclick="SaveCategory">ADD</button>
+                        </div>
+                    </div>
+
+                    <div class="list-group list-group-flush rounded-3 border">
+                        @foreach (var cat in ExpenseCategories)
+                        {
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span class="fw-bold">@cat.Name</span>
+                                <button class="btn btn-sm btn-outline-danger border-0" @onclick="() => DeleteCategory(cat)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <button class="btn btn-light w-100 rounded-3 fw-bold" @onclick="() => ShowCategoryModal = false">CLOSE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .expense-center { background: #f8fafc; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .text-slate { color: #0f172a; }
+    .extra-small { font-size: 0.65rem; }
+    .btn-icon { width: 44px; height: 44px; background: #fff; border: 0; border-radius: 12px; color: #64748b; transition: all 0.2s; }
+    .btn-icon:hover { background: #0f172a; color: #fff; transform: translateY(-2px); }
+    .ls-1 { letter-spacing: 1px; }
+    
+    .form-select-lg { font-size: 1rem; }
+    .input-group-text { border-right: 0; }
+    
+    .list-group-item { transition: background 0.2s; }
+    .list-group-item:hover { background: #f8fafc; }
+    
+    .fw-black { font-weight: 900; }
+    .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important; }
+
+    /* Hide number arrows */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
+    
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    
+    .last-border-0:last-child { border-bottom: 0 !important; }
+</style>
+
+@code {
+    private string _currentUsername = "Unknown";
+    private decimal AccountBalance { get; set; }
+    private List<BingoLotteryTransaction> Transactions { get; set; } = new();
+    private List<BingoLotteryTransaction> ManualExpenses => Transactions.Where(t => t.SessionId == null && t.Type == "Expense").ToList();
+    private List<BingoExpenseCategory> ExpenseCategories { get; set; } = new();
+    private BingoLotteryTransaction NewExpense { get; set; } = new BingoLotteryTransaction { Date = DateTime.Now, Type = "Expense" };
+    private BingoExpenseCategory EditingCategory { get; set; } = new();
+    private bool ShowCategoryModal { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _currentUsername = authState.User.Identity?.Name ?? "Unknown";
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        Transactions = await DbContext.BingoLotteryTransactions
+            .Include(t => t.Category)
+            .Where(t => !t.IsDeleted)
+            .OrderByDescending(t => t.Date)
+            .ThenByDescending(t => t.Id)
+            .ToListAsync();
+            
+        AccountBalance = Transactions.Sum(t => t.Amount);
+        ExpenseCategories = await DbContext.BingoExpenseCategories.Where(c => !c.IsDeleted).ToListAsync();
+    }
+
+    private async Task AddExpense()
+    {
+        if (NewExpense.Amount == 0) return;
+        
+        if (NewExpense.Type == "Expense")
+            NewExpense.Amount = -Math.Abs(NewExpense.Amount);
+        else
+            NewExpense.Amount = Math.Abs(NewExpense.Amount);
+
+        NewExpense.CreatedAt = DateTime.UtcNow;
+        NewExpense.CreatedBy = _currentUsername;
+        
+        DbContext.BingoLotteryTransactions.Add(NewExpense);
+        await DbContext.SaveChangesAsync();
+        
+        NewExpense = new BingoLotteryTransaction { Date = DateTime.Now, Type = "Expense" };
+        await LoadData();
+    }
+
+    private async Task DeleteTransaction(BingoLotteryTransaction tx)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "Permanently delete this entry?"))
+        {
+            tx.IsDeleted = true;
+            await DbContext.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void OpenCategoryModal(BingoExpenseCategory cat = null)
+    {
+        EditingCategory = new BingoExpenseCategory();
+        ShowCategoryModal = true;
+    }
+
+    private async Task SaveCategory()
+    {
+        if (string.IsNullOrWhiteSpace(EditingCategory.Name)) return;
+        
+        EditingCategory.Color = "#3b82f6";
+        EditingCategory.Icon = "bi-tag";
+        
+        DbContext.BingoExpenseCategories.Add(EditingCategory);
+        await DbContext.SaveChangesAsync();
+        EditingCategory = new BingoExpenseCategory();
+        await LoadData();
+    }
+
+    private async Task DeleteCategory(BingoExpenseCategory cat)
+    {
+        cat.IsDeleted = true;
+        await DbContext.SaveChangesAsync();
+        await LoadData();
+    }
+}

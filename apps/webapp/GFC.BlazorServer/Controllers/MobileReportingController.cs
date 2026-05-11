@@ -1,7 +1,9 @@
 using GFC.Core.Interfaces;
 using GFC.Core.DTOs;
 using GFC.Core.Models;
+using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 
 namespace GFC.BlazorServer.Controllers;
 
@@ -13,36 +15,64 @@ public class MobileReportingController : ControllerBase
     private readonly IMobileReportingService _reportingService;
     private readonly IVersionService _versionService;
     private readonly IDeviceTrustService _deviceTrustService;
+    private readonly IBlazorSystemSettingsService _settingsService;
+    private readonly IConfiguration _configuration;
 
     public MobileReportingController(
         IMobileReportingService reportingService, 
         IVersionService versionService,
-        IDeviceTrustService deviceTrustService)
+        IDeviceTrustService deviceTrustService,
+        IBlazorSystemSettingsService settingsService,
+        IConfiguration configuration)
     {
         _reportingService = reportingService;
         _versionService = versionService;
         _deviceTrustService = deviceTrustService;
-    }
-
-    [HttpGet("device")]
-    public async Task<IActionResult> GetDevice(string token)
-    {
-        var device = await _deviceTrustService.GetDeviceByTokenAsync(token);
-        return device != null ? Ok(device) : NotFound();
-    }
-
-    [HttpGet("device/auto-login")]
-    public async Task<IActionResult> AutoLogin(string token, string username)
-    {
-        var userId = await _deviceTrustService.ValidateStationAutoLoginAsync(token, username);
-        return userId != null ? Ok(userId) : Unauthorized();
+        _settingsService = settingsService;
+        _configuration = configuration;
     }
 
     [HttpGet("version")]
     public ActionResult<string> GetVersion()
     {
-        // [FIX] Return the target mobile revision to prevent "Update Available" false positives
-        return ((GFC.BlazorServer.Services.VersionService)_versionService).GetMobileVersion();
+        return _versionService.GetMobileVersion();
+    }
+
+    [HttpGet("pos-version")]
+    public ActionResult<string> GetPosVersion()
+    {
+        return _versionService.GetPosVersion();
+    }
+
+    [HttpPost("sync-version")]
+    public async Task<IActionResult> SyncVersion([FromQuery] string project, [FromQuery] string version, [FromQuery] string apiKey)
+    {
+        var secret = _configuration["MobileSync:SyncApiKey"];
+        if (string.IsNullOrEmpty(secret) || apiKey != secret)
+        {
+            return Unauthorized("Invalid Sync API Key");
+        }
+
+        var settings = await _settingsService.GetAsync();
+        if (settings == null) return NotFound("System Settings not found");
+
+        if (project.ToUpper() == "POS")
+        {
+            settings.PosRevision = version;
+        }
+        else if (project.ToUpper() == "MOBILE")
+        {
+            settings.MobileRevision = version;
+        }
+        else if (project.ToUpper() == "WEBAPP")
+        {
+            settings.WebappRevision = version;
+        }
+
+        await _settingsService.UpdateAsync(settings);
+
+        Console.WriteLine($"[SYNC] {project} version updated to {version} in database via remote sync.");
+        return Ok(new { Message = "Version updated successfully" });
     }
 
     [HttpGet("data")]
@@ -73,9 +103,7 @@ public class MobileReportingController : ControllerBase
     [HttpPost("submit")]
     public async Task<IActionResult> Submit([FromQuery] string username, [FromBody] MobileShiftData data)
     {
-        Console.WriteLine($"[API] Mobile Submit request received for {data.Date:yyyy-MM-dd} {data.ShiftType} from {username}");
         var result = await _reportingService.SubmitFinalReportAsync(data, username);
-        Console.WriteLine($"[API] Mobile Submit result: {result}");
         return result ? Ok() : BadRequest();
     }
 

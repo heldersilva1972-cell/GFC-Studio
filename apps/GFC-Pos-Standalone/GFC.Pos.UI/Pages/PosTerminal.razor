@@ -12,6 +12,7 @@
 @inject Blazored.Toast.Services.IToastService Toast
 @inject ConnectivityService Connectivity
 @inject IVersionService VersionService
+@inject IStationSettingsService StationSettings
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
 @implements IDisposable
@@ -181,10 +182,16 @@
         text-transform: uppercase;
         margin-bottom: 0.5rem;
     }
-    .adjustment-action .action-amount {
-        font-size: 4rem;
-        font-weight: 1000;
-        line-height: 1;
+    .adjustment-action.compact {
+        padding: 1rem;
+        border-radius: 20px;
+        border-width: 3px;
+    }
+    .adjustment-action.compact .action-amount {
+        font-size: 1.8rem;
+    }
+    .adjustment-action.compact .action-label {
+        font-size: 0.6rem;
     }
     .compact-summary-row {
         display: flex;
@@ -195,6 +202,35 @@
         font-weight: 800;
         color: #475569;
         margin-bottom: 0.5rem;
+    }
+    .correction-header {
+        display: flex;
+        justify-content: space-around;
+        padding: 0.8rem;
+        background: rgba(0,0,0,0.03);
+        border-radius: 20px;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+    .header-item {
+        text-align: center;
+    }
+    .header-item .label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        display: block;
+        opacity: 0.6;
+        font-weight: 700;
+    }
+    .header-item .value {
+        font-weight: 900;
+        font-size: 1.3rem;
+        color: #475569;
+    }
+    .header-item.main .value {
+        color: #1e3a8a;
+        font-size: 1.6rem;
     }
     /* COMPACT CHECKOUT OVERLAY */
     .checkout-overlay .checkout-modal {
@@ -303,14 +339,79 @@
         border-radius: 50px;
         font-weight: 900;
     }
+    .money-question-card {
+        background: white;
+        padding: 3rem;
+        border-radius: 40px;
+        max-width: 600px;
+        width: 90%;
+        text-align: center;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    .money-question-card h2 {
+        font-size: 2.2rem;
+        letter-spacing: -1px;
+    }
+    .money-question-card p {
+        font-size: 1.1rem;
+        line-height: 1.6;
+    }
+    .refund-action-display {
+        background: #f0fdf4;
+        border: 4px solid #16a34a;
+        border-radius: 30px;
+        padding: 3.5rem 1rem;
+        text-align: center;
+        margin: 1rem 0;
+        box-shadow: 0 10px 25px -5px rgba(22, 163, 74, 0.1);
+    }
+    .refund-label {
+        font-weight: 800;
+        color: #16a34a;
+        font-size: 1.3rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 0.5rem;
+    }
+    .refund-amount {
+        font-size: 6rem;
+        font-weight: 1000;
+        color: #15803d;
+        line-height: 1;
+        letter-spacing: -3px;
+    }
+    .correction-footer {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0.6rem;
+        background: rgba(0,0,0,0.02);
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        margin-top: 0.5rem;
+        border: 1px dashed rgba(0,0,0,0.1);
+    }
 </style>
 
 <PageTitle>GFC - @TerminalName.ToUpper()</PageTitle>
 
-<div class="pos-container">
+<div class="pos-container @(forceTrainingMode ? "training-mode" : "")">
+
+
     <header class="pos-header @(_isCorrectionMode ? "correction-mode" : "")">
         <div class="d-flex align-items-center">
-            <span class="brand-text">GFC</span>
+            <span class="brand-text" @onclick="HandleBrandTap">GFC</span>
+            <span class="terminal-id">@TerminalName.ToUpper()</span>
+            
+            @if (_showUpdateBanner)
+            {
+                <div class="update-pill" @onclick="TriggerNuclearReload" title="A new terminal update is available. Tap to install now.">
+                    <i class="bi bi-cloud-arrow-down-fill"></i>
+                    <span>UPDATE AVAILABLE</span>
+                </div>
+            }
             @if (_isCorrectionMode)
             {
                 <div class="correction-active-badge">
@@ -318,7 +419,6 @@
                     CORRECTION ACTIVE
                 </div>
             }
-            <span class="terminal-id">@TerminalName.ToUpper()</span>
             
             <div class="user-indicator-pill" @onclick="LockTerminal">
                 <div class="user-avatar">
@@ -367,9 +467,9 @@
                     }
                     else if (PendingSyncCount > 0)
                     {
-                        <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
-                            <i class="bi bi-cloud-arrow-up-fill"></i>
-                            <span>@PendingSyncCount PENDING</span>
+                        <div class="sync-pill warning animate__animated animate__pulse animate__infinite" @onclick="ForceSync" style="cursor: pointer;" title="Click to sync now">
+                            <i class="bi @(isSyncing ? "bi-arrow-repeat spin" : "bi-cloud-arrow-up-fill")"></i>
+                            <span>@(isSyncing ? "SYNCING..." : $"{PendingSyncCount} PENDING")</span>
                         </div>
                     }
                     else
@@ -380,7 +480,7 @@
                         </div>
                     }
                     <span class="badge bg-light text-muted border" style="font-size: 0.6rem; letter-spacing: 0.05em; padding: 4px 8px;">
-                        v.@VersionService.GetRevision()
+                        v.@(VersionService.GetRevision())
                     </span>
                 </div>
                 <span class="heartbeat-label" style="font-size: 0.5rem; opacity: 0.8;">
@@ -403,6 +503,19 @@
                 <div class="last-transaction-pill animate__animated animate__fadeInRight" @onclick="() => _showCorrectionConfirm = true">
                     <i class="bi bi-clock-history"></i>
                     <span>LAST: <span class="pill-amount">@_lastSale.TotalAmount.ToString("C")</span></span>
+                    @if (_lastSale.IsCorrection)
+                    {
+                        var diff = _lastSale.TotalAmount - _lastSale.OriginalTotal;
+                        <span class="ms-2 fw-black text-warning" style="font-size: 0.7rem;">
+                            @if (diff < 0) { <text>REFUND @Math.Abs(diff).ToString("C")</text> }
+                            else if (diff > 0) { <text>COLLECT @diff.ToString("C")</text> }
+                            else { <text>CORRECTED</text> }
+                        </span>
+                    }
+                    else if (_lastSale.ChangeDue.HasValue && _lastSale.ChangeDue.Value > 0)
+                    {
+                        <span class="ms-2 text-warning fw-black" style="font-size: 0.7rem; letter-spacing: 0.5px;">CHANGE: @_lastSale.ChangeDue.Value.ToString("C")</span>
+                    }
                     <span class="ms-1 ps-2 border-start border-white-50 opacity-75">@_lastSale.Timestamp.ToLocalTime().ToString("h:mm tt")</span>
                     <i class="bi bi-pencil-square ms-2 opacity-75"></i>
                 </div>
@@ -776,13 +889,11 @@
 
                 <div class="checkout-btns-group" style="display: flex; gap: 10px;">
                     <button class="btn-redeem @(CartItems.Count == 0 ? "disabled" : "")" 
-                            style="flex: 1; background: #fff; border: 2.5px solid var(--pos-navy); color: var(--pos-navy); font-weight: 950; border-radius: 50px; padding: 1rem;"
                             disabled="@(CartItems.Count == 0)"
                             @onclick="() => showRedeemOverlay = true">
                         <i class="bi bi-ticket-perforated me-2"></i> REDEEM TOKEN
                     </button>
                     <button class="btn-checkout @(CartItems.Count == 0 ? "disabled" : "")" 
-                            style="flex: 2;"
                             disabled="@(CartItems.Count == 0)"
                             @onclick="Checkout">
                         <i class="bi bi-wallet2 me-2"></i> CHECKOUT
@@ -913,45 +1024,74 @@
                 </button>
             </div>
 
-            <div class="checkout-display shadow-inner" style="@(_isCorrectionMode ? "padding: 1rem;" : "")">
-                @if (_isCorrectionMode)
+            <div class="checkout-display shadow-inner">
+                @if (_isCorrectionMode && _isMoneyCollected)
                 {
                     decimal diff = Subtotal - _originalSaleAmount;
-                    <div class="text-center p-2">
-                        <div class="compact-summary-row">
+                    
+                    @if (diff < 0)
+                    {
+                        @* REFUND DISPLAY *@
+                        <div class="refund-action-display animate__animated animate__pulse animate__infinite animate__slow">
+                            <div class="refund-label">GIVE BACK REFUND</div>
+                            <div class="refund-amount">@Math.Abs(diff).ToString("C")</div>
+                            <div class="correction-footer">
+                                <span>WAS: @_originalSaleAmount.ToString("C")</span>
+                                <i class="bi bi-arrow-right mx-2"></i>
+                                <span>NOW: @Subtotal.ToString("C")</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @* COLLECT EXTRA DISPLAY - UNIFIED WITH STANDARD UI *@
+                        <div class="display-row top">
+                            <span class="label">EXTRA AMOUNT DUE</span>
+                            <span class="value animate__animated animate__pulse animate__infinite" style="color: #dc2626;">@Math.Abs(diff).ToString("C")</span>
+                        </div>
+
+                        <div class="display-row main">
+                            <span class="currency">$</span>
+                            <span class="value">@(string.IsNullOrEmpty(CashInputString) ? "0.00" : CashInputString)</span>
+                        </div>
+
+                        <div class="display-status-bar @(CashReceived.HasValue && CashReceived.Value >= Math.Abs(diff) ? "status-change" : "status-pending")">
+                            @if (CashReceived.HasValue && CashReceived.Value >= Math.Abs(diff))
+                            {
+                                <span class="status-label">CHANGE DUE</span>
+                                <span class="status-value">@((CashReceived.Value - Math.Abs(diff)).ToString("C"))</span>
+                            }
+                            else
+                            {
+                                <span class="status-label">STILL OWED</span>
+                                <span class="status-value">@(Math.Abs(Math.Abs(diff) - (CashReceived ?? 0)).ToString("C"))</span>
+                            }
+                        </div>
+
+                        <div class="correction-footer">
                             <span>WAS: @_originalSaleAmount.ToString("C")</span>
+                            <i class="bi bi-arrow-right mx-2"></i>
                             <span>NOW: @Subtotal.ToString("C")</span>
                         </div>
-                        
-                        @if (diff < 0)
-                        {
-                            <div class="adjustment-action refund animate__animated animate__pulse animate__infinite">
-                                <div class="action-label">REFUND CUSTOMER</div>
-                                <div class="action-amount">@Math.Abs(diff).ToString("C")</div>
-                            </div>
-                        }
-                        else if (diff > 0)
-                        {
-                            <div class="adjustment-action collect animate__animated animate__pulse animate__infinite">
-                                <div class="action-label">COLLECT FROM CUSTOMER</div>
-                                <div class="action-amount">@diff.ToString("C")</div>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="adjustment-action no-change">
-                                <div class="action-label">NO CASH CHANGE</div>
-                                <div class="action-amount">$0.00</div>
-                            </div>
-                        }
-                    </div>
+                    }
                 }
                 else
                 {
-                    <div class="display-row top">
-                        <span class="label">TOTAL DUE</span>
-                        <span class="value animate__animated animate__pulse animate__infinite">$@Subtotal.ToString("N2")</span>
-                    </div>
+                    @if (_isCorrectionMode)
+                    {
+                        <div class="display-row top">
+                            <span class="label">COLLECT NEW TOTAL</span>
+                            <span class="value animate__animated animate__pulse animate__infinite">@Subtotal.ToString("C")</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="display-row top">
+                            <span class="label">TOTAL DUE</span>
+                            <span class="value animate__animated animate__pulse animate__infinite">$@Subtotal.ToString("N2")</span>
+                        </div>
+                    }
+
                     <div class="display-row main">
                         <span class="currency">$</span>
                         <span class="value">@(string.IsNullOrEmpty(CashInputString) ? "0.00" : CashInputString)</span>
@@ -969,10 +1109,17 @@
                             <span class="status-value">$@Math.Abs(ChangeDue).ToString("N2")</span>
                         }
                     </div>
+                    
+                    @if (_isCorrectionMode)
+                    {
+                        <div class="correction-footer">
+                            <span class="opacity-50">WAS VOIDED: @_originalSaleAmount.ToString("C")</span>
+                        </div>
+                    }
                 }
             </div>
 
-            @if (!_isCorrectionMode)
+            @if (!(_isCorrectionMode && _isMoneyCollected && (Subtotal - _originalSaleAmount) < 0))
             {
                 <div class="checkout-main-grid">
                     <div class="numpad-container">
@@ -984,7 +1131,7 @@
                         }
                     </div>
                     <div class="quick-cash-column">
-                        <button class="btn-quick-cash" @onclick='() => SetCashReceived(Subtotal)'>EXACT</button>
+                        <button class="btn-quick-cash" @onclick='() => SetCashReceived(_isCorrectionMode && _isMoneyCollected ? Math.Abs(Subtotal - _originalSaleAmount) : Subtotal)'>EXACT</button>
                         <button class="btn-quick-cash" @onclick="() => SetCashReceived(5)">$5</button>
                         <button class="btn-quick-cash" @onclick="() => SetCashReceived(10)">$10</button>
                         <button class="btn-quick-cash" @onclick="() => SetCashReceived(20)">$20</button>
@@ -1017,6 +1164,32 @@
                 <button class="btn btn-warning py-3 rounded-pill fw-black" @onclick="StartCorrection">YES, START CORRECTION</button>
                 <button class="btn btn-light py-3 rounded-pill fw-bold" @onclick="() => _showCorrectionConfirm = false">CANCEL</button>
             </div>
+        </div>
+    </div>
+}
+
+@if (_showMoneyCollectedQuestion)
+{
+    <div class="shift-overlay" style="z-index: 1060;">
+        <div class="money-question-card animate__animated animate__fadeInUp animate__faster">
+            <div class="mb-4 text-primary">
+                <i class="bi bi-cash-coin" style="font-size: 4rem; opacity: 0.8;"></i>
+            </div>
+            <h2 class="fw-black mb-3">CASH RECONCILIATION</h2>
+            <p class="text-muted mb-5 px-4">Has the cash for the <strong>original</strong> amount (<span class="text-dark fw-bold">@_originalSaleAmount.ToString("C")</span>) already been collected from the customer?</p>
+            
+            <div class="d-grid gap-3 px-4">
+                <button class="btn btn-success btn-lg py-4 fw-black rounded-pill shadow-sm animate__animated animate__pulse animate__infinite animate__slow" @onclick="() => HandleMoneyCollected(true)">
+                    <i class="bi bi-check-circle-fill me-2"></i> YES, IT WAS COLLECTED
+                </button>
+                <button class="btn btn-outline-primary btn-lg py-4 fw-black rounded-pill" @onclick="() => HandleMoneyCollected(false)">
+                    <i class="bi bi-x-circle me-2"></i> NO, COLLECT NEW TOTAL
+                </button>
+            </div>
+            
+            <button class="btn btn-link mt-4 text-muted text-decoration-none" @onclick="() => { _showMoneyCollectedQuestion = false; ShowCheckoutOverlay = false; }">
+                <i class="bi bi-arrow-left me-1"></i> BACK TO ORDER
+            </button>
         </div>
     </div>
 }
@@ -1068,6 +1241,7 @@
     private bool isDartsModeActive = false;
     private bool _isInitialLoading = true;
     private bool _disposed = false;
+    private bool isSyncing = false;
     
     private DateTime _lastActivity = DateTime.Now;
     private int _idleTimeoutMinutes = 5;
@@ -1128,6 +1302,12 @@
 
         // Initialize Activity Tracker
         await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
+
+        // [INSTANT-UPDATE] Check for update immediately on startup
+        _ = Task.Run(async () => {
+            await Task.Delay(2000); // Give connection a moment to stabilize
+            await CheckForUpdatesAsync();
+        });
     }
     
     [JSInvokable]
@@ -1139,7 +1319,7 @@
     {
         while (!_disposed)
         {
-            await Task.Delay(TimeSpan.FromSeconds(30));
+            await Task.Delay(TimeSpan.FromSeconds(10));
             if (_disposed) continue;
 
             // 1. Idle Timeout Check (Highest Priority)
@@ -1153,24 +1333,51 @@
                 }
             }
 
-            // 2. Security / Permissions Sync
-            if (Connectivity.IsServerReachable)
-            {
-                await SyncUsers();
+            // 2. Security / Permissions Sync + Update Check
+            await SyncUsers();
 
-                // Security Check: If a user is currently logged in, verify they are still in the authorized list
-                if (!string.IsNullOrEmpty(CurrentUserName))
+                // [AUTO-UPDATE] Check for newer version while idle/logged out
+            await CheckForUpdatesAsync();
+
+            // Security Check: If a user is currently logged in, verify they are still in the authorized list
+            if (!string.IsNullOrEmpty(CurrentUserName))
+            {
+                var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
+                if (!isStillAuth)
                 {
-                    var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
-                    if (!isStillAuth)
-                    {
-                        Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
-                        LockTerminal();
-                        await InvokeAsync(StateHasChanged);
-                    }
+                    Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
+                    LockTerminal();
+                    await InvokeAsync(StateHasChanged);
                 }
             }
         }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var serverVersion = await PosService.GetServerVersionAsync();
+            _serverVersionFound = serverVersion;
+            
+            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            {
+                if (string.IsNullOrEmpty(CurrentUserName))
+                {
+                    // SAFE TO AUTO-UPDATE: No user is logged in
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Forcing cache-clear reload...");
+                    await TriggerNuclearReload();
+                }
+                else if (!_showUpdateBanner)
+                {
+                    // USER IS ACTIVE: Show banner instead of reloading
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Showing update pill.");
+                    _showUpdateBanner = true;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch { }
     }
 
     private async void OnConnectivityChanged(bool isOnline)
@@ -1181,6 +1388,29 @@
             _ = SyncUsers(); // Auto-refresh user list when server returns
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ForceSync()
+    {
+        if (isSyncing || PendingSyncCount == 0 || !Connectivity.IsServerReachable) return;
+        isSyncing = true;
+        await InvokeAsync(StateHasChanged);
+        await PosService.FlushAllPendingAsync();
+        isSyncing = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private int _brandTapCount = 0;
+    private async Task HandleBrandTap()
+    {
+        _brandTapCount++;
+        if (_brandTapCount >= 5)
+        {
+            _brandTapCount = 0;
+            var server = await PosService.GetServerVersionAsync();
+            var local = VersionService.GetRevision();
+            await JSRuntime.InvokeVoidAsync("alert", $"DIAGNOSTICS:\nLocal: {local}\nServer: {server}\nUpdate Avail: {_showUpdateBanner}\nSource: version.txt check active.");
+        }
     }
 
     private void OnOutboxChanged()
@@ -1195,11 +1425,66 @@
         PosService.OutboxChanged -= OnOutboxChanged;
     }
 
-    private void LockTerminal()
+    private async void LockTerminal()
     {
         if (string.IsNullOrEmpty(CurrentUserName)) return;
+
+        // [AUTO-UPDATE] Check for newer POS version before locking
+        try
+        {
+            var serverVersion = await PosService.GetServerVersionAsync();
+            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            {
+                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing cache-clear reload...");
+                await TriggerNuclearReload();
+                return;
+            }
+        }
+        catch { /* Fallback to standard lock */ }
+
         CurrentUserName = string.Empty;
         _ = RefreshData(); // Background update for next operator
+    }
+
+    private async Task TriggerNuclearReload()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            const wipe = async () => {
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for(let r of registrations) await r.unregister();
+                }
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    for(let k of keys) await caches.delete(k);
+                }
+                window.location.href = window.location.origin + window.location.pathname + '?update=' + Date.now();
+            };
+            wipe();
+        ");
+    }
+
+    private bool IsServerNewer(string serverFullVersion)
+    {
+        try {
+            var parts = serverFullVersion.Split(new[] { "Revision ", "v.", "v" }, StringSplitOptions.RemoveEmptyEntries);
+            var serverRev = parts.LastOrDefault()?.Trim();
+            var clientRev = VersionService.GetRevision();
+            
+            if (string.IsNullOrEmpty(serverRev) || string.IsNullOrEmpty(clientRev)) return false;
+            if (serverRev.Contains(" ")) serverRev = serverRev.Split(' ')[0];
+
+            var sParts = serverRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
+            var cParts = clientRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
+
+            for (int i = 0; i < Math.Max(sParts.Length, cParts.Length); i++) {
+                int s = i < sParts.Length ? sParts[i] : 0;
+                int c = i < cParts.Length ? cParts[i] : 0;
+                if (s > c) return true;
+                if (s < c) return false;
+            }
+            return false;
+        } catch { return false; }
     }
 
     private async Task RefreshData()
@@ -1331,7 +1616,30 @@
 
     private void RemoveItem(ProductItem item) { if (item.Quantity > 1) item.Quantity--; else CartItems.Remove(item); }
     private void ClearCart() { CartItems.Clear(); isDartsModeActive = false; UpdateSpeedBar(); }
-    private async Task Checkout() { if (Subtotal == 0) await FinalizeSale(); else { CashInputString = ""; CashReceived = null; ShowCheckoutOverlay = true; } }
+    private void Checkout()
+    {
+        if (CartItems.Count == 0 && !_isCorrectionMode) return;
+        
+        CashInputString = "";
+        CashReceived = null;
+        
+        if (_isCorrectionMode)
+        {
+            _showMoneyCollectedQuestion = true;
+        }
+        else
+        {
+            ShowCheckoutOverlay = true;
+        }
+    }
+
+    private void HandleMoneyCollected(bool wasCollected)
+    {
+        _isMoneyCollected = wasCollected;
+        _showMoneyCollectedQuestion = false;
+        ShowCheckoutOverlay = true;
+        StateHasChanged();
+    }
 
     private ShiftAuditDto _currentAudit = new();
     private async Task UpdateAuditAsync() { _currentAudit = await PosService.GetShiftAuditAsync(); StateHasChanged(); }
@@ -1351,7 +1659,11 @@
             TotalAmount = amountToRecord,
             BartenderName = CurrentUserName,
             PaymentType = payment,
-            ItemsJson = JsonSerializer.Serialize(CartItems)
+            ItemsJson = JsonSerializer.Serialize(CartItems),
+            AmountReceived = CashReceived,
+            ChangeDue = (CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : null,
+            OriginalTotal = _isCorrectionMode ? _originalSaleAmount : 0,
+            IsCorrection = _isCorrectionMode
         };
         
         // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
@@ -1449,10 +1761,29 @@
                     await PrinterService.KickDrawerAsync();
                 }
                 
-                // ─── GENERATE DETAILED RECEIPT (PROPER WAY) ───
+                // ─── GENERATE DETAILED RECEIPT (GROUPED BY CATEGORY) ───
+                var groupedSales = finalAudit.ItemSummary
+                    .Select(kvp => {
+                        var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                        return new { 
+                            Name = kvp.Key, 
+                            Quantity = kvp.Value, 
+                            Category = product?.Category ?? "MISC", 
+                            Price = product?.Price ?? 0,
+                            Total = kvp.Value * (product?.Price ?? 0)
+                        };
+                    })
+                    .GroupBy(x => x.Category)
+                    .OrderBy(g => g.Key);
+
                 var salesRows = "";
-                foreach(var item in finalAudit.ItemSummary.OrderByDescending(x => x.Value)) {
-                    salesRows += $"<div style='display:flex; justify-content:space-between;'><span>{item.Key}</span><span>{item.Value}</span></div>";
+                foreach(var group in groupedSales) {
+                    salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
+                    foreach(var item in group.OrderByDescending(x => x.Quantity)) {
+                        salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
+                    }
+                    var groupTotal = group.Sum(x => x.Total);
+                    salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
                 }
 
                 var voidedRows = "";
@@ -1528,8 +1859,13 @@
     private PosSaleDto? _lastSale;
     private bool _isCorrectionMode = false;
     private decimal _originalSaleAmount = 0;
+    private bool _showMoneyCollectedQuestion = false;
+    private bool _isMoneyCollected = false;
     private bool _showCorrectionConfirm = false;
     private bool _isQuickCashInput = false;
+    private bool _showUpdateBanner = false;
+    private bool _showDebugVersions = false;
+    private string _serverVersionFound = "Checking...";
 
     private async Task ToggleLastSaleBar(object? val) 
     { 
@@ -1603,8 +1939,8 @@
         CashInputString = CashReceived.Value.ToString("F2"); 
         _isQuickCashInput = true; // Mark as quick-cash for smart replacement
     }
-    private async Task SaveTerminalName() => await JSRuntime.InvokeVoidAsync("localStorage.setItem", "GfcPos_TerminalName", TerminalName);
-    private async Task LoadTerminalName() { TerminalName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "GfcPos_TerminalName") ?? "TERMINAL 1"; }
+    private async Task SaveTerminalName() => await StationSettings.SaveTerminalNameAsync(TerminalName);
+    private async Task LoadTerminalName() { TerminalName = await StationSettings.GetTerminalNameAsync(); }
     private async Task ToggleTrainingMode(object? val) { if (val is bool isChecked) { forceTrainingMode = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_training_mode", forceTrainingMode.ToString().ToLower()); await RefreshData(); } }
     private async Task ToggleHardwarePractice(object? val) { if (val is bool isChecked) { allowHardwareInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_hardware_practice", allowHardwareInTraining.ToString().ToLower()); } }
 

@@ -39,4 +39,5 @@ public class VersionService : IVersionService
     public string GetYear() => "2026";
     public string GetRevision() => _revision;
     public string GetFullVersion() => _fullVersion;
+    public string GetMobileVersion() => _fullVersion;
 }

@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.4.16 (Bingo Session Locking Logic)
+// GFC Mobile Revision: 2.4.26
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

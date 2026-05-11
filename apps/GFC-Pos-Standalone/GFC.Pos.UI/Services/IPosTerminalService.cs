@@ -27,6 +27,8 @@ public interface IPosTerminalService
     Task VoidSaleAsync(Guid saleId, string reason);
     Task<ShiftAuditDto> GetShiftAuditAsync();
     Task ClearShiftAsync();
+    Task FlushAllPendingAsync();
+    Task<string> GetServerVersionAsync();
 }
 
 public class ShiftAuditDto

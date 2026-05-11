@@ -71,7 +71,7 @@ namespace GFC.Core.Services
             ReconcileShiftMath(shift);
 
             // Prevention of double-submission/duplicates by checking Employee + Exact Time
-            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate);
+            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate, shift.ShiftType);
             if (existing != null)
             {
                 throw new InvalidOperationException($"A shift record for {shift.EmployeeName} at {shift.ShiftDate:MMM dd, yyyy h:mm tt} already exists.");
@@ -90,7 +90,7 @@ namespace GFC.Core.Services
             ReconcileShiftMath(shift);
 
             var oldShift = _repository.GetById(shift.ShiftId);
-            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate);
+            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate, shift.ShiftType);
             if (existing != null && existing.ShiftId != shift.ShiftId)
             {
                 throw new InvalidOperationException($"Cannot save because another shift for {shift.EmployeeName} at {shift.ShiftDate:MMM dd, yyyy h:mm tt} already exists.");
@@ -131,7 +131,8 @@ namespace GFC.Core.Services
                 shift.NetSales = sales - payouts - cancels;
             }
 
-            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount - shift.BagRefillAmount;
+            // [FIX]: Expected Cash in drawer should subtract both Bag Refills and Envelope Drops
+            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount - shift.BagRefillAmount - shift.EnvelopeAmount;
             shift.Variance = shift.EndingCash - shift.ExpectedCash;
 
             // [NEW] Persist the income math so it's available for reporting without re-calculation
@@ -281,19 +282,18 @@ namespace GFC.Core.Services
                 PeriodLabel = label,
                 ShiftCount = shifts.Count,
                 
-                // MACHINE TOTALS: We sum the Night shifts only (Cumulative for the day)
-                TotalSales = shiftsByDay.Sum(d => d.LatestShift.TotalSales),
-                TotalPayouts = shiftsByDay.Sum(d => d.LatestShift.TotalPayouts),
-                TotalCancels = shiftsByDay.Sum(d => d.LatestShift.TotalCancels),
-                TotalNetDue = shiftsByDay.Sum(d => d.LatestShift.NetDue),
+                // [SHIFT-ACTIVITY MODEL]: We sum ALL shifts for the day to get the total daily activity.
+                TotalSales = dtos.Sum(d => d.TotalSales),
+                TotalPayouts = dtos.Sum(d => d.TotalPayouts),
+                TotalCancels = dtos.Sum(d => d.TotalCancels),
+                TotalNetDue = dtos.Sum(d => d.NetDue),
                 
                 // ACTIVITY: We sum EVERY shift's results to get the total for the week
                 TotalNetSales = dtos.Sum(s => s.NetSales),
                 TotalEnvelope = dtos.Sum(s => s.EnvelopeAmount),
                 
-                // [FIX]: Monthly/Weekly Variance should only measure CASH errors (Counted vs Expected).
-                // We exclude the Bag transactions from the "Variance" so it doesn't inflate.
-                TotalVariance = dtos.Sum(s => s.EndingCash - (s.StartingCash + s.NetSales)),
+                // [FIX]: Monthly/Weekly Variance should correctly measure the summed variance of all shifts.
+                TotalVariance = dtos.Sum(s => s.Variance),
                 
                 // FINANCIALS: The missing fields for the dashboard
                 // FINANCIALS: Income is calculated from the cumulative machine readings of the Latest Shift (Night shift)
@@ -376,7 +376,8 @@ namespace GFC.Core.Services
                 reconciledNetSales = shift.NetSales;
             }
 
-            decimal reconciledExpected = shift.StartingCash + reconciledNetSales + shift.BackupBagAmount;
+            // [FIX]: Expected Cash for VARIANCE purposes should be the net amount expected in drawer after drops/refills.
+            decimal reconciledExpected = shift.StartingCash + reconciledNetSales + shift.BackupBagAmount - shift.BagRefillAmount - shift.EnvelopeAmount;
             decimal reconciledVariance = shift.EndingCash - reconciledExpected;
 
             return new LotteryShiftDto
@@ -404,7 +405,7 @@ namespace GFC.Core.Services
                 ReconciledBy = shift.ReconciledBy,
                 ReconciledDate = shift.ReconciledDate,
                 BackupBagAmount = shift.BackupBagAmount,
-                EnvelopeAmount = (shift.ShiftType == "Day") ? 0 : shift.EnvelopeAmount,
+                EnvelopeAmount = shift.EnvelopeAmount,
                 BagRefillAmount = shift.BagRefillAmount,
                 CreatedBy = shift.CreatedBy,
                 CreatedDate = shift.CreatedDate,

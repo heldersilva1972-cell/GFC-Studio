@@ -53,6 +53,12 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo ^<?xml version="1.0" encoding="UTF-8"?^>
 >>"%PS_PATH%" echo ^<configuration^>
 >>"%PS_PATH%" echo   ^<system.webServer^>
+>>"%PS_PATH%" echo     ^<defaultDocument^>
+>>"%PS_PATH%" echo       ^<files^>
+>>"%PS_PATH%" echo         ^<clear /^>
+>>"%PS_PATH%" echo         ^<add value="index.html" /^>
+>>"%PS_PATH%" echo       ^</files^>
+>>"%PS_PATH%" echo     ^</defaultDocument^>
 >>"%PS_PATH%" echo     ^<staticContent^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".blat" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".dat" /^>
@@ -86,7 +92,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo           ^<conditions logicalGrouping="MatchAll"^>
 >>"%PS_PATH%" echo             ^<add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" /^>
 >>"%PS_PATH%" echo           ^</conditions^>
->>"%PS_PATH%" echo           ^<action type="Rewrite" url="/" /^>
+>>"%PS_PATH%" echo           ^<action type="Rewrite" url="index.html" /^>
 >>"%PS_PATH%" echo         ^</rule^>
 >>"%PS_PATH%" echo       ^</rules^>
 >>"%PS_PATH%" echo     ^</rewrite^>

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models
 {
@@ -21,6 +22,7 @@ namespace GFC.Core.Models
 
         // Navigation properties
         [ForeignKey("BingoSessionId")]
+        [JsonIgnore]
         public virtual BingoSession? Session { get; set; }
 
         [ForeignKey("AdmissionDefinitionId")]

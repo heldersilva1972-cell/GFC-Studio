@@ -67,16 +67,14 @@ public class MobileReportingService : IMobileReportingService
         // 1. Instant Local Vault Read (Offline-First)
         var key = isRental ? $"gfc_outbox_{date:yyyy-MM-dd}_Hall" : $"gfc_outbox_{date:yyyy-MM-dd}_{shiftType}";
         try {
-            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", key);
-            if (!string.IsNullOrEmpty(json)) {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var localData = JsonSerializer.Deserialize<MobileShiftData>(json, options);
-                if (localData != null) {
-                    localData.ExistingEntryFound = true; // Mark as existing if found in outbox
-                    return localData;
-                }
+            var localData = await _js.InvokeAsync<MobileShiftData>("window.gfcGetAsync", key);
+            if (localData != null) {
+                localData.ExistingEntryFound = true;
+                return localData;
             }
-        } catch { }
+        } catch (Exception ex) {
+            Console.WriteLine($"[GFC VAULT] READ ERROR for {key}: {ex.Message}");
+        }
 
         // 2. Server Fetch (Only if online)
         try
@@ -116,12 +114,8 @@ public class MobileReportingService : IMobileReportingService
         // 1. Check local vault first (Offline-First)
         var key = isRental ? $"gfc_outbox_{date:yyyy-MM-dd}_Hall" : $"gfc_outbox_{date:yyyy-MM-dd}_{shiftType}";
         try {
-            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", key);
-            if (!string.IsNullOrEmpty(json)) {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var data = JsonSerializer.Deserialize<MobileShiftData>(json, options);
-                if (data?.Status == "Submitted") return true;
-            }
+            var data = await _js.InvokeAsync<MobileShiftData>("window.gfcGetAsync", key);
+            if (data?.Status == "Submitted") return true;
         } catch { }
 
         // 2. Fallback to Server check
@@ -155,26 +149,39 @@ public class MobileReportingService : IMobileReportingService
     private async Task TryApplyPreviousData(MobileShiftData data, string outboxKey, string draftKey)
     {
         try {
-            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            string? json = await _js.InvokeAsync<string>("window.gfcGetAsync", outboxKey);
-            if (string.IsNullOrEmpty(json)) json = await _js.InvokeAsync<string>("window.gfcGetAsync", draftKey);
+            var prevData = await _js.InvokeAsync<MobileShiftData>("window.gfcGetAsync", outboxKey);
+            if (prevData == null) prevData = await _js.InvokeAsync<MobileShiftData>("window.gfcGetAsync", draftKey);
 
-            if (!string.IsNullOrEmpty(json)) {
-                var prevData = JsonSerializer.Deserialize<MobileShiftData>(json, options);
-                if (prevData != null) {
+            if (prevData != null) {
+                // If it's a Day shift looking for previous day's Night shift,
+                // we only care about the carryover machine totals (Cumulative reading at EOD)
+                if (data.ShiftType == "Day")
+                {
                     data.PrevDaySales = prevData.LottoSales;
                     data.PrevDayCashes = prevData.LottoCashes;
                     data.PrevDayTickets = prevData.LottoInstantTickets;
                     data.PrevDayNetDue = prevData.LottoNetDue;
                     
+                    // The Day shift's opening cash is the Night shift's ending state
+                    decimal envelope = prevData.EnvelopeAmount ?? 0;
+                    decimal refill = prevData.BagRefillAmount ?? 0;
+                    decimal counted = prevData.LottoCashCounted ?? 0;
+                    data.LottoOpeningCash = counted - envelope - refill;
+                    if (data.LottoOpeningCash <= 0) data.LottoOpeningCash = 1200;
+                }
+                else if (data.ShiftType == "Night")
+                {
+                    data.PrevDaySales = prevData.LottoSales;
+                    data.PrevDayCashes = prevData.LottoCashes;
+                    data.PrevDayTickets = prevData.LottoInstantTickets;
+                    data.PrevDayNetDue = prevData.LottoNetDue;
+
                     // [POS PARITY] Carry over Ending Cash minus settlements
                     decimal envelope = prevData.EnvelopeAmount ?? 0;
                     decimal refill = prevData.BagRefillAmount ?? 0;
                     decimal counted = prevData.LottoCashCounted ?? 0;
                     
                     data.LottoOpeningCash = counted - envelope - refill;
-                    
-                    // Fallback to 1200 if math results in 0 or less
                     if (data.LottoOpeningCash <= 0) data.LottoOpeningCash = 1200;
                 }
             }
@@ -226,7 +233,7 @@ public class MobileReportingService : IMobileReportingService
             var timestamp = DateTime.UtcNow.Ticks;
             return await _http.GetStringAsync($"/api/mobile-reporting/version?t={timestamp}", cts.Token); 
         }
-        catch { return "GFC Mobile Revision 2.1.51 (Settlement Hardening)"; }
+        catch { return "Offline"; }
     }
 
     // ─── BINGO OPERATIONS ───
@@ -463,19 +470,9 @@ public class MobileReportingService : IMobileReportingService
             Console.WriteLine($"[SYNC TRACE] Migration error: {migEx.Message}");
         }
 
-        Console.WriteLine($"[SYNC TRACE] Starting Flush Sweep. Server: {_http.BaseAddress}");
-
         // 1. Process Legacy List-based Outbox (Now in IndexedDB)
-        var legacyJsonRaw = await _js.InvokeAsync<string>("window.gfcGetAsync", OutboxKey);
-        // [ZOMBIE PURGE] If the outbox contains empty shells, clear them
-        if (!string.IsNullOrEmpty(legacyJsonRaw) && legacyJsonRaw.Contains("\"id\":\"\",\"type\":\"\",\"payload\":\"\"")) {
-            Console.WriteLine("[SYNC TRACE] !!! CORRUPT ZOMBIE ENTRIES DETECTED. Purging legacy outbox...");
-            await _js.InvokeVoidAsync("window.gfcRemoveAsync", OutboxKey);
-            await RefreshPendingCountAsync();
-            return;
-        }
-
         var all = await LoadOutboxAsync();
+        
         if (all.Any()) {
             Console.WriteLine($"[SYNC TRACE] Processing {all.Count} legacy items...");
             var remaining = new List<OutboxEntry>();
@@ -573,6 +570,28 @@ public class MobileReportingService : IMobileReportingService
         OutboxChanged?.Invoke();
     }
 
+    public async Task PurgeOutboxAsync()
+    {
+        try {
+            await _js.InvokeVoidAsync("localStorage.removeItem", OutboxKey);
+            
+            var vaultItemsRaw = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItemsRaw.ValueKind == JsonValueKind.Array) {
+                foreach (var item in vaultItemsRaw.EnumerateArray()) {
+                    var k = item.GetProperty("key").GetString();
+                    if (k != null && (k.StartsWith("gfc_outbox_") || k.StartsWith("gfc_bingo_outbox_") || k == OutboxKey)) {
+                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", k);
+                    }
+                }
+            }
+            
+            await RefreshPendingCountAsync();
+            Console.WriteLine("[SYNC] Outbox purged manually by user.");
+        } catch (Exception ex) {
+            Console.WriteLine($"[SYNC] Purge failed: {ex.Message}");
+        }
+    }
+
     public async Task<int> GetPendingCountAsync()
     {
         var legacyCount = (await LoadOutboxAsync()).Count;
@@ -595,14 +614,16 @@ public class MobileReportingService : IMobileReportingService
     {
         try
         {
-            // [VAULT FIX] Read outbox from the persistent IndexedDB vault, not localStorage
-            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", OutboxKey);
-            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            return string.IsNullOrEmpty(json)
-                ? new List<OutboxEntry>()
-                : JsonSerializer.Deserialize<List<OutboxEntry>>(json, options) ?? new List<OutboxEntry>();
+            // [VAULT FIX] Read outbox from the persistent IndexedDB vault.
+            // Since gfcGetAsync returns the object directly, we let JS Interop handle the mapping.
+            var entries = await _js.InvokeAsync<List<OutboxEntry>>("window.gfcGetAsync", OutboxKey);
+            return entries ?? new List<OutboxEntry>();
         }
-        catch { return new List<OutboxEntry>(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Outbox] Load failed: {ex.Message}");
+            return new List<OutboxEntry>(); 
+        }
     }
 
     private async Task SaveOutboxAsync(List<OutboxEntry> entries)

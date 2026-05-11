@@ -150,8 +150,8 @@ public class PosTerminalService : IPosTerminalService
         {
             if (isOnline)
             {
-                Console.WriteLine("[SYNC TRACE] Connectivity restored — sweeping vault...");
-                await SafeFlushAsync();
+                Console.WriteLine("[SYNC] Server detected! Triggering immediate vault sweep...");
+                _ = SafeFlushAsync();
             }
         };
     }
@@ -166,6 +166,31 @@ public class PosTerminalService : IPosTerminalService
     // ─── READ OPERATIONS ──────────────────────────────────────────────────────────────
 
     public async Task<bool> CheckConnectivityAsync() => await _connectivity.CheckServerReachableAsync();
+
+    public async Task<string> GetServerVersionAsync()
+    {
+        try
+        {
+            // [ROBUST-UPDATE] Check the static version file in the deployment root.
+            var timestamp = DateTime.UtcNow.Ticks;
+            var request = new HttpRequestMessage(HttpMethod.Get, $"version.txt?v={timestamp}");
+            
+            // Force bypass of any server-side or browser caching
+            request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
+            request.Headers.IfModifiedSince = DateTimeOffset.MinValue;
+
+            var resp = await _http.SendAsync(request);
+            if (resp.IsSuccessStatusCode)
+            {
+                var content = await resp.Content.ReadAsStringAsync();
+                return content?.Trim() ?? "Offline";
+            }
+            
+            // [BRIDGE-FALLBACK] If version.json is missing, check the old API
+            return await _http.GetStringAsync($"api/mobile-reporting/pos-version?t={timestamp}");
+        }
+        catch { return "Offline"; }
+    }
 
     public async Task<PosMenuDto> GetMenuAsync()
     {
@@ -348,10 +373,17 @@ public class PosTerminalService : IPosTerminalService
                 if (key.StartsWith(VaultPrefixSales)) {
                     var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
                     if (data != null) {
-                        var resp = await _http.PostAsJsonAsync("api/pos/sale", data);
-                        if (resp.IsSuccessStatusCode) {
-                            await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                            LastSynced = DateTime.Now;
+                        try {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                            var resp = await _http.PostAsJsonAsync("api/pos/sale", data, cts.Token);
+                            if (resp.IsSuccessStatusCode) {
+                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                LastSynced = DateTime.Now;
+                            } else {
+                                Console.WriteLine($"[SYNC] Failed to send sale {data.Id}: {resp.StatusCode}");
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine($"[SYNC] Error sending sale {data.Id}: {ex.Message}");
                         }
                     }
                 }
@@ -359,10 +391,17 @@ public class PosTerminalService : IPosTerminalService
                 if (key.StartsWith(VaultPrefixZ)) {
                     var data = JsonSerializer.Deserialize<PosZReportDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
                     if (data != null) {
-                        var resp = await _http.PostAsJsonAsync("api/pos/z-report", data);
-                        if (resp.IsSuccessStatusCode) {
-                            await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                            LastSynced = DateTime.Now;
+                        try {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                            var resp = await _http.PostAsJsonAsync("api/pos/z-report", data, cts.Token);
+                            if (resp.IsSuccessStatusCode) {
+                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                LastSynced = DateTime.Now;
+                            } else {
+                                Console.WriteLine($"[SYNC] Failed to send Z-Report: {resp.StatusCode}");
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine($"[SYNC] Error sending Z-Report: {ex.Message}");
                         }
                     }
                 }

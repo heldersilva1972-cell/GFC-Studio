@@ -321,7 +321,7 @@ namespace GFC.Data.Repositories
             }
         }
 
-        public LotteryShift? GetDuplicateShift(string employeeName, DateTime date)
+        public LotteryShift? GetDuplicateShift(string employeeName, DateTime date, string? shiftType)
         {
             try
             {
@@ -341,10 +341,16 @@ namespace GFC.Data.Repositories
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
                     LEFT JOIN Members m ON u.MemberId = m.MemberID
-                    WHERE s.EmployeeName = @EmployeeName AND s.ShiftDate = @ShiftDate";
+                    WHERE CAST(s.ShiftDate AS DATE) = CAST(@ShiftDate AS DATE)
+                      AND ISNULL(s.ShiftType, '') = ISNULL(@ShiftType, '')
+                      AND (s.EmployeeName = @EmployeeName 
+                           OR ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) = @EmployeeName)";
+
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@EmployeeName", employeeName);
-                command.Parameters.AddWithValue("@ShiftDate", date);
+                command.Parameters.AddWithValue("@ShiftDate", date.Date);
+                command.Parameters.AddWithValue("@ShiftType", (object?)shiftType ?? DBNull.Value);
+                
                 using var reader = command.ExecuteReader();
                 return reader.Read() ? MapReaderToShift(reader) : null;
             }

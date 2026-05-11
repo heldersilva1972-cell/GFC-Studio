@@ -125,8 +125,13 @@
                 <div class="success-icon mb-4 animate-bounce-in">
                     <i class="bi bi-check-circle-fill" style="font-size: 5rem; color: #10b981;"></i>
                 </div>
-                <h2 class="fw-black text-dark mb-2">Report Submitted Successfully</h2>
-                <p class="text-muted mb-4">The shift sales data for <strong>@ReportDate.ToShortDateString() (@ShiftType)</strong> has been recorded and synced.</p>
+                <h2 class="fw-black text-dark mb-2">Report Secured in Local Vault</h2>
+                <p class="text-muted mb-3">The shift data for <strong>@ReportDate.ToShortDateString() (@ShiftType)</strong> is safe and is now syncing to the server.</p>
+                
+                <div class="d-flex align-items-center justify-content-center gap-2 mb-4 p-2 bg-light rounded-pill mx-auto" style="max-width: 250px;">
+                    <div class="hub-heartbeat-dot @(Connectivity.IsServerReachable ? "online" : "offline")"></div>
+                    <span class="fw-black text-muted small text-uppercase" style="font-size: 0.6rem;">@(_syncStatus ?? "SYNCING IN BACKGROUND...")</span>
+                </div>
                 
                 <div class="row g-3 mb-5">
                     <div class="col-6">
@@ -158,7 +163,11 @@
                     }
                 </div>
 
-                <button class="btn btn-primary btn-lg rounded-pill px-5 fw-black shadow" @onclick='() => Navigation.NavigateTo("/mobile/hub")'>RETURN TO HUB</button>
+                <div class="d-flex flex-column gap-2 mt-4">
+                    <div class="text-muted fw-bold small text-uppercase animate-pulse" style="font-size: 0.65rem; letter-spacing: 0.1em;">
+                        SECURE LOGOUT IN PROGRESS...
+                    </div>
+                </div>
             </div>
         </div>
     }
@@ -187,6 +196,33 @@
         </div>
     }
 
+    @if (_showCumulativeWarning)
+    {
+        <div class="glass-modal-overlay" style="z-index: 11000;">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px;">
+                <div class="glass-modal-header-icon warning mb-3 animate-bounce-in" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);">
+                    <i class="bi bi-exclamation-octagon-fill"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">Reading Warning</h3>
+                <p class="text-muted small mb-4 px-3">
+                    The <strong>@_pendingReadingFieldName</strong> reading you entered (<strong>@_pendingReadingValue?.ToString("N2")</strong>) is 
+                    LOWER than the previous shift's reading (<strong>@_pendingReadingPrevValue.ToString("N2")</strong>).
+                    <br/><br/>
+                    Machine readings should always increase. Are you sure this is correct?
+                </p>
+                
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn btn-danger w-100 py-3 rounded-pill fw-black shadow-sm text-white" @onclick="ConfirmCumulativeReading">
+                        YES, VALUE IS CORRECT
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border" @onclick="CancelCumulativeReading">
+                        GO BACK & EDIT
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_showDistributionSlip)
     {
         <div class="glass-modal-overlay" style="z-index: 10000;">
@@ -204,9 +240,7 @@
                     @if (LottoBagRefill > 0)
                     {
                         <div class="instruction-card amber-tint animate-slide-up">
-                            <div class="ins-icon">
-                                <i class="bi bi-briefcase-fill"></i>
-                            </div>
+                            <div class="ins-icon"><i class="bi bi-piggy-bank-fill"></i></div>
                             <div class="ins-content">
                                 <span class="ins-label">RETURN TO BACKUP BAG</span>
                                 <span class="ins-amount">@(LottoBagRefill.ToString("C2"))</span>
@@ -217,12 +251,10 @@
 
                     <!-- TASK 2: ENVELOPE -->
                     <div class="instruction-card green-tint animate-slide-up" style="animation-delay: 0.1s;">
-                        <div class="ins-icon">
-                            <i class="bi bi-envelope-check-fill"></i>
-                        </div>
+                        <div class="ins-icon"><i class="bi bi-envelope-check-fill"></i></div>
                         <div class="ins-content">
                             <span class="ins-label">PLACE IN DEPOSIT ENVELOPE</span>
-                            <span class="ins-amount">@(LottoEnvelopeAmount.ToString("C2"))</span>
+                            <span class="ins-amount">@((LottoTotalDrop - LottoBagRefill).ToString("C2"))</span>
                             <span class="ins-subtext">Seal this in your shift envelope.</span>
                         </div>
                     </div>
@@ -256,7 +288,7 @@
     {
         var guide = GetFocusGuide();
         <div class="focus-modal-wrapper">
-            <div @key="_activeField" class="glass-modal-card animate-guide-switch text-start shadow-2xl border-0" style="max-width: 500px; border-radius: 24px; background: white; border: 2px solid #e2e8f0 !important;">
+            <div class="glass-modal-card animate-guide-switch text-start shadow-2xl border-0" style="max-width: 500px; border-radius: 24px; background: white; border: 2px solid #e2e8f0 !important;">
                 <!-- HEADER AREA -->
                 <div class="d-flex align-items-start justify-content-between mb-3">
                     <div class="d-flex align-items-center gap-3">
@@ -310,16 +342,18 @@
                     </div>
                 </div>
 
+
+
                 <!-- ACTIONS -->
-                <div class="row g-2">
+                <div class="row g-2 mt-2">
                     <div class="col-4">
-                        <button class="btn btn-light border w-100 py-3 rounded-pill fw-black text-muted" @onclick="() => _showFocusModal = false" style="font-size: 0.8rem;">
+                        <button class="btn btn-light border w-100 py-2 rounded-pill fw-black text-muted" @onclick="() => _showFocusModal = false" style="font-size: 0.75rem;">
                              CLOSE
                         </button>
                     </div>
                     <div class="col-8">
-                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm d-flex align-items-center justify-content-center gap-2" @onclick="HandleNext">
-                            NEXT ENTRY <i class="bi bi-arrow-right-circle-fill fs-5"></i>
+                        <button class="btn btn-primary w-100 py-2 rounded-pill fw-black shadow-sm d-flex align-items-center justify-content-center gap-2" @onclick="HandleNext" style="font-size: 0.75rem;">
+                            NEXT ENTRY <i class="bi bi-arrow-right-circle-fill"></i>
                         </button>
                     </div>
                 </div>
@@ -396,7 +430,7 @@
                     {
                         @if (ShiftType == "Night")
                         {
-                            // Night: always show envelope pill — pulses when there's an amount to pull
+                            // Night: always show envelope pill â€” pulses when there's an amount to pull
                             <div class="final-envelope-card-pill shadow-sm animate-bounce-in d-flex align-items-center @(LottoEnvelopeAmount > 0 ? "has-value" : "")">
                                 <div class="px-3">
                                     <label class="d-block mb-0 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 0.1em; opacity: 0.8;">Envelope Amount</label>
@@ -455,7 +489,7 @@
                                                         @if (ShiftType == "Day" && HasUnsavedChanges) {
                                                             <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
                                                         } else {
-                                                            <span class="status-tag-text success">@(_dayMainModified ? "UPDATED BY" : "CLOSED BY")@(_dayMainModified ? " ✏️" : "")</span> 
+                                                            <span class="status-tag-text success">@(_dayMainModified ? "UPDATED BY" : "CLOSED BY")@(_dayMainModified ? " ✍️" : "")</span> 
                                                         }
                                                         @if (!string.IsNullOrEmpty(_dayCloser)) { <span class="user-pill success">@_dayCloser.ToUpper()</span> }
                                                     } else if (_dayMainHasData) {
@@ -482,7 +516,7 @@
                                                         @if (ShiftType == "Night" && HasUnsavedChanges) {
                                                             <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
                                                         } else {
-                                                            <span class="status-tag-text success">@(_nightMainModified ? "UPDATED BY" : "CLOSED BY")@(_nightMainModified ? " ✏️" : "")</span> 
+                                                            <span class="status-tag-text success">@(_nightMainModified ? "UPDATED BY" : "CLOSED BY")@(_nightMainModified ? " ✍️" : "")</span> 
                                                         }
                                                         @if (!string.IsNullOrEmpty(_nightCloser)) { <span class="user-pill success">@_nightCloser.ToUpper()</span> }
                                                     } else if (_nightMainHasData) {
@@ -522,7 +556,7 @@
                                                     @if (ShiftType == "Hall" && HasUnsavedChanges) {
                                                         <span class="status-tag-text info"><i class="bi bi-pencil-square me-1"></i> SUBMITTED / UPDATING...</span>
                                                     } else {
-                                                        <span class="status-tag-text success">@(_hallModified ? "UPDATED BY" : "CLOSED BY")@(_hallModified ? " ✏️" : "")</span> 
+                                                        <span class="status-tag-text success">@(_hallModified ? "UPDATED BY" : "CLOSED BY")@(_hallModified ? " ✍️" : "")</span> 
                                                     }
                                                     @if (!string.IsNullOrEmpty(_hallCloser)) { <span class="user-pill success">@_hallCloser.ToUpper()</span> }
                                                 } else if (_hallModified) {
@@ -599,7 +633,7 @@
                                         @if (ShiftType == "Night" && !_dayMainHasData && !_dayMainSubmitted)
                                         {
                                             <div class="alert alert-warning border border-warning border-opacity-25 rounded-3 p-2 d-flex flex-column gap-1 mb-0 animate-bounce-in">
-                                                <div class="fw-black text-warning small" style="font-size: 0.6rem;"><i class="bi bi-exclamation-triangle-fill me-1"></i> DAY SHIFT DATA MISSING — ENTER ENDING TOTALS FROM FIRST SHIFT</div>
+                                                <div class="fw-black text-warning small" style="font-size: 0.6rem;"><i class="bi bi-exclamation-triangle-fill me-1"></i> DAY SHIFT DATA MISSING â€” ENTER ENDING TOTALS FROM FIRST SHIFT</div>
                                                 <div class="d-flex gap-2">
                                                     <div class='input-group-modern mini-rescue flex-fill @(_activeField == "RescueSales" ? "focused" : (_prevDaySales > 0 ? "active" : ""))' @onclick='() => ActivateField("RescueSales")' style="height: 45px; border-style: dashed; padding: 2px 8px;">
                                                         <span class="fw-black opacity-50 pe-1" style="font-size: 0.5rem;">NET SALES:</span>
@@ -623,6 +657,9 @@
                                                 <div class="d-flex flex-column">
                                                     <span class='fw-black text-success text-uppercase @(_activeField == "LottoSales" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Net Sales</span>
                                                     <span class="text-success fw-bold small opacity-75" style="font-size: 0.55rem;">(RPT 50)</span>
+                                                    @if (LottoSalesIsInvalid) {
+                                                        <span class="badge bg-danger rounded-pill px-2 py-0 mt-1 animate-pulse" style="font-size: 0.45rem; letter-spacing: 0.05em;"><i class="bi bi-exclamation-triangle-fill"></i> TOO LOW</span>
+                                                    }
                                                 </div>
                                                 <div class="d-flex align-items-center">
                                                     <span class="input-addon text-success opacity-50 me-2" style="font-size: 1rem;">$</span>
@@ -637,6 +674,9 @@
                                                 <div class="d-flex flex-column">
                                                     <span class='fw-black text-danger text-uppercase @(_activeField == "LottoCashes" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Cashes</span>
                                                     <span class="text-danger fw-bold small opacity-75" style="font-size: 0.55rem;">(RPT 50)</span>
+                                                    @if (LottoCashesIsInvalid) {
+                                                        <span class="badge bg-danger rounded-pill px-2 py-0 mt-1 animate-pulse" style="font-size: 0.45rem; letter-spacing: 0.05em;"><i class="bi bi-exclamation-triangle-fill"></i> TOO LOW</span>
+                                                    }
                                                 </div>
                                                 <div class="d-flex align-items-center">
                                                     <span class="input-addon text-danger opacity-50 me-2" style="font-size: 1rem;">$</span>
@@ -665,6 +705,9 @@
                                                 <div class="d-flex flex-column">
                                                     <span class='fw-black text-purple text-uppercase @(_activeField == "LottoInstantTickets" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Instant Tickets</span>
                                                     <span class="text-purple fw-bold small opacity-75" style="font-size: 0.55rem;">(RPT 34)</span>
+                                                    @if (LottoTicketsIsInvalid) {
+                                                        <span class="badge bg-danger rounded-pill px-2 py-0 mt-1 animate-pulse" style="font-size: 0.45rem; letter-spacing: 0.05em;"><i class="bi bi-exclamation-triangle-fill"></i> TOO LOW</span>
+                                                    }
                                                 </div>
                                                 <div class="d-flex align-items-center">
                                                     <span class="input-addon text-purple opacity-50 me-2" style="font-size: 1rem;">$</span>
@@ -722,26 +765,34 @@
                                 </div>
                                  <div class="math-flow-table p-2">
                                      <div class="math-row opacity-60 mb-1" style="font-size: 0.75rem;">
-                                         <span class="fw-bold">🏦 STARTING CASH</span>
+                                         <span class="fw-bold">💵 STARTING CASH</span>
                                          <span class="fw-black">@((LottoOpeningCash ?? 0).ToString("C2"))</span>
                                      </div>
                                      <div class="math-row opacity-50 ps-2" style="font-size: 0.65rem; line-height: 1;">
-                                         <span>+ Sales (RPT 50)</span>
-                                         <span class="fw-bold">+@((Math.Abs(LottoSalesActivity)).ToString("N2"))</span>
+                                         <span class="@(LottoSalesActivity < 0 ? "text-danger animate-pulse fw-black" : "")">+ Sales (RPT 50)</span>
+                                         <span class="fw-bold @(LottoSalesActivity < 0 ? "text-danger" : "")">@(LottoSalesActivity < 0 ? "INVALID" : "+" + (Math.Abs(LottoSalesActivity)).ToString("N2"))</span>
                                      </div>
                                      <div class="math-row opacity-50 ps-2" style="font-size: 0.65rem; line-height: 1;">
-                                         <span>- Cashes (RPT 50)</span>
-                                         <span class="fw-bold">-@((Math.Abs((ShiftType == "Night" ? (LottoCashes ?? 0) - _prevDayCashes : (LottoCashes ?? 0)))).ToString("N2"))</span>
+                                         <span class="@(LottoCashesActivity < 0 ? "text-danger animate-pulse fw-black" : "")">- Cashes (RPT 50)</span>
+                                         <span class="fw-bold @(LottoCashesActivity < 0 ? "text-danger" : "")">@(LottoCashesActivity < 0 ? "INVALID" : "-" + (Math.Abs(LottoCashesActivity)).ToString("N2"))</span>
                                      </div>
                                      <div class="math-row opacity-50 ps-2 mb-1" style="font-size: 0.65rem; line-height: 1;">
-                                         <span>- Tickets (RPT 34)</span>
-                                         <span class="fw-bold">-@((Math.Abs((ShiftType == "Night" ? (LottoInstantTickets ?? 0) - _prevDayTickets : (LottoInstantTickets ?? 0)))).ToString("N2"))</span>
+                                         <span class="@(LottoTicketsActivity < 0 ? "text-danger animate-pulse fw-black" : "")">- Tickets (RPT 34)</span>
+                                         <span class="fw-bold @(LottoTicketsActivity < 0 ? "text-danger" : "")">@(LottoTicketsActivity < 0 ? "INVALID" : "-" + (Math.Abs(LottoTicketsActivity)).ToString("N2"))</span>
                                      </div>
                                      @if (LottoBackupBag > 0)
                                      {
                                          <div class="math-row text-primary py-1 px-2 rounded-2 mt-2 mb-1" style="font-size: 0.7rem; background: rgba(13, 110, 253, 0.05); border: 1px dashed rgba(13, 110, 253, 0.2);">
                                              <span class="fw-black text-uppercase">💰 From Backup Bag</span>
                                              <span class="fw-black">+@((LottoBackupBag ?? 0).ToString("C2"))</span>
+                                         </div>
+                                     }
+
+                                     @if (ShiftType == "Night" && LottoBagRefill > 0)
+                                     {
+                                         <div class="math-row text-success py-1 px-2 rounded-2 mt-1 mb-1" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.05); border: 1px dashed rgba(16, 185, 129, 0.2);">
+                                             <span class="fw-black text-uppercase">♻️ RETURN TO BAG</span>
+                                             <span class="fw-black">-@((LottoBagRefill).ToString("C2"))</span>
                                          </div>
                                      }
                                      
@@ -772,15 +823,15 @@
                                         <div class="text-center w-100 mb-1">
                                              <span class="fw-black text-dark text-uppercase confirm-title-blink" style="font-size: 0.75rem; letter-spacing: 0.1em;">
                                                  <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                                 ACTION REQUIRED: CONFIRM SIGN
-                                                 <i class="bi bi-exclamation-triangle-fill ms-2"></i>
+                                                 Verify Reading Sign
                                              </span>
                                         </div>
+                                        
                                         <div class="d-flex gap-2">
-                                            <button class='btn flex-fill py-1 fw-black btn-choice-neg btn-choice-pulse' @onclick="() => SetLottoSign(-1)" style="font-size: 0.75rem; height: 35px;">
+                                            <button class='btn btn-choice-neg flex-grow-1 py-2 fw-black @((LottoNetDue ?? 0) < 0 ? "active" : "")' @onclick="() => SetLottoSign(-1)">
                                                 <i class="bi bi-dash-circle-fill me-1"></i> (-) NEGATIVE
                                             </button>
-                                            <button class='btn flex-fill py-1 fw-black btn-choice-pos btn-choice-pulse' @onclick="() => SetLottoSign(1)" style="font-size: 0.75rem; height: 35px;">
+                                            <button class='btn btn-choice-pos flex-grow-1 py-2 fw-black @((LottoNetDue ?? 0) >= 0 ? "active" : "")' @onclick="() => SetLottoSign(1)">
                                                 <i class="bi bi-plus-circle-fill me-1"></i> (+) POSITIVE
                                             </button>
                                         </div>
@@ -789,16 +840,14 @@
                             </div>
                         }
 
-                        <MobileKeypad OnKeyPressed="KeyPressed" 
-                                      OnBackspacePressed="BackspaceCurrentField" 
-                                      OnNextPressed="HandleNext" 
-                                      OnSubmitPressed="HandleFinalConfirm"
-                                      Disabled="false"
-                                      SubmitDisabled="@(IsSubmitting || IsLocked || ShouldShowSignConfirmation)"
-                                      PulseSubmit="@(IsReadyToSubmit && !Submitted && !IsLocked && _lottoSignConfirmed)" />
-
-                        @* 1-hour window message removed at user request *@
-
+                        <ShiftReportKeypad OnKeyPressed="KeyPressed" 
+                                           OnBackspacePressed="BackspaceCurrentField" 
+                                           OnNextPressed="HandleNext" 
+                                           OnSubmitPressed="HandleFinalConfirm"
+                                           OnClosePressed='() => _activeField = ""'
+                                           Disabled="IsLocked"
+                                           SubmitDisabled="@(IsSubmitting || IsLocked || ShouldShowSignConfirmation)"
+                                           PulseSubmit="@(IsReadyToSubmit && !Submitted && !IsLocked && _lottoSignConfirmed)" />
                     </div>
                 }
             </div>
@@ -806,9 +855,6 @@
     </div>
 </div>
 </div>
-
-
-
 <style>
     .glass-page-container {
         --c-glass-bg: var(--bg-surface);
@@ -1196,6 +1242,7 @@
         overflow-y: auto;
         padding-right: 4px;
         padding-bottom: 2rem;
+        padding-top: 60px; /* PREVENT OVERLAP WITH GUIDE MODAL ON TABLETS */
     }
     .tablet-col-right::-webkit-scrollbar { width: 4px; }
     .tablet-col-right::-webkit-scrollbar-track { background: transparent; }
@@ -1871,9 +1918,9 @@
     private bool IsDayLocked => _dayMainHasData && CurrentUser != null && !CurrentUser.IsAdmin && _dayCloser != CurrentUser.Username;
     private bool IsNightLocked => _nightMainHasData && CurrentUser != null && !CurrentUser.IsAdmin && _nightCloser != CurrentUser.Username;
     private bool IsHallLocked => _hallSubmitted && CurrentUser != null && !CurrentUser.IsAdmin && _hallCloser != CurrentUser.Username;
-    private bool IsReadyToSubmit => 
-        (IsRentalHall ? (BarSales ?? 0) > 0 : 
-        ((BarSales ?? 0) > 0 && (TotalHours ?? 0) > 0 && (LottoSales ?? 0) != 0 && (LottoCashes ?? 0) != 0 && (LottoCashCounted ?? 0) > 0));
+    private bool IsFormComplete => (IsRentalHall) ? (BarSales ?? 0) > 0 :
+        ((BarSales ?? 0) > 0 && (TotalHours ?? 0) > 0 && LottoSales != null && LottoCashes != null && (LottoCashCounted ?? 0) > 0);
+    private bool IsReadyToSubmit => IsFormComplete;
 
     private readonly global::System.Threading.SemaphoreSlim _saveLock = new(1, 1);
     private string? _validationError { get; set; }
@@ -1911,6 +1958,13 @@
     private bool _showHoursConfirmation = false;
     private bool _showSuccessSplash = false;
     private bool _hoursConfirmed = false;
+    private bool _showCumulativeWarning = false;
+    private string? _pendingReadingFieldName;
+    private decimal? _pendingReadingValue;
+    private decimal _pendingReadingPrevValue;
+    private bool _lottoSalesConfirmed = false;
+    private bool _lottoCashesConfirmed = false;
+    private bool _lottoTicketsConfirmed = false;
 
     private string? _selectedWorker;
     private string? _lockOwner;
@@ -1948,10 +2002,10 @@
         "Hours" => new FieldGuide("Hours Worked", "How many total hours did you work tonight?", "Enter hours and minutes (e.g., 8.5 for 8h 30m).", "PAYROLL", "bi-clock-fill", "primary", "N/A"),
         "BarSales" => new FieldGuide("Register Sales", "Enter the Total Net Sales from your bar register Z-Report.", "", "Z-REPORT", "bi-cash-register", "primary", "TOTAL"),
         "LottoOpeningCash" => new FieldGuide("Beginning Drawer Cash", "Confirm the starting cash in your lottery drawer.", "The current value is automatically carried over from the previous shift. It is recommended you count this to verify the amount is accurate. If this value is not correct update it with the correct amount.", "DRAWER", "bi-bank2", "primary", "N/A"),
-        "LottoSales" => new FieldGuide("Net Sales", "Find the line labeled 'NET SALES' on Report 50.", "Enter that value below.", "RPT 50", "bi-ticket-perforated-fill", "success", "36"),
-        "LottoCashes" => new FieldGuide("Cashes", "Find the 'CASHES' line on Report 50.", "Enter that value below.", "RPT 50", "bi-dash-circle-fill", "danger", "22"),
+        "LottoSales" => new FieldGuide("Net Sales", "Find the line labeled 'NET SALES' on Report 50.", LottoSalesIsInvalid ? "CRITICAL WARNING: The value you entered is LOWER than the previous shift's reading. Please double check the reading on Report 50. Machine readings should always increase." : "Enter that value below.", "RPT 50", "bi-ticket-perforated-fill", LottoSalesIsInvalid ? "danger" : "success", "36"),
+        "LottoCashes" => new FieldGuide("Cashes", "Find the 'CASHES' line on Report 50.", LottoCashesIsInvalid ? "CRITICAL WARNING: The value you entered is LOWER than the previous shift's reading. Machine readings should always increase." : "Enter that value below.", "RPT 50", "bi-dash-circle-fill", LottoCashesIsInvalid ? "danger" : "danger", "22"),
+        "LottoInstantTickets" => new FieldGuide("Instant Tickets", "Find the line labeled TOTALS at the bottom of Report 34.", LottoTicketsIsInvalid ? "CRITICAL WARNING: The value you entered is LOWER than the previous shift's reading. Machine readings should always increase." : "Enter that value below.", "RPT 34", "bi-safe2-fill", LottoTicketsIsInvalid ? "danger" : "purple", "TOTAL"),
         "LottoNetDue" => new FieldGuide("Net Due", "Find the 'NET DUE' line at the very bottom of Report 50.", "Enter that value below. NOTE: This may be a negative number. Select Positive (+) or Negative (-) using the buttons above the keypad.", "RPT 50", "bi-calculator-fill", "primary", "BOTTOM"),
-        "LottoInstantTickets" => new FieldGuide("Instant Tickets", "Find the line labeled TOTALS at the bottom of Report 34.", "Enter that value below.", "RPT 34", "bi-safe2-fill", "purple", "TOTAL"),
         "LottoBackupBag" => new FieldGuide("Backup Bag", "How much money did you take FROM the backup bag?", "If no money was taken out of the backup bag, leave value at 0.", "MONEY BAG", "bi-exclamation-triangle-fill", "warning", "N/A"),
         "LottoCashCounted" => new FieldGuide("TOTAL CASH COUNTED FROM LOTTERY DRAWER", "The total amount of money counted from the lottery drawer must be entered.", "Do not subtract any amount from this value.", "PHYSICAL CASH", "bi-info-circle-fill", "danger", "N/A"),
         _ => new FieldGuide("Entry Needed", "Please enter the requested value.", "", "REPORT", "bi-pencil-square", "primary", "")
@@ -1969,6 +2023,34 @@
             return;
         }
 
+        // [CUMULATIVE READING WARNINGS]
+        if (!string.IsNullOrEmpty(_activeField) && _activeField != field) {
+            if (_activeField == "LottoSales" && LottoSalesIsInvalid && !_lottoSalesConfirmed) {
+                _pendingFieldActivation = field;
+                _pendingReadingFieldName = "Net Sales";
+                _pendingReadingValue = LottoSales;
+                _pendingReadingPrevValue = _prevDaySales;
+                _showCumulativeWarning = true;
+                return;
+            }
+            if (_activeField == "LottoCashes" && LottoCashesIsInvalid && !_lottoCashesConfirmed) {
+                _pendingFieldActivation = field;
+                _pendingReadingFieldName = "Cashes";
+                _pendingReadingValue = LottoCashes;
+                _pendingReadingPrevValue = _prevDayCashes;
+                _showCumulativeWarning = true;
+                return;
+            }
+            if (_activeField == "LottoInstantTickets" && LottoTicketsIsInvalid && !_lottoTicketsConfirmed) {
+                _pendingFieldActivation = field;
+                _pendingReadingFieldName = "Instant Tickets";
+                _pendingReadingValue = LottoInstantTickets;
+                _pendingReadingPrevValue = _prevDayTickets;
+                _showCumulativeWarning = true;
+                return;
+            }
+        }
+
         // Only block jumping to other fields if the sign confirmation prompt is actually active and blocking the screen
         if (ShouldShowSignConfirmation) {
             return; 
@@ -1976,6 +2058,7 @@
 
         // [EXTREME PERFORMANCE] Sync to local storage only when LEAVING a field.
         if (!string.IsNullOrEmpty(_activeField) && _activeField != field) {
+             CommitBuffer(); // [DATA INTEGRITY] Ensure previous field is saved before moving
              _ = MirrorToLocalStorage(); 
         }
 
@@ -1990,9 +2073,19 @@
             _currentBuffer = "";
         }
         
-        _lottoSignConfirmed = true; // Default true for existing values
+        _lottoSignConfirmed = (field != "LottoNetDue"); // Force sign selection for Net Due
         StateHasChanged();
     }
+
+    private void CommitBuffer() {
+        if (string.IsNullOrEmpty(_activeField)) return;
+        if (!string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out decimal val)) {
+             UpdateFieldValue(_activeField, val);
+        } else if (string.IsNullOrEmpty(_currentBuffer)) {
+             UpdateFieldValue(_activeField, 0); // Handle explicit clear as zero
+        }
+    }
+
 
     private void KeyPressed(string key) {
         if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
@@ -2001,8 +2094,6 @@
         if (_fieldFreshlyActivated) {
             _currentBuffer = "";
             _fieldFreshlyActivated = false;
-            // If we're starting a brand new 'Net Due' entry, reset the sign to positive
-            if (_activeField == "LottoNetDue") LottoNetDue = 0;
         }
 
         // Basic buffer logic for decimal entry
@@ -2016,19 +2107,9 @@
         }
 
         _currentBuffer += key;
-        
-        if (decimal.TryParse(_currentBuffer, out decimal val)) {
-            if (_activeField == "LottoNetDue") {
-                // Neutral zero doesn't need a sign confirmation, but any non-zero value RESETs confirmation
-                // to force an explicit choice from the user.
-                if (val != 0) _lottoSignConfirmed = false;
-                else _lottoSignConfirmed = true; 
-            }
-            UpdateFieldValue(_activeField, val);
-            StateHasChanged(); 
-            _ = DebouncedMirrorToLocalStorage(1000);
-        }
+        StateHasChanged(); // Immediate visual feedback for the buffer
     }
+
 
     private void BackspaceCurrentField() {
         if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
@@ -2039,23 +2120,7 @@
         if (!string.IsNullOrEmpty(_currentBuffer)) {
             _currentBuffer = _currentBuffer.Substring(0, _currentBuffer.Length - 1);
         }
-        
-        // If backspacing clears the whole thing, reset sign to positive for the next entry
-        if (string.IsNullOrEmpty(_currentBuffer) && _activeField == "LottoNetDue") {
-             LottoNetDue = 0;
-        }
-
-        decimal? val = null;
-        if (!string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out decimal parseVal)) {
-            val = parseVal;
-        }
-        
-        if (_activeField == "LottoNetDue") {
-            // Always treat an empty or zero field as confirmed (neutral) or reset it
-            _lottoSignConfirmed = (val == null || val == 0);
-        }
-        UpdateFieldValue(_activeField, val);
-        _ = DebouncedAutoSave();
+        StateHasChanged();
     }
 
     private decimal? GetRawFieldValue(string field) {
@@ -2099,6 +2164,7 @@
     }
 
     private async Task HandleNext() {
+        CommitBuffer(); // [DATA-LOCK] Capture current typing before navigating
         if (IsLocked || IsSubmitting) return;
 
         // [SAFETY GATE] Force sign selection for Net Due before allowing 'Next'
@@ -2115,6 +2181,34 @@
             _showHoursConfirmation = true;
             return;
         }
+
+        // [UX FIX] Immediate Cumulative Reading Validation
+        if (_activeField == "LottoSales" && LottoSalesIsInvalid && !_lottoSalesConfirmed) {
+            _pendingAction = HandleNext;
+            _pendingReadingFieldName = "Net Sales";
+            _pendingReadingValue = LottoSales;
+            _pendingReadingPrevValue = _prevDaySales;
+            _showCumulativeWarning = true;
+            return;
+        }
+        if (_activeField == "LottoCashes" && LottoCashesIsInvalid && !_lottoCashesConfirmed) {
+            _pendingAction = HandleNext;
+            _pendingReadingFieldName = "Cashes";
+            _pendingReadingValue = LottoCashes;
+            _pendingReadingPrevValue = _prevDayCashes;
+            _showCumulativeWarning = true;
+            return;
+        }
+        if (_activeField == "LottoInstantTickets" && LottoTicketsIsInvalid && !_lottoTicketsConfirmed) {
+            _pendingAction = HandleNext;
+            _pendingReadingFieldName = "Instant Tickets";
+            _pendingReadingValue = LottoInstantTickets;
+            _pendingReadingPrevValue = _prevDayTickets;
+            _showCumulativeWarning = true;
+            return;
+        }
+
+
 
         // [EXTREME PERFORMANCE] Sync to local storage on exit
         _ = MirrorToLocalStorage();
@@ -2159,7 +2253,6 @@
         }
         _currentBuffer = ""; 
         _ = DebouncedMirrorToLocalStorage();
-        StateHasChanged();
     }
 
     private void UpdateFieldValue(string? field, decimal? val)
@@ -2186,6 +2279,10 @@
              // If they edit the number, they must re-confirm when they try to leave the field
              _hoursConfirmed = false; 
         }
+
+        if (field == "LottoSales") _lottoSalesConfirmed = false;
+        if (field == "LottoCashes") _lottoCashesConfirmed = false;
+        if (field == "LottoInstantTickets") _lottoTicketsConfirmed = false;
 
         // [EXTREME PERFORMANCE] Zero work here. Typing must be 100% fluid.
         _hasLocalChanges = true;
@@ -2235,7 +2332,7 @@
             };
             // [UI-THREAD OFFLOAD] Pass raw object to Worker.
             // Serialization happens off-thread in gfc-storage-worker.js
-            await JSRuntime.InvokeVoidAsync("window.saveGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", data);
+            await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", data);
         } catch { } finally {
             _localLock.Release();
         }
@@ -2336,8 +2433,7 @@
         }
     }
 
-    private void ConfirmHours()
-    {
+    private void ConfirmHours() {
         _showHoursConfirmation = false;
         _hoursConfirmed = true;
         
@@ -2355,11 +2451,40 @@
         }
     }
 
+    private async Task ConfirmCumulativeReading() {
+        if (_activeField == "LottoSales") _lottoSalesConfirmed = true;
+        if (_activeField == "LottoCashes") _lottoCashesConfirmed = true;
+        if (_activeField == "LottoInstantTickets") _lottoTicketsConfirmed = true;
+        
+        _showCumulativeWarning = false;
+        
+        if (_pendingAction != null) {
+            var action = _pendingAction;
+            _pendingAction = null;
+            await action.Invoke();
+        } else if (!string.IsNullOrEmpty(_pendingFieldActivation)) {
+            string field = _pendingFieldActivation;
+            _pendingFieldActivation = null;
+            ActivateField(field);
+        } else {
+            StateHasChanged();
+        }
+    }
+
+    private void CancelCumulativeReading() {
+        _showCumulativeWarning = false;
+        // Keep them on the current field
+        ActivateField(_activeField ?? ""); 
+    }
+
     private Func<Task>? _pendingAction;
     private string? _pendingFieldActivation;
 
 
     private async Task HandleFinalConfirm() {
+        CommitBuffer();
+        if (IsLocked || IsSubmitting) return;
+
         bool lottoIncomplete = !IsRentalHall && (
             LottoSales == null || 
             LottoCashes == null || 
@@ -2396,6 +2521,32 @@
         if (TotalHours > 10 && !_hoursConfirmed) {
             _showHoursConfirmation = true;
             _showFocusModal = false;
+            return;
+        }
+
+        // CUMULATIVE READING AUDIT (New Validation)
+        if (LottoSalesIsInvalid && !_lottoSalesConfirmed) {
+            _activeField = "LottoSales";
+            _pendingReadingFieldName = "Net Sales";
+            _pendingReadingValue = LottoSales;
+            _pendingReadingPrevValue = _prevDaySales;
+            _showCumulativeWarning = true;
+            return;
+        }
+        if (LottoCashesIsInvalid && !_lottoCashesConfirmed) {
+            _activeField = "LottoCashes";
+            _pendingReadingFieldName = "Cashes";
+            _pendingReadingValue = LottoCashes;
+            _pendingReadingPrevValue = _prevDayCashes;
+            _showCumulativeWarning = true;
+            return;
+        }
+        if (LottoTicketsIsInvalid && !_lottoTicketsConfirmed) {
+            _activeField = "LottoInstantTickets";
+            _pendingReadingFieldName = "Instant Tickets";
+            _pendingReadingValue = LottoInstantTickets;
+            _pendingReadingPrevValue = _prevDayTickets;
+            _showCumulativeWarning = true;
             return;
         }
         // ZERO VALUE AUDIT (Safety Check)
@@ -2500,25 +2651,52 @@
     // Math Logic
     private decimal LottoDrawerValue {
         get {
-            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
-            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
-            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
-            // Variance calculation should not include the settlement (Refill/Envelope)
-            return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0) - LottoBagRefill;
+            // [REACTIVE FIX] Use the actual field values OR the active buffer if currently typing
+            decimal sales = (_activeField == "LottoSales" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var s)) ? s : (LottoSales ?? 0);
+            decimal cashes = (_activeField == "LottoCashes" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var c)) ? c : (LottoCashes ?? 0);
+            decimal tickets = (_activeField == "LottoInstantTickets" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var t)) ? t : (LottoInstantTickets ?? 0);
+            decimal opening = (_activeField == "LottoOpeningCash" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var o)) ? o : (LottoOpeningCash ?? 0);
+            decimal bagAdd = (_activeField == "LottoBackupBag" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var b)) ? b : (LottoBackupBag ?? 0);
+            
+            decimal salesActivity = sales;
+            decimal cashesActivity = cashes;
+            decimal ticketsActivity = tickets;
+            
+            // [STABILITY FIX] Expected Drawer should ONLY be (Opening + Sales - Cashes - Tickets + Bag Addition).
+            // It should NOT subtract the Refill amount, as that is a distribution of ACTUAL cash, not a theoretical expectation.
+            return opening + salesActivity - cashesActivity - ticketsActivity + bagAdd;
         }
     }
 
     private decimal LottoNetMade {
         get {
-            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
-            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
-            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            decimal sales = (_activeField == "LottoSales" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var s)) ? s : (LottoSales ?? 0);
+            decimal cashes = (_activeField == "LottoCashes" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var c)) ? c : (LottoCashes ?? 0);
+            decimal tickets = (_activeField == "LottoInstantTickets" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var t)) ? t : (LottoInstantTickets ?? 0);
+
+            decimal salesActivity = sales;
+            decimal cashesActivity = cashes;
+            decimal ticketsActivity = tickets;
             return salesActivity - cashesActivity - ticketsActivity;
         }
     }
 
-    private decimal LottoSalesActivity => (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
-    private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
+    private decimal LottoSalesActivity => (_activeField == "LottoSales" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var s)) ? s : (LottoSales ?? 0);
+
+    private decimal LottoCashesActivity => (_activeField == "LottoCashes" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var c)) ? c : (LottoCashes ?? 0);
+
+    private decimal LottoTicketsActivity => (_activeField == "LottoInstantTickets" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var t)) ? t : (LottoInstantTickets ?? 0);
+
+    private bool LottoSalesIsInvalid => false;
+    private bool LottoCashesIsInvalid => false;
+    private bool LottoTicketsIsInvalid => false;
+    
+    private decimal LottoDiscrepancy {
+        get {
+            decimal counted = (_activeField == "LottoCashCounted" && !string.IsNullOrEmpty(_currentBuffer) && decimal.TryParse(_currentBuffer, out var c)) ? c : (LottoCashCounted ?? 0);
+            return counted - LottoDrawerValue;
+        }
+    }
     
     // NIGHT SHIFT RECONCILIATION MATH
     private decimal LottoTotalDrop => Math.Max(0, (LottoCashCounted ?? 0) - _currentRate.TargetDrawerAmount);
@@ -2555,111 +2733,63 @@
         if (string.IsNullOrEmpty(ShiftType)) return;
         try {
             var draftKey = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
-            Console.WriteLine($"[DEBUG] Looking for key: {draftKey}");
             
-            // [DEBUG] Enumerating all vault keys to identify discrepancies
-            try {
-                var allItems = await JSRuntime.InvokeAsync<global::System.Text.Json.JsonElement>("window.gfcGetAllAsync");
-                if (allItems.ValueKind == global::System.Text.Json.JsonValueKind.Array) {
-                    Console.WriteLine("[DEBUG] Available Vault Keys:");
-                    foreach (var item in allItems.EnumerateArray()) {
-                        if (item.TryGetProperty("key", out var keyProp)) {
-                            Console.WriteLine($"  - {keyProp.GetString()}");
-                        }
-                    }
-                }
-            } catch (Exception ex) {
-                Console.WriteLine($"[DEBUG] Failed to enumerate keys: {ex.Message}");
-            }
-
             // 1. Check for active Draft
-            var json = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", draftKey);
+            var recovered = await JSRuntime.InvokeAsync<MobileShiftData>("window.gfcGetAsync", draftKey);
             
             // 2. [LOCAL-MASTER] If no draft, check the Outbox for a pending submission for this report
-            if (string.IsNullOrEmpty(json)) {
-                Console.WriteLine($"[DEBUG] No direct draft found for {draftKey}. Scanning Outbox...");
+            if (recovered == null) {
                 var outboxJson = await JSRuntime.InvokeAsync<string>("window.getGfcOutboxItems");
                 if (!string.IsNullOrEmpty(outboxJson)) {
                     using var outboxDoc = global::System.Text.Json.JsonDocument.Parse(outboxJson);
                     foreach (var item in outboxDoc.RootElement.EnumerateArray()) {
                         if (item.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                        var dataElement = item.GetProperty("data");
+                        var data = global::System.Text.Json.JsonSerializer.Deserialize<MobileShiftData>(dataElement.GetRawText(), new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                         
-                        var data = item.GetProperty("data");
-                        if (data.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
-                        
-                        DateTime? itemDate = null;
-                        string? itemShift = null;
-
-                        foreach (var prop in data.EnumerateObject()) {
-                            if (prop.Name.Equals("Date", StringComparison.OrdinalIgnoreCase)) {
-                                if (prop.Value.ValueKind == global::System.Text.Json.JsonValueKind.String) {
-                                    if (DateTime.TryParse(prop.Value.GetString(), out var d)) itemDate = d;
-                                }
-                            }
-                            if (prop.Name.Equals("ShiftType", StringComparison.OrdinalIgnoreCase)) itemShift = prop.Value.GetString();
-                        }
-
-                        Console.WriteLine($"[DEBUG] Outbox Entry: Date={itemDate:yyyy-MM-dd}, Shift={itemShift}");
-
-                        if (itemDate?.Date == ReportDate.Date && itemShift == ShiftType) {
-                            Console.WriteLine($"[DEBUG] MATCH FOUND! Hydrating UI for {ReportDate:yyyy-MM-dd} {ShiftType}");
-                            json = data.GetRawText();
+                        if (data != null && data.Date.Date == ReportDate.Date && data.ShiftType == ShiftType) {
+                            recovered = data;
                             break;
                         }
                     }
                 }
             }
 
-            if (string.IsNullOrEmpty(json)) {
-                Console.WriteLine($"[DEBUG] Hydration failed: No key match found for {draftKey} in Drafts or Outbox.");
-            }
-
-            if (!string.IsNullOrEmpty(json)) {
+            if (recovered != null) {
                 try {
-                    // [HYDRATION HARDENING] Use case-insensitive mapping and allow string-to-number conversion
-                    var options = new global::System.Text.Json.JsonSerializerOptions { 
-                        PropertyNameCaseInsensitive = true,
-                        NumberHandling = global::System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
-                    };
+                    // Atomic state assignment from recovered DTO
+                    if (BarSales == null || BarSales == 0) BarSales = recovered.BarSales;
+                    if (TotalHours == null || TotalHours == 0) TotalHours = recovered.TotalHours;
                     
-                    var recovered = global::System.Text.Json.JsonSerializer.Deserialize<MobileShiftData>(json, options);
+                    if (LottoOpeningCash == null || LottoOpeningCash == 0) LottoOpeningCash = recovered.LottoOpeningCash;
+                    if (LottoSales == null || LottoSales == 0) LottoSales = recovered.LottoSales;
+                    if (LottoCashes == null || LottoCashes == 0) LottoCashes = recovered.LottoCashes;
+                    if (LottoInstantTickets == null || LottoInstantTickets == 0) LottoInstantTickets = recovered.LottoInstantTickets;
+                    if (LottoNetDue == null || LottoNetDue == 0) LottoNetDue = recovered.LottoNetDue;
+                    if (LottoBackupBag == null || LottoBackupBag == 0) LottoBackupBag = recovered.LottoBackupBag;
+                    if (LottoCashCounted == null || LottoCashCounted == 0) LottoCashCounted = recovered.LottoCashCounted;
+                    
+                    if (string.IsNullOrEmpty(Notes)) Notes = recovered.Notes;
+                    
+                    // Initialize originals so we don't trigger "Unsaved Changes" immediately
+                    _originalBarSales = BarSales;
+                    _originalLottoSales = LottoSales;
+                    _originalLottoCashes = LottoCashes;
+                    _originalLottoInstantTickets = LottoInstantTickets;
+                    _originalLottoNetDue = LottoNetDue;
+                    _originalLottoOpeningCash = LottoOpeningCash;
+                    _originalLottoBackupBag = LottoBackupBag;
+                    _originalLottoCashCounted = LottoCashCounted;
+                    _originalTotalHours = TotalHours;
+                    _originalNotes = Notes;
 
-                    if (recovered != null) {
-                        Console.WriteLine($"[GFC HYDRATION] Successfully recovered record for {recovered.Date:yyyy-MM-dd} {recovered.ShiftType}");
-                        
-                        // Atomic state assignment from recovered DTO
-                        BarSales = recovered.BarSales;
-                        TotalHours = recovered.TotalHours;
-                        LottoOpeningCash = recovered.LottoOpeningCash;
-                        LottoSales = recovered.LottoSales;
-                        LottoCashes = recovered.LottoCashes;
-                        LottoInstantTickets = recovered.LottoInstantTickets;
-                        LottoNetDue = recovered.LottoNetDue;
-                        LottoBackupBag = recovered.LottoBackupBag;
-                        LottoCashCounted = recovered.LottoCashCounted;
-                        LottoCashCounted = recovered.LottoCashCounted;
-                        
-                        // Metadata state
-                        _hasLocalChanges = true; 
-                        Notes = recovered.Notes;
-                        
-                        // Restore metadata state
-                        _hasLocalChanges = true; 
-                        _syncStatus = "Recovered from local vault";
-                        _lottoSignConfirmed = (recovered.LottoNetDue != null && recovered.LottoNetDue != 0);
-                        
-                        StateHasChanged();
-                    } else {
-                        Console.WriteLine("[GFC HYDRATION] WARNING: Deserialization returned null for key: " + draftKey);
-                    }
+                    _hasLocalChanges = true; 
+                    _syncStatus = "Recovered from local vault";
+                    _lottoSignConfirmed = (recovered.LottoNetDue != null && recovered.LottoNetDue != 0);
+                    
+                    StateHasChanged();
                 } catch (Exception ex) {
                     Console.WriteLine($"[GFC HYDRATION] CRITICAL FAILURE: {ex.Message}");
-                    // Fall back to manual parsing if total failure occurs
-                    try {
-                        using var doc = global::System.Text.Json.JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("BarSales", out var bs)) BarSales = bs.GetDecimal();
-                        // ... additional fallback if needed ...
-                    } catch { }
                 }
             }
         } catch (Exception ex) {
@@ -2727,46 +2857,55 @@
                 ApplyBusinessDayLogic();
             }
 
-            // [FIX] Populate CurrentUser for locking logic
-            try {
-                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-                var user = authState.User;
-                if (user.Identity?.IsAuthenticated == true) {
-                    CurrentUser = new GFC.Core.Models.AppUser {
-                        UserId = int.Parse(user.FindFirst(global::System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0"),
-                        Username = user.Identity.Name,
-                        IsAdmin = user.IsInRole("Admin") || user.IsInRole("Manager")
-                    };
-                }
-            } catch { }
-            
-            // PERMISSION CHECK (DYNAMIC)
-            if (CurrentUser != null && !UserService.UserHasPageAccess(CurrentUser.UserId, "/mobile/shift-report"))
-            {
-                Navigation.NavigateTo("/mobile");
-                return;
-            }
-
             // PROGRESSIVE INITIALIZATION: 
             // 1. Critical Path: Load local data instantly
             await CheckExisting();
             Loading = false;
             StateHasChanged();
 
-            // 2. Background Path: Load metadata from server without blocking the UI
-            _ = UpdateShiftAvailability();
-            _ = ReportingService.GetServerVersionAsync().ContinueWith(t => {
-                if (t.IsCompletedSuccessfully && t.Result != "Offline") {
-                    _hasUpdate = t.Result != VersionService.GetFullVersion();
-                    InvokeAsync(StateHasChanged);
-                }
-            });
+            // 2. Background Path: Load metadata and check permissions
+            _ = InvokeAsync(async () => {
+                try {
+                    // Wait for auth state to be ready if it's not yet
+                    if (CurrentUser == null) {
+                        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                        var user = authState.User;
+                        if (user.Identity?.IsAuthenticated == true) {
+                            CurrentUser = new GFC.Core.Models.AppUser {
+                                UserId = int.Parse(user.FindFirst(global::System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0"),
+                                Username = user.Identity.Name,
+                                IsAdmin = user.IsInRole("Admin") || user.IsInRole("Manager")
+                            };
+                        }
+                    }
 
-            _ = ReportingService.GetLotteryRateAsync(ReportDate.Year).ContinueWith(t => {
-                if (t.IsCompletedSuccessfully && t.Result != null) {
-                    _currentRate = t.Result;
-                    InvokeAsync(StateHasChanged);
+                    // [STABILITY] Only redirect if we ARE authenticated but LACK specific page permission
+                    if (CurrentUser != null && !UserService.UserHasPageAccess(CurrentUser.UserId, "/mobile/shift-report"))
+                    {
+                        Console.WriteLine($"[AUTH] Access denied to /mobile/shift-report for {CurrentUser.Username}. Redirecting...");
+                        Navigation.NavigateTo("/mobile");
+                        return;
+                    }
+
+                    await UpdateShiftAvailability();
+                    
+                    _ = ReportingService.GetServerVersionAsync().ContinueWith(t => {
+                        if (t.IsCompletedSuccessfully && t.Result != "Offline") {
+                            _hasUpdate = t.Result != VersionService.GetFullVersion();
+                            InvokeAsync(StateHasChanged);
+                        }
+                    });
+
+                    _ = ReportingService.GetLotteryRateAsync(ReportDate.Year).ContinueWith(t => {
+                        if (t.IsCompletedSuccessfully && t.Result != null) {
+                            _currentRate = t.Result;
+                            InvokeAsync(StateHasChanged);
+                        }
+                    });
+                } catch { 
+                    Loading = false;
                 }
+                StateHasChanged();
             });
 
             Loading = false;
@@ -2799,7 +2938,7 @@
         }
     }
 
-    private async Task SetShift(string type)
+    private void SetShift(string type)
     {
         _lockErrorMessage = null;
         _showValidation = false;
@@ -2807,16 +2946,20 @@
         _currentBuffer = "";
         
         ShiftType = type;
-        await CheckExisting();
+        Loading = false; // [INSTANT REVEAL]
 
-        // Self-Correction Window logic removed for unrestricted entry
-        // IsLocked is now calculated in CheckExisting based on ownership
-        _ = CheckForLocalDraft();
+        // Silent background sync - no blocking
+        _ = InvokeAsync(async () => {
+            try {
+                await CheckExisting();
+                StateHasChanged();
+            } catch { }
+        });
         
         StateHasChanged();
     }
 
-    private async Task ExecuteToggleRentalHall()
+    private void ExecuteToggleRentalHall()
     {
         IsRentalHall = !IsRentalHall;
         _lockErrorMessage = null;
@@ -2824,11 +2967,20 @@
         _activeField = null;
         _currentBuffer = "";
         ShiftType = IsRentalHall ? "Hall" : null;
-        await CheckExisting();
+        Loading = false; // [INSTANT REVEAL]
+        
+        if (IsRentalHall) {
+            _ = InvokeAsync(async () => {
+                try {
+                    await CheckExisting();
+                    StateHasChanged();
+                } catch { }
+            });
+        }
+        
         StateHasChanged();
     }
 
-    // Checks whether a shift entry already exists for the selected date/type via the API
     private async Task CheckExisting()
     {
         if (string.IsNullOrEmpty(ShiftType)) return;
@@ -2849,8 +3001,8 @@
                         await InvokeAsync(() => {
                             // [SMART HYDRATION] 
                             // If the user hasn't typed anything yet, or if they explicitly requested a refresh, hydrate.
-                            // Also, always hydrate Beginning Cash if it was updated on the server and we only have a default/target locally.
-                            if (!_hasLocalChanges || _forceSyncPending) {
+                            // We allow hydration if _userEditedFields is empty, even if _hasLocalChanges is true (from vault recovery).
+                            if (!_hasLocalChanges || _forceSyncPending || _userEditedFields.Count == 0) {
                                 HydrateFromData(data);
                                 _forceSyncPending = false;
                             }
@@ -2919,7 +3071,7 @@
         _lockOwner = data.LockOwner;
     }
 
-    // Called from the distribution slip modal "Money placed correctly" button — proceeds to submit
+    // Called from the distribution slip modal "Money placed correctly" button â€” proceeds to submit
     private async Task HandleSubmit() 
     {
         _showDistributionSlip = false;
@@ -2977,12 +3129,10 @@
             
             // [DATA-LOCK] Physically write the report to the vault before syncing
             await JSRuntime.InvokeAsync<object>("window.gfcSetAsync", outboxKey, finalData);
-
-            // Clear the local draft
             await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}");
             
-            // [PROACTIVE SYNC] Trigger the delivery truck immediately after locking the data
-            await ReportingService.FlushOutboxAsync();
+            // [PROACTIVE SYNC] Trigger the delivery truck silently after locking the data
+            _ = ReportingService.FlushOutboxAsync();
         } catch (Exception ex) { 
             Console.WriteLine($"[CRITICAL] Submission storage failed: {ex.Message}");
             IsSubmitting = false;
@@ -3000,13 +3150,23 @@
         _showSuccessSplash = true; 
         _hasLocalChanges = false;
         StateHasChanged();
+
+        // [AUTOMATION] Auto-logout after 2 seconds
+        _ = Task.Run(async () => {
+             try { 
+                 await Task.Delay(2000);
+                 await InvokeAsync(FinalLogout);
+             } catch {}
+        });
         
         // Final background sync attempt with ACTUAL data
         _ = Task.Run(async () => {
-             try { await ReportingService.SaveShiftReportAsync(finalData, "Final.Submit"); } catch {}
+             try { await ReportingService.SaveShiftReportAsync(finalData, _currentUsername); } catch {}
         });
+    }
 
-        await Task.Delay(2500);
+    private async Task FinalLogout()
+    {
         await AuthStateProvider.LogoutAsync();
         Navigation.NavigateTo("/login");
     }
@@ -3026,6 +3186,10 @@
         ShiftType = null; IsRentalHall = false; BarSales = null; TotalHours = null; 
         LottoSales = null; LottoCashes = null; LottoInstantTickets = null; LottoNetDue = null; 
         LottoBackupBag = 0; LottoCashCounted = null; Notes = null; ExistingEntryFound = false; IsLocked = false;
+        _userEditedFields.Clear();
+        _hasLocalChanges = false;
+        _lottoSalesConfirmed = false; _lottoCashesConfirmed = false; _lottoTicketsConfirmed = false;
+        _hoursConfirmed = false;
     }
 
     private async Task UpdateShiftAvailability()
@@ -3075,11 +3239,11 @@
                 }
 
                 // Check Drafts
-                var dayDraft = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Day");
-                if (!string.IsNullOrEmpty(dayDraft)) _dayMainHasData = true;
+                var dayDraft = await JSRuntime.InvokeAsync<MobileShiftData>("window.gfcGetAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Day");
+                if (dayDraft != null) _dayMainHasData = true;
 
-                var nightDraft = await JSRuntime.InvokeAsync<string>("window.getGfcItemAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Night");
-                if (!string.IsNullOrEmpty(nightDraft)) _nightMainHasData = true;
+                var nightDraft = await JSRuntime.InvokeAsync<MobileShiftData>("window.gfcGetAsync", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Night");
+                if (nightDraft != null) _nightMainHasData = true;
                 
                 await InvokeAsync(StateHasChanged); // Partial UI Update
             } catch { }
@@ -3127,8 +3291,8 @@
         try {
             // 1. Check for direct draft in Vault
             var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{shift}";
-            var json = await JSRuntime.InvokeAsync<string>("window.gfcGetAsync", key);
-            if (!string.IsNullOrEmpty(json)) return true;
+            var data = await JSRuntime.InvokeAsync<MobileShiftData>("window.gfcGetAsync", key);
+            if (data != null) return true;
 
             // 2. Scan Outbox List for matching record
             var outboxJson = await JSRuntime.InvokeAsync<string>("window.getGfcOutboxItems");
@@ -3136,12 +3300,12 @@
                 using var outboxDoc = global::System.Text.Json.JsonDocument.Parse(outboxJson);
                 foreach (var item in outboxDoc.RootElement.EnumerateArray()) {
                     if (item.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
-                    var data = item.GetProperty("data");
-                    if (data.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
+                    var outboxData = item.GetProperty("data");
+                    if (outboxData.ValueKind != global::System.Text.Json.JsonValueKind.Object) continue;
                     
                     DateTime? itemDate = null;
                     string? itemShift = null;
-                    foreach (var prop in data.EnumerateObject()) {
+                    foreach (var prop in outboxData.EnumerateObject()) {
                         if (prop.Name.Equals("Date", StringComparison.OrdinalIgnoreCase)) {
                             if (prop.Value.ValueKind == global::System.Text.Json.JsonValueKind.String) {
                                 if (DateTime.TryParse(prop.Value.GetString(), out var d)) itemDate = d;

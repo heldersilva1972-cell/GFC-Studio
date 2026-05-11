@@ -158,6 +158,12 @@
     </div>
     <div class="text-center mt-3 opacity-50">
         <small class="text-white" @onclick="OnRevisionClicked" style="cursor: pointer;">Revision: @VersionService.GetRevision()</small>
+        @if (_showVaultReset)
+        {
+            <div class="mt-1" style="font-size: 0.6rem; color: #aaa;">
+                Server: @(_serverVersionReport ?? "Checking...")
+            </div>
+        }
     </div>
 
     @if (_showVaultReset)
@@ -295,6 +301,7 @@
     private bool _serverReachable = true;
     private int _revisionClickCount = 0;
     private bool _showVaultReset = false;
+    private string? _serverVersionReport;
 
     private enum LoginMode { PassCode, FastGrid }
 
@@ -385,13 +392,32 @@
                 await RefreshUserListAsync();
             }
 
-            // [AUTO-UPDATE] Check for new revision while logged out
+            // [AUTO-UPDATE DISABLED TO STOP LOOP]
             try {
                 var serverVersion = await ReportingService.GetServerVersionAsync();
+                _serverVersionReport = serverVersion;
                 if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
                 {
-                    Console.WriteLine("[GFC UPDATE] New version detected on login screen. Auto-reloading...");
-                    await JSRuntime.InvokeVoidAsync("location.reload", true);
+                    Console.WriteLine("[GFC UPDATE] New version detected on login screen. Forcing cache-clear reload...");
+                    
+                    await JSRuntime.InvokeVoidAsync("eval", @"
+                        if ('serviceWorker' in navigator) {
+                            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                                for(let registration of registrations) {
+                                    registration.unregister();
+                                }
+                                if ('caches' in window) {
+                                    caches.keys().then(function(names) {
+                                        for (let name of names) caches.delete(name);
+                                    });
+                                }
+                                window.location.href = window.location.href + '?update=' + Date.now();
+                            });
+                        } else {
+                            window.location.href = window.location.href + '?update=' + Date.now();
+                        }
+                    ");
+                    return;
                 }
             } catch { }
 

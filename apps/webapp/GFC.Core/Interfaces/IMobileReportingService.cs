@@ -14,6 +14,7 @@ public interface IMobileReportingService
     Task<string> GetServerVersionAsync();
     Task<LotteryCommissionRate> GetLotteryRateAsync(int year);
     Task FlushOutboxAsync();
+    Task PurgeOutboxAsync();
     Task<int> GetPendingCountAsync();
     int PendingCount { get; }
     DateTime? LastSyncTime { get; }

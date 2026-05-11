@@ -52,7 +52,9 @@
                 
                 @if (ReportingService.PendingCount > 0)
                 {
-                    <span class="badge rounded-pill bg-warning text-dark animate-pulse" style="font-size: 0.6rem; letter-spacing: 0.05em; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1);">
+                    <span class="badge rounded-pill bg-warning text-dark animate-pulse" 
+                          style="font-size: 0.6rem; letter-spacing: 0.05em; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer;"
+                          @onclick="ConfirmPurgeOutbox">
                         <i class="bi bi-cloud-arrow-up-fill me-1"></i> @ReportingService.PendingCount PENDING
                     </span>
                 }
@@ -74,7 +76,11 @@
             </div>
             <span class="hub-last-sync-text text-uppercase text-center @(ReportingService.PendingCount > 0 ? "animate-pulse text-warning" : (ReportingService.LastSyncStatus?.StartsWith("Error") == true ? "text-danger" : ""))">
                 @if (ReportingService.PendingCount > 0) {
-                    <span><i class="bi bi-cloud-upload me-1"></i> SYNCING...</span>
+                    @if (Connectivity.IsServerReachable && _isProcessingOutbox) {
+                        <span><i class="bi bi-cloud-upload me-1"></i> SYNCING...</span>
+                    } else {
+                        <span><i class="bi bi-cloud-slash me-1"></i> PENDING SYNC</span>
+                    }
                 } else if (ReportingService.LastSyncStatus?.StartsWith("Error") == true) {
                     <span><i class="bi bi-exclamation-triangle-fill me-1"></i> @ReportingService.LastSyncStatus.ToUpper()</span>
                 } else if (ReportingService.LastSyncTime.HasValue) {
@@ -108,6 +114,10 @@
 </div>
 
 <style>
+    .animate-pulse {
+        animation: hub-text-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
     .user-avatar-mini {
         width: 30px;
         height: 30px;
@@ -322,8 +332,8 @@
 
                         if (isSafePage)
                         {
-                            Console.WriteLine("[GFC UPDATE] On safe page. Triggering auto-reload...");
-                            await RefreshApp();
+                            Console.WriteLine("[GFC UPDATE] New version available. Showing update button...");
+                            // await RefreshApp(); // Disabled auto-reload to prevent loop
                         }
                     }
                 }
@@ -355,6 +365,15 @@
         await AuthStateProvider.LogoutAsync();
         Navigation.NavigateTo("/login");
     }
+    private async Task ConfirmPurgeOutbox()
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Warning: Do you want to clear all pending sync entries? This cannot be undone.");
+        if (confirmed)
+        {
+            await ReportingService.PurgeOutboxAsync();
+        }
+    }
+
     private async Task RefreshApp() 
     {
         // [FORCE RELOAD] Bypass cache and ensure the new service worker takes over

@@ -6,9 +6,25 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.0"; 
+    public string GetRevision() => "2.38.43"; 
     
     // REVISION HISTORY:
+    // 2.38.43: Synchronized version.txt and version.json to fix the 'Update Available' banner visibility issue.
+    // 2.38.42: Compacted catalog items (product-card) and category filters (filter-pill) to maximize visibility on 15-inch displays.
+    // 2.38.41: Scaled down Checkout window dimensions and content (font-sizes/padding) for better fit on compact displays.
+    // 2.38.40: Reduced Total Due font-size and compacted Active Order list (44px items) to fit 9+ items. Restored Checkout/Redeem buttons to premium default sizes.
+    // 2.38.39: Hardened update pill with div-based rendering and CSS cache-busting to fix square-box issue and persistent visibility.
+    // 2.38.38: Applied extreme vertical space reclamation across header, catalog padding, and footer buttons. Items now 22px.
+    // 2.38.37: Further compacted Active Order list items and header to maximize item visibility.
+    // 2.38.36: Hardened Update Available pill style with aggressive rounding and padding to prevent square rendering.
+    // 2.38.35: Implemented premium animated update pill and ultra-compact Total Due area. Hardened cache-clearing reload logic.
+    // 2.38.34: Further compacted Active Order items and Total Due box for better visibility on 15-inch Android terminals.
+    // 2.38.33: Restored deployment paths to C:\inetpub\wwwroot and fixed script syntax errors. Synchronized versioning across all tracks.
+    // 2.38.32: Resolved terminal infinite update loop by automating index.html cache-buster synchronization and server-side stale file cleanup.
+    // 2.38.7: Migrated Terminal Name storage to native device preferences to survive browser cache clearing.
+    // 2.38.6: Compacted Active Order display and Total Due area for better screen utilization. Fixed header double terminal name.
+    // 2.38.5: Implemented background version polling to ensure idle terminals receive updates automatically.
+    // 2.38.4: Corrected Lottery financial math to properly account for Envelope Drops and Bag Refills in variance calculations.
     // 2.38.0: Refined Bingo financial logic (Standard game 0% club share) and synchronized suite-wide revisions.
     // 2.37.0: Standardized Bingo Progressive entry and implemented forced program synchronization for mobile floor staff.
     // 2.36.0: Automated background menu refresh upon terminal lock (idle, security, or manual) to ensure data parity.
@@ -34,4 +50,24 @@ public class PosVersionService : IVersionService
     // 2.7.0: Initial Standalone POS Release
 
     public string GetFullVersion() => $"GFC POS Standalone v{GetRevision()}";
+    public string GetMobileVersion() => GetFullVersion();
+    public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

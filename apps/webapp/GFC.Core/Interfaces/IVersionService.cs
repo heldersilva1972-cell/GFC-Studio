@@ -6,5 +6,7 @@ public interface IVersionService
     string GetYear();
     string GetRevision();
     string GetFullVersion();
+    string GetMobileVersion();
+    string GetPosVersion();
 }
 

@@ -183,7 +183,7 @@ public class MobileReportingService : IMobileReportingService
         // [PAYROLL PROTECTION]: If the save is coming from the background outbox,
         // we must preserve the original author's identity for payroll mapping.
         string effectiveUsername = username;
-        if (username == "System.Outbox" && !string.IsNullOrEmpty(data.ModifiedBy))
+        if ((username == "System.Outbox" || username == "Final.Submit") && !string.IsNullOrEmpty(data.ModifiedBy))
         {
             effectiveUsername = data.ModifiedBy;
         }
@@ -342,7 +342,7 @@ public class MobileReportingService : IMobileReportingService
                 lotto.ModifiedBy = effectiveUsername;
                 lotto.EmployeeName = effectiveUsername;
 
-                // [MATH] Populate the activity fields so the service can calculate variance correctly
+                // [MATH] Activity calculation: Subtract baseline (Day shift) from current cumulative readings
                 lotto.ShiftSalesActivity = lotto.TotalSales - baselineSales;
                 lotto.ShiftPayoutsActivity = lotto.TotalPayouts - baselinePayouts;
                 lotto.ShiftCancelsActivity = lotto.TotalCancels - baselineCancels;
@@ -425,7 +425,7 @@ public class MobileReportingService : IMobileReportingService
 
     public Task<string> GetServerVersionAsync()
     {
-        return Task.FromResult(_versionService.GetFullVersion());
+        return Task.FromResult(_versionService.GetMobileVersion());
     }
 
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
@@ -435,6 +435,7 @@ public class MobileReportingService : IMobileReportingService
 
     // [INTERFACE SATISFACTION] The server-side service is the destination and does not need a local outbox.
     public Task FlushOutboxAsync() => Task.CompletedTask;
+    public Task PurgeOutboxAsync() => Task.CompletedTask;
 
     // BINGO
     public async Task<List<BingoSheetDefinition>> GetBingoProgramAsync()

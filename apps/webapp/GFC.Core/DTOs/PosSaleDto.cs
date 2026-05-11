@@ -15,4 +15,7 @@ public class PosSaleDto
     public bool IsCorrection { get; set; }
     public Guid? OriginalSaleId { get; set; }
     public string? AdjustmentReason { get; set; }
+    public decimal? AmountReceived { get; set; }
+    public decimal? ChangeDue { get; set; }
+    public decimal OriginalTotal { get; set; }
 }

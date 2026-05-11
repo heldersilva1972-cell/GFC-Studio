@@ -19,6 +19,7 @@ public class MobileReportingService : IMobileReportingService
     public string? LastSyncStatus => null;
     public Task<int> GetPendingCountAsync() => Task.FromResult(0);
     public Task FlushOutboxAsync() => Task.CompletedTask;
+    public Task PurgeOutboxAsync() => Task.CompletedTask;
     public event Action? OutboxChanged;
 
     public async Task<MobileShiftData> GetShiftReportDataAsync(DateTime date, string shiftType, bool isRental)

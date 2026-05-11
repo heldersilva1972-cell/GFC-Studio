@@ -30,5 +30,12 @@ namespace GFC.BlazorServer.Data.Entities
         public string ItemsJson { get; set; } = "[]";
 
         public bool IsSynced { get; set; } = false;
+        public bool IsVoided { get; set; } = false;
+        public bool IsCorrection { get; set; } = false;
+        public Guid? OriginalSaleId { get; set; }
+        public string? AdjustmentReason { get; set; }
+        public decimal? AmountReceived { get; set; }
+        public decimal? ChangeDue { get; set; }
+        public decimal OriginalTotal { get; set; }
     }
 }

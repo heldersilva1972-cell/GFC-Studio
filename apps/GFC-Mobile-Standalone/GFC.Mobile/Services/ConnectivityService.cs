@@ -19,9 +19,9 @@ public class MobileConnectivityService : IConnectivityService
 {
     private readonly IJSRuntime _js;
     private readonly HttpClient _http;
-    private bool _isOnline = true;
+    private bool _isOnline = false;
     private bool _isHardwareOnline = true;
-    private bool _isServerReachable = true;
+    private bool _isServerReachable = false;
 
     public MobileConnectivityService(IJSRuntime js, HttpClient http)
     {
@@ -61,7 +61,7 @@ public class MobileConnectivityService : IConnectivityService
             }
 
             // 2. Real API Heartbeat (Server level)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)); // Reduced from 5s to 3s for snappier UI
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2)); // Reduced to 2s for snappier UI
             var timestamp = DateTime.Now.Ticks;
             var response = await _http.GetAsync($"api/health?t={timestamp}", cts.Token);
             

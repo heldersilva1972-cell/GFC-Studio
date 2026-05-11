@@ -27,6 +27,7 @@ public static class MauiProgram
         builder.Services.AddScoped<PosTerminalService>();
         builder.Services.AddScoped<IPosTerminalService>(sp => sp.GetRequiredService<PosTerminalService>());
         builder.Services.AddSingleton<IVersionService, PosVersionService>();
+        builder.Services.AddSingleton<IStationSettingsService, MauiStationSettingsService>();
         builder.Services.AddSingleton<IPrinterConfigService, PrinterConfigService>();
         builder.Services.AddSingleton<IPrinterService, MauiPrinterService>();
 

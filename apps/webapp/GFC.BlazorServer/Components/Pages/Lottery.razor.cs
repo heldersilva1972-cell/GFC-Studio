@@ -96,19 +96,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         // Summary stats computed from _shifts list using Business Day logic
         private decimal TotalSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalSales) : 
-            _shifts.Where(s => s.Status != "Draft")
-            .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalSales));
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalSales));
 
         private decimal TotalPayouts => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalPayouts) : 
-            _shifts.Where(s => s.Status != "Draft")
-            .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalPayouts));
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalPayouts));
 
         private decimal TotalNetSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalNetSales) : 
-            _shifts.Where(s => s.Status != "Draft")
-            .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().NetSales));
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.NetSales));
 
         private decimal TotalEnvelope => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalEnvelope) : 
             _shifts.Where(s => s.Status != "Draft").Sum(s => s.EnvelopeAmount));
@@ -131,9 +125,7 @@ namespace GFC.BlazorServer.Components.Pages
         private decimal NetBagDebt => TotalBagOut - TotalBagIn;
 
         private decimal TotalInstantTickets => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalCancels) : 
-            _shifts.Where(s => s.Status != "Draft")
-            .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalCancels));
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalCancels));
 
         private ShiftFormModel _shiftForm = new();
         private ShiftFormModel _originalForm = new(); // CHANGE TRACKER
@@ -812,7 +804,7 @@ namespace GFC.BlazorServer.Components.Pages
                 }
             }
 
-            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount - (BagRefillAmount ?? 0);
+            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount - (BagRefillAmount ?? 0) - EnvelopeAmount;
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY

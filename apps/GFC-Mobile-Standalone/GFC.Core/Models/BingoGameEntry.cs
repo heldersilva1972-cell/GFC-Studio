@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models
 {
@@ -20,6 +21,7 @@ namespace GFC.Core.Models
         public decimal RoundingAdjustment { get; set; }
         public int BallsCalled { get; set; }
 
+        [JsonIgnore]
         public virtual BingoSession Session { get; set; } = null!;
     }
 }

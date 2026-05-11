@@ -29,7 +29,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo     $apps = @(
 >>"%PS_PATH%" echo         @{ Name="GFCWebApp"; Live="C:\inetpub\GFCWebApp"; Staging="webapp"; Backup="C:\inetpub\history_webapp" },
 >>"%PS_PATH%" echo         @{ Name="GFCMobile"; Live="C:\inetpub\wwwroot\GFCMobile"; Staging="mobile"; Backup="C:\inetpub\history_mobile" },
->>"%PS_PATH%" echo         @{ Name="GFCPOS";    Live="C:\inetpub\wwwroot\GFCPOS";    Staging="pos";    Backup="C:\inetpub\history_pos" }
+>>"%PS_PATH%" echo         @{ Name="Default Web Site"; Live="C:\inetpub\wwwroot\GFCPOS";    Staging="pos";    Backup="C:\inetpub\history_pos" }
 >>"%PS_PATH%" echo     )
 >>"%PS_PATH%" echo     Import-Module WebAdministration -ErrorAction SilentlyContinue
 >>"%PS_PATH%" echo     foreach ($app in $apps) {
@@ -41,7 +41,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo         $ts = Get-Date -Format "yyyyMMdd_HHmmss"
 >>"%PS_PATH%" echo         $bp = Join-Path $app.Backup "Backup_$ts"
 >>"%PS_PATH%" echo         if (Test-Path $app.Live) { Copy-Item -Path "$($app.Live)\*" -Destination $bp -Recurse -Force -ErrorAction SilentlyContinue }
->>"%PS_PATH%" echo         if ($app.Name -eq "GFCMobile" -or $app.Name -eq "GFCPOS") {
+>>"%PS_PATH%" echo         if ($app.Name -eq "GFCMobile" -or $app.Name -eq "Default Web Site" -or $app.Name -eq "GFCPOS") {
 >>"%PS_PATH%" echo             Write-Step "Flattening $($app.Name) deployment..."
 >>"%PS_PATH%" echo             $sourceWwwroot = Join-Path $appStaging "wwwroot"
 >>"%PS_PATH%" echo             robocopy $sourceWwwroot $app.Live /S /E /PURGE /XD "history" /XF "appsettings.Production.json" "web.config" ^| Out-Null
@@ -50,12 +50,19 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo ^<?xml version="1.0" encoding="UTF-8"?^>
 >>"%PS_PATH%" echo ^<configuration^>
 >>"%PS_PATH%" echo   ^<system.webServer^>
+>>"%PS_PATH%" echo     ^<defaultDocument^>
+>>"%PS_PATH%" echo       ^<files^>
+>>"%PS_PATH%" echo         ^<clear /^>
+>>"%PS_PATH%" echo         ^<add value="index.html" /^>
+>>"%PS_PATH%" echo       ^</files^>
+>>"%PS_PATH%" echo     ^</defaultDocument^>
 >>"%PS_PATH%" echo     ^<staticContent^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".blat" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".dat" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".dll" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".webcil" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".json" /^>
+>>"%PS_PATH%" echo       ^<remove fileExtension=".txt" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".wasm" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".woff" /^>
 >>"%PS_PATH%" echo       ^<remove fileExtension=".woff2" /^>
@@ -64,6 +71,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".webcil" mimeType="application/octet-stream" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".dat" mimeType="application/octet-stream" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".json" mimeType="application/json" /^>
+>>"%PS_PATH%" echo       ^<mimeMap fileExtension=".txt" mimeType="text/plain" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".wasm" mimeType="application/wasm" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".woff" mimeType="application/font-woff" /^>
 >>"%PS_PATH%" echo       ^<mimeMap fileExtension=".woff2" mimeType="application/font-woff" /^>
@@ -83,7 +91,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo           ^<conditions logicalGrouping="MatchAll"^>
 >>"%PS_PATH%" echo             ^<add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" /^>
 >>"%PS_PATH%" echo           ^</conditions^>
->>"%PS_PATH%" echo           ^<action type="Rewrite" url="/" /^>
+>>"%PS_PATH%" echo           ^<action type="Rewrite" url="index.html" /^>
 >>"%PS_PATH%" echo         ^</rule^>
 >>"%PS_PATH%" echo       ^</rules^>
 >>"%PS_PATH%" echo     ^</rewrite^>

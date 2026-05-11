@@ -26,6 +26,7 @@ builder.Services.AddScoped<ConnectivityService>();              // Scoped (= sin
 builder.Services.AddScoped<PosTerminalService>();               // Scoped (= singleton in WASM): shared outbox + sync events
 builder.Services.AddScoped<IPosTerminalService>(sp => sp.GetRequiredService<PosTerminalService>());
 builder.Services.AddSingleton<IVersionService, PosVersionService>();
+builder.Services.AddScoped<IStationSettingsService, WebStationSettingsService>();
 builder.Services.AddScoped<IPrinterConfigService, WebPrinterConfigService>();
 builder.Services.AddScoped<IPrinterService, WebPrinterService>();
 
