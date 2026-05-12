@@ -148,6 +148,8 @@ try {
                 Write-Step "Updating $(Split-Path $f -Parent | Split-Path -Leaf)/$(Split-Path $f -Leaf)..."
                 $c = Get-Content $f -Raw
                 $nc = $c -replace "// GFC POS Revision: .*", "// GFC POS Revision: $targetVersion"
+                # [FIX] Also update the cacheName for production updates
+                $nc = $nc -replace '(\$\{cacheNamePrefix\})[^`'']+', ("`${1}" + $targetVersion)
                 if ($DryRun) { Write-DryRun "Would update $f" } else { Set-Content $f $nc }
             }
         }
@@ -158,6 +160,8 @@ try {
             Write-Step "Updating index.html (Cache Buster)..."
             $c = Get-Content $posIndex -Raw
             $nc = $c -replace "(const version = ')[^']+", ("`${1}" + $targetVersion)
+            # [FIX] Also update CSS cache-busters so UI changes are forced
+            $nc = $nc -replace '(\.css\?v=)[^"]+', ("`${1}" + $targetVersion)
             if ($DryRun) { Write-DryRun "Would update $posIndex" } else { Set-Content $posIndex $nc }
         }
 

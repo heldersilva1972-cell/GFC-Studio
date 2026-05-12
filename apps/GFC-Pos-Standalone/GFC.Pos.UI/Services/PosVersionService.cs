@@ -6,7 +6,7 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.43"; 
+    public string GetRevision() => "2.38.53"; 
     
     // REVISION HISTORY:
     // 2.38.43: Synchronized version.txt and version.json to fix the 'Update Available' banner visibility issue.
@@ -53,6 +53,16 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

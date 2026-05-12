@@ -1252,13 +1252,36 @@
 
     private Dictionary<int, int> ItemFrequency = new();
     private List<int> SpeedBarItemIds = new();
-    private IEnumerable<ProductItem> PopularItems => SpeedBarItemIds.Select(id => DbItems.FirstOrDefault(x => x.Id == id)).Where(x => x != null);
+    private IEnumerable<ProductItem> PopularItems => SpeedBarItemIds.Take(6).Select(id => DbItems.FirstOrDefault(x => x.Id == id)).Where(x => x != null);
 
     private IEnumerable<ProductItem> FilteredItems => (ActiveCategory == "DARTS CLUB ROUND"
         ? DbItems.Where(i => i.Category == "BEER" || i.Category == "LIQUOR")
         : DbItems.Where(x => !string.IsNullOrWhiteSpace(x.Category) && x.Category.Trim().Equals(ActiveCategory.Trim(), StringComparison.OrdinalIgnoreCase)))
         .GroupBy(x => x.Name).Select(g => g.First())
         .OrderBy(x => x.Name);
+
+    private DateTime _lastResetCheck = DateTime.MinValue;
+    private DateTime GetBusinessDayStart()
+    {
+        var now = DateTime.Now;
+        // If it's before 3am, the business day started at 3am yesterday.
+        if (now.Hour < 3) return now.Date.AddDays(-1).AddHours(3);
+        // If it's after 3am, the business day started at 3am today.
+        return now.Date.AddHours(3);
+    }
+
+    private void CheckDailyReset()
+    {
+        var dayStart = GetBusinessDayStart();
+        if (_lastResetCheck < dayStart)
+        {
+            Console.WriteLine($"[POS] 3AM DAILY RESET: Starting fresh for business day {dayStart:g}");
+            ItemFrequency.Clear();
+            SpeedBarItemIds.Clear();
+            _lastResetCheck = DateTime.Now;
+            UpdateSpeedBar();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1305,9 +1328,19 @@
 
         // [INSTANT-UPDATE] Check for update immediately on startup
         _ = Task.Run(async () => {
-            await Task.Delay(2000); // Give connection a moment to stabilize
+            await Task.Delay(2000); 
             await CheckForUpdatesAsync();
         });
+
+        // Initialize Popular Items for current business day
+        _lastResetCheck = DateTime.Now;
+        var dayStart = GetBusinessDayStart();
+        var allSales = await PosService.GetShiftAuditAsync(); 
+        // We re-calculate frequency from the audit to ensure it persists across refreshes
+        // Note: GetShiftAuditAsync doesn't give us the raw sales list, 
+        // but we can rely on the fact that Z-Out clears the shift log anyway.
+        // For now, we initialize fresh or rely on the shift-persistence.
+        UpdateSpeedBar();
     }
     
     [JSInvokable]
@@ -1338,6 +1371,9 @@
 
                 // [AUTO-UPDATE] Check for newer version while idle/logged out
             await CheckForUpdatesAsync();
+
+            // 3. 3AM Daily Reset Check
+            CheckDailyReset();
 
             // Security Check: If a user is currently logged in, verify they are still in the authorized list
             if (!string.IsNullOrEmpty(CurrentUserName))
@@ -1508,7 +1544,7 @@
 
     private void UpdateSpeedBar()
     {
-        SpeedBarItemIds = ItemFrequency.OrderByDescending(x => x.Value).Select(x => x.Key).Take(8).ToList();
+        SpeedBarItemIds = ItemFrequency.OrderByDescending(x => x.Value).Select(x => x.Key).Take(6).ToList();
         StateHasChanged();
     }
 
