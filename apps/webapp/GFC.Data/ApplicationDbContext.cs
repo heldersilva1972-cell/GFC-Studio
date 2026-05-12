@@ -29,6 +29,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<BingoSheetDefinition> BingoSheetDefinitions { get; set; } = null!;
     public DbSet<BingoGameDefinition> BingoGameDefinitions { get; set; } = null!;
 
+    // EVENTS & BANQUETS
+    public DbSet<EventTemplate> EventTemplates { get; set; } = null!;
+    public DbSet<ActiveEvent> ActiveEvents { get; set; } = null!;
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

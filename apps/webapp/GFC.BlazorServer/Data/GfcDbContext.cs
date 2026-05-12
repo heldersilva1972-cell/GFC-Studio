@@ -147,6 +147,10 @@ public class GfcDbContext : DbContext
     public DbSet<PosSale> PosSales => Set<PosSale>();
     public DbSet<PosZReport> PosZReports => Set<PosZReport>();
     
+    // Events & Banquets
+    public DbSet<EventTemplate> EventTemplates => Set<EventTemplate>();
+    public DbSet<ActiveEvent> ActiveEvents => Set<ActiveEvent>();
+    
     // Finance System (Bills & Invoices)
     public DbSet<GFC.Core.Models.Finance.FinanceBill> FinanceBills => Set<GFC.Core.Models.Finance.FinanceBill>();
     public DbSet<GFC.Core.Models.Finance.FinanceVendor> FinanceVendors => Set<GFC.Core.Models.Finance.FinanceVendor>();

@@ -6,9 +6,13 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.53"; 
+    public string GetRevision() => "2.38.57"; 
     
     // REVISION HISTORY:
+    // 2.38.57: Refactored Banquet 'Add Funds' API to use a robust DTO and body-based POST for improved reliability on Android terminals.
+    // 2.38.56: Added Banquet Tab management directly to POS terminal with automatic Z-Report deposit logging.
+    // 2.38.55: Improved Event Tab insufficient funds warning clarity and dynamic button text.
+    // 2.38.54: Added Event Tabs checkout support and active event selector.
     // 2.38.43: Synchronized version.txt and version.json to fix the 'Update Available' banner visibility issue.
     // 2.38.42: Compacted catalog items (product-card) and category filters (filter-pill) to maximize visibility on 15-inch displays.
     // 2.38.41: Scaled down Checkout window dimensions and content (font-sizes/padding) for better fit on compact displays.

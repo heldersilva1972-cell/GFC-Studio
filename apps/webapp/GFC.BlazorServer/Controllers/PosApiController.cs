@@ -74,6 +74,14 @@ public class PosApiController : ControllerBase
             .Where(t => t.IsActive)
             .ToListAsync();
 
+        var activeEvents = await db.ActiveEvents
+            .Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)
+            .ToListAsync();
+
+        var eventTemplates = await db.EventTemplates
+            .Where(t => !t.IsDeleted)
+            .ToListAsync();
+
         var categoryNames = categories.Select(c => c.Name).ToList();
         categoryNames.Add("TOKENS");
 
@@ -81,8 +89,70 @@ public class PosApiController : ControllerBase
         {
             Categories = categoryNames,
             Items = items,
-            Tokens = tokens
+            Tokens = tokens,
+            ActiveEvents = activeEvents,
+            EventTemplates = eventTemplates
         });
+    }
+
+    [HttpPost("events/start")]
+    public async Task<IActionResult> StartEvent([FromBody] ActiveEvent newEvent)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            newEvent.Id = 0; // Force new identity
+            newEvent.CreatedAt = DateTime.UtcNow;
+            db.ActiveEvents.Add(newEvent);
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("events/add-funds")]
+    public async Task<IActionResult> AddFunds([FromBody] AddFundsRequest? request)
+    {
+        if (request == null) return BadRequest("Missing request body");
+
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var ev = await db.ActiveEvents.FindAsync(request.Id);
+            if (ev == null) return NotFound($"Event with ID {request.Id} not found");
+
+            ev.CurrentBalance += request.Amount;
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to add funds to event {Id}", request?.Id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("events/close/{id}")]
+    public async Task<IActionResult> CloseEvent(int id)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var ev = await db.ActiveEvents.FindAsync(id);
+            if (ev != null)
+            {
+                ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                await db.SaveChangesAsync();
+            }
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ex.Message);
+        }
     }
 
     [HttpPost("sale")]
@@ -115,7 +185,8 @@ public class PosApiController : ControllerBase
                 IsVoided = saleDto.IsVoided,
                 IsCorrection = saleDto.IsCorrection,
                 OriginalSaleId = saleDto.OriginalSaleId,
-                AdjustmentReason = saleDto.AdjustmentReason
+                AdjustmentReason = saleDto.AdjustmentReason,
+                ActiveEventId = saleDto.ActiveEventId
             };
 
             db.PosSales.Add(sale);
@@ -134,6 +205,23 @@ public class PosApiController : ControllerBase
                         } catch (Exception invEx) {
                             _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", item.Id, item.Name, invEx.Message);
                         }
+                    }
+                }
+            }
+
+            // Handle Event Tab Deduction
+            if (saleDto.PaymentType == "TAB" && saleDto.ActiveEventId.HasValue)
+            {
+                var activeEvent = await db.ActiveEvents.FindAsync(saleDto.ActiveEventId.Value);
+                if (activeEvent != null)
+                {
+                    if (saleDto.IsVoided)
+                    {
+                        activeEvent.CurrentBalance += saleDto.TotalAmount;
+                    }
+                    else
+                    {
+                        activeEvent.CurrentBalance -= saleDto.TotalAmount;
                     }
                 }
             }

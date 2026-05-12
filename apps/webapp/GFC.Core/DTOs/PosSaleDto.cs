@@ -18,4 +18,5 @@ public class PosSaleDto
     public decimal? AmountReceived { get; set; }
     public decimal? ChangeDue { get; set; }
     public decimal OriginalTotal { get; set; }
+    public int? ActiveEventId { get; set; }
 }

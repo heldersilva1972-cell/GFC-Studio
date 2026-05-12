@@ -3,6 +3,7 @@
 @using Microsoft.EntityFrameworkCore
 @using GFC.BlazorServer.Data
 @using GFC.Core.Models
+@using GFC.Core.Enums
 @attribute [Authorize]
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @inject GFC.BlazorServer.Services.IToastService ToastService
@@ -78,6 +79,17 @@
                                 <i class="bi bi-chevron-right small"></i>
                             </div>
                         </button>
+
+                        <div class="card-header bg-light border-0 py-2 mt-3">
+                            <h6 class="fw-bold mb-0 text-muted extra-small text-uppercase">Events</h6>
+                        </div>
+                        <button class="list-group-item list-group-item-action border-0 py-3 @(showEventsTab ? "active" : "")" 
+                                @onclick="SelectEventsTab">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-calendar-event me-2"></i> BANQUETS & TABS</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </div>
+                        </button>
                     }
                 </div>
             </div>
@@ -135,6 +147,76 @@
                                     </div>
                                 </div>
                             }
+                        </div>
+                    }
+                </div>
+            }
+            else if (showEventsTab)
+            {
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-4 flex-shrink-0">
+                    <div>
+                        <h2 class="fw-black mb-1">Event & Tab Manager</h2>
+                        <p class="text-muted small mb-0">Manage pre-paid banquets and running tabs.</p>
+                    </div>
+                    <button class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="OpenAddEventTemplateModal">
+                        <i class="bi bi-plus-lg me-2"></i> New Event Template
+                    </button>
+                </div>
+
+                <div class="flex-grow-1 overflow-y-auto pe-2 scroll-area">
+                    <h5 class="fw-bold mb-3">Active Tabs (Running Now)</h5>
+                    @if (activeEvents == null) { <div class="text-center py-4"><div class="spinner-border text-primary"></div></div> }
+                    else if (!activeEvents.Any()) { <div class="text-muted small mb-4">No active events currently running.</div> }
+                    else {
+                        <div class="list-group mb-5">
+                        @foreach(var ae in activeEvents) {
+                            <div class="list-group-item p-4 border-2 rounded-4 mb-3 shadow-sm" style="border-left: 6px solid @(ae.Type == EventTabType.PrePaid ? "var(--bs-primary)" : "var(--bs-success)") !important;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="fw-bold mb-1">@ae.Name <span class="badge @(ae.Type == EventTabType.PrePaid ? "bg-primary" : "bg-success") ms-2">@ae.Type</span></h5>
+                                        <p class="mb-0 small text-muted">Started: @ae.CreatedAt.ToLocalTime().ToString("g")</p>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small fw-bold text-muted text-uppercase mb-1">@(ae.Type == EventTabType.PrePaid ? "Remaining Balance" : "Current Tab")</div>
+                                        <h4 class="fw-black mb-2 @(ae.CurrentBalance <= 0 && ae.Type == EventTabType.PrePaid ? "text-danger" : "text-dark")">
+                                            @ae.CurrentBalance.ToString("C")
+                                        </h4>
+                                        <div class="d-flex gap-2 justify-content-end">
+                                            @if(ae.Type == EventTabType.PrePaid) {
+                                                <button class="btn btn-sm btn-success rounded-pill px-3 shadow-sm" @onclick="() => OpenAddFundsModal(ae)">Add Funds</button>
+                                            }
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3" @onclick="() => CloseActiveEvent(ae)">Close Tab</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        </div>
+                    }
+
+                    <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+                        <h5 class="fw-bold mb-0">Saved Event Templates</h5>
+                    </div>
+                    @if (eventTemplates == null) { <div class="text-center py-4"><div class="spinner-border text-primary"></div></div> }
+                    else if (!eventTemplates.Any()) { <div class="text-muted small">No templates saved.</div> }
+                    else {
+                        <div class="row row-cols-1 row-cols-md-2 g-3">
+                        @foreach(var t in eventTemplates) {
+                            <div class="col">
+                                <div class="card h-100 border-2 rounded-4 p-3 bg-white">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="fw-bold mb-1">@t.Name</h6>
+                                            <span class="badge bg-light text-dark border rounded-pill">Default: @t.DefaultType</span>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm btn-light border rounded-circle" @onclick="() => OpenEditEventTemplateModal(t)"><i class="bi bi-pencil"></i></button>
+                                            <button class="btn btn-sm btn-success rounded-circle text-white" title="Start Event" @onclick="() => OpenCreateActiveEventModal(t)"><i class="bi bi-play-fill"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
                         </div>
                     }
                 </div>
@@ -410,6 +492,108 @@
     </div>
 }
 
+@if (editingEventTemplate != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">@(editingEventTemplate.Id == 0 ? "New Event Template" : "Edit Event Template")</h5>
+                    <button type="button" class="btn-close" @onclick="() => editingEventTemplate = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Event Name</label>
+                        <input type="text" class="form-control form-control-lg rounded-3 border-2" @bind="editingEventTemplate.Name" placeholder="e.g. Annual Gala" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Default Tab Type</label>
+                        <select class="form-select form-select-lg rounded-3 border-2" @bind="editingEventTemplate.DefaultType">
+                            @foreach (var type in Enum.GetValues(typeof(EventTabType)).Cast<EventTabType>())
+                            {
+                                <option value="@type">@type</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => editingEventTemplate = null">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="SaveEventTemplate">Save Template</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (creatingActiveEvent != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">Start Event: @creatingActiveEvent.Name</h5>
+                    <button type="button" class="btn-close" @onclick="() => creatingActiveEvent = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="alert alert-info rounded-3 small mb-4">
+                        Starting this event will make it immediately available on all POS terminals.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Tab Type</label>
+                        <select class="form-select form-select-lg rounded-3 border-2" @bind="creatingActiveEvent.Type">
+                            @foreach (var type in Enum.GetValues(typeof(EventTabType)).Cast<EventTabType>())
+                            {
+                                <option value="@type">@type</option>
+                            }
+                        </select>
+                    </div>
+                    @if (creatingActiveEvent.Type == EventTabType.PrePaid)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-muted text-uppercase">Pre-Paid Amount</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-2">$</span>
+                                <input type="number" step="0.01" class="form-control form-control-lg border-2" @bind="creatingActiveEvent.InitialAmount" />
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => creatingActiveEvent = null">Cancel</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick="StartActiveEvent">Start Event Tab</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (addingFundsEvent != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">Add Funds to Tab</h5>
+                    <button type="button" class="btn-close" @onclick="() => addingFundsEvent = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Amount to Add</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-2">$</span>
+                            <input type="number" step="0.01" class="form-control form-control-lg border-2" @bind="addFundsAmount" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => addingFundsEvent = null">Cancel</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick="SaveAddedFunds">Add Funds</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .rounded-4 { border-radius: 1rem !important; }
     .list-group-item.active { background-color: var(--bs-primary); border-color: var(--bs-primary); color: white; }
@@ -471,6 +655,12 @@
     private string newCategoryName = "";
     private int newCategoryOrder = 0;
 
+    private bool showEventsTab = false;
+    private List<EventTemplate>? eventTemplates;
+    private List<ActiveEvent>? activeEvents;
+    private EventTemplate? editingEventTemplate;
+    private ActiveEvent? creatingActiveEvent;
+
     private LiquorItem? editingItem;
 
     protected override async Task OnInitializedAsync()
@@ -507,6 +697,7 @@
     private async Task SelectCategory(PosCategory cat)
     {
         showUncategorized = false;
+        showEventsTab = false;
         selectedCategory = cat;
         await ReloadItems();
     }
@@ -515,13 +706,110 @@
     {
         selectedCategory = new PosCategory { Name = "NEEDS CATEGORY" };
         showUncategorized = true;
+        showEventsTab = false;
         await ReloadItems();
+    }
+
+    private async Task SelectEventsTab()
+    {
+        selectedCategory = null;
+        showUncategorized = false;
+        showTokensTab = false;
+        showEventsTab = true;
+        await LoadEvents();
+    }
+    
+    private async Task LoadEvents()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        eventTemplates = await db.EventTemplates.Where(t => !t.IsDeleted).OrderBy(t => t.Name).ToListAsync();
+        activeEvents = await db.ActiveEvents.Include(e => e.Template).Where(e => e.Status == EventTabStatus.Open && !e.IsDeleted).OrderByDescending(e => e.CreatedAt).ToListAsync();
+    }
+    
+    private void OpenAddEventTemplateModal()
+    {
+        editingEventTemplate = new EventTemplate { DefaultType = EventTabType.PrePaid, Name = "" };
+    }
+    
+    private void OpenEditEventTemplateModal(EventTemplate t)
+    {
+        editingEventTemplate = new EventTemplate { Id = t.Id, Name = t.Name, DefaultType = t.DefaultType };
+    }
+    
+    private async Task SaveEventTemplate()
+    {
+        if (editingEventTemplate == null || string.IsNullOrWhiteSpace(editingEventTemplate.Name)) return;
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            if (editingEventTemplate.Id == 0) {
+                db.EventTemplates.Add(editingEventTemplate);
+                await ToastService.ShowSuccess("Template added.");
+            } else {
+                var orig = await db.EventTemplates.FindAsync(editingEventTemplate.Id);
+                if (orig != null) {
+                    orig.Name = editingEventTemplate.Name;
+                    orig.DefaultType = editingEventTemplate.DefaultType;
+                    await ToastService.ShowSuccess("Template updated.");
+                }
+            }
+            await db.SaveChangesAsync();
+            editingEventTemplate = null;
+            await LoadEvents();
+        } catch (Exception ex) {
+            await ToastService.ShowError(ex.Message);
+        }
+    }
+    
+    private void OpenCreateActiveEventModal(EventTemplate t)
+    {
+        creatingActiveEvent = new ActiveEvent 
+        { 
+            TemplateId = t.Id, 
+            Name = t.Name, 
+            Type = t.DefaultType, 
+            InitialAmount = 0, 
+            CurrentBalance = 0,
+            Status = EventTabStatus.Open 
+        };
+    }
+    
+    private async Task StartActiveEvent()
+    {
+        if (creatingActiveEvent == null) return;
+        try {
+            creatingActiveEvent.CurrentBalance = creatingActiveEvent.Type == EventTabType.PrePaid ? creatingActiveEvent.InitialAmount : 0;
+            using var db = await DbFactory.CreateDbContextAsync();
+            db.ActiveEvents.Add(creatingActiveEvent);
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess("Event started!");
+            creatingActiveEvent = null;
+            await LoadEvents();
+        } catch (Exception ex) {
+            await ToastService.ShowError(ex.Message);
+        }
+    }
+    
+    private async Task CloseActiveEvent(ActiveEvent ae)
+    {
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var orig = await db.ActiveEvents.FindAsync(ae.Id);
+            if (orig != null) {
+                orig.Status = EventTabStatus.Closed;
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess("Event closed.");
+                await LoadEvents();
+            }
+        } catch (Exception ex) {
+            await ToastService.ShowError(ex.Message);
+        }
     }
 
     private async Task SelectTokensTab()
     {
         selectedCategory = null;
         showUncategorized = false;
+        showEventsTab = false;
         showTokensTab = true;
         await LoadTokens();
     }
@@ -540,6 +828,7 @@
     private async Task ReloadItems()
     {
         showTokensTab = false;
+        showEventsTab = false;
         if (selectedCategory == null) return;
         
         isLoadingItems = true;
@@ -860,6 +1149,37 @@
         catch (Exception ex)
         {
             await ToastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private ActiveEvent? addingFundsEvent = null;
+    private decimal addFundsAmount = 0;
+
+    private void OpenAddFundsModal(ActiveEvent ev)
+    {
+        addingFundsEvent = ev;
+        addFundsAmount = 0;
+    }
+
+    private async Task SaveAddedFunds()
+    {
+        if (addingFundsEvent == null || addFundsAmount <= 0) return;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var original = await db.ActiveEvents.FindAsync(addingFundsEvent.Id);
+            if (original != null)
+            {
+                original.CurrentBalance += addFundsAmount;
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess($"Added {addFundsAmount:C} to {original.Name}");
+                await LoadEvents();
+            }
+            addingFundsEvent = null;
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error adding funds: {ex.Message}");
         }
     }
 }

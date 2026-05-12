@@ -15,6 +15,7 @@
 @inject IStationSettingsService StationSettings
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
+@inject HttpClient Http
 @implements IDisposable
 @attribute [AllowAnonymous]
 
@@ -520,6 +521,9 @@
                     <i class="bi bi-pencil-square ms-2 opacity-75"></i>
                 </div>
             }
+            <button class="btn btn-dark rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2 me-2" style="font-size: 0.8rem; height: 44px;" @onclick="() => showOptionsMenu = true">
+                <i class="bi bi-ui-checks-grid"></i> OPTIONS
+            </button>
             <button class="btn-settings-icon" @onclick="() => showSettingsModal = true" title="Settings">
                 <i class="bi bi-gear-fill @(forceTrainingMode ? "text-danger" : "")"></i>
             </button>
@@ -538,6 +542,126 @@
         </div>
     </header>
 
+
+    @if (showOptionsMenu)
+    {
+        <div class="shift-overlay">
+            <div class="settings-card shadow-lg" style="max-width: 400px;">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-black mb-0">POS OPTIONS</h3>
+                    <button class="btn btn-light rounded-circle p-2" @onclick="() => showOptionsMenu = false">
+                        <i class="bi bi-x-lg fs-5"></i>
+                    </button>
+                </div>
+                <div class="d-grid gap-3">
+                    <button class="btn btn-outline-primary btn-lg rounded-4 text-start p-4 fw-bold" style="border-width: 2px;" @onclick="OpenManageBanquets">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-calendar-event fs-3"></i>
+                            <div>
+                                <div class="fs-5 fw-black">MANAGE BANQUETS</div>
+                                <div class="small text-muted fw-normal">Start, fund, or close event tabs</div>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (showBanquetsModal)
+    {
+        <div class="shift-overlay" style="z-index: 1055;">
+            <div class="settings-card shadow-lg" style="max-width: 600px; width: 95%;">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-black mb-0">BANQUET MANAGER</h3>
+                    <button class="btn btn-light rounded-circle p-2" @onclick="() => showBanquetsModal = false">
+                        <i class="bi bi-x-lg fs-5"></i>
+                    </button>
+                </div>
+                
+                <div class="settings-scroll-area">
+                    <div class="mb-4">
+                        <h6 class="fw-bold text-muted small">START NEW BANQUET</h6>
+                        <div class="p-3 bg-light rounded-4 border">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">Select Template</label>
+                                <select class="form-select form-select-lg border-2 rounded-3" @bind="_newBanquetTemplateId">
+                                    <option value="0">-- SELECT EVENT --</option>
+                                    @foreach (var t in DbEventTemplates)
+                                    {
+                                        <option value="@t.Id">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">Starting Cash Deposit</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-2 fw-bold">$</span>
+                                    <input type="number" step="0.01" class="form-control form-control-lg border-2" @bind="_newBanquetAmount" />
+                                </div>
+                            </div>
+                            <button class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow-sm" @onclick="StartBanquet" disabled="@(_newBanquetTemplateId == 0 || _newBanquetAmount <= 0)">
+                                <i class="bi bi-cash-stack me-2"></i> COLLECT CASH & START TAB
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h6 class="fw-bold text-muted small mb-3">ACTIVE BANQUETS</h6>
+                        @if (DbActiveEvents == null || !DbActiveEvents.Any())
+                        {
+                            <div class="text-center p-4 border rounded-4 bg-light text-muted fw-bold">
+                                No active banquets.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-grid gap-3">
+                                @foreach (var ev in DbActiveEvents)
+                                {
+                                    <div class="border-2 border-primary rounded-4 p-3 bg-white shadow-sm position-relative">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h5 class="fw-black text-primary mb-0">@ev.Name</h5>
+                                            <span class="badge bg-primary rounded-pill fs-6">@ev.CurrentBalance.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex gap-2 mt-3">
+                                            <button class="btn btn-outline-success btn-sm flex-grow-1 rounded-pill fw-bold" @onclick="() => OpenAddFunds(ev)">
+                                                <i class="bi bi-plus-circle me-1"></i> ADD FUNDS
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm rounded-pill fw-bold" @onclick="() => CloseBanquet(ev)">
+                                                CLOSE
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_selectedBanquetToAddFunds != null)
+    {
+        <div class="shift-overlay" style="z-index: 1060;">
+            <div class="notice-modal animate__animated animate__fadeInUp">
+                <div class="notice-icon-circle bg-success">
+                    <i class="bi bi-cash"></i>
+                </div>
+                <h3 class="fw-black mb-2">ADD FUNDS</h3>
+                <p class="text-muted fw-bold mb-4">Adding funds to <strong>@_selectedBanquetToAddFunds.Name</strong></p>
+                <div class="input-group mb-4">
+                    <span class="input-group-text bg-white border-2 fw-bold fs-4">$</span>
+                    <input type="number" step="0.01" class="form-control border-2 fs-4" @bind="_addFundsAmount" autofocus />
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success py-3 rounded-pill fw-black" @onclick="ConfirmAddFunds" disabled="@(_addFundsAmount <= 0)">COLLECT CASH & ADD</button>
+                    <button class="btn btn-light py-3 rounded-pill fw-bold" @onclick="() => _selectedBanquetToAddFunds = null">CANCEL</button>
+                </div>
+            </div>
+        </div>
+    }
 
     @if (showSettingsModal)
     {
@@ -737,11 +861,30 @@
     <main class="pos-workspace @(_isCorrectionMode ? "correction-mode" : "")">
         <section class="pos-catalog">
             <div class="catalog-filters d-flex justify-content-between align-items-center w-100 mb-4 pe-2">
-                <div class="d-flex gap-2 flex-wrap">
+                <div class="d-flex gap-2 flex-wrap align-items-center">
                     @foreach (var cat in Categories)
                     {
                         <button class="filter-pill @(ActiveCategory == cat ? "active" : "")" 
                                 @onclick='() => HandleCategoryClick(cat)'>@cat</button>
+                    }
+                    @if (DbActiveEvents != null && DbActiveEvents.Any())
+                    {
+                        <div class="d-flex align-items-center gap-2 bg-light border-2 px-3 py-1 shadow-sm ms-2" style="border-radius: 50px;">
+                            <i class="bi bi-calendar-event-fill text-primary"></i>
+                            <select class="form-select border-0 bg-transparent fw-bold text-primary shadow-none p-0 pe-4" style="width: auto; font-size: 0.8rem; text-transform: uppercase; min-width: 130px; cursor: pointer;" @onchange="SelectActiveEvent">
+                                <option value="">-- NO EVENT --</option>
+                                @foreach (var ev in DbActiveEvents)
+                                {
+                                    <option value="@ev.Id">@ev.Name</option>
+                                }
+                            </select>
+                            @if (_selectedActiveEvent != null)
+                            {
+                                <span class="badge @(_selectedActiveEvent.CurrentBalance <= 0 && _selectedActiveEvent.Type == GFC.Core.Enums.EventTabType.PrePaid ? "bg-danger" : "bg-primary") rounded-pill">
+                                    @(_selectedActiveEvent.Type == GFC.Core.Enums.EventTabType.PrePaid ? _selectedActiveEvent.CurrentBalance.ToString("C") : "TAB")
+                                </span>
+                            }
+                        </div>
                     }
                 </div>
                 <div class="d-flex align-items-center gap-2">
@@ -887,16 +1030,27 @@
 
 
 
-                <div class="checkout-btns-group" style="display: flex; gap: 10px;">
+                <div class="checkout-btns-group" style="display: flex; gap: 8px;">
                     <button class="btn-redeem @(CartItems.Count == 0 ? "disabled" : "")" 
                             disabled="@(CartItems.Count == 0)"
+                            style="flex: 1;"
                             @onclick="() => showRedeemOverlay = true">
-                        <i class="bi bi-ticket-perforated me-2"></i> REDEEM TOKEN
+                        <i class="bi bi-ticket-perforated"></i> TOKEN
                     </button>
+                    @if (_selectedActiveEvent != null)
+                    {
+                        <button class="btn-checkout bg-primary text-white border-0 shadow-sm @(CartItems.Count == 0 ? "disabled" : "")" 
+                                disabled="@(CartItems.Count == 0)"
+                                style="flex: 1; padding: 0.5rem;"
+                                @onclick="ChargeToTab">
+                            <i class="bi bi-journal-check d-block mb-1"></i> TAB
+                        </button>
+                    }
                     <button class="btn-checkout @(CartItems.Count == 0 ? "disabled" : "")" 
                             disabled="@(CartItems.Count == 0)"
+                            style="flex: 2;"
                             @onclick="Checkout">
-                        <i class="bi bi-wallet2 me-2"></i> CHECKOUT
+                        <i class="bi bi-wallet2 me-2"></i> PAY
                     </button>
                 </div>
             </div>
@@ -1209,7 +1363,7 @@
                     <button class="btn btn-primary w-50 py-3 rounded-pill fw-bold shadow-sm" @onclick="OnNoticeConfirm">YES, PROCEED</button> 
                 }
                 else { 
-                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => _showNoticeModal = false">OK, GOT IT</button> 
+                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => _showNoticeModal = false">@_noticeBtnText</button> 
                 }
             </div>
         </div>
@@ -1227,6 +1381,11 @@
     private List<ProductItem> DbItems = new();
     private List<string> Categories = new();
     private List<PosToken> DbTokens = new();
+    private List<ActiveEvent> DbActiveEvents = new();
+    private List<EventTemplate> DbEventTemplates = new();
+    private ActiveEvent? _selectedActiveEvent = null;
+    private bool _isTabPayment = false;
+    
     private List<ProductItem> CartItems = new();
     private decimal Subtotal => CartItems.Sum(x => x.Price * x.Quantity);
     
@@ -1240,6 +1399,12 @@
     private bool showCloseOutSuccessOverlay = false;
     private bool isDartsModeActive = false;
     private bool _isInitialLoading = true;
+    private bool showOptionsMenu = false;
+    private bool showBanquetsModal = false;
+    private int _newBanquetTemplateId = 0;
+    private decimal _newBanquetAmount = 0;
+    private ActiveEvent? _selectedBanquetToAddFunds = null;
+    private decimal _addFundsAmount = 0;
     private bool _disposed = false;
     private bool isSyncing = false;
     
@@ -1533,6 +1698,14 @@
             Categories = menu.Categories.Where(c => c != "DARTS CLUB ROUND").ToList();
             DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
             DbTokens = menu.Tokens;
+            DbActiveEvents = menu.ActiveEvents ?? new();
+            DbEventTemplates = menu.EventTemplates ?? new();
+            if (_selectedActiveEvent != null)
+            {
+                var updatedEvent = DbActiveEvents.FirstOrDefault(e => e.Id == _selectedActiveEvent.Id);
+                if (updatedEvent != null) _selectedActiveEvent.CurrentBalance = updatedEvent.CurrentBalance;
+            }
+            
             if (!Categories.Contains(ActiveCategory)) ActiveCategory = Categories.FirstOrDefault() ?? "BEER";
             await InvokeAsync(StateHasChanged);
         }
@@ -1668,6 +1841,35 @@
             ShowCheckoutOverlay = true;
         }
     }
+    
+    private void SelectActiveEvent(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            _selectedActiveEvent = DbActiveEvents.FirstOrDefault(ev => ev.Id == id);
+        }
+        else
+        {
+            _selectedActiveEvent = null;
+        }
+    }
+    
+    private void ChargeToTab()
+    {
+        if (CartItems.Count == 0) return;
+        if (_selectedActiveEvent == null) return;
+        
+        if (_selectedActiveEvent.Type == GFC.Core.Enums.EventTabType.PrePaid && _selectedActiveEvent.CurrentBalance < Subtotal)
+        {
+            ShowNotice("Insufficient Funds on Tab", 
+                $"This pre-paid tab only has {_selectedActiveEvent.CurrentBalance:C} remaining, but the total is {Subtotal:C}. Please remove an item, or ring up {_selectedActiveEvent.CurrentBalance:C} to the tab, and the rest to Cash/Card.", 
+                "warning", null, "RETURN TO ORDER");
+            return;
+        }
+        
+        _isTabPayment = true;
+        _ = FinalizeSale();
+    }
 
     private void HandleMoneyCollected(bool wasCollected)
     {
@@ -1683,7 +1885,7 @@
     private async Task FinalizeSale()
     {
         var amountToRecord = Subtotal;
-        var payment = (amountToRecord == 0) ? "TOKEN/COMP" : "CASH";
+        var payment = _isTabPayment ? "TAB" : ((amountToRecord == 0) ? "TOKEN/COMP" : "CASH");
         var saleId = _correctingSaleId ?? Guid.NewGuid();
 
         // BUILD THE SALE RECORD FIRST
@@ -1695,12 +1897,18 @@
             TotalAmount = amountToRecord,
             BartenderName = CurrentUserName,
             PaymentType = payment,
+            ActiveEventId = _isTabPayment ? _selectedActiveEvent?.Id : null,
             ItemsJson = JsonSerializer.Serialize(CartItems),
-            AmountReceived = CashReceived,
-            ChangeDue = (CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : null,
+            AmountReceived = _isTabPayment ? amountToRecord : CashReceived,
+            ChangeDue = _isTabPayment ? 0 : ((CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : null),
             OriginalTotal = _isCorrectionMode ? _originalSaleAmount : 0,
             IsCorrection = _isCorrectionMode
         };
+        
+        if (!forceTrainingMode && _isTabPayment && _selectedActiveEvent != null)
+        {
+            _selectedActiveEvent.CurrentBalance -= amountToRecord;
+        }
         
         // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
         if (!forceTrainingMode)
@@ -1745,6 +1953,7 @@
         
         ClearCart(); 
         _correctingSaleId = null; 
+        _isTabPayment = false;
         ShowCheckoutOverlay = false; 
         CashReceived = null; 
         CashInputString = "";
@@ -1980,8 +2189,8 @@
     private async Task ToggleTrainingMode(object? val) { if (val is bool isChecked) { forceTrainingMode = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_training_mode", forceTrainingMode.ToString().ToLower()); await RefreshData(); } }
     private async Task ToggleHardwarePractice(object? val) { if (val is bool isChecked) { allowHardwareInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_hardware_practice", allowHardwareInTraining.ToString().ToLower()); } }
 
-    private bool _showNoticeModal = false; private string _noticeTitle = "", _noticeMessage = "", _noticeType = "info"; private Action? _onConfirm;
-    private void ShowNotice(string t, string m, string type, Action? c = null) { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _showNoticeModal = true; StateHasChanged(); }
+    private bool _showNoticeModal = false; private string _noticeTitle = "", _noticeMessage = "", _noticeType = "info", _noticeBtnText = "OK, GOT IT"; private Action? _onConfirm;
+    private void ShowNotice(string t, string m, string type, Action? c = null, string btnText = "OK, GOT IT") { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _noticeBtnText = btnText; _showNoticeModal = true; StateHasChanged(); }
     private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
     private void GoBack() => Navigation.NavigateTo("/");
 
@@ -2012,6 +2221,127 @@
         {
             Console.WriteLine($"[POS] SyncUsers CRITICAL ERROR: {ex.Message}");
         }
+    }
+
+    private async Task OpenManageBanquets()
+    {
+        await RefreshData();
+        showOptionsMenu = false;
+        showBanquetsModal = true;
+    }
+
+    private void OpenAddFunds(ActiveEvent ev)
+    {
+        _selectedBanquetToAddFunds = ev;
+        _addFundsAmount = 0;
+    }
+
+    private async Task StartBanquet()
+    {
+        if (_newBanquetTemplateId == 0 || _newBanquetAmount <= 0) return;
+        var template = DbEventTemplates.FirstOrDefault(t => t.Id == _newBanquetTemplateId);
+        if (template == null) return;
+
+        try
+        {
+            var newEvent = new ActiveEvent
+            {
+                Name = template.Name,
+                Type = template.DefaultType,
+                CurrentBalance = _newBanquetAmount,
+                Status = GFC.Core.Enums.EventTabStatus.Open
+            };
+            
+            var response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
+            if (response.IsSuccessStatusCode)
+            {
+                await LogTabDeposit(template.Name, _newBanquetAmount);
+                Toast.ShowSuccess("Banquet started and cash logged!");
+                _newBanquetTemplateId = 0;
+                _newBanquetAmount = 0;
+                await RefreshData();
+            }
+            else
+            {
+                Toast.ShowError("Server error starting event");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task ConfirmAddFunds()
+    {
+        if (_selectedBanquetToAddFunds == null || _addFundsAmount <= 0) return;
+
+        try
+        {
+            var request = new AddFundsRequest { Id = _selectedBanquetToAddFunds.Id, Amount = _addFundsAmount };
+            var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
+            if (response.IsSuccessStatusCode)
+            {
+                await LogTabDeposit(_selectedBanquetToAddFunds.Name, _addFundsAmount);
+                Toast.ShowSuccess("Funds added and cash logged!");
+                _selectedBanquetToAddFunds = null;
+                _addFundsAmount = 0;
+                await RefreshData();
+            }
+            else
+            {
+                Toast.ShowError("Server error adding funds");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task CloseBanquet(ActiveEvent ev)
+    {
+        try
+        {
+            var response = await Http.PostAsync($"api/pos/events/close/{ev.Id}", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Toast.ShowSuccess("Banquet closed");
+                await RefreshData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task LogTabDeposit(string eventName, decimal amount)
+    {
+        var depositSale = new PosSaleDto
+        {
+            Id = Guid.NewGuid(),
+            Timestamp = DateTime.UtcNow,
+            TerminalName = TerminalName,
+            BartenderName = CurrentUserName,
+            TotalAmount = amount,
+            PaymentType = "CASH",
+            OriginalTotal = amount,
+            AmountReceived = amount,
+            ChangeDue = 0,
+            ItemsJson = JsonSerializer.Serialize(new List<ProductItem>
+            {
+                new ProductItem { 
+                    Id = 0, 
+                    Name = $"TAB DEPOSIT: {eventName}", 
+                    Price = amount, 
+                    Quantity = 1, 
+                    Category = "DEPOSIT" 
+                }
+            })
+        };
+        await PosService.AddSaleToShiftAsync(depositSale);
+        await UpdateAuditAsync();
     }
 
     public class ProductItem { public int Id { get; set; } public string Name { get; set; } = ""; public decimal Price { get; set; } public int Quantity { get; set; } = 1; public string Category { get; set; } = "MISC"; }
