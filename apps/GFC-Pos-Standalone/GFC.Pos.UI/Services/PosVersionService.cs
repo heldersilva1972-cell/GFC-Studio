@@ -6,9 +6,10 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.57"; 
+    public string GetRevision() => "2.38.58"; 
     
     // REVISION HISTORY:
+    // 2.38.58: Implemented Sticky Immersive Mode on Android terminals to automatically hide the navigation and status bars for a cleaner POS experience.
     // 2.38.57: Refactored Banquet 'Add Funds' API to use a robust DTO and body-based POST for improved reliability on Android terminals.
     // 2.38.56: Added Banquet Tab management directly to POS terminal with automatic Z-Report deposit logging.
     // 2.38.55: Improved Event Tab insufficient funds warning clarity and dynamic button text.
