@@ -31,8 +31,13 @@ public class MainActivity : MauiAppCompatActivity
     {
         if (Window == null) return;
 
-        // Ensure the layout can expand into the system areas
+        // 1. Edge-to-Edge: Tell the OS the app handles its own insets
+        // This prevents the OS from 'pushing' the webview up to make room for the bar.
         Window.SetDecorFitsSystemWindows(false);
+
+        // 2. Transparency Fallback: If the bar does flicker back, make it invisible
+        Window.SetNavigationBarColor(Android.Graphics.Color.Transparent);
+        Window.SetStatusBarColor(Android.Graphics.Color.Transparent);
 
         if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
         {
@@ -40,14 +45,17 @@ public class MainActivity : MauiAppCompatActivity
             var controller = Window.InsetsController;
             if (controller != null)
             {
+                // Hide both Status and Navigation bars
                 controller.Hide(WindowInsets.Type.StatusBars() | WindowInsets.Type.NavigationBars());
+                
+                // Sticky Behavior: Requires a swipe to show, and auto-hides again
                 controller.SystemBarsBehavior = (int)WindowInsetsControllerBehavior.ShowTransientBarsBySwipe;
             }
         }
         else
         {
             // Legacy API (Android 10 and below)
-            #pragma warning disable CS0618 // Type or member is obsolete
+            #pragma warning disable CS0618
             var uiOptions = (int)Window.DecorView.SystemUiVisibility;
 
             uiOptions |= (int)SystemUiFlags.LowProfile;

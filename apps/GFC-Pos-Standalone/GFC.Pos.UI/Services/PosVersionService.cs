@@ -6,10 +6,12 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.60"; 
+    public string GetRevision() => "2.38.62"; 
     
     // REVISION HISTORY:
     // 2.38.59: Hardened update lifecycle with loop-protection (localStorage tracking) and cross-track version filtering (ignoring webapp leaks).
+    // 2.38.62: Updated OPTIONS button style from black to premium navy blue to harmonize with the terminal header design.
+    // 2.38.61: Finalized Industrial Immersive Mode for RK3399 hardware with Edge-to-Edge layout and transparent navigation fallbacks.
     // 2.38.60: Applied delayed enforcement (500ms) for Android Immersive Mode to prevent OS layout overrides on startup.
     // 2.38.59: Hardened Android Immersive Mode with support for modern WindowInsetsController API to ensure the navigation bar is hidden across all OS versions.
     // 2.38.58: Implemented Sticky Immersive Mode on Android terminals to automatically hide the navigation and status bars for a cleaner POS experience.
@@ -61,6 +63,8 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
 
 
 
