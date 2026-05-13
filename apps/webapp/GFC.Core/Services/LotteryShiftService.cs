@@ -70,7 +70,7 @@ namespace GFC.Core.Services
             // CORE FIX: Mandatory server-side audit before entry
             ReconcileShiftMath(shift);
 
-            // Prevention of double-submission/duplicates by checking Employee + Exact Time
+            // Prevention of double-submission/duplicates by checking Date + Shift Type
             var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate, shift.ShiftType);
             if (existing != null)
             {
@@ -131,9 +131,21 @@ namespace GFC.Core.Services
                 shift.NetSales = sales - payouts - cancels;
             }
 
-            // [FIX]: Expected Cash in drawer should subtract both Bag Refills and Envelope Drops
+            // [BUSINESS RULE]: Drops and refills only happen at NIGHT. 
+            // Force to zero for Day shifts to prevent accidental data contamination.
+            if (string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
+            {
+                shift.EnvelopeAmount = 0;
+                shift.BagRefillAmount = 0;
+            }
+            
+            // [FIX]: Expected Cash for the NEXT shift should subtract distributions.
             shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount - shift.BagRefillAmount - shift.EnvelopeAmount;
-            shift.Variance = shift.EndingCash - shift.ExpectedCash;
+            
+            // [CRITICAL FIX]: Variance must be calculated against the PRE-DROP expectation.
+            // Otherwise, every dollar dropped into an envelope is flagged as "Missing" (Short).
+            decimal expectedBeforeDrops = shift.StartingCash + shift.NetSales + shift.BackupBagAmount;
+            shift.Variance = shift.EndingCash - expectedBeforeDrops;
 
             // [NEW] Persist the income math so it's available for reporting without re-calculation
             var rate = _rateRepository.GetApplicableRate(shift.ShiftDate.Year);
@@ -376,9 +388,12 @@ namespace GFC.Core.Services
                 reconciledNetSales = shift.NetSales;
             }
 
-            // [FIX]: Expected Cash for VARIANCE purposes should be the net amount expected in drawer after drops/refills.
+            // [FIX]: Expected Cash for display should be the target baseline ($1,200) after distributions.
             decimal reconciledExpected = shift.StartingCash + reconciledNetSales + shift.BackupBagAmount - shift.BagRefillAmount - shift.EnvelopeAmount;
-            decimal reconciledVariance = shift.EndingCash - reconciledExpected;
+            
+            // [CRITICAL FIX]: Variance calculation must ignore drops/refills to avoid "Ghost Discrepancies".
+            decimal expectedBeforeDrops = shift.StartingCash + reconciledNetSales + shift.BackupBagAmount;
+            decimal reconciledVariance = shift.EndingCash - expectedBeforeDrops;
 
             return new LotteryShiftDto
             {

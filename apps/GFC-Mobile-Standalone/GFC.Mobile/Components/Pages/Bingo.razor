@@ -1870,8 +1870,20 @@
                                                         @(s.PayoutMode == 0 ? "FIXED" : s.PayoutMode == 1 ? "50/50" : "GROSS %")
                                                     </span>
                                                 </td>
-                                                <td class="text-center fw-bold text-muted">@sAdmission</td>
-                                                <td class="text-center fw-bold @(sManual > 0 ? "text-primary" : "text-muted opacity-25")">@sManual</td>
+                                                <td class="text-center">
+                                                    @if (!s.IsIncludedInAdmission) {
+                                                        <span class="extra-small fw-bold text-muted opacity-25">N/A</span>
+                                                    } else {
+                                                        <span class="fw-bold text-muted">@sAdmission</span>
+                                                    }
+                                                </td>
+                                                <td class="text-center">
+                                                    @if (s.IsAdmissionOnly) {
+                                                        <span class="extra-small fw-bold text-muted opacity-25">N/A</span>
+                                                    } else {
+                                                        <span class="fw-bold @(sManual > 0 ? "text-primary" : "text-muted opacity-25")">@sManual</span>
+                                                    }
+                                                </td>
                                                 <td class="text-center fw-black">@s.Sold</td>
                                                 <td class="text-end">@sGross.ToString("C2")</td>
                                                 <td class="text-end text-danger fw-bold">@sPrizes.ToString("C2")</td>
@@ -2062,7 +2074,6 @@
             position = "top-end"
         });
     }
-    private string _lastSavedText = "INITIALIZING...";
     private DateTime? _lastSavedTime;
     private BingoSheet? _selectedSheet;
     private AdmissionPack? _selectedPackDetail;
@@ -2729,15 +2740,20 @@
         {
             var gross = sheet.Sold * sheet.Price;
             decimal availableForPrizes;
+            // Standard sheets (IsAdmissionOnly) do not have state tax deducted from game payouts
+            var effectiveLottery = (sheet.IsAdmissionOnly) ? 0m : sheet.LotteryPercentage;
+            var effectiveClub = game.ClubPercentage ?? (game.PayoutMode == 2 ? 0.05m : 0.5m);
 
-            if (game.PayoutMode == 1) // 50/50 Split
+            if (game.PayoutMode == 1) // 50/50 Split (Sequential)
             {
-                var lottery = gross * sheet.LotteryPercentage;
-                availableForPrizes = (gross - lottery) * (1 - sheet.ClubPercentage);
+                var lottery = gross * effectiveLottery;
+                // availableForPrizes is the remainder (Gross - Lottery) multiplied by (1 - ClubPercentage)
+                // If ClubPercentage is 0.5 (50%), then availableForPrizes is 50% of the remainder.
+                availableForPrizes = (gross - lottery) * (1 - effectiveClub);
             }
             else // Mode 2: Additive (Gross %)
             {
-                var totalDeductionPercent = sheet.LotteryPercentage + sheet.ClubPercentage;
+                var totalDeductionPercent = effectiveLottery + effectiveClub;
                 availableForPrizes = gross * (1 - totalDeductionPercent);
             }
             
@@ -2756,7 +2772,6 @@
         var data = new BingoDraft { AdmissionPacks = AdmissionPacks, Sheets = Sheets };
         await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, data);
         _lastSavedTime = DateTime.Now;
-        _lastSavedText = "SAVED LOCALLY";
         StateHasChanged();
     }
 
@@ -2949,6 +2964,7 @@
         public decimal ClubPercentage { get; set; }
         public bool IsAdmissionOnly { get; set; }
         public bool IsClosedOut { get; set; }
+        public int Category { get; set; }
         public bool IsSynced { get; set; } = true;
     }
 
@@ -2965,6 +2981,7 @@
         public decimal JackpotAmount { get; set; }
         public decimal ConsolationAmount { get; set; }
         public int BallsCalled { get; set; }
+        public decimal? ClubPercentage { get; set; }
     }
 
     public class AdmissionPack

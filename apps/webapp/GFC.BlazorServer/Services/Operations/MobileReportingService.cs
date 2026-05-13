@@ -90,19 +90,11 @@ public class MobileReportingService : IMobileReportingService
         }
         else if (shiftType == "Day")
         {
-            // [CARRYOVER FIX]: Fetch yesterday's Night shift to provide baselines for Today's Day shift
-            var yesterday = await db.LotteryShifts.AsNoTracking()
-                .Where(s => s.ShiftDate.Date < data.Date.Date)
-                .OrderByDescending(s => s.ShiftDate).ThenByDescending(s => s.ShiftType)
-                .FirstOrDefaultAsync();
-            
-            if (yesterday != null)
-            {
-                data.PrevDaySales = yesterday.TotalSales;
-                data.PrevDayCashes = yesterday.TotalPayouts;
-                data.PrevDayTickets = yesterday.TotalCancels;
-                data.PrevDayNetDue = yesterday.NetDue;
-            }
+            // [FIX]: Machine resets every night. Day shift baseline is ALWAYS zero.
+            data.PrevDaySales = 0;
+            data.PrevDayCashes = 0;
+            data.PrevDayTickets = 0;
+            data.PrevDayNetDue = 0;
         }
 
         if (lottoEntry == null && barEntry != null)
@@ -259,7 +251,18 @@ public class MobileReportingService : IMobileReportingService
                 }
 
                 var lottoShifts = await Task.Run(() => _lottoService.GetShiftsByDateRange(data.Date, data.Date));
-                var lottoDto = lottoShifts.FirstOrDefault(s => s.ShiftType == data.ShiftType);
+                
+                // [DE-DUPE] If multiple lottery records exist for the same shift type, keep the first and delete others
+                var targetLottoShifts = lottoShifts.Where(s => s.ShiftType == data.ShiftType).ToList();
+                var lottoDto = targetLottoShifts.FirstOrDefault();
+                
+                if (targetLottoShifts.Count > 1) {
+                    var extras = targetLottoShifts.Skip(1).ToList();
+                    foreach (var extra in extras) {
+                        await Task.Run(() => _lottoService.DeleteShift(extra.ShiftId));
+                    }
+                    Console.WriteLine($"[CLEANUP] Removed {extras.Count} duplicate LotteryShifts for {data.Date:yyyy-MM-dd} {data.ShiftType}");
+                }
                 
                 LotteryShift lotto;
                 if (lottoDto == null)
@@ -291,18 +294,10 @@ public class MobileReportingService : IMobileReportingService
                 }
                 else if (data.ShiftType == "Day")
                 {
-                    // [DAY-BASELINE FIX]: Compare against yesterday's Night shift to get accurate Day-only activity
-                    var yesterday = await db.LotteryShifts.AsNoTracking()
-                        .Where(s => s.ShiftDate.Date < data.Date.Date)
-                        .OrderByDescending(s => s.ShiftDate).ThenByDescending(s => s.ShiftType)
-                        .FirstOrDefaultAsync();
-                    
-                    if (yesterday != null)
-                    {
-                        baselineSales = yesterday.TotalSales;
-                        baselinePayouts = yesterday.TotalPayouts;
-                        baselineCancels = yesterday.TotalCancels;
-                    }
+                    // [FIX]: Machine resets every night. Day shift baseline is ALWAYS zero.
+                    baselineSales = 0;
+                    baselinePayouts = 0;
+                    baselineCancels = 0;
                 }
 
                 // [SAFE-SYNC] Apply values only if we aren't protecting a previously submitted report
@@ -315,8 +310,19 @@ public class MobileReportingService : IMobileReportingService
                     lotto.NetDue = data.LottoNetDue ?? 0;
                     lotto.BackupBagAmount = data.LottoBackupBag ?? 0;
                     lotto.EndingCash = data.LottoCashCounted ?? 0;
-                    lotto.EnvelopeAmount = data.EnvelopeAmount ?? 0;
-                    lotto.BagRefillAmount = data.BagRefillAmount ?? 0;
+                    
+                    // [BUSINESS RULE] Drops and refills only happen at NIGHT. 
+                    // Force to zero for Day shifts to prevent UI carryover contamination.
+                    if (data.ShiftType == "Day")
+                    {
+                        lotto.EnvelopeAmount = 0;
+                        lotto.BagRefillAmount = 0;
+                    }
+                    else
+                    {
+                        lotto.EnvelopeAmount = data.EnvelopeAmount ?? 0;
+                        lotto.BagRefillAmount = data.BagRefillAmount ?? 0;
+                    }
                     
                     // Note merging for lotto
                     if (!string.IsNullOrEmpty(lotto.Notes) && lotto.Notes != data.Notes && !string.IsNullOrEmpty(data.Notes))

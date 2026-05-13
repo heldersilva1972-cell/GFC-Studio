@@ -804,8 +804,12 @@ namespace GFC.BlazorServer.Components.Pages
                 }
             }
 
+            // [FIX]: ExpectedCash for display should be the target baseline ($1,200) after distributions.
             public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount - (BagRefillAmount ?? 0) - EnvelopeAmount;
-            public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
+            
+            // [CRITICAL FIX]: Variance calculation must ignore drops/refills to avoid "Ghost Discrepancies".
+            // Variance = EndingCash - (Expected Cash BEFORE Drops)
+            public decimal Variance => (EndingCash ?? 0) - ((StartingCash ?? 0) + NetSales + BackupBagAmount);
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY
             public decimal ShiftSalesActivity => (TotalSales ?? 0) - BaselineSales;

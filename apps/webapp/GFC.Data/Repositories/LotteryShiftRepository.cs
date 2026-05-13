@@ -343,13 +343,12 @@ namespace GFC.Data.Repositories
                     LEFT JOIN Members m ON u.MemberId = m.MemberID
                     WHERE CAST(s.ShiftDate AS DATE) = CAST(@ShiftDate AS DATE)
                       AND ISNULL(s.ShiftType, '') = ISNULL(@ShiftType, '')
-                      AND (s.EmployeeName = @EmployeeName 
-                           OR ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) = @EmployeeName)";
+                      AND ISNULL(s.MachineId, '') = ISNULL(@MachineId, '')";
 
                 using var command = new SqlCommand(sql, connection);
-                command.Parameters.AddWithValue("@EmployeeName", employeeName);
                 command.Parameters.AddWithValue("@ShiftDate", date.Date);
                 command.Parameters.AddWithValue("@ShiftType", (object?)shiftType ?? DBNull.Value);
+                command.Parameters.AddWithValue("@MachineId", "MAIN"); // Default machine for now
                 
                 using var reader = command.ExecuteReader();
                 return reader.Read() ? MapReaderToShift(reader) : null;
