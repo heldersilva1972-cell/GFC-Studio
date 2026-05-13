@@ -11,6 +11,8 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        
+        // Initial call
         SetWindowLayout();
     }
 
@@ -19,16 +21,33 @@ public class MainActivity : MauiAppCompatActivity
         base.OnWindowFocusChanged(hasFocus);
         if (hasFocus)
         {
-            SetWindowLayout();
+            // Many Android terminals override system UI flags during the initial focus event.
+            // A small delay ensures our 'Hide' command is the final word.
+            new Handler(Looper.MainLooper).PostDelayed(SetWindowLayout, 500);
         }
     }
 
     private void SetWindowLayout()
     {
-        if (Window != null && Window.DecorView != null)
+        if (Window == null) return;
+
+        // Ensure the layout can expand into the system areas
+        Window.SetDecorFitsSystemWindows(false);
+
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
         {
-            // SystemUiVisibility is deprecated but still the most reliable way to hide the nav bar 
-            // on older POS terminal hardware (Android 9/10/11).
+            // Modern API (Android 11 / API 30+)
+            var controller = Window.InsetsController;
+            if (controller != null)
+            {
+                controller.Hide(WindowInsets.Type.StatusBars() | WindowInsets.Type.NavigationBars());
+                controller.SystemBarsBehavior = (int)WindowInsetsControllerBehavior.ShowTransientBarsBySwipe;
+            }
+        }
+        else
+        {
+            // Legacy API (Android 10 and below)
+            #pragma warning disable CS0618 // Type or member is obsolete
             var uiOptions = (int)Window.DecorView.SystemUiVisibility;
 
             uiOptions |= (int)SystemUiFlags.LowProfile;
@@ -37,6 +56,7 @@ public class MainActivity : MauiAppCompatActivity
             uiOptions |= (int)SystemUiFlags.ImmersiveSticky;
 
             Window.DecorView.SystemUiVisibility = (StatusBarVisibility)uiOptions;
+            #pragma warning restore CS0618
         }
     }
 }

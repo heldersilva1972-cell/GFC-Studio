@@ -1563,6 +1563,23 @@
             
             if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
             {
+                // [LOOP-PROTECTION] Verify if we just tried to update to this specific version
+                var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
+                var lastAttemptTimeStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_time");
+                
+                if (lastAttemptVersion == serverVersion && !string.IsNullOrEmpty(lastAttemptTimeStr))
+                {
+                    if (long.TryParse(lastAttemptTimeStr, out long lastTime))
+                    {
+                        var diffSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lastTime;
+                        if (diffSeconds < 120) // 2 minute cooling period for the same version
+                        {
+                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {serverVersion} was {diffSeconds}s ago.");
+                            return;
+                        }
+                    }
+                }
+
                 if (string.IsNullOrEmpty(CurrentUserName))
                 {
                     // SAFE TO AUTO-UPDATE: No user is logged in
@@ -1610,7 +1627,10 @@
             _brandTapCount = 0;
             var server = await PosService.GetServerVersionAsync();
             var local = VersionService.GetRevision();
-            await JSRuntime.InvokeVoidAsync("alert", $"DIAGNOSTICS:\nLocal: {local}\nServer: {server}\nUpdate Avail: {_showUpdateBanner}\nSource: version.txt check active.");
+            var lastUpdate = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version") ?? "None";
+            var status = IsServerNewer(server) ? "UPDATE READY" : "UP TO DATE";
+            
+            await JSRuntime.InvokeVoidAsync("alert", $"GFC POS DIAGNOSTICS\n------------------\nLocal Revision: {local}\nServer Revision: {server}\nStatus: {status}\nLast Attempt: {lastUpdate}\n\nUpdate Banner: {_showUpdateBanner}");
         }
     }
 
@@ -1649,17 +1669,31 @@
 
     private async Task TriggerNuclearReload()
     {
+        // Store attempt info to prevent infinite loops
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_update_version", _serverVersionFound);
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_update_time", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+
         await JSRuntime.InvokeVoidAsync("eval", @"
             const wipe = async () => {
+                console.log('[GFC] Initiating Nuclear Update Reload...');
                 if ('serviceWorker' in navigator) {
                     const registrations = await navigator.serviceWorker.getRegistrations();
-                    for(let r of registrations) await r.unregister();
+                    for(let r of registrations) {
+                        console.log('[GFC] Unregistering ServiceWorker:', r.scope);
+                        await r.unregister();
+                    }
                 }
                 if ('caches' in window) {
                     const keys = await caches.keys();
-                    for(let k of keys) await caches.delete(k);
+                    for(let k of keys) {
+                        console.log('[GFC] Purging Cache Storage:', k);
+                        await caches.delete(k);
+                    }
                 }
-                window.location.href = window.location.origin + window.location.pathname + '?update=' + Date.now();
+                // Force absolute reload with timestamp to bypass IIS/Browser caches
+                const buster = 'u=' + Date.now();
+                const url = window.location.origin + window.location.pathname;
+                window.location.href = url + (url.includes('?') ? '&' : '?') + buster;
             };
             wipe();
         ");
@@ -1674,6 +1708,12 @@
             
             if (string.IsNullOrEmpty(serverRev) || string.IsNullOrEmpty(clientRev)) return false;
             if (serverRev.Contains(" ")) serverRev = serverRev.Split(' ')[0];
+
+            // [HARDEN] Prevent cross-project version leaks (e.g. Webapp 3.x vs POS 2.x)
+            // POS versions are currently in the 2.x track. Webapp is in the 3.x track.
+            if (serverRev.StartsWith("3.") && clientRev.StartsWith("2.")) {
+                return false; 
+            }
 
             var sParts = serverRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
             var cParts = clientRev.Split('.').Select(p => int.TryParse(p, out int v) ? v : 0).ToArray();
