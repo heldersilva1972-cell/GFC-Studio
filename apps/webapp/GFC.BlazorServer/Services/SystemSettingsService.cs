@@ -94,9 +94,9 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
             
             return settings;
         }
-        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208 || ex.Number == 207) // Invalid object or column name
         {
-            _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
+            _logger.LogWarning(ex, "SystemSettings table or columns missing. Returning default settings.");
             var defaultSettings = new SystemSettings { Id = 1 };
             // Cache default settings for shorter duration
             _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
@@ -224,9 +224,9 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
             
             return settings;
         }
-        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208 || ex.Number == 207) // Invalid object or column name
         {
-            _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
+            _logger.LogWarning(ex, "SystemSettings table or columns missing. Returning default settings.");
             var defaultSettings = new SystemSettings { Id = 1 };
             _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
             return defaultSettings;

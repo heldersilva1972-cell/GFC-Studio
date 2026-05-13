@@ -7,6 +7,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject GFC.Core.Interfaces.IUserManagementService UserService
+@inject GFC.Core.Interfaces.ISystemSettingsService SettingsService
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
@@ -271,16 +272,16 @@
     {
         <div class="glass-card shadow-sm border p-0 overflow-hidden rounded-4">
             <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="bg-light sticky-table-header">
-                        <tr class="extra-small text-muted fw-black text-uppercase">
-                            <th class="ps-4 py-3">Bingo Sheet</th>
-                            <th class="py-3">Category</th>
-                            <th class="py-3 text-center">Payout Mode</th>
-                            <th class="py-3 text-center">State Tax</th>
-                            <th class="py-3 text-center">Club Share</th>
-                            <th class="py-3 text-center">Player Payout</th>
-                            <th class="py-3 text-center">Overrides</th>
+                <table class="table table-hover align-middle mb-0" style="table-layout: fixed; width: 100%;">
+                    <thead class="bg-light">
+                        <tr class="extra-small text-muted fw-black text-uppercase border-bottom">
+                            <th class="ps-4 py-3" style="width: 30%;">Bingo Sheet</th>
+                            <th class="py-3" style="width: 15%;">Category</th>
+                            <th class="py-3 text-center" style="width: 12%;">Payout Mode</th>
+                            <th class="py-3 text-center" style="width: 10%;">State Tax</th>
+                            <th class="py-3 text-center" style="width: 10%;">Club Share</th>
+                            <th class="py-3 text-center" style="width: 10%;">Player Payout</th>
+                            <th class="py-3 text-center" style="width: 13%;">Overrides</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -859,7 +860,7 @@
                 .OrderBy(t => t.MinAdmissions)
                 .ToListAsync();
 
-            SystemSettings = await DbContext.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
+            SystemSettings = await SettingsService.GetAsync();
                 
             Loading = false;
         }
@@ -872,13 +873,13 @@
 
     private async Task SaveGlobalSettings()
     {
-        var existing = await DbContext.SystemSettings.FirstOrDefaultAsync();
+        var existing = await SettingsService.GetAsync();
         if (existing != null)
         {
             existing.BingoBaseAdmissionPrice = SystemSettings.BingoBaseAdmissionPrice;
             existing.BingoAdditionalCardPrice = SystemSettings.BingoAdditionalCardPrice;
             existing.BingoPayoutRoundingMode = SystemSettings.BingoPayoutRoundingMode;
-            await DbContext.SaveChangesAsync();
+            await SettingsService.SaveSettingsAsync(existing);
             await JSRuntime.InvokeVoidAsync("alert", "Settings updated successfully!");
         }
     }
@@ -1012,7 +1013,7 @@
                 target.IsIncludedInAdmission = EditingSheet.IsIncludedInAdmission;
                 target.IsAdmissionOnly = EditingSheet.IsAdmissionOnly;
                 target.DisplayOrder = EditingSheet.DisplayOrder;
-                target.PayoutMode = EditingSheet.PayoutMode;
+                target.PayoutMode = (target.IsIncludedInAdmission && target.IsAdmissionOnly) ? 0 : EditingSheet.PayoutMode;
 
                 // Robust collection update: Clear existing and add new to ensure EF tracks the changes correctly
                 target.Games.Clear();
@@ -1079,6 +1080,7 @@
                 EditingSheet.DefaultPrice = 0;
                 EditingSheet.LotteryPercentage = 0.05m;
                 EditingSheet.ClubPercentage = 0.0m;
+                EditingSheet.PayoutMode = 0; // Standard is always fixed prizes
                 break;
             case 2: // Special (Incl w/ Admit)
                 EditingSheet.IsIncludedInAdmission = true;

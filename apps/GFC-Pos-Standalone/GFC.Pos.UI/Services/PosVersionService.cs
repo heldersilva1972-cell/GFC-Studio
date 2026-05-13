@@ -6,10 +6,19 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.62"; 
+    public string GetRevision() => "2.38.71"; 
     
     // REVISION HISTORY:
     // 2.38.59: Hardened update lifecycle with loop-protection (localStorage tracking) and cross-track version filtering (ignoring webapp leaks).
+    // 2.38.71: Optimized the 'Add Funds' modal with a compact 400px layout and streamlined padding for industrial touch terminals.
+    // 2.38.70: Fixed CS0117 error by correctly referencing 'RunningTab' in the event pill logic.
+    // 2.38.69: Fixed CS0019 compilation error by correcting enum type comparison in the header event pill.
+    // 2.38.68: Standardized all UI labels to use 'Event' terminology instead of 'Banquet' for better consistency.
+    // 2.38.67: Streamlined banquet logic: auto-selection of single active event in header and enforced single-banquet constraint in manager.
+    // 2.38.66: Verified structural tag balance and resolved redundant closing divs in the POS terminal.
+    // 2.38.65: Fixed structural Razor syntax errors (unclosed div and duplicate blocks) and verified build stability.
+    // 2.38.64: Redesigned Banquet Manager with a non-scrolling two-column layout for optimized 15.6-inch terminal viewing.
+    // 2.38.63: Implemented custom numeric keypad for Banquet Manager with auto-clear logic and forced spinner removal.
     // 2.38.62: Updated OPTIONS button style from black to premium navy blue to harmonize with the terminal header design.
     // 2.38.61: Finalized Industrial Immersive Mode for RK3399 hardware with Edge-to-Edge layout and transparent navigation fallbacks.
     // 2.38.60: Applied delayed enforcement (500ms) for Android Immersive Mode to prevent OS layout overrides on startup.
@@ -63,6 +72,15 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
+
+
+
 
 
 
