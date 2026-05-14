@@ -30,6 +30,8 @@ namespace GFC.Core.Models
         [Column(TypeName = "decimal(18, 2)")]
         public decimal RoundingAdjustment { get; set; }
 
+        public string? Category { get; set; }
+
         public string Status { get; set; } = "Draft";
 
         public string? Notes { get; set; }

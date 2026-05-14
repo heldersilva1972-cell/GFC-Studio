@@ -82,7 +82,7 @@
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end shadow border-0" style="z-index: 1050;">
                                         <li><a class="dropdown-item" @onclick="() => OpenSheetModal(sheet)"><i class="bi bi-pencil me-2"></i> Edit</a></li>
-                                        <li><a class="dropdown-item text-danger" @onclick="() => DeleteSheet(sheet)"><i class="bi bi-trash me-2"></i> Delete</a></li>
+                                        <li><a class="dropdown-item text-danger" @onclick="() => PromptDeleteSheet(sheet)"><i class="bi bi-trash me-2"></i> Delete</a></li>
                                     </ul>
                                 </div>
                             </div>
@@ -222,7 +222,7 @@
                                             }
                                         </td>
                                         <td class="text-center">
-                                            <button class="btn btn-sm btn-outline-danger border-0 rounded-circle" @onclick="() => PayoutTiers.Remove(tier)">
+                                            <button class="btn btn-sm btn-outline-danger border-0 rounded-circle" @onclick="() => PromptDeleteTier(tier)">
                                                 <i class="bi bi-trash"></i>
                                             </button>
                                         </td>
@@ -260,7 +260,7 @@
                             </div>
                             <div class="d-flex gap-2">
                                 <button class="btn btn-sm btn-light" @onclick="() => OpenAdmissionModal(pack)"><i class="bi bi-pencil"></i></button>
-                                <button class="btn btn-sm btn-light text-danger" @onclick="() => DeleteAdmission(pack)"><i class="bi bi-trash"></i></button>
+                                <button class="btn btn-sm btn-light text-danger" @onclick="() => PromptDeleteAdmission(pack)"><i class="bi bi-trash"></i></button>
                             </div>
                         </div>
                     </div>
@@ -531,7 +531,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="prog-@game.GetHashCode()" @bind="game.IsProgressive">
                                                     <label class="form-check-label extra-small fw-black text-muted text-uppercase mb-0" for="prog-@game.GetHashCode()" style="font-size: 0.6rem;">PROGRESSIVE</label>
                                                 </div>
-                                                <button class="btn btn-sm btn-light text-danger rounded-circle border-0 mt-3" @onclick="() => EditingSheet.Games.Remove(game)">
+                                                <button class="btn btn-sm btn-light text-danger rounded-circle border-0 mt-3" @onclick="() => PromptRemoveGame(game)">
                                                     <i class="bi bi-trash-fill"></i>
                                                 </button>
                                             </div>
@@ -671,6 +671,18 @@
     </div>
 }
 
+@if (ShowConfirm)
+{
+    <ConfirmActionModal 
+        Title="@ConfirmTitle" 
+        Message="@ConfirmMessage" 
+        SubMessage="@ConfirmSubMessage"
+        Type="ConfirmActionModal.ConfirmType.Danger"
+        ConfirmText="Delete"
+        OnConfirm="ExecuteConfirm"
+        OnCancel="() => ShowConfirm = false" />
+}
+
 
 
 <style>
@@ -714,6 +726,13 @@
     
     private bool ShowAdmissionModal { get; set; }
     private BingoAdmissionDefinition EditingAdmission { get; set; } = new();
+
+    // Confirmation State
+    private bool ShowConfirm { get; set; }
+    private string ConfirmTitle { get; set; } = "";
+    private string ConfirmMessage { get; set; } = "";
+    private string? ConfirmSubMessage { get; set; }
+    private Func<Task> ConfirmAction { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1052,5 +1071,51 @@
     private async Task OnInputFocus(FocusEventArgs e)
     {
         await JSRuntime.InvokeVoidAsync("eval", "document.activeElement.select()");
+    }
+
+    private void PromptDeleteSheet(BingoSheetDefinition sheet)
+    {
+        ConfirmTitle = "Delete Sheet Color";
+        ConfirmMessage = $"Are you sure you want to delete {sheet.ColorName}?";
+        ConfirmSubMessage = "This will remove the color and all associated games from the setup.";
+        ConfirmAction = () => DeleteSheet(sheet);
+        ShowConfirm = true;
+    }
+
+    private void PromptDeleteAdmission(BingoAdmissionDefinition pack)
+    {
+        ConfirmTitle = "Delete Admission Pack";
+        ConfirmMessage = $"Are you sure you want to delete {pack.Name}?";
+        ConfirmSubMessage = "This pack will no longer be available for sale in the POS or mobile apps.";
+        ConfirmAction = () => DeleteAdmission(pack);
+        ShowConfirm = true;
+    }
+
+    private void PromptDeleteTier(BingoPayoutTier tier)
+    {
+        ConfirmTitle = "Remove Payout Tier";
+        ConfirmMessage = $"Remove the tier for {tier.MinAdmissions} admissions?";
+        ConfirmSubMessage = "Attendance rules will be recalculated immediately.";
+        ConfirmAction = async () => { PayoutTiers.Remove(tier); await Task.CompletedTask; };
+        ShowConfirm = true;
+    }
+
+    private void PromptRemoveGame(BingoGameDefinition game)
+    {
+        ConfirmTitle = "Remove Game";
+        ConfirmMessage = $"Are you sure you want to remove '{game.GameName}'?";
+        ConfirmSubMessage = "The game will be removed from this sheet when you save changes.";
+        ConfirmAction = async () => { EditingSheet.Games.Remove(game); await Task.CompletedTask; };
+        ShowConfirm = true;
+    }
+
+    private async Task ExecuteConfirm()
+    {
+        if (ConfirmAction != null)
+        {
+            await ConfirmAction();
+        }
+        ShowConfirm = false;
+        StateHasChanged();
     }
 }

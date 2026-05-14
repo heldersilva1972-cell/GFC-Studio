@@ -13,6 +13,7 @@ namespace GFC.Core.Models
         public decimal TotalLotteryTake { get; set; }
         public decimal TotalClubTake { get; set; }
         public decimal RoundingAdjustment { get; set; }
+        public string? Category { get; set; }
         public string Status { get; set; } = "Draft";
         public string? Notes { get; set; }
         public virtual ICollection<BingoGameEntry> GameEntries { get; set; } = new List<BingoGameEntry>();

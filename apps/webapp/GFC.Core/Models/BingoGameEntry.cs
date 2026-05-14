@@ -33,10 +33,10 @@ namespace GFC.Core.Models
         public decimal PrizePaid { get; set; }
 
         [Column(TypeName = "decimal(18, 4)")]
-        public decimal LotteryPercent { get; set; }
+        public decimal LotteryPercentage { get; set; }
 
         [Column(TypeName = "decimal(18, 4)")]
-        public decimal ClubPercent { get; set; }
+        public decimal ClubPercentage { get; set; }
 
         [Column(TypeName = "decimal(18, 2)")]
         public decimal LotteryTake { get; set; }
@@ -51,5 +51,7 @@ namespace GFC.Core.Models
         public decimal RoundingAdjustment { get; set; }
 
         public int BallsCalled { get; set; }
+
+        public string? Category { get; set; }
     }
 }

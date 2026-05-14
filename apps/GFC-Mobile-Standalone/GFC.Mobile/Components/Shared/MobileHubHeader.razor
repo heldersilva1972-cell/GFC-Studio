@@ -74,15 +74,19 @@
                     </span>
                 }
             </div>
-            <span class="hub-last-sync-text text-uppercase text-center @(ReportingService.PendingCount > 0 ? "animate-pulse text-warning" : (ReportingService.LastSyncStatus?.StartsWith("Error") == true ? "text-danger" : ""))">
-                @if (ReportingService.PendingCount > 0) {
-                    @if (Connectivity.IsServerReachable && _isProcessingOutbox) {
-                        <span><i class="bi bi-cloud-upload me-1"></i> SYNCING...</span>
-                    } else {
-                        <span><i class="bi bi-cloud-slash me-1"></i> PENDING SYNC</span>
-                    }
+            <span class="hub-last-sync-text text-uppercase text-center @(ReportingService.PendingCount > 0 ? "text-warning" : (ReportingService.LastSyncStatus?.StartsWith("Error") == true ? "text-danger" : ""))">
+                @if (_isSyncingData || Syncing) {
+                    <span class="animate-pulse"><i class="bi bi-cloud-upload me-1"></i> SYNCING...</span>
                 } else if (ReportingService.LastSyncStatus?.StartsWith("Error") == true) {
-                    <span><i class="bi bi-exclamation-triangle-fill me-1"></i> @ReportingService.LastSyncStatus.ToUpper()</span>
+                    <span class="text-danger animate-pulse"><i class="bi bi-exclamation-triangle-fill me-1"></i> @ReportingService.LastSyncStatus.ToUpper()</span>
+                } else if (ReportingService.PendingCount > 0) {
+                    @if (Connectivity.IsServerReachable) {
+                        <span><i class="bi bi-cloud-slash me-1"></i> PENDING SYNC</span>
+                    } else {
+                        <span class="text-muted"><i class="bi bi-wifi-off me-1"></i> SAVED LOCALLY</span>
+                    }
+                } else if (_isCheckingVersion) {
+                    <span class="text-muted"><i class="bi bi-search me-1"></i> CHECKING FOR UPDATES...</span>
                 } else if (ReportingService.LastSyncTime.HasValue) {
                     <span><i class="bi bi-check-circle-fill text-success me-1"></i> SYNCED @ReportingService.LastSyncTime.Value.ToString("h:mm tt")</span>
                 } else {
@@ -242,10 +246,13 @@
     [Parameter] public string? Username { get; set; }
     [Parameter] public string? ShiftType { get; set; }
     [Parameter] public bool IsConnected { get; set; } = true;
+    [Parameter] public bool Syncing { get; set; } = false;
     [Parameter] public RenderFragment? ChildContent { get; set; }
     
     private System.Threading.Timer? _outboxTimer;
-    private bool _isProcessingOutbox = false;
+    private bool _isBusy = false;
+    private bool _isCheckingVersion = false;
+    private bool _isSyncingData = false;
     private bool _hasUpdate = false;
 
     // Extracting just the version number (e.g., 1.4) from the full version string
@@ -305,49 +312,45 @@
 
     private async Task ProcessOutbox()
     {
-        if (_isProcessingOutbox) return;
-        _isProcessingOutbox = true;
+        if (_isBusy) return;
+        _isBusy = true;
 
         try
         {
-            // [VERSION CHECK] - No guessing!
+            // 1. [VERSION CHECK]
             try {
-                // [FORCE PROBE] Ensure we have the latest connectivity status before checking version
                 await Connectivity.CanReachableServerAsync();
 
                 if (Connectivity.IsServerReachable) {
+                    _isCheckingVersion = true;
+                    await InvokeAsync(StateHasChanged);
+
                     var serverVersion = await ReportingService.GetServerVersionAsync();
                     if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
                     {
-                        Console.WriteLine($"[GFC UPDATE] New version detected: {serverVersion}. Current: {VersionService.GetRevision()}");
+                        Console.WriteLine($"[GFC UPDATE] New version detected: {serverVersion}.");
                         _hasUpdate = true;
-
-                        // [AUTO-UPDATE] Trigger reload if on safe pages (Hub/Login)
-                        var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri).ToLower();
-                        bool isSafePage = string.IsNullOrEmpty(relativeUri) || 
-                                         relativeUri == "mobile" || 
-                                         relativeUri == "mobile/" || 
-                                         relativeUri == "login" ||
-                                         relativeUri.Contains("login");
-
-                        if (isSafePage)
-                        {
-                            Console.WriteLine("[GFC UPDATE] New version available. Showing update button...");
-                            // await RefreshApp(); // Disabled auto-reload to prevent loop
-                        }
                     }
                 }
-            } catch { }
+            } catch { } 
+            finally {
+                _isCheckingVersion = false;
+                await InvokeAsync(StateHasChanged);
+            }
 
-            // 2. [BATCH SYNC]
-            if (await Connectivity.GateAsync("OutboxSync")) 
+            // 2. [DATA SYNC]
+            if (ReportingService.PendingCount > 0 && await Connectivity.GateAsync("OutboxSync")) 
             {
+                _isSyncingData = true;
+                await InvokeAsync(StateHasChanged);
+
                 await ReportingService.FlushOutboxAsync();
             }
         }
         catch { /* Never crash the header */ }
         finally {
-            _isProcessingOutbox = false;
+            _isBusy = false;
+            _isSyncingData = false;
             await InvokeAsync(StateHasChanged);
         }
     }

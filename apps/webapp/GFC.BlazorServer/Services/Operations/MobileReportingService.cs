@@ -486,8 +486,65 @@ public class MobileReportingService : IMobileReportingService
             }
         }
 
+        // [DE-DUPE] Check if a session already exists for this date.
+        var existing = await db.BingoSessions
+            .Include(s => s.GameEntries)
+            .Include(s => s.AdmissionEntries)
+            .FirstOrDefaultAsync(s => s.SessionDate.Date == session.SessionDate.Date);
+
+        if (existing != null)
+        {
+            db.BingoSessions.Remove(existing);
+            await db.SaveChangesAsync();
+        }
+
         db.BingoSessions.Add(session);
         await db.SaveChangesAsync();
+
+        // Create Financial Transactions
+        var transactions = new List<BingoLotteryTransaction>
+        {
+            new BingoLotteryTransaction
+            {
+                Date = session.SessionDate,
+                Type = "Income",
+                Amount = session.TotalGrossReceipts,
+                Description = $"Gross receipts from session on {session.SessionDate:MM/dd/yyyy}",
+                SessionId = session.Id
+            },
+            new BingoLotteryTransaction
+            {
+                Date = session.SessionDate,
+                Type = "Prize",
+                Amount = -session.TotalPrizesPaid,
+                Description = $"Prizes paid for session on {session.SessionDate:MM/dd/yyyy}",
+                SessionId = session.Id
+            },
+            new BingoLotteryTransaction
+            {
+                Date = session.SessionDate,
+                Type = "LotteryFee",
+                Amount = -session.TotalLotteryTake,
+                Description = $"Lottery tax for session on {session.SessionDate:MM/dd/yyyy}",
+                SessionId = session.Id
+            }
+        };
+
+        if (session.RoundingAdjustment != 0)
+        {
+            transactions.Add(new BingoLotteryTransaction
+            {
+                Date = session.SessionDate,
+                Type = "Rounding",
+                Amount = -session.RoundingAdjustment,
+                Description = $"Rounding adjustment for session on {session.SessionDate:MM/dd/yyyy}",
+                SessionId = session.Id
+            });
+        }
+
+        db.BingoLotteryTransactions.AddRange(transactions);
+        await db.SaveChangesAsync();
+
         return true;
     }
     public async Task<BingoSettingsDto> GetBingoSettingsAsync()

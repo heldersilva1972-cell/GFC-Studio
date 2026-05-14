@@ -342,8 +342,8 @@ public class MobileReportingService : IMobileReportingService
         session.CreatedBy = username;
         session.Status = "Submitted";
 
-        // Save to Vault (Individual Key for reliability)
-        var vaultKey = $"gfc_bingo_outbox_{session.SessionDate:yyyy-MM-dd}_{Guid.NewGuid().ToString().Substring(0, 8)}";
+        // Save to Vault (Predictable Key for deduplication)
+        var vaultKey = $"gfc_bingo_outbox_{session.SessionDate:yyyy-MM-dd}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", vaultKey, session);
 
         _ = RefreshPendingCountAsync();
@@ -520,7 +520,14 @@ public class MobileReportingService : IMobileReportingService
                             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                             
                             if (isBingo) {
-                                var bingoData = JsonSerializer.Deserialize<BingoSession>(dataElement.GetRawText(), options);
+                                // [COMPATIBILITY HACK] Handle rename from LotteryPercent/ClubPercent to Percentage
+                                var json = dataElement.GetRawText();
+                                if (json.Contains("\"LotteryPercent\":") || json.Contains("\"ClubPercent\":")) {
+                                    json = json.Replace("\"LotteryPercent\":", "\"LotteryPercentage\":")
+                                               .Replace("\"ClubPercent\":", "\"ClubPercentage\":");
+                                }
+
+                                var bingoData = JsonSerializer.Deserialize<BingoSession>(json, options);
                                 if (bingoData != null) {
                                     Console.WriteLine($"[SYNC TRACE] Delivering Bingo session for {bingoData.SessionDate:yyyy-MM-dd}...");
                                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -532,7 +539,7 @@ public class MobileReportingService : IMobileReportingService
                                         Console.WriteLine($"[SYNC TRACE] ✓ Bingo session for {bingoData.SessionDate:yyyy-MM-dd} delivered.");
                                     } else {
                                         var err = await resp.Content.ReadAsStringAsync();
-                                        LastSyncStatus = $"Error: {resp.StatusCode}";
+                                        LastSyncStatus = $"Error: {resp.StatusCode} - {err}";
                                         Console.WriteLine($"[SYNC TRACE] ✗ Bingo delivery failed: {resp.StatusCode} - {err}");
                                     }
                                 }

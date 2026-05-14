@@ -13,13 +13,14 @@ namespace GFC.Core.Models
         public decimal PricePerSheet { get; set; }
         public decimal GrossReceipts { get; set; }
         public decimal PrizePaid { get; set; }
-        public decimal LotteryPercent { get; set; }
-        public decimal ClubPercent { get; set; }
+        public decimal LotteryPercentage { get; set; }
+        public decimal ClubPercentage { get; set; }
         public decimal LotteryTake { get; set; }
         public decimal ClubTake { get; set; }
         public decimal NetProceeds { get; set; }
         public decimal RoundingAdjustment { get; set; }
         public int BallsCalled { get; set; }
+        public string? Category { get; set; }
 
         [JsonIgnore]
         public virtual BingoSession Session { get; set; } = null!;

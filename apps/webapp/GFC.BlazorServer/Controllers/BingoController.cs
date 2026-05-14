@@ -95,78 +95,111 @@ namespace GFC.BlazorServer.Controllers
                 }
             }
 
-            // [DE-DUPE] Check if a session already exists for this date.
-            // If it does, we remove the old one and its entries before saving the fresh data.
-            // This prevents the "multiple rows for one day" issue during sync retries.
-            var existing = await _context.BingoSessions
-                .Include(s => s.GameEntries)
-                .Include(s => s.AdmissionEntries)
-                .FirstOrDefaultAsync(s => s.SessionDate.Date == session.SessionDate.Date);
-
-            if (existing != null)
+            // [ATOMIC TRANSACTION] Wrap the entire replacement in a transaction to prevent partial/failed states
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                Console.WriteLine($"[BINGO] Updating existing session for {session.SessionDate:yyyy-MM-dd} (Replacing old record)");
-                _context.BingoSessions.Remove(existing);
-                await _context.SaveChangesAsync();
-            }
+                // [DE-DUPE] Check if a session already exists for this date.
+                var existing = await _context.BingoSessions
+                    .AsNoTracking() // Prevent EF from tracking the old record
+                    .Include(s => s.GameEntries)
+                    .Include(s => s.AdmissionEntries)
+                    .FirstOrDefaultAsync(s => s.SessionDate.Date == session.SessionDate.Date);
 
-            _context.BingoSessions.Add(session);
-            await _context.SaveChangesAsync();
-            Console.WriteLine($"[BINGO] ✓ Session for {session.SessionDate:yyyy-MM-dd} saved successfully. ID: {session.Id}");
+                if (existing != null)
+                {
+                    Console.WriteLine($"[BINGO] Updating existing session for {session.SessionDate:yyyy-MM-dd} (Atomic Replacement)");
+                    
+                    // 1. Remove linked transactions first
+                    var relatedTransactions = await _context.BingoLotteryTransactions
+                        .Where(t => t.SessionId == existing.Id)
+                        .ToListAsync();
+                    if (relatedTransactions.Any()) {
+                        _context.BingoLotteryTransactions.RemoveRange(relatedTransactions);
+                    }
 
-            // Clean up existing transactions for this session if it's an update
-            var existingTransactions = await _context.BingoLotteryTransactions
-                .Where(t => t.SessionId == session.Id)
-                .ToListAsync();
-            if (existingTransactions.Any())
-            {
-                _context.BingoLotteryTransactions.RemoveRange(existingTransactions);
-                await _context.SaveChangesAsync();
-            }
+                    // 2. Remove children manually to be safe (CASCADE should handle this but manual is safer for sync)
+                    var relatedGames = await _context.BingoGameEntries.Where(g => g.SessionId == existing.Id).ToListAsync();
+                    if (relatedGames.Any()) _context.BingoGameEntries.RemoveRange(relatedGames);
 
-            // Create Financial Transactions for this session
-            var transactions = new List<BingoLotteryTransaction>
-            {
-                new BingoLotteryTransaction
-                {
-                    Date = session.SessionDate,
-                    Type = "Income",
-                    Amount = session.TotalGrossReceipts,
-                    Description = $"Gross receipts from session on {session.SessionDate:MM/dd/yyyy}",
-                    SessionId = session.Id
-                },
-                new BingoLotteryTransaction
-                {
-                    Date = session.SessionDate,
-                    Type = "Prize",
-                    Amount = -session.TotalPrizesPaid,
-                    Description = $"Prizes paid for session on {session.SessionDate:MM/dd/yyyy}",
-                    SessionId = session.Id
-                },
-                new BingoLotteryTransaction
-                {
-                    Date = session.SessionDate,
-                    Type = "LotteryFee",
-                    Amount = -session.TotalLotteryTake,
-                    Description = $"Lottery tax for session on {session.SessionDate:MM/dd/yyyy}",
-                    SessionId = session.Id
+                    var relatedAdmissions = await _context.BingoAdmissionEntries.Where(a => a.BingoSessionId == existing.Id).ToListAsync();
+                    if (relatedAdmissions.Any()) _context.BingoAdmissionEntries.RemoveRange(relatedAdmissions);
+
+                    // 3. Remove the parent session
+                    var sessionToRemove = await _context.BingoSessions.FindAsync(existing.Id);
+                    if (sessionToRemove != null) _context.BingoSessions.Remove(sessionToRemove);
+                    
+                    await _context.SaveChangesAsync();
                 }
-            };
 
-            if (session.RoundingAdjustment != 0)
-            {
-                transactions.Add(new BingoLotteryTransaction
+                // [IDENTITY PROTECTION] Strip local IDs from mobile to prevent DB conflicts
+                session.Id = 0;
+                if (session.GameEntries != null) {
+                    foreach (var g in session.GameEntries) g.Id = 0;
+                }
+                if (session.AdmissionEntries != null) {
+                    foreach (var a in session.AdmissionEntries) a.Id = 0;
+                }
+
+                _context.BingoSessions.Add(session);
+                await _context.SaveChangesAsync();
+                
+                // Create Financial Transactions for this session
+                var transactions = new List<BingoLotteryTransaction>
                 {
-                    Date = session.SessionDate,
-                    Type = "Rounding",
-                    Amount = -session.RoundingAdjustment,
-                    Description = $"Rounding adjustment for session on {session.SessionDate:MM/dd/yyyy}",
-                    SessionId = session.Id
-                });
+                    new BingoLotteryTransaction
+                    {
+                        Date = session.SessionDate,
+                        Type = "Income",
+                        Amount = session.TotalGrossReceipts,
+                        Description = $"Gross receipts from session on {session.SessionDate:MM/dd/yyyy}",
+                        SessionId = session.Id
+                    },
+                    new BingoLotteryTransaction
+                    {
+                        Date = session.SessionDate,
+                        Type = "Prize",
+                        Amount = -session.TotalPrizesPaid,
+                        Description = $"Prizes paid for session on {session.SessionDate:MM/dd/yyyy}",
+                        SessionId = session.Id
+                    },
+                    new BingoLotteryTransaction
+                    {
+                        Date = session.SessionDate,
+                        Type = "LotteryFee",
+                        Amount = -session.TotalLotteryTake,
+                        Description = $"Lottery percentage for session on {session.SessionDate:MM/dd/yyyy}",
+                        SessionId = session.Id
+                    }
+                };
+
+                if (session.RoundingAdjustment != 0)
+                {
+                    transactions.Add(new BingoLotteryTransaction
+                    {
+                        Date = session.SessionDate,
+                        Type = "Rounding",
+                        Amount = -session.RoundingAdjustment,
+                        Description = $"Rounding adjustment for session on {session.SessionDate:MM/dd/yyyy}",
+                        SessionId = session.Id
+                    });
+                }
+
+                _context.BingoLotteryTransactions.AddRange(transactions);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+                Console.WriteLine($"[BINGO] ✓ Atomic Sync for {session.SessionDate:yyyy-MM-dd} complete. ID: {session.Id}");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                Console.WriteLine($"[BINGO] !!! Atomic Sync CRASH: {ex.Message}");
+                if (ex.InnerException != null) Console.WriteLine($"[BINGO] !!! Inner Exception: {ex.InnerException.Message}");
+                return StatusCode(500, $"Internal Server Error: {ex.Message}");
             }
 
-            _context.BingoLotteryTransactions.AddRange(transactions);
-            await _context.SaveChangesAsync();
+            // Progressive Game Progression handling follows
 
             // Handle Progressive Game Progression
             var sessionDate = session.SessionDate.Date;

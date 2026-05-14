@@ -860,6 +860,7 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.TotalLotteryTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.TotalClubTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.RoundingAdjustment).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.Category).HasMaxLength(100);
         });
 
         modelBuilder.Entity<BingoGameEntry>(entity =>
@@ -872,9 +873,10 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.LotteryTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.ClubTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.NetProceeds).HasColumnType("decimal(18, 2)");
-            entity.Property(e => e.LotteryPercent).HasColumnType("decimal(18, 4)");
-            entity.Property(e => e.ClubPercent).HasColumnType("decimal(18, 4)");
+            entity.Property(e => e.LotteryPercentage).HasColumnType("decimal(18, 4)").HasColumnName("LotteryPercentage");
+            entity.Property(e => e.ClubPercentage).HasColumnType("decimal(18, 4)").HasColumnName("ClubPercentage");
             entity.Property(e => e.RoundingAdjustment).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.Category).HasMaxLength(100);
         });
 
         modelBuilder.Entity<BingoSheetDefinition>(entity =>
@@ -886,8 +888,15 @@ public class GfcDbContext : DbContext
                   .HasForeignKey(e => e.SheetDefinitionId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.Property(e => e.DefaultPrice).HasColumnType("decimal(18, 2)");
-            entity.Property(e => e.LotteryPercentage).HasColumnType("decimal(18, 4)");
-            entity.Property(e => e.ClubPercentage).HasColumnType("decimal(18, 4)");
+            entity.Property(e => e.LotteryPercentage).HasColumnType("decimal(18, 4)").HasColumnName("LotteryPercentage");
+            entity.Property(e => e.ClubPercentage).HasColumnType("decimal(18, 4)").HasColumnName("ClubPercentage");
+        });
+
+        modelBuilder.Entity<BingoAdmissionEntry>(entity =>
+        {
+            entity.ToTable("BingoAdmissionEntries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PriceAtTime).HasColumnType("decimal(18, 2)");
         });
 
         modelBuilder.Entity<BingoGameDefinition>(entity =>
