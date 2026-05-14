@@ -6,10 +6,10 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.71"; 
+    public string GetRevision() => "2.38.72"; 
     
     // REVISION HISTORY:
-    // 2.38.59: Hardened update lifecycle with loop-protection (localStorage tracking) and cross-track version filtering (ignoring webapp leaks).
+    // 2.38.72: Integrated detailed banquet breakdown into Z-Reports, including individual deposit tracking and itemized tab expenditures.
     // 2.38.71: Optimized the 'Add Funds' modal with a compact 400px layout and streamlined padding for industrial touch terminals.
     // 2.38.70: Fixed CS0117 error by correctly referencing 'RunningTab' in the event pill logic.
     // 2.38.69: Fixed CS0019 compilation error by correcting enum type comparison in the header event pill.
@@ -72,6 +72,10 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
 
 
 

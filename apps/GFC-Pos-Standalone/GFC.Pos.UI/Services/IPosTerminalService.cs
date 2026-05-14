@@ -38,4 +38,14 @@ public class ShiftAuditDto
     public Dictionary<string, int> ItemSummary { get; set; } = new();
     public List<PosSaleDto> VoidedSales { get; set; } = new();
     public PosSaleDto? LatestSale { get; set; }
+    public List<BanquetShiftReportDto> Banquets { get; set; } = new();
+}
+
+public class BanquetShiftReportDto
+{
+    public int? ActiveEventId { get; set; }
+    public string EventName { get; set; } = "";
+    public List<decimal> Deposits { get; set; } = new();
+    public decimal TotalSpent { get; set; }
+    public Dictionary<string, int> ItemSummary { get; set; } = new();
 }

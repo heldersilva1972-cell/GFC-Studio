@@ -105,7 +105,7 @@ public class PosApiController : ControllerBase
             newEvent.CreatedAt = DateTime.UtcNow;
             db.ActiveEvents.Add(newEvent);
             await db.SaveChangesAsync();
-            return Ok();
+            return Ok(newEvent);
         }
         catch (Exception ex)
         {

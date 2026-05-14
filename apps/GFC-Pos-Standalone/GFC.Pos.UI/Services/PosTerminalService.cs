@@ -96,10 +96,46 @@ public class PosTerminalService : IPosTerminalService
                                 audit.LatestSale = data;
                             }
 
-                            var items = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
-                            if (items != null)
+                            // [BANQUET TRACKING]
+                            if (data.ActiveEventId.HasValue)
                             {
-                                foreach (var i in items)
+                                var banquet = audit.Banquets.FirstOrDefault(b => b.ActiveEventId == data.ActiveEventId);
+                                if (banquet == null)
+                                {
+                                    banquet = new BanquetShiftReportDto { ActiveEventId = data.ActiveEventId };
+                                    audit.Banquets.Add(banquet);
+                                }
+
+                                var items = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
+                                if (items != null)
+                                {
+                                    foreach (var i in items)
+                                    {
+                                        if (i.Name.StartsWith("TAB DEPOSIT:"))
+                                        {
+                                            banquet.Deposits.Add(i.Price);
+                                            // Extract event name if not set
+                                            if (string.IsNullOrEmpty(banquet.EventName))
+                                                banquet.EventName = i.Name.Replace("TAB DEPOSIT: ", "");
+                                        }
+                                        else if (data.PaymentType == "TAB")
+                                        {
+                                            if (!banquet.ItemSummary.ContainsKey(i.Name)) banquet.ItemSummary[i.Name] = 0;
+                                            banquet.ItemSummary[i.Name] += i.Quantity;
+                                            banquet.TotalSpent += (i.Price * i.Quantity);
+                                            
+                                            // Set event name from the first item if not set (fallback)
+                                            if (string.IsNullOrEmpty(banquet.EventName))
+                                                banquet.EventName = "Active Banquet"; // Will be updated by deposit if found
+                                        }
+                                    }
+                                }
+                            }
+
+                            var salesItems = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
+                            if (salesItems != null)
+                            {
+                                foreach (var i in salesItems)
                                 {
                                     if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
                                     audit.ItemSummary[i.Name] += i.Quantity;

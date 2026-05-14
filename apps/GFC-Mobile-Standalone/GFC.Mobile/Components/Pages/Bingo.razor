@@ -1891,44 +1891,94 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var s in Sheets)
-                                        {
-                                            var sAdmission = s.IsIncludedInAdmission ? AdmissionCount : 0;
-                                            var sManual = s.ManualSold;
-                                            var sGross = GetAllocatedAdmissionGross(s) + (sManual * s.Price);
-                                            var sPrizes = s.Games.Sum(g => CalculateGamePayout(s, g));
-                                            var sNet = CalculateSheetNet(s);
-                                            <tr class="summary-row-clickable" @onclick="() => OpenSheetFromSummary(s)">
-                                                <td>
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <div class="color-dot" style="background: @s.DisplayColor"></div>
-                                                        <span class="fw-black text-uppercase">@s.ColorName</span>
-                                                    </div>
-                                                </td>
-                                                <td class="text-center">
-                                                    <span class="extra-small fw-bold text-muted">
-                                                        @(s.PayoutMode == 0 ? "FIXED" : s.PayoutMode == 1 ? "50/50" : "GROSS %")
-                                                    </span>
-                                                </td>
-                                                <td class="text-center">
-                                                    @if (!s.IsIncludedInAdmission) {
-                                                        <span class="extra-small fw-bold text-muted opacity-25">N/A</span>
-                                                    } else {
-                                                        <span class="fw-bold text-muted">@sAdmission</span>
+                                        @{
+                                            var standardSheets = Sheets.Where(s => s.IsAdmissionOnly).ToList();
+                                            var otherSheets = Sheets.Where(s => !s.IsAdmissionOnly).ToList();
+                                            
+                                            if (standardSheets.Any())
+                                            {
+                                                var totalStdGross = standardSheets.Sum(s => GetAllocatedAdmissionGross(s) + (s.ManualSold * s.Price));
+                                                var totalStdPrizes = standardSheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)));
+                                                var totalStdNet = standardSheets.Sum(CalculateSheetNet);
+                                                var totalStdAdmission = AdmissionCount;
+
+                                                <tr class="bg-primary bg-opacity-5" @onclick="() => _isStdExpanded = !_isStdExpanded" style="cursor: pointer;">
+                                                    <td>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <i class="bi @(_isStdExpanded ? "bi-chevron-down" : "bi-chevron-right") text-primary"></i>
+                                                            <div class="color-dot bg-primary"></div>
+                                                            <span class="fw-black text-uppercase text-primary">STANDARD PROGRAM</span>
+                                                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25" style="font-size: 0.55rem; padding: 2px 6px;">@standardSheets.Count COLORS</span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-center"><span class="extra-small fw-bold text-muted">FIXED/BASE</span></td>
+                                                    <td class="text-center">@totalStdAdmission</td>
+                                                    <td class="text-center">0</td>
+                                                    <td class="text-center fw-bold">@totalStdAdmission</td>
+                                                    <td class="text-end fw-black text-primary">@totalStdGross.ToString("C2")</td>
+                                                    <td class="text-end fw-black text-danger">@totalStdPrizes.ToString("C2")</td>
+                                                    <td class="text-end fw-black text-success">@totalStdNet.ToString("C2")</td>
+                                                </tr>
+
+                                                @if (_isStdExpanded)
+                                                {
+                                                    @foreach (var s in standardSheets)
+                                                    {
+                                                        var sPrizes = s.Games.Sum(g => CalculateGamePayout(s, g));
+                                                        var sNet = CalculateSheetNet(s);
+                                                        var sGross = GetAllocatedAdmissionGross(s);
+
+                                                        <tr class="bg-light bg-opacity-50 extra-small" @onclick="() => OpenSheetFromSummary(s)">
+                                                            <td class="ps-5">
+                                                                <div class="d-flex align-items-center gap-2">
+                                                                    <div class="color-dot" style="background: @s.DisplayColor; width: 8px; height: 8px;"></div>
+                                                                    <span class="fw-bold">@s.ColorName</span>
+                                                                </div>
+                                                            </td>
+                                                            <td class="text-center text-muted">FIXED</td>
+                                                            <td class="text-center">@AdmissionCount</td>
+                                                            <td class="text-center">-</td>
+                                                            <td class="text-center">@AdmissionCount</td>
+                                                            <td class="text-end text-muted">@sGross.ToString("C2")</td>
+                                                            <td class="text-end text-danger fw-bold">@sPrizes.ToString("C2")</td>
+                                                            <td class="text-end fw-bold text-success">@sNet.ToString("C2")</td>
+                                                        </tr>
                                                     }
-                                                </td>
-                                                <td class="text-center">
-                                                    @if (s.IsAdmissionOnly) {
-                                                        <span class="extra-small fw-bold text-muted opacity-25">N/A</span>
-                                                    } else {
-                                                        <span class="fw-bold @(sManual > 0 ? "text-primary" : "text-muted opacity-25")">@sManual</span>
-                                                    }
-                                                </td>
-                                                <td class="text-center fw-black">@s.Sold</td>
-                                                <td class="text-end">@sGross.ToString("C2")</td>
-                                                <td class="text-end text-danger fw-bold">@sPrizes.ToString("C2")</td>
-                                                <td class="text-end fw-black @(sNet >= 0 ? "text-success" : "text-danger")">@sNet.ToString("C2")</td>
-                                            </tr>
+                                                }
+                                            }
+
+                                            @foreach (var s in otherSheets)
+                                            {
+                                                var sAdmission = s.IsIncludedInAdmission ? AdmissionCount : 0;
+                                                var sManual = s.ManualSold;
+                                                var sGross = GetAllocatedAdmissionGross(s) + (sManual * s.Price);
+                                                var sPrizes = s.Games.Sum(g => CalculateGamePayout(s, g));
+                                                var sNet = CalculateSheetNet(s);
+                                                
+                                                <tr class="summary-row-clickable" @onclick="() => OpenSheetFromSummary(s)">
+                                                    <td>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <div class="color-dot" style="background: @s.DisplayColor"></div>
+                                                            <span class="fw-black text-uppercase">@s.ColorName</span>
+                                                            @if (s.IsIncludedInAdmission)
+                                                            {
+                                                                <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25" style="font-size: 0.55rem; padding: 2px 6px;">INCLUDED</span>
+                                                            }
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <span class="extra-small fw-bold text-muted">
+                                                            @(s.PayoutMode == 0 ? "FIXED" : s.PayoutMode == 1 ? "50/50" : "GROSS %")
+                                                        </span>
+                                                    </td>
+                                                    <td class="text-center">@sAdmission</td>
+                                                    <td class="text-center">@(sManual > 0 ? sManual.ToString() : "0")</td>
+                                                    <td class="text-center fw-bold">@(sAdmission + sManual)</td>
+                                                    <td class="text-end fw-bold">@sGross.ToString("C2")</td>
+                                                    <td class="text-end fw-bold text-danger">@sPrizes.ToString("C2")</td>
+                                                    <td class="text-end fw-black @(sNet >= 0 ? "text-success" : "text-danger")">@sNet.ToString("C2")</td>
+                                                </tr>
+                                            }
                                         }
                                     </tbody>
                                     <tfoot>
@@ -2119,6 +2169,7 @@
     private BingoSheet? _selectedSheet;
     private AdmissionPack? _selectedPackDetail;
     private bool _showAdmissionAudit = false;
+    private bool _isStdExpanded = false;
     private BingoSettingsDto _bingoSettings = new();
     private bool _showScalingTiers = false;
     private bool _showSessionLockedNotice = false;

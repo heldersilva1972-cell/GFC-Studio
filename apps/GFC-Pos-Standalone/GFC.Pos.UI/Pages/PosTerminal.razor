@@ -2152,7 +2152,8 @@
                 Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
                 CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
                 InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
-                SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary)
+                SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
+                BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets)
             };
             await PosService.SaveZReportAsync(z);
 
@@ -2199,6 +2200,32 @@
                     if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
                 }
 
+                var banquetRows = "";
+                foreach (var b in finalAudit.Banquets)
+                {
+                    banquetRows += $@"
+                        <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
+                            <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>BANQUET: {b.EventName}</div>
+                            <div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
+                    
+                    foreach (var dep in b.Deposits)
+                    {
+                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>- Add Funds</span><span>{dep:C}</span></div>";
+                    }
+                    
+                    banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
+                    foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
+                    {
+                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span></div>";
+                    }
+                    
+                    banquetRows += $@"
+                            <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
+                                <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
+                            </div>
+                        </div>";
+                }
+
                 var html = $@"
                     <div style='font-family: monospace; width: 300px; padding: 10px;'>
                         <div style='text-align: center;'>
@@ -2224,6 +2251,12 @@
                             <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>POS SALES ACTIVITY</div>
                             {salesRows}
                         </div>
+
+                        {(string.IsNullOrEmpty(banquetRows) ? "" : $@"
+                        <div style='margin-top:15px;'>
+                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>BANQUET ACTIVITY</div>
+                            {banquetRows}
+                        </div>")}
 
                         {(string.IsNullOrEmpty(voidedRows) ? "" : $@"
                         <div style='margin-top:15px;'>
@@ -2455,7 +2488,8 @@
             var response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
             if (response.IsSuccessStatusCode)
             {
-                await LogTabDeposit(template.Name, _newBanquetAmount);
+                var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
+                await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id);
                 Toast.ShowSuccess("Banquet started and cash logged!");
                 _newBanquetTemplateId = 0;
                 _newBanquetAmount = 0;
@@ -2482,7 +2516,7 @@
             var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
             if (response.IsSuccessStatusCode)
             {
-                await LogTabDeposit(_selectedBanquetToAddFunds.Name, _addFundsAmount);
+                await LogTabDeposit(_selectedBanquetToAddFunds.Name, _addFundsAmount, _selectedBanquetToAddFunds.Id);
                 Toast.ShowSuccess("Funds added and cash logged!");
                 _selectedBanquetToAddFunds = null;
                 _addFundsAmount = 0;
@@ -2516,7 +2550,7 @@
         }
     }
 
-    private async Task LogTabDeposit(string eventName, decimal amount)
+    private async Task LogTabDeposit(string eventName, decimal amount, int? eventId)
     {
         var depositSale = new PosSaleDto
         {
@@ -2529,6 +2563,7 @@
             OriginalTotal = amount,
             AmountReceived = amount,
             ChangeDue = 0,
+            ActiveEventId = eventId,
             ItemsJson = JsonSerializer.Serialize(new List<ProductItem>
             {
                 new ProductItem { 

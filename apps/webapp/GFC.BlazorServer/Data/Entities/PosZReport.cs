@@ -30,6 +30,9 @@ namespace GFC.BlazorServer.Data.Entities
 
         [Required]
         public string SalesSummaryJson { get; set; } = "[]";
+        
+        [Required]
+        public string BanquetSummaryJson { get; set; } = "[]";
 
         public bool IsSynced { get; set; } = false;
     }
