@@ -2164,23 +2164,24 @@
                     await PrinterService.KickDrawerAsync();
                 }
                 
-                // ─── GENERATE DETAILED RECEIPT (GROUPED BY CATEGORY) ───
-                var groupedSales = finalAudit.ItemSummary
+                // ─── GENERATE REGULAR SALES (EXCLUDES BANQUETS) ───
+                var groupedRegular = finalAudit.RegularItemSummary
                     .Select(kvp => {
                         var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                        var category = product?.Category;
+                        if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                         return new { 
                             Name = kvp.Key, 
                             Quantity = kvp.Value, 
-                            Category = product?.Category ?? "MISC", 
-                            Price = product?.Price ?? 0,
-                            Total = kvp.Value * (product?.Price ?? 0)
+                            Category = category ?? "MISC", 
+                            Total = finalAudit.RegularItemTotals.ContainsKey(kvp.Key) ? finalAudit.RegularItemTotals[kvp.Key] : 0
                         };
                     })
                     .GroupBy(x => x.Category)
                     .OrderBy(g => g.Key);
 
                 var salesRows = "";
-                foreach(var group in groupedSales) {
+                foreach(var group in groupedRegular) {
                     salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
                     foreach(var item in group.OrderByDescending(x => x.Quantity)) {
                         salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
@@ -2216,7 +2217,8 @@
                     banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
                     foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                     {
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span></div>";
+                        var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
+                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
                     }
                     
                     banquetRows += $@"
@@ -2245,10 +2247,11 @@
                             <div style='display:flex; justify-content:space-between; font-weight:bold;'>
                                 <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
                             </div>
+                            <div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Includes Tab purchases; excludes Deposits.</div>
                         </div>
 
                         <div style='margin-top:15px;'>
-                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>POS SALES ACTIVITY</div>
+                            <div style='font-weight:bold; border-bottom:2px solid #000; margin-bottom:5px; font-size:1.1em;'>REGULAR SALES</div>
                             {salesRows}
                         </div>
 

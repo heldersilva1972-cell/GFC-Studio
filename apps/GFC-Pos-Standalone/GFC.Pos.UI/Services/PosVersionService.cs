@@ -6,7 +6,7 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.72"; 
+    public string GetRevision() => "2.38.74"; 
     
     // REVISION HISTORY:
     // 2.38.72: Integrated detailed banquet breakdown into Z-Reports, including individual deposit tracking and itemized tab expenditures.
@@ -72,6 +72,11 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
 
 
 

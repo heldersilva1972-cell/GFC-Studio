@@ -88,7 +88,13 @@ public class PosTerminalService : IPosTerminalService
                                 continue; 
                             }
 
-                            audit.GrossTotal += data.TotalAmount;
+                            bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:");
+                            
+                            if (!isDeposit)
+                            {
+                                audit.GrossTotal += data.TotalAmount;
+                            }
+                            
                             if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
 
                             if (audit.LatestSale == null || data.Timestamp > audit.LatestSale.Timestamp)
@@ -138,7 +144,29 @@ public class PosTerminalService : IPosTerminalService
                                 foreach (var i in salesItems)
                                 {
                                     if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
+                                    if (!audit.ItemTotals.ContainsKey(i.Name)) audit.ItemTotals[i.Name] = 0;
+                                    
                                     audit.ItemSummary[i.Name] += i.Quantity;
+                                    audit.ItemTotals[i.Name] += (i.Price * i.Quantity);
+
+                                    // [SEPARATION] Track regular sales vs banquet sales
+                                    if (data.ActiveEventId.HasValue)
+                                    {
+                                        var b = audit.Banquets.FirstOrDefault(x => x.ActiveEventId == data.ActiveEventId);
+                                        if (b != null)
+                                        {
+                                            if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
+                                            b.ItemTotals[i.Name] += (i.Price * i.Quantity);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (!audit.RegularItemSummary.ContainsKey(i.Name)) audit.RegularItemSummary[i.Name] = 0;
+                                        if (!audit.RegularItemTotals.ContainsKey(i.Name)) audit.RegularItemTotals[i.Name] = 0;
+                                        
+                                        audit.RegularItemSummary[i.Name] += i.Quantity;
+                                        audit.RegularItemTotals[i.Name] += (i.Price * i.Quantity);
+                                    }
                                 }
                             }
                         }
