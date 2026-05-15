@@ -258,10 +258,41 @@ public class PosTerminalService : IPosTerminalService
 
     public async Task<PosMenuDto> GetMenuAsync()
     {
-        // 1. Try Server (if online)
+        // 1. [INSTANT-LOAD] Try Vault FIRST for immediate UI pop
         try
         {
-            if (await _connectivity.GateAsync("GetMenu"))
+            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+            if (!string.IsNullOrEmpty(cached))
+            {
+                var menu = JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
+                if (menu != null && menu.Items.Any())
+                {
+                    // Trigger a background refresh if online, but return the cached version NOW
+                    _ = Task.Run(async () => await RefreshMenuCacheAsync());
+                    return menu;
+                }
+            }
+        }
+        catch { }
+
+        // 2. Fallback to Server if Vault is empty
+        return await RefreshMenuCacheAsync();
+    }
+
+    public async Task SaveMenuToVaultAsync(PosMenuDto menu)
+    {
+        try
+        {
+            await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
+        }
+        catch { }
+    }
+
+    private async Task<PosMenuDto> RefreshMenuCacheAsync()
+    {
+        try
+        {
+            if (await _connectivity.GateAsync("RefreshMenu"))
             {
                 var menu = await _http.GetFromJsonAsync<PosMenuDto>("api/pos/menu");
                 if (menu != null && menu.Items.Any())
@@ -272,30 +303,40 @@ public class PosTerminalService : IPosTerminalService
             }
         }
         catch { }
+        return new PosMenuDto();
+    }
 
-        // 2. Fallback to Vault
+
+    public async Task<List<UserListItemDto>> GetAuthorizedUsersAsync()
+    {
+        // 1. [OFFLINE-FIRST] Try Vault FIRST
         try
         {
-            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", AuthorizedUsersKey);
             if (!string.IsNullOrEmpty(cached))
             {
-                return JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions) ?? new PosMenuDto();
+                var users = JsonSerializer.Deserialize<List<UserListItemDto>>(cached, _jsonOptions);
+                if (users != null && users.Any())
+                {
+                    // Trigger background refresh
+                    _ = Task.Run(async () => await RefreshAuthorizedUsersCacheAsync());
+                    return users;
+                }
             }
         }
         catch { }
 
-        return new PosMenuDto();
+        return await RefreshAuthorizedUsersCacheAsync();
     }
 
-    public async Task<List<UserListItemDto>> GetAuthorizedUsersAsync()
+    private async Task<List<UserListItemDto>> RefreshAuthorizedUsersCacheAsync()
     {
-        // 1. Try Server
         try
         {
-            if (await _connectivity.GateAsync("GetUsers"))
+            if (await _connectivity.GateAsync("RefreshUsers"))
             {
                 var users = await _http.GetFromJsonAsync<List<UserListItemDto>>("api/pos/users");
-                if (users != null)
+                if (users != null && users.Any())
                 {
                     await _js.InvokeVoidAsync("window.gfcSetAsync", AuthorizedUsersKey, users);
                     return users;
@@ -303,23 +344,35 @@ public class PosTerminalService : IPosTerminalService
             }
         }
         catch { }
-
-        // 2. Fallback to Vault
-        try
-        {
-            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", AuthorizedUsersKey);
-            if (!string.IsNullOrEmpty(cached))
-            {
-                return JsonSerializer.Deserialize<List<UserListItemDto>>(cached, _jsonOptions) ?? new();
-            }
-        }
-        catch { }
-
-        return new();
+        return new List<UserListItemDto>();
     }
 
     public async Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName)
     {
+        // 1. [OFFLINE-FIRST] Check local vault for today's round first
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                var today = DateTime.Today;
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(VaultPrefixSales))
+                    {
+                        var sale = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                        if (sale != null && sale.Timestamp.Date == today && sale.ItemsJson.Contains("(DARTS)"))
+                        {
+                            return sale;
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        // 2. Fallback to Server if not in vault
         try 
         { 
             if (!await _connectivity.GateAsync("GetDartsRound")) return null;

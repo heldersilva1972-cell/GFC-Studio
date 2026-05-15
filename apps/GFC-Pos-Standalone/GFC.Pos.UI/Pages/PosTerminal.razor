@@ -489,6 +489,12 @@
         border-radius: 2rem;
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
+    
+    /* SPEED OPTIMIZATION: Remove 300ms touch delay on mobile */
+    .product-card, .speed-pill, .btn-checkout, .btn-redeem, .filter-pill, .numpad-btn, .btn-quick-cash, .btn-remove, .numpad-key, .btn-options, .btn-shift, .btn-settings-icon {
+        touch-action: manipulation !important;
+        user-select: none !important;
+    }
 </style>
 
 <PageTitle>GFC - @TerminalName.ToUpper()</PageTitle>
@@ -691,29 +697,41 @@
                         {
                             <div class="mb-3">
                                 <label class="form-label small fw-bold">Select Event</label>
-                                <select class="form-select border-2 fw-bold" @bind="_newBanquetTemplateId">
+                                <select class="form-select border-2 fw-bold" @onchange="OnTemplateSelected">
                                     <option value="0">-- CHOOSE EVENT --</option>
                                     @foreach (var t in DbEventTemplates)
                                     {
-                                        <option value="@t.Id">@t.Name</option>
+                                        <option value="@t.Id" selected="@(_newBanquetTemplateId == t.Id)">@t.Name</option>
                                     }
                                 </select>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold">Starting Cash Deposit</label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-white border-2 fw-bold">$</span>
-                                    <input type="number" step="0.01" class="form-control border-2 fw-black text-primary" @bind="_newBanquetAmount" readonly />
+                            
+                            @if (IsPrePaidSelected)
+                            {
+                                <div class="mb-3 animate__animated animate__fadeIn">
+                                    <label class="form-label small fw-bold">Starting Cash Deposit</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-white border-2 fw-bold">$</span>
+                                        <input type="number" step="0.01" class="form-control border-2 fw-black text-primary" @bind="_newBanquetAmount" readonly />
+                                    </div>
+                                    <div class="banquet-numpad">
+                                        @foreach (var n in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "C" })
+                                        {
+                                            <div class="numpad-key @(n == "C" ? "key-clear" : "")" @onclick="() => HandleBanquetNumpad(n)">@n</div>
+                                        }
+                                    </div>
                                 </div>
-                                <div class="banquet-numpad">
-                                    @foreach (var n in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "C" })
-                                    {
-                                        <div class="numpad-key @(n == "C" ? "key-clear" : "")" @onclick="() => HandleBanquetNumpad(n)">@n</div>
-                                    }
+                            }
+                            else if (_newBanquetTemplateId > 0)
+                            {
+                                <div class="alert alert-info border-0 rounded-4 small fw-bold mb-3 animate__animated animate__fadeIn">
+                                    <i class="bi bi-info-circle me-2"></i> This is a RUNNING TAB. No starting deposit required.
                                 </div>
-                            </div>
-                            <button class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow-sm mt-2" @onclick="StartBanquet" disabled="@(_newBanquetTemplateId == 0 || _newBanquetAmount <= 0)">
-                                <i class="bi bi-cash-coin me-2"></i> COLLECT CASH & START
+                            }
+
+                            <button class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow-sm mt-2" @onclick="StartBanquet" 
+                                    disabled="@(_newBanquetTemplateId == 0 || (IsPrePaidSelected && _newBanquetAmount <= 0))">
+                                <i class="bi bi-play-circle-fill me-2"></i> START EVENT
                             </button>
                         }
                     </div>
@@ -1500,6 +1518,7 @@
     private List<PosToken> DbTokens = new();
     private List<ActiveEvent> DbActiveEvents = new();
     private List<EventTemplate> DbEventTemplates = new();
+    private PosMenuDto? _cachedMenu; // Keep full menu for local updates
     private ActiveEvent? _selectedActiveEvent = null;
     private bool _isTabPayment = false;
     
@@ -1851,6 +1870,7 @@
         var menu = await PosService.GetMenuAsync();
         if (menu != null && menu.Items.Any())
         {
+            _cachedMenu = menu;
             Console.WriteLine($"[POS] Loaded {menu.Items.Count} items in {menu.Categories.Count} categories.");
             Categories = menu.Categories.Where(c => c != "DARTS CLUB ROUND").ToList();
             DbItems = menu.Items.Select(i => new ProductItem { Id = i.Id, Name = i.Name, Price = i.Price, Category = i.Category }).ToList();
@@ -1955,7 +1975,9 @@
         else CartItems.Add(new ProductItem { Id = item.Id, Name = name, Price = price, Category = item.Category, Quantity = 1 });
         
         StateHasChanged();
-        await JSRuntime.InvokeVoidAsync("eval", "var el = document.getElementById('cartItemsList'); if(el) el.scrollTop = el.scrollHeight;");
+        
+        // SPEED OPTIMIZATION: Don't await JS scroll, fire and forget for instant response
+        _ = JSRuntime.InvokeVoidAsync("window.gfcScrollToBottom", "cartItemsList");
     }
 
     private void AddTokenToCart(PosToken token)
@@ -1966,7 +1988,11 @@
         var existing = CartItems.FirstOrDefault(x => x.Id == tokenId && x.Price == price);
         if (existing != null) existing.Quantity++;
         else CartItems.Add(new ProductItem { Id = tokenId, Name = name, Price = price, Category = "TOKENS", Quantity = 1 });
+        
         StateHasChanged();
+        
+        // SPEED OPTIMIZATION: Don't await JS scroll
+        _ = JSRuntime.InvokeVoidAsync("window.gfcScrollToBottom", "cartItemsList");
     }
 
     private void ApplyTokenRedemption(PosToken token)
@@ -2472,9 +2498,27 @@
         }
     }
 
+    private bool IsPrePaidSelected => DbEventTemplates.FirstOrDefault(t => t.Id == _newBanquetTemplateId)?.DefaultType == GFC.Core.Enums.EventTabType.PrePaid;
+
+    private void OnTemplateSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            _newBanquetTemplateId = id;
+            var template = DbEventTemplates.FirstOrDefault(t => t.Id == id);
+            if (template?.DefaultType == GFC.Core.Enums.EventTabType.RunningTab)
+            {
+                _newBanquetAmount = 0;
+            }
+        }
+    }
+
     private async Task StartBanquet()
     {
-        if (_newBanquetTemplateId == 0 || _newBanquetAmount <= 0) return;
+        if (_newBanquetTemplateId == 0) return;
+        var template = DbEventTemplates.FirstOrDefault(t => t.Id == _newBanquetTemplateId);
+        if (template == null) return;
+        if (template.DefaultType == GFC.Core.Enums.EventTabType.PrePaid && _newBanquetAmount <= 0) return;
         var template = DbEventTemplates.FirstOrDefault(t => t.Id == _newBanquetTemplateId);
         if (template == null) return;
 
@@ -2488,12 +2532,21 @@
                 Status = GFC.Core.Enums.EventTabStatus.Open
             };
             
+            if (!Connectivity.IsOnline)
+            {
+                Toast.ShowError("Server connection required to start a new banquet.");
+                return;
+            }
+            
             var response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
             if (response.IsSuccessStatusCode)
             {
                 var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
-                await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id);
-                Toast.ShowSuccess("Banquet started and cash logged!");
+                if (_newBanquetAmount > 0)
+                {
+                    await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id);
+                }
+                Toast.ShowSuccess("Banquet started!");
                 _newBanquetTemplateId = 0;
                 _newBanquetAmount = 0;
                 await RefreshData();
@@ -2513,43 +2566,64 @@
     {
         if (_selectedBanquetToAddFunds == null || _addFundsAmount <= 0) return;
 
+        // 1. INSTANT LOCAL UPDATE
+        _selectedBanquetToAddFunds.CurrentBalance += _addFundsAmount;
+        await LogTabDeposit(_selectedBanquetToAddFunds.Name, _addFundsAmount, _selectedBanquetToAddFunds.Id);
+        
+        if (_cachedMenu != null)
+        {
+             await PosService.SaveMenuToVaultAsync(_cachedMenu);
+        }
+        
+        var name = _selectedBanquetToAddFunds.Name;
+        var amt = _addFundsAmount;
+        var id = _selectedBanquetToAddFunds.Id;
+        
+        _selectedBanquetToAddFunds = null;
+        _addFundsAmount = 0;
+        StateHasChanged();
+
         try
         {
-            var request = new AddFundsRequest { Id = _selectedBanquetToAddFunds.Id, Amount = _addFundsAmount };
+            // 2. BACKGROUND SERVER SYNC
+            var request = new AddFundsRequest { Id = id, Amount = amt };
             var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
             if (response.IsSuccessStatusCode)
             {
-                await LogTabDeposit(_selectedBanquetToAddFunds.Name, _addFundsAmount, _selectedBanquetToAddFunds.Id);
-                Toast.ShowSuccess("Funds added and cash logged!");
-                _selectedBanquetToAddFunds = null;
-                _addFundsAmount = 0;
-                await RefreshData();
-            }
-            else
-            {
-                Toast.ShowError("Server error adding funds");
+                Toast.ShowSuccess("Funds synced to server");
             }
         }
         catch (Exception ex)
         {
-            Toast.ShowError($"Error: {ex.Message}");
+            Console.WriteLine($"[POS] ConfirmAddFunds Server Sync failed: {ex.Message}");
+            Toast.ShowWarning("Funds added locally. Server sync pending.");
         }
     }
 
     private async Task CloseBanquet(ActiveEvent ev)
     {
+        // 1. Instant Local Update (Bypass delay)
+        DbActiveEvents.Remove(ev);
+        if (_cachedMenu != null)
+        {
+            _cachedMenu.ActiveEvents = DbActiveEvents;
+            await PosService.SaveMenuToVaultAsync(_cachedMenu);
+        }
+        StateHasChanged();
+
         try
         {
+            // 2. Background Server Update
             var response = await Http.PostAsync($"api/pos/events/close/{ev.Id}", null);
             if (response.IsSuccessStatusCode)
             {
-                Toast.ShowSuccess("Banquet closed");
-                await RefreshData();
+                Toast.ShowSuccess("Banquet closed on server");
             }
         }
         catch (Exception ex)
         {
-            Toast.ShowError($"Error: {ex.Message}");
+            Console.WriteLine($"[POS] CloseBanquet Server Sync failed (will retry on next refresh): {ex.Message}");
+            Toast.ShowWarning("Banquet closed locally. Server sync pending.");
         }
     }
 

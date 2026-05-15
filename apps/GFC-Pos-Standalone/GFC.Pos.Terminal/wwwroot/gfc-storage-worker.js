@@ -7,7 +7,7 @@ const DB_VERSION = 1;
 
 let db = null;
 
-// Initialize DB
+// Initialize DB Immediately
 const initDB = () => {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -19,11 +19,15 @@ const initDB = () => {
         };
         request.onsuccess = (e) => {
             db = e.target.result;
+            console.log("[GFC POS WORKER] IndexedDB Ready");
             resolve(db);
         };
         request.onerror = (e) => reject(e.target.error);
     });
 };
+
+// Start initialization immediately
+initDB().catch(err => console.error("[GFC POS WORKER] DB Init Failed:", err));
 
 self.onmessage = async (e) => {
     if (!db) await initDB();

@@ -9,6 +9,7 @@ namespace GFC.Pos.UI.Services;
 public interface IPosTerminalService
 {
     Task<PosMenuDto> GetMenuAsync();
+    Task SaveMenuToVaultAsync(PosMenuDto menu);
     Task SaveSaleAsync(PosSaleDto sale);
     Task<PosZReportDto?> GetZReportAsync(Guid id);
     Task<List<PosZReportDto>> GetZReportsAsync(string terminalName);

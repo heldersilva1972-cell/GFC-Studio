@@ -92,10 +92,20 @@ public class ConnectivityService : IAsyncDisposable
         }
     }
 
+    private DateTime _lastCheckTime = DateTime.MinValue;
+
     public async Task<bool> GateAsync(string actionName)
     {
-        // Zero 'Failed to fetch' strategy - Mobile Spec
+        // SPEED OPTIMIZATION: If we just checked within the last 10s, use that result.
+        // This prevents every button click from waiting for a 2s heartbeat timeout when offline.
+        if ((DateTime.Now - _lastCheckTime).TotalSeconds < 10)
+        {
+            return _isServerReachable;
+        }
+
         var reachable = await CheckServerReachableAsync();
+        _lastCheckTime = DateTime.Now;
+
         if (!reachable)
         {
             Console.WriteLine($"[CONNECTIVITY GUARD] Blocking '{actionName}' - Offline state detected.");
