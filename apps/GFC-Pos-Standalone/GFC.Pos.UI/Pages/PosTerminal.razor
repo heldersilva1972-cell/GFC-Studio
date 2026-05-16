@@ -866,6 +866,17 @@
                             </div>
                         </div>
                     </button>
+
+                    <button class="btn btn-outline-primary btn-lg rounded-4 text-start p-4 fw-bold" style="border-width: 2px;" @onclick="ReprintLastZReport">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-printer-fill fs-3"></i>
+                            <div>
+                                <div class="fs-5 fw-black">REPRINT LAST Z-REPORT</div>
+                                <div class="small text-muted fw-normal">Print the most recent shift close-out</div>
+                            </div>
+                        </div>
+                    </button>
+
                 </div>
             </div>
         </div>
@@ -2697,6 +2708,162 @@
         StateHasChanged();
     }
 
+    private async Task ReprintLastZReport()
+    {
+        try
+        {
+            var reports = await PosService.GetZReportsAsync(TerminalName);
+            var last = reports?.OrderByDescending(x => x.Timestamp).FirstOrDefault();
+            
+            if (last == null)
+            {
+                Toast.ShowWarning("No Z-reports found for this terminal.");
+                return;
+            }
+
+            var html = BuildZReportHtml(last);
+            await PrinterService.PrintReceiptAsync(html);
+            Toast.ShowSuccess("Z-Report re-printing...");
+            showOptionsMenu = false;
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Error reprinting: {ex.Message}");
+        }
+    }
+
+    private string BuildZReportHtml(PosZReportDto z)
+    {
+        var salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(z.SalesSummaryJson) ?? new();
+        var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
+        var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
+
+        // Calculate Token Credits
+        decimal tokenCredits = 0;
+        foreach (var kvp in salesSummary)
+        {
+            if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)"))
+            {
+                var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                if (product != null) tokenCredits += Math.Abs(product.Price) * kvp.Value;
+            }
+        }
+
+        // Generate Sales Rows (Grouped by Category)
+        var groupedRegular = salesSummary
+            .Select(kvp => {
+                var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                var category = product?.Category;
+                if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
+                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
+                
+                decimal price = product?.Price ?? 0;
+                return new { 
+                    Name = kvp.Key, 
+                    Quantity = kvp.Value, 
+                    Category = category ?? "MISC", 
+                    Total = price * kvp.Value
+                };
+            })
+            .GroupBy(x => x.Category)
+            .OrderBy(g => g.Key);
+
+        var salesRows = "";
+        foreach(var group in groupedRegular) {
+            salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
+            foreach(var item in group.OrderByDescending(x => x.Quantity)) {
+                salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
+            }
+            var groupTotal = group.Sum(x => x.Total);
+            salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
+        }
+
+        var inventoryRows = "";
+        foreach(var pull in inventoryPulls) {
+            var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
+            if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
+        }
+
+        var banquetRows = "";
+        foreach (var b in banquetSummary)
+        {
+            banquetRows += $@"
+                <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
+                    <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>BANQUET: {b.EventName}</div>
+                    <div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
+            
+            foreach (var dep in b.Deposits)
+            {
+                banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>- Add Funds</span><span>{dep:C}</span></div>";
+            }
+            
+            banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
+            foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
+            {
+                var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
+                banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
+            }
+            
+            banquetRows += $@"
+                    <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
+                        <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
+                    </div>
+                </div>";
+        }
+
+        return $@"
+            <div style='font-family: monospace; width: 300px; padding: 10px;'>
+                <div style='text-align: center;'>
+                    <h2 style='margin:0;'>GFC TERMINAL</h2>
+                    <div style='font-size:0.9em;'>{TerminalName}</div>
+                    <hr/>
+                    <h3 style='margin:10px 0;'>Z-REPORT SUMMARY</h3>
+                    <hr/>
+                </div>
+                
+                <div style='margin-bottom:10px;'>
+                    <div>Date: {z.Timestamp:g}</div>
+                    <div>Operator: {z.BartenderName}</div>
+                </div>
+
+                <div style='border: 1px solid #000; padding: 5px; margin-bottom:10px;'>
+                    <div style='display:flex; justify-content:space-between; font-weight:bold;'>
+                        <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
+                    </div>
+                    {(tokenCredits > 0 ? $@"
+                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #991b1b; margin-top:2px;'>
+                            <span>TOKEN CREDITS:</span><span>- {tokenCredits:C}</span>
+                        </div>" : "")}
+                    <div style='display:flex; justify-content:space-between; font-weight:bold; border-top: 1px solid #000; margin-top:4px; padding-top:4px;'>
+                        <span>CASH IN DRAWER:</span><span>{z.CashTotal:C}</span>
+                    </div>
+                    <div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Includes Tab purchases; excludes Deposits.</div>
+                </div>
+
+                <div style='margin-top:15px;'>
+                    <div style='font-weight:bold; border-bottom:2px solid #000; margin-bottom:5px; font-size:1.1em;'>REGULAR SALES</div>
+                    {salesRows}
+                </div>
+
+                {(string.IsNullOrEmpty(banquetRows) ? "" : $@"
+                <div style='margin-top:15px;'>
+                    <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>BANQUET ACTIVITY</div>
+                    {banquetRows}
+                </div>")}
+
+                {(string.IsNullOrEmpty(inventoryRows) ? "" : $@"
+                <div style='margin-top:15px;'>
+                    <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>INVENTORY REMOVAL LOG</div>
+                    {inventoryRows}
+                </div>")}
+
+                <div style='text-align: center; margin-top:20px; font-size: 0.7em; opacity: 0.8;'>
+                    <hr/>
+                    Standalone Mode v{VersionService.GetRevision()}
+                </div>
+            </div>";
+    }
+
     private async Task HandleNoSale()
     {
         if (!forceTrainingMode || allowHardwareInTraining)
@@ -2804,64 +2971,7 @@
                         </div>";
                 }
 
-                var html = $@"
-                    <div style='font-family: monospace; width: 300px; padding: 10px;'>
-                        <div style='text-align: center;'>
-                            <h2 style='margin:0;'>GFC TERMINAL</h2>
-                            <div style='font-size:0.9em;'>{TerminalName}</div>
-                            <hr/>
-                            <h3 style='margin:10px 0;'>Z-REPORT SUMMARY</h3>
-                            <hr/>
-                        </div>
-                        
-                        <div style='margin-bottom:10px;'>
-                            <div>Date: {z.Timestamp:g}</div>
-                            <div>Operator: {z.BartenderName}</div>
-                        </div>
-
-                        <div style='border: 1px solid #000; padding: 5px; margin-bottom:10px;'>
-                            <div style='display:flex; justify-content:space-between; font-weight:bold;'>
-                                <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
-                            </div>
-                            {(finalAudit.TokenCredits > 0 ? $@"
-                                <div style='display:flex; justify-content:space-between; font-weight:bold; color: #991b1b; margin-top:2px;'>
-                                    <span>TOKEN CREDITS:</span><span>- {finalAudit.TokenCredits:C}</span>
-                                </div>" : "")}
-                            <div style='display:flex; justify-content:space-between; font-weight:bold; border-top: 1px solid #000; margin-top:4px; padding-top:4px;'>
-                                <span>CASH IN DRAWER:</span><span>{z.CashTotal:C}</span>
-                            </div>
-                            <div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Includes Tab purchases; excludes Deposits.</div>
-                        </div>
-
-                        <div style='margin-top:15px;'>
-                            <div style='font-weight:bold; border-bottom:2px solid #000; margin-bottom:5px; font-size:1.1em;'>REGULAR SALES</div>
-                            {salesRows}
-                        </div>
-
-                        {(string.IsNullOrEmpty(banquetRows) ? "" : $@"
-                        <div style='margin-top:15px;'>
-                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>BANQUET ACTIVITY</div>
-                            {banquetRows}
-                        </div>")}
-
-                        {(string.IsNullOrEmpty(voidedRows) ? "" : $@"
-                        <div style='margin-top:15px;'>
-                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>VOIDED / CORRECTED SALES</div>
-                            {voidedRows}
-                        </div>")}
-
-                        {(string.IsNullOrEmpty(inventoryRows) ? "" : $@"
-                        <div style='margin-top:15px;'>
-                            <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>INVENTORY REMOVAL LOG</div>
-                            {inventoryRows}
-                        </div>")}
-
-                        <div style='text-align: center; margin-top:20px; font-size: 0.7em; opacity: 0.8;'>
-                            <hr/>
-                            Standalone Mode v{VersionService.GetRevision()}
-                        </div>
-                    </div>";
-
+                var html = BuildZReportHtml(z);
                 await PrinterService.PrintReceiptAsync(html);
             }
         }

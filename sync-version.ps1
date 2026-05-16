@@ -158,15 +158,20 @@ try {
             }
         }
 
-        # index.html (Blazor Boot Cache Buster)
-        $posIndex = Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/index.html"
-        if (Test-Path $posIndex) {
-            Write-Step "Updating index.html (Cache Buster)..."
-            $c = Get-Content $posIndex -Raw
-            $nc = $c -replace "(const version = ')[^']+", ("`${1}" + $targetVersion)
-            # [FIX] Also update CSS cache-busters so UI changes are forced
-            $nc = $nc -replace '(\.css\?v=)[^"]+', ("`${1}" + $targetVersion)
-            if ($DryRun) { Write-DryRun "Would update $posIndex" } else { Set-Content $posIndex $nc }
+        # index.html (Blazor Boot Cache Buster) - BOTH LOCATIONS
+        $posIndices = @(
+            (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/index.html"),
+            (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/index.html")
+        )
+        foreach ($f in $posIndices) {
+            if (Test-Path $f) {
+                Write-Step "Updating $(Split-Path $f -Parent | Split-Path -Leaf)/$(Split-Path $f -Leaf) (Cache Buster)..."
+                $c = Get-Content $f -Raw
+                $nc = $c -replace "(const version = ')[^']+", ("`${1}" + $targetVersion)
+                # [FIX] Also update CSS cache-busters so UI changes are forced
+                $nc = $nc -replace '(\.css\?v=)[^"]+', ("`${1}" + $targetVersion)
+                if ($DryRun) { Write-DryRun "Would update $f" } else { Set-Content $f $nc }
+            }
         }
 
         # version.txt (Primary Update Authority)

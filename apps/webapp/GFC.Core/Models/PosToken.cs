@@ -33,5 +33,12 @@ namespace GFC.Core.Models
         
         // Helper to ensure we always have a clean bool for UI binding
         public bool IsUpgradeEnabled => AllowCreditUpgrade ?? false;
+        
+        /// <summary>
+        /// Manual adjustment for tokens sold BEFORE the POS system was implemented.
+        /// This balance is added to "Sold" count when calculating liability.
+        /// </summary>
+        public int StartingLiabilityBalance { get; set; } = 0;
     }
+
 }

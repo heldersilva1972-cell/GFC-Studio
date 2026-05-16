@@ -8,6 +8,7 @@
 @inject NavigationManager Navigation
 @inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
 @inject GFC.Core.Interfaces.IVersionService VersionService
+@inject IJSRuntime JSRuntime
 @attribute [Authorize]
 
 <PageTitle>POS Sales Audit</PageTitle>
@@ -84,8 +85,53 @@
                         }
                     </div>
                 </div>
-
-                <!-- MIDDLE: Receipt Viewer or Z-Report -->
+            }
+            @if (ActiveTab == "TOKENS")
+            {
+                <!-- LEFT: Redemption Breakdown List (Full Height) -->
+                <div class="audit-list-panel" style="width: 550px;">
+                    <div class="panel-header">
+                        <span>REDEMPTION BREAKDOWN (WHERE TOKENS GO)</span>
+                        <span class="badge bg-primary text-white rounded-pill">@TokenUsages.Sum(x => x.Quantity)</span>
+                    </div>
+                    <div class="scroll-container custom-scrollbar" style="overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="ps-4 py-2">DRINK PURCHASED</th>
+                                    <th class="text-center py-2">QTY</th>
+                                    <th class="text-center py-2">VAL</th>
+                                    <th class="pe-4 text-end py-2">GAP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in TokenUsages.OrderBy(x => x.TotalProfitLoss))
+                                {
+                                    <tr>
+                                        <td class="ps-4 py-3">
+                                            <div class="fw-bold">@u.DrinkName</div>
+                                            <div class="small text-muted d-flex align-items-center">
+                                                @u.TokenName 
+                                                @if (u.IsUpgrade) {
+                                                    <span class="ms-1 badge bg-info-subtle text-info rounded-pill" style="font-size: 0.55rem; padding: 2px 5px;">UPG</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td class="text-center py-3 fw-black">@u.Quantity</td>
+                                        <td class="text-center py-3 text-muted">@u.MenuPrice.ToString("N2")</td>
+                                        <td class="pe-4 text-end py-3">
+                                            <span class="fw-black @(u.ProfitLossPerUnit >= 0 ? "text-success" : "text-danger")">
+                                                @(u.ProfitLossPerUnit >= 0 ? "+" : "")@u.ProfitLossPerUnit.ToString("N2")
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+    <!-- MIDDLE: Receipt Viewer or Z-Report -->
                 <div class="audit-viewer-panel custom-scrollbar">
                     @if (ActiveTab == "ZREPORTS")
                     {
@@ -209,13 +255,13 @@
                                                     }
                                                 </tbody>
                                             </table>
-                                        </div>
-                                    </div>
+                                       </div>
                                 </div>
                             </div>
-                        }
+                        </div>
                     }
-                    else
+                    }
+                    else if (ActiveTab == "SALES")
                     {
                         @if (SelectedSale != null)
                         {
@@ -251,73 +297,168 @@
                             </div>
                         }
                     }
-                </div>
-            }
-            else
-            {
-                <!-- MIDDLE (EXPANDED): Reconciliation View -->
-                <div class="audit-recon-panel bg-white border-end">
-                    <div class="px-5 pt-4 pb-3 flex-shrink-0">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h4 class="fw-black mb-0 text-primary">BOTTLE YIELD ANALYSIS</h4>
-                            <div class="badge bg-light text-primary p-2 rounded-pill px-3 fw-bold border">
-                                @{
-                                    decimal pourSize = _settings?.GlobalLiquorPourSize ?? 1.5m;
-                                    int shotsPerLtr = (int)(33.8m / (pourSize > 0 ? pourSize : 1.5m));
-                                }
-                                <i class="bi bi-info-circle me-2"></i>Yield: @shotsPerLtr shots (@pourSize.ToString("F2")oz) / 1L
+                    else if (ActiveTab == "TOKENS")
+                    {
+                        <!-- MIDDLE (EXPANDED): Token Analysis View -->
+                        <div class="audit-recon-panel bg-white border-end">
+                            <div class="px-5 pt-4 pb-3 flex-shrink-0">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h4 class="fw-black mb-0 text-primary">TOKEN FINANCIAL & LIABILITY ANALYSIS</h4>
+                                    <div class="d-flex gap-2">
+                                        <div class="badge bg-light text-primary p-2 rounded-pill px-3 fw-bold border">
+                                            <i class="bi bi-info-circle me-2"></i>Tracking Lifetime Liability vs Financial Yield
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex-grow-1 custom-scrollbar px-5 pb-5" style="overflow-y: auto;">
+                                <!-- TOP OVERVIEW CARDS -->
+                                <div class="row g-4 mb-5">
+                                    <div class="col-md-3">
+                                        <div class="stat-card h-100 bg-light border-0 shadow-sm" style="border-radius: 24px;">
+                                            <div class="label">TOTAL TOKENS SOLD</div>
+                                            <div class="value" style="font-size: 2rem;">@(TokenYields.Sum(x => x.TotalSold))</div>
+                                            <div class="small text-muted mt-2">Including @(TokenYields.Sum(x => x.StartingBalance)) legacy adjustments</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card h-100 bg-light border-0 shadow-sm" style="border-radius: 24px;">
+                                            <div class="label">TOTAL REDEEMED</div>
+                                            <div class="value" style="font-size: 2rem;">@(TokenYields.Sum(x => x.Redeemed))</div>
+                                            <div class="small text-muted mt-2">Physical tokens collected</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card h-100 bg-primary text-white border-0 shadow-lg" style="border-radius: 24px;">
+                                            <div class="label text-white opacity-75">IN CIRCULATION</div>
+                                            <div class="value text-white" style="font-size: 2.2rem;">@(TokenYields.Sum(x => x.InCirculation))</div>
+                                            <div class="small opacity-75 mt-2">Active liability in pockets</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-card h-100 @(TokenYields.Sum(x => x.NetFinancialImpact) >= 0 ? "bg-success" : "bg-danger") text-white border-0 shadow-lg" style="border-radius: 24px;">
+                                            <div class="label text-white opacity-75">NET FINANCIAL IMPACT</div>
+                                            <div class="value text-white" style="font-size: 2rem;">@(TokenYields.Sum(x => x.NetFinancialImpact).ToString("C"))</div>
+                                            <div class="small opacity-75 mt-2">Revenue vs Menu Value Gap</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h5 class="fw-black mb-3 text-muted" style="letter-spacing: 1px;">TOKEN INVENTORY & LIABILITY</h5>
+                                <table class="table table-hover align-middle border rounded-4 mb-5">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th class="ps-4 py-3">TOKEN NAME</th>
+                                            <th class="text-center py-3">SOLD (POS)</th>
+                                            <th class="text-center py-3">LEGACY ADJ.</th>
+                                            <th class="text-center py-3">REDEEMED</th>
+                                            <th class="text-center py-3">IN CIRCULATION</th>
+                                            <th class="text-center py-3">FINANCIAL YIELD</th>
+                                            <th class="pe-4 text-end py-3">ACTIONS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var y in TokenYields)
+                                        {
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="d-flex align-items-center gap-3">
+                                                        <div class="token-swatch shadow-sm" style="background: @y.Token.ColorHex; width: 12px; height: 12px; border-radius: 50%;"></div>
+                                                        <span class="fw-black fs-5">@y.Token.Name</span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-center fw-bold">@y.Sold</td>
+                                                <td class="text-center">
+                                                    <span class="badge bg-light text-muted border rounded-pill">+ @y.StartingBalance</span>
+                                                </td>
+                                                <td class="text-center fw-bold text-primary">@y.Redeemed</td>
+                                                <td class="text-center">
+                                                    <span class="badge @(y.InCirculation < 0 ? "bg-danger" : "bg-primary") rounded-pill px-3">@y.InCirculation</span>
+                                                </td>
+                                                <td class="text-center fw-black @(y.NetFinancialImpact >= 0 ? "text-success" : "text-danger")">
+                                                    @y.NetFinancialImpact.ToString("C")
+                                                </td>
+                                                <td class="pe-4 text-end">
+                                                    <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" @onclick="() => OpenAdjustmentModal(y.Token)">
+                                                        <i class="bi bi-pencil-square me-1"></i> ADJUST
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-                    </div>
+                    }
+                    else if (ActiveTab == "INVENTORY")
+                    {
+                        <!-- MIDDLE (EXPANDED): Reconciliation View -->
+                        <div class="audit-recon-panel bg-white border-end">
+                            <div class="px-5 pt-4 pb-3 flex-shrink-0">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h4 class="fw-black mb-0 text-primary">BOTTLE YIELD ANALYSIS</h4>
+                                    <div class="badge bg-light text-primary p-2 rounded-pill px-3 fw-bold border">
+                                        @{
+                                            decimal pourSize = _settings?.GlobalLiquorPourSize ?? 1.5m;
+                                            int shotsPerLtr = (int)(33.8m / (pourSize > 0 ? pourSize : 1.5m));
+                                        }
+                                        <i class="bi bi-info-circle me-2"></i>Yield: @shotsPerLtr shots (@pourSize.ToString("F2")oz) / 1L
+                                    </div>
+                                </div>
+                            </div>
 
-                    <div class="flex-grow-1 custom-scrollbar px-5 pb-5" style="overflow-y: auto;">
-                        <table class="table table-hover align-middle border mb-0">
-                            <thead class="bg-light sticky-top">
-                                <tr>
-                                    <th class="ps-4">LIQUOR PRODUCT</th>
-                                    <th class="text-center">DRINKS SOLD</th>
-                                    <th class="text-center">BOTTLES REMOVED</th>
-                                    <th class="text-center">EXPECTED SHOTS</th>
-                                    <th class="pe-4 text-end">VARIANCE</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @if (!ReconResults.Any())
-                                {
-                                    <tr><td colspan="5" class="text-center py-5 text-muted">No inventory pulls recorded.</td></tr>
-                                }
-                                else
-                                {
-                                    @foreach (var r in ReconResults.OrderBy(x => x.ItemName))
-                                    {
-                                        var variance = r.ExpectedYield - r.DrinksSold;
-                                        var yieldPercent = r.ExpectedYield > 0 ? (r.DrinksSold / (decimal)r.ExpectedYield * 100) : 100;
+                            <div class="flex-grow-1 custom-scrollbar px-5 pb-5" style="overflow-y: auto;">
+                                <table class="table table-hover align-middle border mb-0">
+                                    <thead class="bg-light sticky-top">
                                         <tr>
-                                            <td class="ps-4 fw-black">@r.ItemName</td>
-                                            <td class="text-center fw-bold">@r.DrinksSold</td>
-                                            <td class="text-center fw-bold">@r.BottlesPulled</td>
-                                            <td class="text-center text-muted">@r.ExpectedYield</td>
-                                            <td class="pe-4 text-end">
-                                                @if (variance > 2) { <span class="text-danger fw-black">-@variance.ToString("F0") SHOTS</span> }
-                                                else { <span class="text-success fw-bold">TIGHT</span> }
-                                            </td>
+                                            <th class="ps-4">LIQUOR PRODUCT</th>
+                                            <th class="text-center">DRINKS SOLD</th>
+                                            <th class="text-center">BOTTLES REMOVED</th>
+                                            <th class="text-center">EXPECTED SHOTS</th>
+                                            <th class="pe-4 text-end">VARIANCE</th>
                                         </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+                                    </thead>
+                                    <tbody>
+                                        @if (!ReconResults.Any())
+                                        {
+                                            <tr><td colspan="5" class="text-center py-5 text-muted">No inventory pulls recorded.</td></tr>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var r in ReconResults.OrderBy(x => x.ItemName))
+                                            {
+                                                var variance = r.ExpectedYield - r.DrinksSold;
+                                                var yieldPercent = r.ExpectedYield > 0 ? (r.DrinksSold / (decimal)r.ExpectedYield * 100) : 100;
+                                                <tr>
+                                                    <td class="ps-4 fw-black">@r.ItemName</td>
+                                                    <td class="text-center fw-bold">@r.DrinksSold</td>
+                                                    <td class="text-center fw-bold">@r.BottlesPulled</td>
+                                                    <td class="text-center text-muted">@r.ExpectedYield</td>
+                                                    <td class="pe-4 text-end">
+                                                        @if (variance > 2) { <span class="text-danger fw-black">-@variance.ToString("F0") SHOTS</span> }
+                                                        else { <span class="text-success fw-bold">TIGHT</span> }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
                 </div>
-            }
 
-            <!-- RIGHT: Sidebar Controls -->
+                <!-- RIGHT: Sidebar Controls -->
             <div class="audit-sidebar-panel custom-scrollbar">
                 <!-- Navigation Tabs -->
                 <div class="sidebar-section mb-2">
                     <div class="btn-group w-100 p-1 bg-light rounded-4 mb-2 border" style="font-size: 0.65rem;">
                         <button class="btn btn-xs @(ActiveTab == "SALES" ? "btn-primary shadow-sm" : "btn-link text-muted fw-bold text-decoration-none") rounded-pill py-2" @onclick='() => ActiveTab = "SALES"'>SALES</button>
                         <button class="btn btn-xs @(ActiveTab == "INVENTORY" ? "btn-primary shadow-sm" : "btn-link text-muted fw-bold text-decoration-none") rounded-pill py-2" @onclick='() => ActiveTab = "INVENTORY"'>YIELD</button>
+                        <button class="btn btn-xs @(ActiveTab == "TOKENS" ? "btn-primary shadow-sm" : "btn-link text-muted fw-bold text-decoration-none") rounded-pill py-2" @onclick='() => ActiveTab = "TOKENS"'>TOKENS</button>
                         <button class="btn btn-xs @(ActiveTab == "ZREPORTS" ? "btn-primary shadow-sm" : "btn-link text-muted fw-bold text-decoration-none") rounded-pill py-2" @onclick='() => ActiveTab = "ZREPORTS"'>Z-REPORTS</button>
+
                     </div>
                 </div>
 
@@ -349,9 +490,9 @@
                     </div>
                 </div>
 
-                <!-- Filters -->
+                <!-- FILTERS -->
                 <div class="sidebar-section mb-4">
-                    <label class="sidebar-label">DATE FILTER</label>
+                    <label class="sidebar-label">DATE & STATION FILTERS</label>
                     <div class="p-2 px-3 bg-light rounded-4 mb-3 border">
                         <div class="row g-2">
                             <div class="col-6 border-end">
@@ -382,7 +523,7 @@
                         }
                     </div>
 
-                    <div class="row g-2 mb-2 border-top pt-3">
+                    <div class="row g-2 border-top pt-3">
                         <div class="col-4">
                             <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedMonth" @bind:after="OnMonthYearChanged">
                                 <option value="0">SELECT MONTH</option>
@@ -409,31 +550,21 @@
                     </div>
                 </div>
 
-
-
-                <div class="sidebar-section mb-1">
-                    <label class="sidebar-label" style="font-size: 0.6rem;">TOKEN LIABILITIES (LIFETIME)</label>
-                    <div class="stat-card token-tracker p-4">
-                        <div class="mb-4">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="label m-0" style="font-size: 1.1rem; font-weight: 1000; color: #1d4ed8; letter-spacing: -0.5px;">BEER TOKENS</span>
-                                <span class="badge bg-primary rounded-pill px-4 py-2" style="font-size: 1.2rem; font-weight: 1000; box-shadow: 0 4px 10px rgba(30, 58, 138, 0.2);">@(LifetimeBeerSold - LifetimeBeerUsed) IN CIRCULATION</span>
-                            </div>
-                            <div class="d-flex gap-5 text-muted" style="font-size: 1.1rem;">
-                                <div>Sold: <strong class="text-dark">@LifetimeBeerSold</strong></div>
-                                <div>Used: <strong class="text-dark">@LifetimeBeerUsed</strong></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="label m-0" style="font-size: 1.1rem; font-weight: 1000; color: #059669; letter-spacing: -0.5px;">MIXED DRINK TOKENS</span>
-                                <span class="badge bg-success rounded-pill px-4 py-2" style="font-size: 1.2rem; font-weight: 1000; box-shadow: 0 4px 10px rgba(5, 150, 105, 0.2);">@(LifetimeMixedSold - LifetimeMixedUsed) IN CIRCULATION</span>
-                            </div>
-                            <div class="d-flex gap-5 text-muted" style="font-size: 1.1rem;">
-                                <div>Sold: <strong class="text-dark">@LifetimeMixedSold</strong></div>
-                                <div>Used: <strong class="text-dark">@LifetimeMixedUsed</strong></div>
-                            </div>
-                        </div>
+                <!-- FINANCIAL INSIGHT (Integrated in sidebar) -->
+                <div class="bg-primary bg-opacity-10 border-primary border-opacity-25 border rounded-4 p-4 text-primary mt-2">
+                    <h6 class="fw-black mb-3"><i class="bi bi-lightbulb me-2"></i>FINANCIAL INSIGHT</h6>
+                    <div class="small">
+                         @{
+                               var netVal = TokenYields.Sum(x => x.NetFinancialImpact);
+                               var signStr = netVal < 0 ? "losing" : "making";
+                               var moneyStr = Math.Abs(netVal).ToString("C");
+                               var topUsage = TokenUsages.OrderBy(x => x.ProfitLossPerUnit).FirstOrDefault();
+                               var topDrinkName = topUsage?.DrinkName ?? "Premium items";
+                           }
+                        You are currently <strong>@signStr @moneyStr</strong> on token redemptions.
+                        @if (netVal < 0) {
+                            <span><br/><br/>Warning: High-value items like <em>@topDrinkName</em> are causing a significant yield gap.</span>
+                        }
                     </div>
                 </div>
             </div>
@@ -462,7 +593,7 @@
     .audit-recon-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: white; }
     
     /* RIGHT: Sidebar */
-    .audit-sidebar-panel { width: 500px; flex-shrink: 0; background: white; border-left: 1px solid #e2e8f0; padding: 1rem; overflow-y: hidden; display: flex; flex-direction: column; }
+    .audit-sidebar-panel { width: 400px; flex-shrink: 0; background: white; border-left: 1px solid #e2e8f0; padding: 1rem; overflow-y: hidden; display: flex; flex-direction: column; }
     
     .sidebar-label { font-size: 0.55rem; font-weight: 950; color: #94a3b8; letter-spacing: 1px; margin-bottom: 0.25rem; display: block; }
     .sidebar-section { border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
@@ -551,6 +682,10 @@
         color: #3b82f6 !important;
         border-color: #3b82f6 !important;
     }
+    /* HIDE NUMBER SPINNERS */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
 </style>
 
 @if (_showSummaryModal)
@@ -602,6 +737,38 @@
     </div>
 }
 
+@if (_showAdjustmentModal && _currentTokenToAdjust != null)
+{
+    <div class="shift-overlay">
+        <div class="notice-modal animate__animated animate__zoomIn" style="max-width: 450px;">
+            <button class="btn-close-modal shadow-sm" @onclick="() => _showAdjustmentModal = false">
+                <i class="bi bi-x-lg"></i>
+            </button>
+            <div class="notice-icon-circle bg-primary mb-3 text-white d-flex align-items-center justify-content-center">
+                <i class="bi bi-pencil-square" style="font-size: 2rem;"></i>
+            </div>
+            <h3 class="fw-black text-uppercase">ADJUST TOKEN COUNT</h3>
+            <p class="text-muted fw-bold small mb-4">Set the number of legacy tokens (sold before POS) for <strong>@_currentTokenToAdjust.Name</strong></p>
+            
+            <div class="p-4 bg-light rounded-4 mb-4 border">
+                <label class="sidebar-label text-start mb-2 d-block">LEGACY STARTING BALANCE</label>
+                <div class="input-group input-group-lg">
+                    <input type="number" class="form-control fw-black text-center rounded-pill" 
+                           @bind="_adjustmentValue" 
+                           @onfocus="@(async (e) => await JSRuntime.InvokeVoidAsync("eval", "document.activeElement.select()"))" />
+                </div>
+                <div class="mt-2 small text-muted text-start">This number is added to the "Sold" count to accurately track tokens that were already in the wild.</div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button class="btn btn-light flex-grow-1 py-3 rounded-pill fw-bold" @onclick="() => _showAdjustmentModal = false">CANCEL</button>
+                <button class="btn btn-primary flex-grow-1 py-3 rounded-pill fw-bold shadow-sm" @onclick="SaveAdjustment">SAVE ADJUSTMENT</button>
+            </div>
+        </div>
+    </div>
+}
+
+
 @code {
     private string ActiveTab = "SALES";
     private List<PosSale> Sales = new();
@@ -621,6 +788,12 @@
     private int LifetimeMixedSold = 0;
     private int LifetimeMixedUsed = 0;
     private List<PosTerminal.ProductItem> DbItems = new();
+    private List<PosToken> MasterTokens = new();
+    private List<TokenYieldEntry> TokenYields = new();
+    private List<TokenUsageEntry> TokenUsages = new();
+    private bool _showAdjustmentModal = false;
+    private PosToken? _currentTokenToAdjust = null;
+    private int _adjustmentValue = 0;
 
     private DateTime StartDate = DateTime.Today;
     private DateTime EndDate = DateTime.Today;
@@ -751,6 +924,29 @@
         public int ExpectedYield { get; set; }
     }
 
+    public class TokenYieldEntry {
+        public PosToken Token { get; set; } = new();
+        public int Sold { get; set; }
+        public int Redeemed { get; set; }
+        public int StartingBalance => Token.StartingLiabilityBalance;
+        public int TotalSold => Sold + StartingBalance;
+        public int InCirculation => TotalSold - Redeemed;
+        public decimal TotalRevenue => TotalSold * Token.SalePrice;
+        public decimal RedemptionValue { get; set; } // Menu price of items redeemed
+        public decimal NetFinancialImpact => TotalRevenue - RedemptionValue;
+    }
+
+    public class TokenUsageEntry {
+        public string DrinkName { get; set; } = "";
+        public string TokenName { get; set; } = "";
+        public int Quantity { get; set; }
+        public decimal MenuPrice { get; set; }
+        public decimal TokenSalePrice { get; set; }
+        public bool IsUpgrade { get; set; }
+        public decimal ProfitLossPerUnit => TokenSalePrice - MenuPrice;
+        public decimal TotalProfitLoss => ProfitLossPerUnit * Quantity;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         using var db = DbFactory.CreateDbContext();
@@ -807,6 +1003,7 @@
 
         // 1. Calculate Reconciliation Data
         await CalculateReconciliation(db);
+        await CalculateTokenAnalysis(db);
 
         // Get unique terminal names for the dropdown
         TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
@@ -884,24 +1081,176 @@
 
     private async Task CalculateLifetimeTokens(GfcDbContext db)
     {
-        // Scan sales for absolute liability - only fetch required JSON strings to save memory
-        var allItemsJsons = await db.PosSales.AsNoTracking().Select(s => s.ItemsJson).ToListAsync();
+        // Use the same stats-based approach as the main analysis for consistency
+        var tokens = await db.PosTokens.AsNoTracking().ToListAsync();
+        var stats = tokens.ToDictionary(t => t.Name, t => new { Sold = 0, Used = 0 });
         
-        LifetimeBeerSold = 0; LifetimeBeerUsed = 0;
-        LifetimeMixedSold = 0; LifetimeMixedUsed = 0;
+        var allSales = await db.PosSales.AsNoTracking().ToListAsync();
+        
+        int beerSold = 0, beerUsed = 0;
+        int mixedSold = 0, mixedUsed = 0;
 
-        foreach (var json in allItemsJsons)
+        foreach (var sale in allSales)
         {
-            var items = GetItemsList(json);
-            if (items == null) continue;
-            
-            // BEER Tracking
-            LifetimeBeerSold += items.Where(i => i != null && i.Category == "TOKENS" && (i.Name ?? "").ToUpper().Contains("BEER")).Sum(i => i.Quantity);
-            LifetimeBeerUsed += items.Where(i => i != null && (i.Name ?? "").ToUpper().Contains("BEER") && ((i.Name ?? "").Contains("(TOKEN)") || (i.Name ?? "").Contains("(CREDITED)")) && i.Price == 0).Sum(i => i.Quantity);
+            var items = GetItemsList(sale.ItemsJson);
+            foreach (var item in items)
+            {
+                bool isBeer = (item.Name ?? "").ToUpper().Contains("BEER");
+                
+                // SALE
+                if (item.Category == "TOKENS")
+                {
+                    if (isBeer) beerSold += item.Quantity;
+                    else mixedSold += item.Quantity;
+                }
 
-            // MIXED DRINK Tracking
-            LifetimeMixedSold += items.Where(i => i != null && (i.Category == "TOKENS" && !(i.Name ?? "").ToUpper().Contains("BEER"))).Sum(i => i.Quantity);
-            LifetimeMixedUsed += items.Where(i => i != null && (((i.Name ?? "").Contains("(TOKEN)") || (i.Name ?? "").Contains("(CREDITED)")) && !(i.Name ?? "").ToUpper().Contains("BEER") && i.Price == 0)).Sum(i => i.Quantity);
+                // REDEMPTION
+                bool isTrigger = item.Category == "TOKEN_CREDIT" || (item.Price == 0 && (item.Name ?? "").Contains("(TOKEN)"));
+                if (isTrigger)
+                {
+                    if (isBeer) beerUsed += item.Quantity;
+                    else mixedUsed += item.Quantity;
+                }
+            }
+        }
+
+        LifetimeBeerSold = beerSold;
+        LifetimeBeerUsed = beerUsed;
+        LifetimeMixedSold = mixedSold;
+        LifetimeMixedUsed = mixedUsed;
+    }
+
+    private async Task CalculateTokenAnalysis(GfcDbContext db)
+    {
+        MasterTokens = await db.PosTokens.AsNoTracking().ToListAsync();
+        TokenYields.Clear();
+        TokenUsages.Clear();
+
+        // 1. We need ALL sales for Lifetime Liability, but we can filter yield by period if we want.
+        // For now, let's do LIFETIME for everything as per user's requirement to "see if they are losing money".
+        var allSales = await db.PosSales.AsNoTracking().ToListAsync();
+        
+        var stats = MasterTokens.ToDictionary(t => t.Name, t => new TokenYieldEntry { Token = t });
+
+        foreach (var sale in allSales)
+        {
+            var items = GetItemsList(sale.ItemsJson);
+            foreach (var item in items)
+            {
+                // SALE
+                if (item.Category == "TOKENS")
+                {
+                    // Flexible matching for token sales (e.g. "Beer Tokens" should match "Beer")
+                    var match = MasterTokens.FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
+                    if (match != null) stats[match.Name].Sold += item.Quantity;
+                }
+
+                // REDEMPTION or CREDIT
+                bool isRedem = (item.Name ?? "").Contains("(TOKEN)") || (item.Name ?? "").Contains("(CREDITED)") || item.Category == "TOKEN_CREDIT";
+                
+                if (isRedem)
+                {
+                    var drinkName = (item.Name ?? "").Replace(" (TOKEN)", "").Replace(" (CREDITED)", "").Replace("> ", "").Trim();
+                    
+                    // If it's a credit, try to find the actual drink in the same sale to get the real name
+                    if (item.Category == "TOKEN_CREDIT")
+                    {
+                        var target = items.FirstOrDefault(i => i.IsTokenApplied && i.Category != "TOKEN_CREDIT" && i.Quantity == item.Quantity);
+                        if (target != null) 
+                        {
+                            string raw = target.Name ?? "";
+                            drinkName = raw.Replace(" (CREDITED)", "").Replace(" (TOKEN)", "").Trim();
+                        }
+                        else
+                        {
+                            // If we can't find a target drink for a credit, don't list it as a separate "purchase" 
+                            // to avoid $0 menu price entries that skew the profit/loss logic.
+                            // We still count the redemption itself though.
+                            drinkName = "Unknown Item (Credit Applied)";
+                        }
+                    }
+
+                    var dbItem = DbItems.FirstOrDefault(di => di.Name != null && di.Name.Equals(drinkName, StringComparison.OrdinalIgnoreCase));
+                    var menuPrice = dbItem?.Price ?? (item.Category == "TOKEN_CREDIT" ? 0 : 0);
+                    
+                    // If we found a target for a credit, use THAT price
+                    if (item.Category == "TOKEN_CREDIT" && drinkName != "Unknown Item (Credit Applied)")
+                    {
+                        menuPrice = dbItem?.Price ?? 0;
+                    }
+                    
+                    // Match to Token Type
+                    PosToken? match = null;
+                    if ((item.Name ?? "").ToUpper().Contains("BEER")) match = MasterTokens.FirstOrDefault(t => t.Name.ToUpper().Contains("BEER"));
+                    else match = MasterTokens.FirstOrDefault(t => !t.Name.ToUpper().Contains("BEER"));
+
+                    if (match != null)
+                    {
+                        if (stats.ContainsKey(match.Name))
+                        {
+                            bool isTrigger = item.Category == "TOKEN_CREDIT" || (item.Price == 0 && (item.Name ?? "").Contains("(TOKEN)"));
+                            
+                            if (isTrigger)
+                            {
+                                stats[match.Name].Redeemed += item.Quantity;
+                                
+                                // NEW LOGIC: The value "spent" from the token pool is:
+                                // 1. For upgrades (TOKEN_CREDIT): the amount of the credit (the customer paid the rest).
+                                // 2. For full redemptions: the retail price of the drink.
+                                decimal valueOfRedemption = item.Category == "TOKEN_CREDIT" ? Math.Abs(item.Price) : (menuPrice > 0 ? menuPrice : match.SalePrice);
+                                
+                                stats[match.Name].RedemptionValue += valueOfRedemption * item.Quantity;
+                                
+                                // Usage Tracking - always add so the counts match
+                                var usage = TokenUsages.FirstOrDefault(u => u.DrinkName == drinkName && u.TokenName == match.Name);
+                                if (usage == null)
+                                {
+                                    usage = new TokenUsageEntry {
+                                        DrinkName = drinkName,
+                                        TokenName = match.Name,
+                                        MenuPrice = menuPrice,
+                                        TokenSalePrice = match.SalePrice,
+                                        IsUpgrade = item.Category == "TOKEN_CREDIT"
+                                    };
+                                    TokenUsages.Add(usage);
+                                }
+                                // Update the usage entry to reflect that for upgrades, the "Menu Price" that the token covered was only the credit amount
+                                if (item.Category == "TOKEN_CREDIT") 
+                                {
+                                    usage.MenuPrice = valueOfRedemption; 
+                                    usage.IsUpgrade = true;
+                                }
+                                
+                                usage.Quantity += item.Quantity;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        TokenYields = stats.Values.ToList();
+    }
+
+    private void OpenAdjustmentModal(PosToken token)
+    {
+        _currentTokenToAdjust = token;
+        _adjustmentValue = token.StartingLiabilityBalance;
+        _showAdjustmentModal = true;
+    }
+
+    private async Task SaveAdjustment()
+    {
+        if (_currentTokenToAdjust == null) return;
+
+        using var db = DbFactory.CreateDbContext();
+        var token = await db.PosTokens.FindAsync(_currentTokenToAdjust.Id);
+        if (token != null)
+        {
+            token.StartingLiabilityBalance = _adjustmentValue;
+            await db.SaveChangesAsync();
+            _showAdjustmentModal = false;
+            await LoadSales(); // Refresh everything
         }
     }
 
