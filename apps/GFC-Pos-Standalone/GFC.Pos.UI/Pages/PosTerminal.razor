@@ -289,54 +289,52 @@
         color: #1e3a8a;
         font-size: 1.6rem;
     }
-    /* RESPONSIVE GRID CHECKOUT */
+    /* COMPACT GRID CHECKOUT (v2.40.5) */
     .checkout-overlay .checkout-modal {
-        max-width: 500px !important;
-        width: 90vw !important;
-        height: 85vh !important;
-        max-height: 800px !important;
-        padding: 1.5rem !important;
-        margin: auto !important;
-        display: grid !important;
-        grid-template-rows: auto 1fr auto !important;
+        max-width: 600px !important;
+        width: 95vw !important;
+        height: auto !important;
+        max-height: 95vh !important;
+        padding: 1.25rem !important;
+        margin: 2vh auto !important;
+        display: flex !important;
+        flex-direction: column !important;
         gap: 1rem !important;
-        border-radius: 32px !important;
-        overflow: hidden !important;
+        border-radius: 28px !important;
+        overflow-y: auto !important;
     }
 
     .checkout-display {
         background: #f8fafc !important;
-        border-radius: 20px !important;
-        padding: 1rem !important;
+        border-radius: 16px !important;
+        padding: 0.75rem !important;
         border: 1px solid #e2e8f0 !important;
     }
 
     .numpad-container {
         display: grid !important;
-        grid-template-columns: 1fr 100px !important;
-        gap: 12px !important;
-        height: 100% !important;
-        overflow: hidden !important;
+        grid-template-columns: 1fr 120px !important;
+        gap: 10px !important;
+        width: 100% !important;
     }
 
     .numpad-grid {
         display: grid !important;
         grid-template-columns: repeat(3, 1fr) !important;
-        grid-template-rows: repeat(4, 1fr) !important;
         gap: 8px !important;
     }
 
     .numpad-btn {
-        height: 100% !important;
-        font-size: 1.8rem !important;
+        height: 75px !important; /* Fixed height to prevent stretching */
+        font-size: 1.6rem !important;
         font-weight: 800 !important;
-        border-radius: 16px !important;
+        border-radius: 12px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         background: white !important;
         border: 2px solid #e2e8f0 !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
         transition: all 0.1s !important;
     }
     .numpad-btn:active { transform: scale(0.95); background: #f1f5f9 !important; }
@@ -349,9 +347,10 @@
 
     .btn-quick-cash {
         height: 100% !important;
+        min-height: 50px !important;
         font-size: 1rem !important;
         font-weight: 700 !important;
-        border-radius: 12px !important;
+        border-radius: 10px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -360,15 +359,15 @@
     .checkout-button-group {
         display: grid !important;
         grid-template-columns: 1fr 1fr !important;
-        gap: 12px !important;
+        gap: 10px !important;
+        margin-top: 0.5rem !important;
     }
 
     .btn-complete {
-        padding: 1.25rem !important;
-        font-size: 1.2rem !important;
+        padding: 1rem !important;
+        font-size: 1.1rem !important;
         font-weight: 900 !important;
-        border-radius: 20px !important;
-        text-transform: uppercase !important;
+        border-radius: 16px !important;
     }
     .btn-add-more {
         padding: 0.75rem !important;
@@ -1742,7 +1741,37 @@
     private bool showTokenCreditSelection = false;
     private bool _isTokenUpgradeMode = false; // New state to track path
     private PosToken? _pendingTokenForCredit = null;
-    private IEnumerable<ProductItem> CreditEligibleItems => CartItems.Where(i => !i.IsTokenApplied && i.Price > 0 && IsCategoryEligibleForToken(i.Category)).ToList();
+    private IEnumerable<ProductItem> CreditEligibleItems
+    {
+        get
+        {
+            if (_pendingTokenForCredit == null) return Enumerable.Empty<ProductItem>();
+
+            // Find the "Base Category" of the token by looking at what it covers for free
+            var baseCategories = new HashSet<string>();
+            if (!string.IsNullOrEmpty(_pendingTokenForCredit.EligibleItemIds))
+            {
+                var ids = _pendingTokenForCredit.EligibleItemIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(id => int.TryParse(id, out int val) ? val : (int?)null)
+                            .Where(id => id.HasValue)
+                            .Select(id => id!.Value);
+                
+                foreach(var id in ids)
+                {
+                    var item = DbItems.FirstOrDefault(x => x.Id == id);
+                    if (item != null && !string.IsNullOrEmpty(item.Category))
+                        baseCategories.Add(item.Category.Trim().ToUpper());
+                }
+            }
+
+            return CartItems.Where(i => 
+                !i.IsTokenApplied && 
+                i.Price > 0 && 
+                IsCategoryEligibleForToken(i.Category) &&
+                !baseCategories.Contains(i.Category.Trim().ToUpper()) // [FIX] Exclude same-category items
+            ).ToList();
+        }
+    }
 
     private bool IsCategoryEligibleForToken(string? category)
     {

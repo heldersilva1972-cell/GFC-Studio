@@ -6,12 +6,14 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.40.3"; 
+    public string GetRevision() => "2.40.5"; 
     public string GetBuildDate() => "2026-05-19";
-    public string GetChanges() => "Fixed Script Leak in index.html (v2.40.3)";
-    public string GetVersion() => "2.40.3";
+    public string GetChanges() => "Fixed Checkout Keypad Proportions (v2.40.5)";
+    public string GetVersion() => "2.40.5";
     
     // REVISION HISTORY:
+    // 2.40.5: Fixed Checkout Keypad Proportions.
+    // 2.40.4: Improved Token Upgrade Filtering.
     // 2.40.3: Fixed Script Leak in index.html.
     // 2.40.2: Fixed RowVersion Serialization Crash.
     // 2.40.1: Hydrate-First & Sync Guard.
@@ -113,6 +115,7 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
 
 
 
