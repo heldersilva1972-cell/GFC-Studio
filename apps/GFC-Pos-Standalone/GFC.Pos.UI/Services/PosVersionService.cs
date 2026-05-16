@@ -6,12 +6,15 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.39.11"; 
+    public string GetRevision() => "2.39.14"; 
     public string GetBuildDate() => "2026-05-19";
-    public string GetChanges() => "Fixed PosToken nullability stability for WebApp & Terminal.";
-    public string GetVersion() => "2.39.11";
+    public string GetChanges() => "Compact 3-column token grid (v2.39.14)";
+    public string GetVersion() => "2.39.14";
     
     // REVISION HISTORY:
+    // 2.39.14: Compact 3-column token grid.
+    // 2.39.13: Optimized token modal layout.
+    // 2.39.12: Restored Token and Event data streams.
     // 2.39.11: Fixed PosToken nullability stability for WebApp & Terminal.
     // 2.39.10: Restored production UI (v2.39.10).
     // 2.38.99: Forced Service Worker activation (v2.38.99).
@@ -100,6 +103,10 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
 
 
 

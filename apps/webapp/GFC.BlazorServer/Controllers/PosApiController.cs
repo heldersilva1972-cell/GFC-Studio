@@ -74,13 +74,17 @@ public class PosApiController : ControllerBase
 
             if (!categories.Contains("TOKENS")) categories.Add("TOKENS");
 
+            var tokens = await db.PosTokens.Where(t => t.IsActive).OrderBy(t => t.Name).ToListAsync();
+            var activeEvents = await db.ActiveEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted).ToListAsync();
+            var templates = await db.EventTemplates.Where(t => !t.IsDeleted).ToListAsync();
+
             return Ok(new PosMenuDto
             {
                 Categories = categories,
                 Items = items,
-                Tokens = new List<PosToken>(),
-                ActiveEvents = new List<ActiveEvent>(),
-                EventTemplates = new List<EventTemplate>()
+                Tokens = tokens,
+                ActiveEvents = activeEvents,
+                EventTemplates = templates
             });
         }
         catch (Exception ex)
