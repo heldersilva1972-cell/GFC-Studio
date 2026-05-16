@@ -1,3 +1,12 @@
+# GFC System - Studio V2
+
+## 🚀 MANDATORY VERSIONING PROTOCOL
+All version updates **MUST** be performed using the synchronization script to ensure ecosystem parity (POS, Mobile, Server):
+- **POS:** `powershell.exe -File .\sync-version.ps1 -Project POS -Next`
+- **Mobile:** `powershell.exe -File .\sync-version.ps1 -Project Mobile -Next`
+
+---
+
 # GFC Web app studio
 
 This is the unified workspace for the GFC Ecosystem, containing the consolidated applications as defined in the **R1 Consolidated Master Spec**.

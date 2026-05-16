@@ -39,6 +39,10 @@ $posSWFiles = @(
     (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/service-worker.published.js")
 )
 $posProps = Join-Path $basePath "apps/GFC-Pos-Standalone/PosVersion.props"
+$posVersionTxtFiles = @(
+    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/version.txt"),
+    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/version.txt")
+)
 
 function Write-Step ([string]$msg) { Write-Host "[WAIT] $msg" -ForegroundColor Cyan }
 function Write-Success ([string]$msg) { Write-Host "[OK]   $msg" -ForegroundColor Green }
@@ -163,6 +167,15 @@ try {
             # [FIX] Also update CSS cache-busters so UI changes are forced
             $nc = $nc -replace '(\.css\?v=)[^"]+', ("`${1}" + $targetVersion)
             if ($DryRun) { Write-DryRun "Would update $posIndex" } else { Set-Content $posIndex $nc }
+        }
+
+        # version.txt (Primary Update Authority)
+        foreach ($f in $posVersionTxtFiles) {
+            if (Test-Path $f) {
+                Write-Step "Updating $(Split-Path $f -Parent | Split-Path -Leaf)/$(Split-Path $f -Leaf)..."
+                if ($DryRun) { Write-DryRun "Would set $f to $targetVersion" } 
+                else { Set-Content $f $targetVersion }
+            }
         }
 
         # CSPROJ

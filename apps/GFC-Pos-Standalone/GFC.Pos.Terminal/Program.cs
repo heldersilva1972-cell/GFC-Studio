@@ -15,8 +15,15 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // that served the PWA, supporting both local LAN IP access and public domain access.
 var apiBaseUrl = builder.HostEnvironment.BaseAddress;
 
+// [PRODUCTION-HYBRID] If hosted on pos.lovanow.com, we must point to gfc.lovanow.com for the API
+// as the pos. subdomain is often used for static file hosting only.
+if (apiBaseUrl.Contains("pos.lovanow.com", StringComparison.OrdinalIgnoreCase))
+{
+    apiBaseUrl = "https://gfc.lovanow.com/";
+    Console.WriteLine($"[POS] PRODUCTION ROUTING ACTIVE: API -> {apiBaseUrl}");
+}
 // If we're running as a sub-app (e.g. /pos/), we point to the root for the API
-if (apiBaseUrl.Contains("/pos", StringComparison.OrdinalIgnoreCase))
+else if (apiBaseUrl.Contains("/pos", StringComparison.OrdinalIgnoreCase))
 {
     var uri = new Uri(apiBaseUrl);
     apiBaseUrl = $"{uri.Scheme}://{uri.Authority}/";
@@ -26,6 +33,7 @@ builder.Services.AddScoped(sp => new HttpClient
 { 
     BaseAddress = new Uri(apiBaseUrl) 
 });
+
 
 builder.Services.AddBlazoredToast();
 builder.Services.AddScoped<ConnectivityService>();              // Scoped (= singleton in WASM): shared state

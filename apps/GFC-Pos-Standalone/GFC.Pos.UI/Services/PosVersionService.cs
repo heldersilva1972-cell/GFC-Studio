@@ -1,3 +1,7 @@
+// [CRITICAL] DO NOT EDIT GetRevision() OR GetVersion() MANUALLY. 
+// Use the sync-version.ps1 script in the root directory.
+// Manual edits are only allowed in the REVISION HISTORY section below.
+
 using GFC.Core.Interfaces;
 
 namespace GFC.Pos.UI.Services;
@@ -6,12 +10,13 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.43.2"; 
+    public string GetRevision() => "2.43.5"; 
     public string GetBuildDate() => "2026-05-16";
-    public string GetChanges() => "Secure Architecture Hardening (v2.43.2)";
-    public string GetVersion() => "2.43.2";
+    public string GetChanges() => "Checkout UI & Sync Hardening (v2.43.4)";
+    public string GetVersion() => "2.43.4";
     
     // REVISION HISTORY:
+    // 2.43.4: Checkout UI & Sync Hardening (Large fonts + Vault bridge fix).
     // 2.43.2: Secure Architecture Hardening (Relative SignalR, No-SSL-Bypass, Offline-First Sync).
     // 2.43.1: Hardened Operator Sync (Fixed EF join issues for MemberIds).
     // 2.43.0: Added Emergency Login (Secret 5-tap on shield icon reveals PIN entry fallback).
@@ -130,6 +135,12 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
 
 
 

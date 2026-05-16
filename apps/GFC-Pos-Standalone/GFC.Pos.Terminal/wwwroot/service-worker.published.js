@@ -1,4 +1,4 @@
-// GFC POS Revision: 2.43.2
+// GFC POS Revision: 2.43.5
 // Caution! Be sure you understand the caveats before using an offline-first
 // service worker. See https://aka.ms/blazor-offline-first
 
@@ -15,10 +15,10 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
 
-// Revision: 2.43.1
-/* cache-name-2.43.1 */
+// Revision: 2.43.4
+/* cache-name-2.43.4 */
 const cacheNamePrefix = 'offline-cache-';
-const cacheName = `${cacheNamePrefix}2.43.2`;
+const cacheName = `${cacheNamePrefix}2.43.5`;
 const offlineAssetsInclude = [ /\.dll$/, /\.pdb$/, /\.wasm/, /\.html/, /\.js$/, /\.json$/, /\.css$/, /\.woff$/, /\.png$/, /\.jl$/, /\.svg$/, /\.dat$/, /gfc-storage-worker\.js$/ ];
 const offlineAssetsExclude = [ /^service-worker\.js$/ ];
 
@@ -64,6 +64,12 @@ async function onFetch(event) {
         return null;
     }
 }
+
+
+
+
+
+
 
 
 

@@ -550,53 +550,115 @@ public class PosTerminalService : IPosTerminalService
 
     public async Task FlushAllPendingAsync()
     {
-        if (!await _connectivity.GateAsync("OutboxSweep")) return;
+        Console.WriteLine("[SYNC] FlushAllPendingAsync: Starting sweep...");
+        if (!await _connectivity.GateAsync("OutboxSweep")) 
+        {
+            Console.WriteLine("[SYNC] FlushAllPendingAsync: Gate closed (Offline). Aborting.");
+            return;
+        }
 
         try {
             var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
-            if (vaultItems.ValueKind != JsonValueKind.Array) return;
+            Console.WriteLine($"[SYNC] Vault items retrieved. Kind: {vaultItems.ValueKind}");
+            
+            if (vaultItems.ValueKind != JsonValueKind.Array) 
+            {
+                Console.WriteLine("[SYNC] Vault is not an array. Aborting.");
+                return;
+            }
 
-            foreach (var item in vaultItems.EnumerateArray()) {
+            var itemsArray = vaultItems.EnumerateArray().ToList();
+            Console.WriteLine($"[SYNC] Found {itemsArray.Count} total items in vault.");
+
+            foreach (var item in itemsArray) {
                 var key = item.GetProperty("key").GetString();
                 if (key == null) continue;
 
                 if (key.StartsWith(VaultPrefixSales)) {
-                    var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                    Console.WriteLine($"[SYNC] Processing sale: {key}");
+                    PosSaleDto? data = null;
+                    try 
+                    {
+                        var dataElement = item.GetProperty("data");
+                        if (dataElement.ValueKind == JsonValueKind.String)
+                        {
+                            // Handle legacy stringified data
+                            data = JsonSerializer.Deserialize<PosSaleDto>(dataElement.GetString()!, _jsonOptions);
+                        }
+                        else
+                        {
+                            // Handle raw object data
+                            data = dataElement.Deserialize<PosSaleDto>(_jsonOptions);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SYNC] Deserialization failed for {key}: {ex.Message}");
+                        continue;
+                    }
+
                     if (data != null) {
                         try {
-                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                            Console.WriteLine($"[SYNC] Sending sale {data.Id} to server ({_http.BaseAddress}api/pos/sale)...");
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                             var resp = await _http.PostAsJsonAsync("api/pos/sale", data, cts.Token);
                             if (resp.IsSuccessStatusCode) {
+                                Console.WriteLine($"[SYNC] Sale {data.Id} SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                 LastSynced = DateTime.Now;
                             } else {
-                                Console.WriteLine($"[SYNC] Failed to send sale {data.Id}: {resp.StatusCode}");
+                                Console.WriteLine($"[SYNC] Server REJECTED sale {data.Id}: {resp.StatusCode} at {_http.BaseAddress}");
+                                var err = await resp.Content.ReadAsStringAsync();
+                                Console.WriteLine($"[SYNC] Server Error Detail: {err}");
                             }
                         } catch (Exception ex) {
-                            Console.WriteLine($"[SYNC] Error sending sale {data.Id}: {ex.Message}");
+                            Console.WriteLine($"[SYNC] Network error sending sale {data.Id}: {ex.Message}");
                         }
                     }
                 }
                 
                 if (key.StartsWith(VaultPrefixZ)) {
-                    var data = JsonSerializer.Deserialize<PosZReportDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                    Console.WriteLine($"[SYNC] Processing Z-Report: {key}");
+                    PosZReportDto? data = null;
+                    try 
+                    {
+                        var dataElement = item.GetProperty("data");
+                        if (dataElement.ValueKind == JsonValueKind.String)
+                        {
+                            data = JsonSerializer.Deserialize<PosZReportDto>(dataElement.GetString()!, _jsonOptions);
+                        }
+                        else
+                        {
+                            data = dataElement.Deserialize<PosZReportDto>(_jsonOptions);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SYNC] Deserialization failed for Z-Report {key}: {ex.Message}");
+                        continue;
+                    }
+
                     if (data != null) {
                         try {
-                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                            Console.WriteLine($"[SYNC] Sending Z-Report {data.Id} to server...");
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
                             var resp = await _http.PostAsJsonAsync("api/pos/z-report", data, cts.Token);
                             if (resp.IsSuccessStatusCode) {
+                                Console.WriteLine($"[SYNC] Z-Report SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                 LastSynced = DateTime.Now;
                             } else {
-                                Console.WriteLine($"[SYNC] Failed to send Z-Report: {resp.StatusCode}");
+                                Console.WriteLine($"[SYNC] Server REJECTED Z-Report: {resp.StatusCode}");
                             }
                         } catch (Exception ex) {
-                            Console.WriteLine($"[SYNC] Error sending Z-Report: {ex.Message}");
+                            Console.WriteLine($"[SYNC] Network error sending Z-Report: {ex.Message}");
                         }
                     }
                 }
             }
-        } catch { }
+        } catch (Exception ex) {
+            Console.WriteLine($"[SYNC] Global Flush Error: {ex.Message}");
+        }
 
         await GetTotalPendingAsync();
         OutboxChanged?.Invoke();
