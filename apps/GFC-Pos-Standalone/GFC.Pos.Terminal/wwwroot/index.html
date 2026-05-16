@@ -12,12 +12,12 @@
     <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
-    <link rel="stylesheet" href="css/app.css?v=2.39.14" />
-    <link rel="stylesheet" href="css/pos-terminal.css?v=2.39.14" />
-    <link rel="stylesheet" href="css/pos-terminal-print.css?v=2.39.14" />
+    <link rel="stylesheet" href="css/app.css?v=2.40.3" />
+    <link rel="stylesheet" href="css/pos-terminal.css?v=2.40.3" />
+    <link rel="stylesheet" href="css/pos-terminal-print.css?v=2.40.3" />
     <link href="_content/Blazored.Toast/blazored-toast.css" rel="stylesheet" />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <link href="GFC.Pos.Terminal.styles.css?v=2.39.14" rel="stylesheet" />
+    <link href="GFC.Pos.Terminal.styles.css?v=2.40.3" rel="stylesheet" />
     <link rel="manifest" href="manifest.json" />
     <meta name="theme-color" content="#1a1a2e" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -42,7 +42,7 @@
     <script src="_framework/blazor.webassembly.js" autostart="false"></script>
     <script>
         // [FORCE-UPDATE] Bypass browser DLL cache on every new deployment
-        const version = '2.39.14';
+        const version = '2.40.3';
         Blazor.start({
             loadBootResource: function (type, name, defaultUri, integrity) {
                 return `${defaultUri}?v=${version}`;
@@ -53,69 +53,45 @@
             navigator.serviceWorker.register('service-worker.js');
         }
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script>
-        // [UI-THREAD OFFLOAD] Initialize Background Persistence Worker
-        const gfcWorker = new Worker('gfc-storage-worker.js');
-        const pendingRequests = new Map();
+        // [OFFLINE-FIRST] Initialize LocalForage Vault
+        localforage.config({
+            name: 'GfcPosVault',
+            storeName: 'PersistenceStore',
+            description: 'Permanent storage for items, categories, and modifiers'
+        });
 
-        gfcWorker.onmessage = (e) => {
-            const { action, key, value } = e.data;
-            if (action === "getAll_result") {
-                const resolve = pendingRequests.get("getAll");
-                if (resolve) {
-                    pendingRequests.delete("getAll");
-                    resolve(value);
-                }
-            } else if (action === "get_result") {
-                const resolve = pendingRequests.get("get_" + key);
-                if (resolve) {
-                    pendingRequests.delete("get_" + key);
-                    resolve(typeof value === "string" ? value : JSON.stringify(value));
-                }
-            } else if (action === "set_result") {
-                const resolve = pendingRequests.get("set_" + key);
-                if (resolve) {
-                    pendingRequests.delete("set_" + key);
-                    resolve(true);
-                }
+        window.gfcSetAsync = async (key, value) => {
+            try {
+                await localforage.setItem(key, value);
+                return true;
+            } catch (err) {
+                console.error("[VAULT] Save Error:", err);
+                return false;
             }
         };
-
-        window.gfcSetAsync = (key, value) => new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                pendingRequests.delete("set_" + key);
-                reject("gfcSetAsync Timeout");
-            }, 5000);
-            pendingRequests.set("set_" + key, (val) => { clearTimeout(timeout); resolve(val); });
-            gfcWorker.postMessage({ action: 'set', key, value });
-        });
         
-        window.gfcGetAsync = (key) => new Promise((resolve, reject) => {
-            console.log(`[GFC STORAGE] GET Request: ${key}`);
-            const timeout = setTimeout(() => {
-                pendingRequests.delete("get_" + key);
-                console.warn(`[GFC STORAGE] GET Timeout: ${key} (10s elapsed)`);
-                resolve(null); 
-            }, 10000);
-            pendingRequests.set("get_" + key, (val) => { 
-                clearTimeout(timeout); 
-                console.log(`[GFC STORAGE] GET Success: ${key}`);
-                resolve(val); 
+        window.gfcGetAsync = async (key) => {
+            try {
+                const val = await localforage.getItem(key);
+                return typeof val === 'string' ? val : JSON.stringify(val);
+            } catch (err) {
+                console.warn("[VAULT] Load Error:", err);
+                return null;
+            }
+        };
+        
+        window.gfcRemoveAsync = async (key) => {
+            await localforage.removeItem(key);
+        };
+
+        window.gfcGetAllAsync = async () => {
+            const all = [];
+            await localforage.iterate((value, key) => {
+                all.push({ key, data: value });
             });
-            gfcWorker.postMessage({ action: 'get', key });
-        });
-        
-        window.gfcGetAllAsync = () => new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                pendingRequests.delete("getAll");
-                resolve("[]");
-            }, 10000);
-            pendingRequests.set("getAll", (val) => { clearTimeout(timeout); resolve(val); });
-            gfcWorker.postMessage({ action: 'getAll' });
-        });
-
-        window.gfcRemoveAsync = (key) => {
-            gfcWorker.postMessage({ action: 'remove', key });
+            return JSON.stringify(all);
         };
 
         window.gfcScrollToBottom = (id) => {
@@ -126,6 +102,13 @@
 </body>
 
 </html>
+
+
+
+
+
+
+
 
 
 

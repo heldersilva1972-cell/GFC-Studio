@@ -6,12 +6,22 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.39.14"; 
+    public string GetRevision() => "2.40.3"; 
     public string GetBuildDate() => "2026-05-19";
-    public string GetChanges() => "Compact 3-column token grid (v2.39.14)";
-    public string GetVersion() => "2.39.14";
+    public string GetChanges() => "Fixed Script Leak in index.html (v2.40.3)";
+    public string GetVersion() => "2.40.3";
     
     // REVISION HISTORY:
+    // 2.40.3: Fixed Script Leak in index.html.
+    // 2.40.2: Fixed RowVersion Serialization Crash.
+    // 2.40.1: Hydrate-First & Sync Guard.
+    // 2.40.0: PWA Cache-First & LocalForage Vault.
+    // 2.39.20: Indestructible LocalStorage Persistence.
+    // 2.39.19: Dual-Layer Offline Persistence.
+    // 2.39.18: Fixed Offline Vault Persistence.
+    // 2.39.17: Truly Offline-First Boot Logic.
+    // 2.39.16: Tightened Vertical Checkout UI.
+    // 2.39.15: Compact Checkout UI.
     // 2.39.14: Compact 3-column token grid.
     // 2.39.13: Optimized token modal layout.
     // 2.39.12: Restored Token and Event data streams.
@@ -103,6 +113,13 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
+
 
 
 

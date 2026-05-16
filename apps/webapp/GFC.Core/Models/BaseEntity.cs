@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models;
 
@@ -50,6 +51,6 @@ public abstract class BaseEntity
     /// <summary>
     /// Safety Lock (Optimistic Concurrency). 
     /// Prevents data loss if two people edit the same record at once.
-    /// </summary>
+    [JsonIgnore]
     public byte[]? RowVersion { get; set; }
 }

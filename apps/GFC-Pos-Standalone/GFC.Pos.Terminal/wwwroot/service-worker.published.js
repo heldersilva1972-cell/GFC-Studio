@@ -1,4 +1,4 @@
-// GFC POS Revision: 2.39.14
+// GFC POS Revision: 2.40.2
 // Caution! Be sure you understand the caveats before using an offline-first
 // service worker. See https://aka.ms/blazor-offline-first
 
@@ -15,11 +15,11 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
 
-// Revision: 2.39.14
-/* cache-name-2.39.14 */
+// Revision: 2.40.3
+/* cache-name-2.40.3 */
 const cacheNamePrefix = 'offline-cache-';
-const cacheName = `${cacheNamePrefix}2.39.14`;
-const offlineAssetsInclude = [ /\.dll$/, /\.pdb$/, /\.wasm/, /\.html/, /\.js$/, /\.json$/, /\.css$/, /\.woff$/, /\.png$/, /\.jl$/, /\.svg$/, /\.dat$/ ];
+const cacheName = `${cacheNamePrefix}2.40.3`;
+const offlineAssetsInclude = [ /\.dll$/, /\.pdb$/, /\.wasm/, /\.html/, /\.js$/, /\.json$/, /\.css$/, /\.woff$/, /\.png$/, /\.jl$/, /\.svg$/, /\.dat$/, /gfc-storage-worker\.js$/ ];
 const offlineAssetsExclude = [ /^service-worker\.js$/ ];
 
 async function onInstall(event) {
@@ -46,14 +46,26 @@ async function onActivate(event) {
 async function onFetch(event) {
     let cachedResponse = null;
     if (event.request.method === 'GET') {
-        const shouldServeIndexHtml = event.request.mode === 'navigate';
-        const request = shouldServeIndexHtml ? 'index.html' : event.request;
         const cache = await caches.open(cacheName);
+        
+        // Handle navigation requests (index.html)
+        const request = event.request.mode === 'navigate' ? 'index.html' : event.request;
         cachedResponse = await cache.match(request);
+        
+        if (cachedResponse) {
+            return cachedResponse;
+        }
     }
 
-    return cachedResponse || fetch(event.request);
+    // Network Fallback
+    try {
+        return await fetch(event.request);
+    } catch (err) {
+        return null;
+    }
 }
+
+
 
 
 

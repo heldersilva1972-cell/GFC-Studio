@@ -288,13 +288,17 @@ public class PosTerminalService : IPosTerminalService
     {
         try
         {
-            var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
-            if (!string.IsNullOrEmpty(cached))
+            // [OFFLINE-FIRST] Pull from LocalForage Vault (IndexedDB)
+            var json = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+            if (!string.IsNullOrEmpty(json) && json != "null")
             {
-                return JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
+                return JsonSerializer.Deserialize<PosMenuDto>(json, _jsonOptions);
             }
         }
-        catch { }
+        catch (Exception ex) 
+        { 
+            Console.WriteLine($"[POS] Vault Load Error: {ex.Message}");
+        }
         return null;
     }
 
@@ -307,22 +311,18 @@ public class PosTerminalService : IPosTerminalService
         {
             try
             {
-                var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
-                if (!string.IsNullOrEmpty(cached))
+                var menu = await GetCachedMenuAsync();
+                if (menu != null && (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any()))
                 {
-                    var menu = JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
-                    if (menu != null && (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any()))
-                    {
-                        Console.WriteLine($"[PosTerminalService] GetMenuAsync: Cache loaded successfully ({menu.Items.Count} items).");
-                        // Background refresh
-                        _ = Task.Run(async () => await RefreshMenuCacheAsync());
-                        return menu;
-                    }
+                    Console.WriteLine($"[PosTerminalService] GetMenuAsync: Cache loaded successfully ({menu.Items.Count} items).");
+                    // Background refresh
+                    _ = Task.Run(async () => await RefreshMenuCacheAsync());
+                    return menu;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PosTerminalService] GetMenuAsync: Cache load failed: {ex.Message}");
+                Console.WriteLine($"[PosTerminalService] GetMenuAsync Cache Error: {ex.Message}");
             }
         }
 
@@ -354,10 +354,11 @@ public class PosTerminalService : IPosTerminalService
                     Console.WriteLine($"[PosTerminalService] RefreshMenuCacheAsync: Server returned {menu.Items.Count} items, {menu.Tokens.Count} tokens.");
                     
                     // We only save to vault if there's actually something to show
-                    if (menu.Items.Any() || menu.Tokens.Any())
+                    if (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any())
                     {
+                        // Save to LocalForage Vault (IndexedDB)
                         await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
-                        Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Vault updated.");
+                        Console.WriteLine($"[POS] MENU PERSISTED TO VAULT - {menu.Items.Count} items.");
                     }
                     else
                     {
