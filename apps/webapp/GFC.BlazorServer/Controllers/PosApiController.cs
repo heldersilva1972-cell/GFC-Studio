@@ -397,25 +397,32 @@ public class PosApiController : ControllerBase
             using var db = await _dbFactory.CreateDbContextAsync();
             var userIds = permissions.Select(p => p.UserId).ToList();
             
-            // We still need to fetch the full AppUser objects to construct the DTOs
-            var users = await db.AppUsers
-                .Where(u => userIds.Contains(u.UserId) && u.IsActive && !u.IsAdmin)
-                .OrderBy(u => u.Username)
-                .Select(u => new UserListItemDto(
-                    u.UserId,
-                    u.Username,
-                    u.IsAdmin,
-                    u.IsActive,
-                    u.MemberId,
-                    null, // MemberName
-                    u.LastLoginDate,
-                    u.Notes,
-                    u.Email ?? "",
-                    false // IsDirector
-                ))
-                .ToListAsync();
+            // [HARDENED SYNC] Fetch users and cards separately to avoid EF join complexity with nullable MemberIds
+            var allActiveUsers = await db.AppUsers.Where(u => u.IsActive).ToListAsync();
+            var allActiveCards = await db.KeyCards.Where(k => k.IsActive).ToListAsync();
 
-            _logger.LogInformation($"[POS API] Found {users.Count} authorized users.");
+            var users = allActiveUsers
+                .Where(u => userIds.Contains(u.UserId) || u.IsAdmin || (u.MemberId.HasValue && allActiveCards.Any(kc => kc.MemberId == u.MemberId.Value)))
+                .Select(u => {
+                    var kc = u.MemberId.HasValue ? allActiveCards.FirstOrDefault(k => k.MemberId == u.MemberId.Value) : null;
+                    return new UserListItemDto(
+                        u.UserId,
+                        u.Username,
+                        u.IsAdmin,
+                        u.IsActive,
+                        u.MemberId,
+                        null, // MemberName
+                        u.LastLoginDate,
+                        u.Notes,
+                        u.Email ?? "",
+                        false, // IsDirector
+                        kc?.CardNumber
+                    );
+                })
+                .OrderBy(u => u.Username)
+                .ToList();
+
+            _logger.LogInformation($"[POS API] Found {users.Count} authorized users: {string.Join(", ", users.Select(u => u.Username))}");
             return Ok(users);
         }
         catch (Exception ex)

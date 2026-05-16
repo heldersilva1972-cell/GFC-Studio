@@ -16,11 +16,16 @@ namespace GFC.BlazorServer.Services.Camera
     {
         private readonly GfcDbContext _context;
         private readonly IHubContext<VideoAccessHub> _hubContext;
+        private readonly Notifications.IVideoAccessNotificationService _notificationService;
 
-        public VideoAccessService(GfcDbContext context, IHubContext<VideoAccessHub> hubContext)
+        public VideoAccessService(
+            GfcDbContext context, 
+            IHubContext<VideoAccessHub> hubContext,
+            Notifications.IVideoAccessNotificationService notificationService)
         {
             _context = context;
             _hubContext = hubContext;
+            _notificationService = notificationService;
         }
 
         #region VPN Profile Management
@@ -99,6 +104,7 @@ namespace GFC.BlazorServer.Services.Camera
             // Populate user details for the real-time update
             session.User = profile.User;
             await _hubContext.Clients.All.SendAsync("SessionStarted", session);
+            _notificationService.NotifySessionStarted(session);
 
             return session;
         }
@@ -111,6 +117,7 @@ namespace GFC.BlazorServer.Services.Camera
                 session.DisconnectedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
                 await _hubContext.Clients.All.SendAsync("SessionEnded", sessionId);
+                _notificationService.NotifySessionEnded(sessionId);
             }
         }
 

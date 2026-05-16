@@ -22,17 +22,20 @@ public class ControllerEventService
     private readonly ILogger<ControllerEventService> _logger;
     private readonly IHubContext<ControllerEventHub> _hubContext;
     private readonly IBlazorSystemSettingsService _settingsService;
+    private readonly GFC.BlazorServer.Services.Notifications.IControllerNotificationService _notificationService;
 
     public ControllerEventService(
         IDbContextFactory<GfcDbContext> contextFactory, 
         ILogger<ControllerEventService> logger,
         IHubContext<ControllerEventHub> hubContext,
-        IBlazorSystemSettingsService settingsService)
+        IBlazorSystemSettingsService settingsService,
+        GFC.BlazorServer.Services.Notifications.IControllerNotificationService notificationService)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
         _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+        _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
     }
 
     /// <summary>
@@ -125,6 +128,7 @@ public class ControllerEventService
 
         // Notify UI of new events
         _ = _hubContext.Clients.All.SendAsync("ReceiveEventUpdate", controller.Id, cancellationToken);
+        _notificationService.NotifyEventUpdate(controller.Id);
 
         _logger.LogInformation(
             "Saved {Count} new simulated events for controller {ControllerName} (SN {Serial}). LastIndex={Index}",
@@ -332,6 +336,7 @@ public class ControllerEventService
             if (totalSaved > 0)
             {
                 _ = _hubContext.Clients.All.SendAsync("ReceiveEventUpdate", controller.Id, cancellationToken);
+                _notificationService.NotifyEventUpdate(controller.Id);
             }
 
             // MANDATORY ACK (0xB2)

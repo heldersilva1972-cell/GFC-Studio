@@ -11,18 +11,15 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 // [SMART-DISCOVERY] Automatically resolve the correct API endpoint
-var host = builder.HostEnvironment.BaseAddress.ToLower();
-string apiBaseUrl;
+// We use the HostEnvironment.BaseAddress to ensure we talk back to the same server 
+// that served the PWA, supporting both local LAN IP access and public domain access.
+var apiBaseUrl = builder.HostEnvironment.BaseAddress;
 
-if (host.Contains("localhost"))
+// If we're running as a sub-app (e.g. /pos/), we point to the root for the API
+if (apiBaseUrl.Contains("/pos", StringComparison.OrdinalIgnoreCase))
 {
-    // Scenario 1: Local Development on Laptop
-    apiBaseUrl = "https://localhost:7073/"; 
-}
-else
-{
-    // Scenario 2: Any Production Deployment (Panel or Server)
-    apiBaseUrl = "https://gfc.lovanow.com/";
+    var uri = new Uri(apiBaseUrl);
+    apiBaseUrl = $"{uri.Scheme}://{uri.Authority}/";
 }
 
 builder.Services.AddScoped(sp => new HttpClient 

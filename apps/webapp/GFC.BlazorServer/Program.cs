@@ -22,6 +22,7 @@ using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
 using GFC.BlazorServer.Hubs;
+using GFC.BlazorServer.Services.Notifications;
 using Resend;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.HttpOverrides; // For Cloudflare Tunnel headers
@@ -299,6 +300,8 @@ public class Program
         builder.Services.AddScoped<IAlertManagementService, AlertManagementService>();
         builder.Services.AddHostedService<DiagnosticsBackgroundService>();
         builder.Services.AddSingleton<ControllerRegistryService>();
+        builder.Services.AddSingleton<IControllerNotificationService, ControllerNotificationService>();
+        builder.Services.AddSingleton<IVideoAccessNotificationService, VideoAccessNotificationService>();
         builder.Services.AddScoped<ControllerEventService>();
         builder.Services.AddScoped<CommandInfoService>();
         builder.Services.AddScoped<IScheduleService, ScheduleService>();

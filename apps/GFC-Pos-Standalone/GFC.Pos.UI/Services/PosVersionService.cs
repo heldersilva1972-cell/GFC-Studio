@@ -6,12 +6,27 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.40.5"; 
-    public string GetBuildDate() => "2026-05-19";
-    public string GetChanges() => "Fixed Checkout Keypad Proportions (v2.40.5)";
-    public string GetVersion() => "2.40.5";
+    public string GetRevision() => "2.43.2"; 
+    public string GetBuildDate() => "2026-05-16";
+    public string GetChanges() => "Secure Architecture Hardening (v2.43.2)";
+    public string GetVersion() => "2.43.2";
     
     // REVISION HISTORY:
+    // 2.43.2: Secure Architecture Hardening (Relative SignalR, No-SSL-Bypass, Offline-First Sync).
+    // 2.43.1: Hardened Operator Sync (Fixed EF join issues for MemberIds).
+    // 2.43.0: Added Emergency Login (Secret 5-tap on shield icon reveals PIN entry fallback).
+    // 2.42.1: Finalized Operator Sync (Broadened server-side filter to include all staff with cards).
+    // 2.42.0: Hardened Card Auth (Numeric comparison for leading zeros + operator list in diagnostics).
+    // 2.41.9: Improved Card Auth Feedback (Show scanned card ID in warning).
+    // 2.41.8: Fixed Toast Visibility (Elevated z-index to 30,000 to show above blurred lockscreen).
+    // 2.41.7: Added Lockscreen Diagnostics (Tap 'GFC STANDALONE POS' on lockscreen 5 times).
+    // 2.41.6: Hardened Card Scanner (Increased hardware timeout to 250ms for tablet compatibility).
+    // 2.41.5: Fixed Checkout Button Layout (Stacked full-width buttons for clarity).
+    // 2.41.4: Redesigned Checkout Keypad (Fixed layout and improved aesthetics).
+    // 2.41.3: Extreme Checkout UI Compaction (Reclaimed vertical space).
+    // 2.41.2: Compacted Checkout Keypad (Shorter Modal).
+    // 2.41.1: Fixed Card-Tap Login JS initialization race condition.
+    // 2.41.0: Implemented Instant Card-Tap Login via global HID listener.
     // 2.40.5: Fixed Checkout Keypad Proportions.
     // 2.40.4: Improved Token Upgrade Filtering.
     // 2.40.3: Fixed Script Leak in index.html.
@@ -115,6 +130,16 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

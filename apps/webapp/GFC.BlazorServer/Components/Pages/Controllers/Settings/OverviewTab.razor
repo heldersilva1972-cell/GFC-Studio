@@ -5,7 +5,6 @@
 @using GFC.BlazorServer.Services.Controllers
 @using GFC.Core.Interfaces
 @using Microsoft.EntityFrameworkCore
-@using Microsoft.AspNetCore.SignalR.Client
 @inject IControllerClient ControllerClient
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject ControllerEventService EventService
@@ -14,6 +13,7 @@
 @inject IMemberRepository MemberRepository
 @inject IKeyCardRepository KeyCardRepository
 @inject IBlazorSystemSettingsService SettingsService
+@inject GFC.BlazorServer.Services.Notifications.IControllerNotificationService NotificationService
 
 
 <div class="settings-tab-content fadeIn h-100">
@@ -229,18 +229,21 @@
     private HashSet<int> _unlockedDoors = new();
     
     private int _lastControllerId;
-    private HubConnection? _hubConnection;
     private System.Threading.Timer? _autoSyncTimer;
 
     protected override async Task OnParametersSetAsync()
     {
         if (Controller != null && Controller.Id != _lastControllerId)
         {
+            if (_lastControllerId != 0)
+            {
+                NotificationService.OnEventUpdate -= HandleEventUpdate;
+            }
+
             _lastControllerId = Controller.Id;
             await LoadEvents();
             
-            
-            _ = Task.Run(async () => await InitializeSignalR());
+            NotificationService.OnEventUpdate += HandleEventUpdate;
             
             // Start background auto-sync every 3 seconds
             _autoSyncTimer?.Dispose();
@@ -251,36 +254,20 @@
         }
     }
  
-    private async Task InitializeSignalR()
+    private void HandleEventUpdate(int controllerId)
     {
-        try
+        if (controllerId == Controller?.Id)
         {
-            _hubConnection = new HubConnectionBuilder()
-                .WithUrl(Navigation.ToAbsoluteUri("/controllereventhub"))
-                .Build();
-
-            _hubConnection.On<int>("ReceiveEventUpdate", async (controllerId) =>
-            {
-                if (controllerId == Controller?.Id)
-                {
-                    await InvokeAsync(async () => {
-                        await LoadEvents();
-                    });
-                }
+            _ = InvokeAsync(async () => {
+                await LoadEvents();
             });
-
-            await _hubConnection.StartAsync();
-            Logger.LogInformation("SignalR connected for controller events");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to connect to SignalR");
         }
     }
 
     public void Dispose()
     {
-        _ = _hubConnection?.DisposeAsync();
+        _autoSyncTimer?.Dispose();
+        NotificationService.OnEventUpdate -= HandleEventUpdate;
     }
 
     private async Task SyncTime()

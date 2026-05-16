@@ -8,11 +8,11 @@
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Camera
-@using Microsoft.AspNetCore.SignalR.Client
 @inject IVideoAccessService VideoAccessService
 @inject IUserManagementService UserManagementService
 @inject ILogger<VideoAccessMonitoring> Logger
 @inject NavigationManager Navigation
+@inject GFC.BlazorServer.Services.Notifications.IVideoAccessNotificationService NotificationService
 
 <PageTitle>System Guard Monitoring - GFC Studio</PageTitle>
 
@@ -198,7 +198,6 @@ else
     private string _activeTab = "sessions";
     private bool _isLoading = true;
     private string? _errorMessage;
-    private HubConnection? _hubConnection;
     private List<VpnProfile> _vpnProfiles = new();
     private List<VpnSession> _activeSessions = new();
     private List<VideoAccessAudit> _accessHistory = new();
@@ -213,7 +212,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadInitialDataAsync();
-        await ConfigureSignalRAsync();
+        NotificationService.OnSessionStarted += HandleSessionStarted;
+        NotificationService.OnSessionEnded += HandleSessionEnded;
         await LoadAccessHistoryAsync();
     }
 
@@ -238,30 +238,20 @@ else
     }
 
 
-    private async Task ConfigureSignalRAsync()
+    private void HandleSessionStarted(VpnSession session)
     {
-        var hubUrl = Navigation.ToAbsoluteUri("/videoaccesshub");
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .Build();
+        _activeSessions.Add(session);
+        InvokeAsync(StateHasChanged);
+    }
 
-        _hubConnection.On<VpnSession>("SessionStarted", (session) =>
+    private void HandleSessionEnded(int sessionId)
+    {
+        var session = _activeSessions.FirstOrDefault(s => s.Id == sessionId);
+        if (session != null)
         {
-            _activeSessions.Add(session);
+            _activeSessions.Remove(session);
             InvokeAsync(StateHasChanged);
-        });
-
-        _hubConnection.On<int>("SessionEnded", (sessionId) =>
-        {
-            var session = _activeSessions.FirstOrDefault(s => s.Id == sessionId);
-            if (session != null)
-            {
-                _activeSessions.Remove(session);
-                InvokeAsync(StateHasChanged);
-            }
-        });
-
-        await _hubConnection.StartAsync();
+        }
     }
 
     private string GetProfileStatus(VpnProfile profile)
@@ -298,12 +288,11 @@ else
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (_hubConnection is not null)
-        {
-            await _hubConnection.DisposeAsync();
-        }
+        NotificationService.OnSessionStarted -= HandleSessionStarted;
+        NotificationService.OnSessionEnded -= HandleSessionEnded;
+        return ValueTask.CompletedTask;
     }
 
     private class AuditLogFilter

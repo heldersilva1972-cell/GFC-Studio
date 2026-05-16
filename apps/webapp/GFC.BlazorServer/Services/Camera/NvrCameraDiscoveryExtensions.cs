@@ -46,12 +46,7 @@ namespace GFC.BlazorServer.Services.Camera
                 logger.LogInformation(msg);
                 onStatusUpdate?.Invoke(msg);
 
-                // Create HTTP client with authentication
-                var handler = new HttpClientHandler
-                {
-                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                };
-                var httpClient = new HttpClient(handler);
+                var httpClient = new HttpClient();
                 httpClient.Timeout = TimeSpan.FromSeconds(10);
 
                 // Create basic auth header

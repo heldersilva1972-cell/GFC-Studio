@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.4.64 (Update Trigger Active)
+// GFC Mobile Revision: 2.4.72 (Update Trigger Active)
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

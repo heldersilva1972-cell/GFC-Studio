@@ -1,10 +1,11 @@
 // [MODIFIED]
 @using System.Text.Json
 @using GFC.Core.Models
-@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.AspNetCore.SignalR
 @using System.Threading
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavigationManager
+@inject Microsoft.AspNetCore.SignalR.IHubContext<GFC.BlazorServer.Hubs.AnimationHub> HubContext
 @implements IAsyncDisposable
 
 @if (TargetSection != null)
@@ -80,18 +81,11 @@
     private ElementReference timelineContainerElement;
     private ElementReference playheadElement;
     private DotNetObjectReference<AnimationOrchestrator> dotNetHelper;
-    private HubConnection hubConnection;
     private Timer animationTimer;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         dotNetHelper = DotNetObjectReference.Create(this);
-        var hubUrl = NavigationManager.ToAbsoluteUri("/animationhub");
-        hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .Build();
-
-        await hubConnection.StartAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -186,10 +180,7 @@
 
     private async Task SendAnimationUpdate()
     {
-        if (hubConnection is not null)
-        {
-            await hubConnection.SendAsync("SendAnimationUpdate", keyframes, currentTime);
-        }
+        await HubContext.Clients.All.SendAsync("ReceiveAnimationUpdate", keyframes, currentTime);
     }
 
     protected override void OnParametersSet()
@@ -220,10 +211,6 @@
     {
         dotNetHelper?.Dispose();
         animationTimer?.Dispose();
-        if (hubConnection is not null)
-        {
-            await hubConnection.DisposeAsync();
-        }
         if (JSRuntime is not null)
         {
             await JSRuntime.InvokeVoidAsync("destroyAnimationOrchestrator");

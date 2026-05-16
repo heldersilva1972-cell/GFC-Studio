@@ -13,5 +13,6 @@ public record UserListItemDto(
     DateTime? LastLoginDate,
     string? Notes,
     string? Email = null,
-    bool IsDirector = false);
+    bool IsDirector = false,
+    string? CardNumber = null);
 

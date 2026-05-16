@@ -11,21 +11,28 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 // Dynamic API Targeting: Use current origin root, fallback to production
-var currentOrigin = builder.HostEnvironment.BaseAddress;
-var apiBaseUrl = currentOrigin;
+// [SMART-DISCOVERY] If accessed via LAN IP or public tunnel, talk back to the SAME host.
+var apiBaseUrl = builder.HostEnvironment.BaseAddress;
 
-if (currentOrigin.Contains("localhost"))
+// If we're running as a sub-app (e.g. /mobile/), we point to the root for the API
+if (apiBaseUrl.Contains("/mobile", StringComparison.OrdinalIgnoreCase))
 {
+    var uri = new Uri(apiBaseUrl);
+    apiBaseUrl = $"{uri.Scheme}://{uri.Authority}/";
+}
+else if (apiBaseUrl.Contains("localhost"))
+{
+    // Local development fallback
     apiBaseUrl = "https://localhost:7073/";
 }
-else
+else if (apiBaseUrl.Contains("mobile.lovanow.com"))
 {
-    // [CRITICAL] The Mobile Hub is hosted as a standalone static site on mobile.lovanow.com
-    // but the API resides on the main WebApp at gfc.lovanow.com.
+    // Specific case where hub is on a different subdomain but server is at gfc.lovanow.com
     apiBaseUrl = "https://gfc.lovanow.com/";
 }
+// Otherwise, keep apiBaseUrl as is (the same server that served the app)
 
-Console.WriteLine($"[GFC BOOT] Origin: {currentOrigin}");
+Console.WriteLine($"[GFC BOOT] Origin: {builder.HostEnvironment.BaseAddress}");
 Console.WriteLine($"[GFC BOOT] API Target: {apiBaseUrl}");
 
 // --- HTTP INTERCEPTORS ---

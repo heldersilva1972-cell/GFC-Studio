@@ -4,7 +4,6 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.Services
-@using Microsoft.AspNetCore.SignalR.Client
 @implements IDisposable
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
@@ -23,6 +22,7 @@
 @inject IMemberAccessService MemberAccessService
 @inject KeyCardService KeyCardService
 @inject IDuesRepository DuesRepository
+@inject GFC.BlazorServer.Services.Notifications.IControllerNotificationService NotificationService
 
 @* Styles moved to CardAssignmentsTab.razor.css for better isolation *@
 
@@ -1088,13 +1088,12 @@
     
     // ... (existing helper classes) ...
 
-    private HubConnection? _hubConnection;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadCardsAsync();
         _ = StartStatusRefresh();
-        _ = InitializeSignalR();
+        NotificationService.OnEventUpdate += HandleEventUpdate;
     }
     
     protected override void OnParametersSet()
@@ -1135,45 +1134,24 @@
         await LoadCardsAsync();
     }
 
-    private async Task InitializeSignalR()
+    private void HandleEventUpdate(int controllerId)
     {
-        try
+        // If the detail modal is open, refresh the activity data
+        if (_showDetailModal && _selectedCard != null)
         {
-            _hubConnection = new HubConnectionBuilder()
-                .WithUrl(NavManager.ToAbsoluteUri("/controllereventhub"))
-                .WithAutomaticReconnect()
-                .Build();
-
-            _hubConnection.On<int>("ReceiveEventUpdate", async (controllerId) =>
+            _ = InvokeAsync(async () => 
             {
-                // If the detail modal is open, refresh the activity data
-                if (_showDetailModal && _selectedCard != null)
-                {
-                    await InvokeAsync(async () => 
-                    {
-                        await LoadCardActivityDataAsync(_selectedCard.CardId);
-                        StateHasChanged();
-                    });
-                }
+                await LoadCardActivityDataAsync(_selectedCard.CardId);
+                StateHasChanged();
             });
-
-            await _hubConnection.StartAsync();
-            Logger.LogInformation("CardAssignmentsTab: Connected to SignalR Hub");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "CardAssignmentsTab: Failed to connect to SignalR Hub");
         }
     }
 
-    public async void Dispose()
+    public void Dispose()
     {
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
-        if (_hubConnection != null)
-        {
-            await _hubConnection.DisposeAsync();
-        }
+        NotificationService.OnEventUpdate -= HandleEventUpdate;
     }
 
     private async Task ToggleExpand(int cardId)

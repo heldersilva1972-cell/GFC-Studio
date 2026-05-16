@@ -64,12 +64,7 @@ namespace GFC.BlazorServer.Services
                 return;
             }
 
-            var handler = new HttpClientHandler
-            {
-                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-            };
-
-            using (var httpClient = new HttpClient(handler))
+            using (var httpClient = new HttpClient())
             {
                 try
                 {

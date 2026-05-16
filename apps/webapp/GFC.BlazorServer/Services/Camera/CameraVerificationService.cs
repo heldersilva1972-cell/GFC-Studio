@@ -166,12 +166,7 @@ namespace GFC.BlazorServer.Services.Camera
                     };
                 }
 
-                // Create HTTP client with SSL bypass for self-signed certificates
-                var handler = new HttpClientHandler
-                {
-                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                };
-                var httpClient = new HttpClient(handler);
+                var httpClient = new HttpClient();
                 httpClient.Timeout = TimeSpan.FromSeconds(10);
                 
                 // Create basic auth header
