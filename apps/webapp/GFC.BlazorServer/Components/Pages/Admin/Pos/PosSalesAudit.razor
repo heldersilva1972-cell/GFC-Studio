@@ -108,6 +108,17 @@
                                                 <span class="name">GROSS SALES</span>
                                                 <span class="price">@SelectedZReport.TotalGrossSales.ToString("C")</span>
                                             </div>
+                                            @if (SelectedZReport.TokenCredits > 0)
+                                            {
+                                                <div class="receipt-item" style="color: #991b1b;">
+                                                    <span class="name">TOKEN CREDITS</span>
+                                                    <span class="price">- @SelectedZReport.TokenCredits.ToString("C")</span>
+                                                </div>
+                                            }
+                                            <div class="receipt-item" style="border-top: 1px solid #000; margin-top:4px; font-weight:bold;">
+                                                <span class="name">CASH IN DRAWER</span>
+                                                <span class="price">@SelectedZReport.CashTotal.ToString("C")</span>
+                                            </div>
 
                                             <div class="sidebar-label mt-4">SHIFT BREAKDOWN</div>
                                             @foreach (var item in GetItemsList(SelectedZReport.SalesSummaryJson))
@@ -768,14 +779,14 @@
         var en = EndDate.Date.AddDays(1);
 
         // Load Sales
-        var salesQuery = db.PosSales.AsQueryable().Where(s => s.Timestamp >= st && s.Timestamp < en);
+        var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
         if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
-        Sales = await salesQuery.OrderByDescending(s => s.Timestamp).ToListAsync();
+        Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
 
         // Load Z-Reports
-        var zQuery = db.PosZReports.AsQueryable().Where(r => r.Timestamp >= st && r.Timestamp < en);
+        var zQuery = db.PosZReports.AsNoTracking().Where(r => r.Timestamp >= st && r.Timestamp < en);
         if (!string.IsNullOrEmpty(FilterTerminal)) zQuery = zQuery.Where(r => r.TerminalName == FilterTerminal);
-        ZReports = await zQuery.OrderByDescending(r => r.Timestamp).ToListAsync();
+        ZReports = await zQuery.OrderByDescending(r => r.Timestamp).Take(500).ToListAsync();
 
         // Calculate Totals
         TodayTotal = Sales.Sum(s => s.TotalAmount);
@@ -783,7 +794,7 @@
                             .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
 
         // Get unique terminal names
-        TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
+        TerminalList = await db.PosSales.AsNoTracking().Select(s => s.TerminalName).Distinct().ToListAsync();
 
         // Default Selections
         SelectedSale = Sales.FirstOrDefault();
@@ -791,8 +802,8 @@
 
         // Token Tracking (Daily)
         var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
-        TotalTokensSold = allItems.Where(i => i.Category == "TOKENS").Sum(i => i.Quantity);
-        TotalTokensRedeemed = allItems.Where(i => i.Name.Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
+        TotalTokensSold = allItems.Where(i => i != null && i.Category == "TOKENS").Sum(i => i.Quantity);
+        TotalTokensRedeemed = allItems.Where(i => i != null && (i.Name ?? "").Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
 
         // 1. Calculate Reconciliation Data
         await CalculateReconciliation(db);
@@ -814,9 +825,13 @@
         var posGrouped = allSalesItems.GroupBy(i => i.Name)
                                       .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
 
+        var st = StartDate.Date;
+        var en = EndDate.Date.AddDays(1);
+
         // B. Get all bottles pulled from Inventory for this station/period
-        var inventoryQuery = db.LiquorTransactions.Where(t => t.Timestamp.Date >= StartDate.Date && t.Timestamp.Date <= EndDate.Date && 
-                                                             (t.Notes ?? "").Contains("POS End-of-Shift Removal"));
+        var inventoryQuery = db.LiquorTransactions.AsNoTracking()
+                               .Where(t => t.Timestamp >= st && t.Timestamp < en && 
+                                           (t.Notes ?? "").Contains("POS End-of-Shift Removal"));
         
         if (!string.IsNullOrEmpty(FilterTerminal))
         {
@@ -845,8 +860,8 @@
             decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m; // Use GLOBAL setting per user request
             string bSize = itemMeta?.BottleSize ?? "1L";
 
-            if (bSize.Contains("750")) ounces = 25.4m;
-            if (bSize.Contains("1.75")) ounces = 59.2m;
+            if (bSize != null && bSize.Contains("750")) ounces = 25.4m;
+            if (bSize != null && bSize.Contains("1.75")) ounces = 59.2m;
             
             // Override global pour IF it is explicitly unit based (Beer/Cans)
             if (itemMeta?.IsUnitBased == true) {
@@ -869,23 +884,24 @@
 
     private async Task CalculateLifetimeTokens(GfcDbContext db)
     {
-        // Scan all sales for absolute liability
-        var allSales = await db.PosSales.Select(s => new { s.ItemsJson, s.PaymentType }).ToListAsync();
+        // Scan sales for absolute liability - only fetch required JSON strings to save memory
+        var allItemsJsons = await db.PosSales.AsNoTracking().Select(s => s.ItemsJson).ToListAsync();
         
         LifetimeBeerSold = 0; LifetimeBeerUsed = 0;
         LifetimeMixedSold = 0; LifetimeMixedUsed = 0;
 
-        foreach (var sale in allSales)
+        foreach (var json in allItemsJsons)
         {
-            var items = GetItemsList(sale.ItemsJson);
+            var items = GetItemsList(json);
+            if (items == null) continue;
             
             // BEER Tracking
-            LifetimeBeerSold += items.Where(i => i.Category == "TOKENS" && i.Name.ToUpper().Contains("BEER")).Sum(i => i.Quantity);
-            LifetimeBeerUsed += items.Where(i => i.Name.ToUpper().Contains("BEER") && i.Name.Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
+            LifetimeBeerSold += items.Where(i => i != null && i.Category == "TOKENS" && (i.Name ?? "").ToUpper().Contains("BEER")).Sum(i => i.Quantity);
+            LifetimeBeerUsed += items.Where(i => i != null && (i.Name ?? "").ToUpper().Contains("BEER") && ((i.Name ?? "").Contains("(TOKEN)") || (i.Name ?? "").Contains("(CREDITED)")) && i.Price == 0).Sum(i => i.Quantity);
 
             // MIXED DRINK Tracking
-            LifetimeMixedSold += items.Where(i => (i.Category == "TOKENS" && !i.Name.ToUpper().Contains("BEER"))).Sum(i => i.Quantity);
-            LifetimeMixedUsed += items.Where(i => (i.Name.Contains("(TOKEN)") && !i.Name.ToUpper().Contains("BEER") && i.Price == 0)).Sum(i => i.Quantity);
+            LifetimeMixedSold += items.Where(i => i != null && (i.Category == "TOKENS" && !(i.Name ?? "").ToUpper().Contains("BEER"))).Sum(i => i.Quantity);
+            LifetimeMixedUsed += items.Where(i => i != null && (((i.Name ?? "").Contains("(TOKEN)") || (i.Name ?? "").Contains("(CREDITED)")) && !(i.Name ?? "").ToUpper().Contains("BEER") && i.Price == 0)).Sum(i => i.Quantity);
         }
     }
 
@@ -905,7 +921,7 @@
             // 1. Try List format (Direct Sales)
             try {
                 var list = JsonSerializer.Deserialize<List<PosTerminal.ProductItem>>(json, options);
-                if (list != null && list.Any(x => !string.IsNullOrEmpty(x.Name))) return list;
+                if (list != null && list.Any(x => x != null && !string.IsNullOrEmpty(x.Name))) return list;
             } catch { }
 
             // 2. Try Dictionary format (Shift Audit / Z-Reports)
@@ -914,7 +930,7 @@
                 if (dict != null) {
                     return dict.Select(kvp => {
                         // Attempt to find the price from our loaded master list
-                        var dbItem = DbItems.FirstOrDefault(i => i.Name.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase));
+                        var dbItem = DbItems.FirstOrDefault(i => i != null && i.Name != null && i.Name.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase));
                         return new PosTerminal.ProductItem { 
                             Name = kvp.Key, 
                             Quantity = kvp.Value,

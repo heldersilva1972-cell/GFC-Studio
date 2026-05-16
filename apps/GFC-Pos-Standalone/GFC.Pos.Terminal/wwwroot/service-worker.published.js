@@ -1,14 +1,24 @@
-// GFC POS Revision: 2.38.76
+// GFC POS Revision: 2.39.11
 // Caution! Be sure you understand the caveats before using an offline-first
 // service worker. See https://aka.ms/blazor-offline-first
 
 self.importScripts('./service-worker-assets.js');
-self.addEventListener('install', event => event.waitUntil(onInstall(event)));
-self.addEventListener('activate', event => event.waitUntil(onActivate(event)));
+self.addEventListener('install', event => {
+    console.info('Service worker: Install (Forced Update)');
+    self.skipWaiting(); // FORCE IMMEDIATE ACTIVATION
+    event.waitUntil(onInstall(event));
+});
+self.addEventListener('activate', event => {
+    console.info('Service worker: Activate');
+    event.waitUntil(self.clients.claim()); // FORCE TAKE CONTROL IMMEDIATELY
+    event.waitUntil(onActivate(event));
+});
 self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
 
+// Revision: 2.39.11
+/* cache-name-2.39.11 */
 const cacheNamePrefix = 'offline-cache-';
-const cacheName = `${cacheNamePrefix}2.38.76`;
+const cacheName = `${cacheNamePrefix}2.39.11`;
 const offlineAssetsInclude = [ /\.dll$/, /\.pdb$/, /\.wasm/, /\.html/, /\.js$/, /\.json$/, /\.css$/, /\.woff$/, /\.png$/, /\.jl$/, /\.svg$/, /\.dat$/ ];
 const offlineAssetsExclude = [ /^service-worker\.js$/ ];
 
@@ -44,6 +54,24 @@ async function onFetch(event) {
 
     return cachedResponse || fetch(event.request);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

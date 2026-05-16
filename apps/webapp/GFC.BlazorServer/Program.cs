@@ -99,23 +99,20 @@ public class Program
         {
             options.AddPolicy("GfcEcosystemPolicy", policy =>
             {
-                policy.WithOrigins(
-                        "https://gfc.lovanow.com",       // Mobile Standalone (Production)
-                        "https://mobile.lovanow.com",    // New Mobile Hostname
-                        "http://mobile.lovanow.com",     // New Mobile Hostname (HTTP)
-                        "https://pos.lovanow.com",       // Standalone POS (Production)
-                        "http://pos.lovanow.com",        // Standalone POS (HTTP)
-                        "http://localhost:3000",           // Next.js Dev
-                        "https://setup.gfc.lovanow.com",  // Production Onboarding
-                        "http://localhost:7128",           // Mobile Standalone (HTTP)
-                        "https://localhost:7128",          // Mobile Standalone (HTTPS)
-                        "http://localhost:5215",           // Mobile Standalone Alternative
-                        "https://localhost:7157", 
-                        "http://localhost:7157",
-                        "https://localhost:7178", 
-                        "http://localhost:7178",
-                        "https://localhost:7179", 
-                        "http://localhost:7179"
+                    policy.WithOrigins(
+                        "https://gfc.lovanow.com",       // API/Server
+                        "http://gfc.lovanow.com",
+                        "https://pos.lovanow.com",       // POS App
+                        "http://pos.lovanow.com",
+                        "https://mobile.lovanow.com",    // Mobile App
+                        "http://mobile.lovanow.com",
+                        "https://setup.gfc.lovanow.com",
+                        "https://localhost:7073",        // Local WebApp
+                        "https://localhost:7157",        // Local POS (HTTPS)
+                        "http://localhost:5100",         // Local POS (HTTP)
+                        "http://localhost:3000",         // Next.js
+                        "https://localhost:7128", 
+                        "http://localhost:7128"
                     )
                     .AllowAnyMethod()
                     .AllowAnyHeader()

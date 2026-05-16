@@ -47,52 +47,47 @@ public class PosApiController : ControllerBase
     }
 
     [HttpGet("menu")]
-    public async Task<ActionResult<PosMenuDto>> GetMenu()
+    public async Task<IActionResult> GetMenu()
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
-        
-        var categories = await db.PosCategories
-            .Where(c => c.IsActive)
-            .OrderBy(c => c.DisplayOrder)
-            .ToListAsync();
-
-        var items = await db.LiquorItems
-            .Where(i => i.ShowInPos)
-            .OrderBy(i => i.DisplayOrder)
-            .ThenBy(i => i.Name)
-            .Select(i => new PosItemDto 
-            {
-                Id = i.Id,
-                Name = i.Name,
-                Price = i.RetailPrice,
-                Category = i.Category ?? "MISC",
-                DisplayOrder = i.DisplayOrder
-            })
-            .ToListAsync();
-
-        var tokens = await db.PosTokens
-            .Where(t => t.IsActive)
-            .ToListAsync();
-
-        var activeEvents = await db.ActiveEvents
-            .Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)
-            .ToListAsync();
-
-        var eventTemplates = await db.EventTemplates
-            .Where(t => !t.IsDeleted)
-            .ToListAsync();
-
-        var categoryNames = categories.Select(c => c.Name).ToList();
-        categoryNames.Add("TOKENS");
-
-        return Ok(new PosMenuDto
+        try 
         {
-            Categories = categoryNames,
-            Items = items,
-            Tokens = tokens,
-            ActiveEvents = activeEvents,
-            EventTemplates = eventTemplates
-        });
+            using var db = await _dbFactory.CreateDbContextAsync();
+            
+            var categories = await db.PosCategories
+                .Where(c => c.IsActive)
+                .OrderBy(c => c.DisplayOrder)
+                .Select(c => c.Name)
+                .ToListAsync();
+
+            var items = await db.LiquorItems
+                .Where(i => i.ShowInPos)
+                .OrderBy(i => i.DisplayOrder)
+                .Select(i => new PosItemDto 
+                {
+                    Id = i.Id,
+                    Name = i.Name,
+                    Price = i.RetailPrice,
+                    Category = (i.Category ?? "MISC").Trim().ToUpper(),
+                    DisplayOrder = i.DisplayOrder
+                })
+                .ToListAsync();
+
+            if (!categories.Contains("TOKENS")) categories.Add("TOKENS");
+
+            return Ok(new PosMenuDto
+            {
+                Categories = categories,
+                Items = items,
+                Tokens = new List<PosToken>(),
+                ActiveEvents = new List<ActiveEvent>(),
+                EventTemplates = new List<EventTemplate>()
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching POS menu");
+            return StatusCode(500, "Internal Server Error");
+        }
     }
 
     [HttpPost("events/start")]

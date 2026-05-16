@@ -64,16 +64,23 @@ namespace GFC.BlazorServer.Services
                 return;
             }
 
-            var httpClient = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
-            try
+            var handler = new HttpClientHandler
             {
-                var response = await httpClient.GetAsync($"https://{settings.PrimaryDomain}/health");
-                await _tunnelStatusService.SetStatusAsync(response.IsSuccessStatusCode);
-            }
-            catch (Exception ex)
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+            };
+
+            using (var httpClient = new HttpClient(handler))
             {
-                _logger.LogError(ex, "Error checking Cloudflare tunnel health.");
-                await _tunnelStatusService.SetStatusAsync(false);
+                try
+                {
+                    var response = await httpClient.GetAsync($"https://{settings.PrimaryDomain}/health");
+                    await _tunnelStatusService.SetStatusAsync(response.IsSuccessStatusCode);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error checking Cloudflare tunnel health.");
+                    await _tunnelStatusService.SetStatusAsync(false);
+                }
             }
         }
     }

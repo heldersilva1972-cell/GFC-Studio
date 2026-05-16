@@ -10,11 +10,20 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Configure HttpClient to point to the GFC Blazor Server API
-// [SMART REDIRECT] Detect local development vs production deployment
-var apiBaseUrl = builder.HostEnvironment.BaseAddress.Contains("localhost") 
-    ? "https://localhost:7073/"  // Point to local webapp during development
-    : "https://gfc.lovanow.com/"; // Point to production API for deployed PWA
+// [SMART-DISCOVERY] Automatically resolve the correct API endpoint
+var host = builder.HostEnvironment.BaseAddress.ToLower();
+string apiBaseUrl;
+
+if (host.Contains("localhost"))
+{
+    // Scenario 1: Local Development on Laptop
+    apiBaseUrl = "https://localhost:7073/"; 
+}
+else
+{
+    // Scenario 2: Any Production Deployment (Panel or Server)
+    apiBaseUrl = "https://gfc.lovanow.com/";
+}
 
 builder.Services.AddScoped(sp => new HttpClient 
 { 

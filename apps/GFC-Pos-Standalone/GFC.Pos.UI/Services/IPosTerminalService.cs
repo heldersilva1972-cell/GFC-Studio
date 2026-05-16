@@ -8,7 +8,8 @@ namespace GFC.Pos.UI.Services;
 
 public interface IPosTerminalService
 {
-    Task<PosMenuDto> GetMenuAsync();
+    Task<PosMenuDto> GetMenuAsync(bool force = false);
+    Task<PosMenuDto?> GetCachedMenuAsync();
     Task SaveMenuToVaultAsync(PosMenuDto menu);
     Task SaveSaleAsync(PosSaleDto sale);
     Task<PosZReportDto?> GetZReportAsync(Guid id);
@@ -36,6 +37,7 @@ public class ShiftAuditDto
 {
     public decimal CashTotal { get; set; }
     public decimal GrossTotal { get; set; }
+    public decimal TokenCredits { get; set; }
     public Dictionary<string, int> ItemSummary { get; set; } = new();
     public Dictionary<string, decimal> ItemTotals { get; set; } = new();
     public Dictionary<string, int> RegularItemSummary { get; set; } = new();

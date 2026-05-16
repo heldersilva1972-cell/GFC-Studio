@@ -457,6 +457,50 @@
                         </div>
                     </div>
 
+                    <div class="card border-primary-subtle bg-primary-subtle bg-opacity-10 rounded-4 p-3 mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="fw-black mb-0 text-primary">SMART TOKEN UPGRADES (CREDIT)</h6>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="allowUpgradeSwitch" @bind="editingToken.AllowCreditUpgrade" />
+                                <label class="form-check-label fw-bold small" for="allowUpgradeSwitch">Enable Credit Upgrades</label>
+                            </div>
+                        </div>
+                        
+                        @if (editingToken.AllowCreditUpgrade.GetValueOrDefault())
+                        {
+                            <div class="row animate__animated animate__fadeIn">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-muted text-uppercase">Credit Value</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-white border-2">$</span>
+                                            <input type="number" step="0.01" class="form-control border-2" @bind="editingToken.CreditValue" placeholder="@editingToken.SalePrice.ToString("F2")" />
+                                        </div>
+                                        <div class="extra-small text-muted mt-1 italic">Leave blank to use Sale Price</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-8">
+                                    <label class="form-label small fw-bold text-muted text-uppercase d-block mb-2">Eligible Categories for Credit</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @if (categories != null)
+                                        {
+                                            @foreach (var cat in categories)
+                                            {
+                                                <div class="form-check form-check-inline p-2 border rounded-pill bg-white px-3 mb-0">
+                                                    <input class="form-check-input" type="checkbox" 
+                                                           id="cat_@cat.Id"
+                                                           checked="@IsCategoryEligible(cat.Name)"
+                                                           @onchange="(e) => ToggleCategoryEligibility(cat.Name, e.Value)" />
+                                                    <label class="form-check-label fw-bold small" for="cat_@cat.Id">@cat.Name</label>
+                                                </div>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
                     <div class="mt-4">
                         <label class="form-label small fw-bold text-muted text-uppercase d-block mb-3">Eligible Drinks</label>
                         <p class="text-muted small mb-3">Check every item that this token is authorized to cover.</p>
@@ -1077,7 +1121,10 @@
             SalePrice = token.SalePrice,
             ColorHex = token.ColorHex,
             IsActive = token.IsActive,
-            EligibleItemIds = token.EligibleItemIds
+            EligibleItemIds = token.EligibleItemIds,
+            AllowCreditUpgrade = token.AllowCreditUpgrade.GetValueOrDefault(),
+            CreditValue = token.CreditValue,
+            CreditEligibleCategories = token.CreditEligibleCategories
         };
     }
 
@@ -1104,6 +1151,30 @@
         editingToken.EligibleItemIds = string.Join(",", ids);
     }
 
+    private bool IsCategoryEligible(string catName)
+    {
+        if (editingToken == null || string.IsNullOrEmpty(editingToken.CreditEligibleCategories)) return false;
+        var cats = editingToken.CreditEligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        return cats.Contains(catName.Trim().ToUpper());
+    }
+
+    private void ToggleCategoryEligibility(string catName, object? val)
+    {
+        if (editingToken == null) return;
+        var cats = string.IsNullOrEmpty(editingToken.CreditEligibleCategories) 
+            ? new List<string>() 
+            : editingToken.CreditEligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        var upperCat = catName.Trim().ToUpper();
+        if (val is bool isChecked)
+        {
+            if (isChecked && !cats.Contains(upperCat)) cats.Add(upperCat);
+            else if (!isChecked) cats.Remove(upperCat);
+        }
+
+        editingToken.CreditEligibleCategories = string.Join(",", cats);
+    }
+
     private async Task SaveToken()
     {
         if (editingToken == null) return;
@@ -1124,6 +1195,9 @@
                     original.SalePrice = editingToken.SalePrice;
                     original.ColorHex = editingToken.ColorHex;
                     original.EligibleItemIds = editingToken.EligibleItemIds;
+                    original.AllowCreditUpgrade = editingToken.AllowCreditUpgrade;
+                    original.CreditValue = editingToken.CreditValue;
+                    original.CreditEligibleCategories = editingToken.CreditEligibleCategories;
                 }
             }
             await db.SaveChangesAsync();

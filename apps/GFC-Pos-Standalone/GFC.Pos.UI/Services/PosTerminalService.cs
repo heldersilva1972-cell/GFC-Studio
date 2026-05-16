@@ -88,18 +88,30 @@ public class PosTerminalService : IPosTerminalService
                                 continue; 
                             }
 
-                            bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:");
-                            
-                            if (!isDeposit)
-                            {
-                                audit.GrossTotal += data.TotalAmount;
-                            }
-                            
-                            if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
-
                             if (audit.LatestSale == null || data.Timestamp > audit.LatestSale.Timestamp)
                             {
                                 audit.LatestSale = data;
+                            }
+
+                            List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>? salesItems = null;
+                            if (!string.IsNullOrEmpty(data.ItemsJson))
+                            {
+                                salesItems = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
+                                if (salesItems != null)
+                                {
+                                    bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:");
+                                    
+                                    // TRACK TOTALS
+                                    if (!isDeposit)
+                                    {
+                                        // Gross Total is the sum of all FULL PRICE items (Price > 0)
+                                        // Token Credits is the sum of all NEGATIVE items (Price < 0)
+                                        audit.GrossTotal += salesItems.Where(i => i.Price > 0).Sum(i => i.Price * i.Quantity);
+                                        audit.TokenCredits += salesItems.Where(i => i.Price < 0).Sum(i => Math.Abs(i.Price * i.Quantity));
+                                    }
+
+                                    if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
+                                }
                             }
 
                             // [BANQUET TRACKING]
@@ -138,7 +150,6 @@ public class PosTerminalService : IPosTerminalService
                                 }
                             }
 
-                            var salesItems = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
                             if (salesItems != null)
                             {
                                 foreach (var i in salesItems)
@@ -218,6 +229,23 @@ public class PosTerminalService : IPosTerminalService
                 _ = SafeFlushAsync();
             }
         };
+
+        // Initialize API Base Address from Override if present
+        _ = InitializeApiUrlAsync();
+    }
+
+    private async Task InitializeApiUrlAsync()
+    {
+        try
+        {
+            var overrideUrl = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_api_url_override");
+            if (!string.IsNullOrEmpty(overrideUrl))
+            {
+                _http.BaseAddress = new Uri(overrideUrl);
+                Console.WriteLine($"[POS] API OVERRIDE ACTIVE: {_http.BaseAddress}");
+            }
+        }
+        catch { }
     }
 
     private async Task SafeFlushAsync()
@@ -256,26 +284,50 @@ public class PosTerminalService : IPosTerminalService
         catch { return "Offline"; }
     }
 
-    public async Task<PosMenuDto> GetMenuAsync()
+    public async Task<PosMenuDto?> GetCachedMenuAsync()
     {
-        // 1. [INSTANT-LOAD] Try Vault FIRST for immediate UI pop
         try
         {
             var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
             if (!string.IsNullOrEmpty(cached))
             {
-                var menu = JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
-                if (menu != null && menu.Items.Any())
-                {
-                    // Trigger a background refresh if online, but return the cached version NOW
-                    _ = Task.Run(async () => await RefreshMenuCacheAsync());
-                    return menu;
-                }
+                return JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
             }
         }
         catch { }
+        return null;
+    }
 
-        // 2. Fallback to Server if Vault is empty
+    public async Task<PosMenuDto> GetMenuAsync(bool force = false)
+    {
+        Console.WriteLine($"[PosTerminalService] GetMenuAsync: Starting load (force={force})...");
+        
+        // 1. [INSTANT-LOAD] Try Vault FIRST for immediate UI pop (unless forced)
+        if (!force)
+        {
+            try
+            {
+                var cached = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                if (!string.IsNullOrEmpty(cached))
+                {
+                    var menu = JsonSerializer.Deserialize<PosMenuDto>(cached, _jsonOptions);
+                    if (menu != null && (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any()))
+                    {
+                        Console.WriteLine($"[PosTerminalService] GetMenuAsync: Cache loaded successfully ({menu.Items.Count} items).");
+                        // Background refresh
+                        _ = Task.Run(async () => await RefreshMenuCacheAsync());
+                        return menu;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PosTerminalService] GetMenuAsync: Cache load failed: {ex.Message}");
+            }
+        }
+
+        // 2. Fallback to Server
+        Console.WriteLine("[PosTerminalService] GetMenuAsync: Fetching fresh menu from server...");
         return await RefreshMenuCacheAsync();
     }
 
@@ -294,15 +346,35 @@ public class PosTerminalService : IPosTerminalService
         {
             if (await _connectivity.GateAsync("RefreshMenu"))
             {
+                Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Server is reachable, fetching...");
                 var menu = await _http.GetFromJsonAsync<PosMenuDto>("api/pos/menu");
-                if (menu != null && menu.Items.Any())
+                
+                if (menu != null)
                 {
-                    await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
+                    Console.WriteLine($"[PosTerminalService] RefreshMenuCacheAsync: Server returned {menu.Items.Count} items, {menu.Tokens.Count} tokens.");
+                    
+                    // We only save to vault if there's actually something to show
+                    if (menu.Items.Any() || menu.Tokens.Any())
+                    {
+                        await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
+                        Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Vault updated.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Server returned empty menu, NOT updating vault to prevent clearing local data.");
+                    }
                     return menu;
                 }
             }
+            else
+            {
+                Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Server unreachable or Gate closed.");
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PosTerminalService] RefreshMenuCacheAsync: Fetch failed: {ex.Message}");
+        }
         return new PosMenuDto();
     }
 

@@ -6,9 +6,35 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.38.77"; 
+    public string GetRevision() => "2.39.11"; 
+    public string GetBuildDate() => "2026-05-19";
+    public string GetChanges() => "Fixed PosToken nullability stability for WebApp & Terminal.";
+    public string GetVersion() => "2.39.11";
     
     // REVISION HISTORY:
+    // 2.39.11: Fixed PosToken nullability stability for WebApp & Terminal.
+    // 2.39.10: Restored production UI (v2.39.10).
+    // 2.38.99: Forced Service Worker activation (v2.38.99).
+    // 2.38.98: Fixed category case-sensitivity filter bug (v2.38.98).
+    // 2.38.96: Ensured Rescue Menu is always visible on empty catalog (v2.38.96).
+    // 2.38.95: Fixed POS sync ghosting and added Rescue Menu (v2.38.95).
+    // 2.38.94: Fixed CS0117 compilation error by adding 'DisplayOrder' property to the internal ProductItem model in PosTerminal.razor.
+    // 2.38.93: Restored POS item visibility: defaulted new items to 'ShowInPos=true', added visibility toggles to Liquor Hub, and hardened terminal vault loading with increased timeouts and diagnostics.
+    // 2.38.92: Updated versioning system to track minor increments across all deployment manifests.
+    // 2.38.91: Fixed WebApp Transaction Audit 'Yesterday' filter error by synchronizing PosZReport database schema and optimizing EF Core date queries.
+    // 2.38.90: Redesigned token redemption modal to present 'Standard' and 'Upgrade' as separate, descriptive cards for each token type.
+    // 2.38.89: Decoupled 'Redeem' and 'Upgrade' into two distinct top-level buttons in the POS footer for improved workflow efficiency.
+    // 2.38.88: Added dynamic audit descriptions to token credits (e.g., '> BEER TOKEN CREDIT FOR TITO'S') for transparent Z-Report tracking.
+    // 2.38.87: Categorized all token redemptions under a dedicated 'TOKENS' section on the Z-Report and refined line item wording.
+    // 2.38.86: Improved Z-Report financial transparency with clearer labels (SALES TOTAL vs NET CASH) and itemized credit breakdown.
+    // 2.38.85: Hardened token logic to prevent double-crediting the same item. Items are now tagged as 'IsTokenApplied' upon redemption/upgrade.
+    // 2.38.84: Implemented dual-mode redemption buttons (REDEEM ONE vs UPGRADE) in the token modal, restoring one-click speed for exact matches.
+    // 2.38.83: Integrated Credit Upgrade item selection directly into the 'Redeem Tokens' modal for a faster, single-overlay workflow.
+    // 2.38.82: Improved Credit Upgrade UI wording to 'UPGRADE [TOKEN] TO [ITEM]' for better bartender clarity.
+    // 2.38.81: Added native support for dual-currency token reconciliation and improved offline synchronization buffers for RK3399 terminals.
+    // 2.38.80: Prioritized Credit Upgrade selection overlay even when exact matches exist, providing manual control for Smart Tokens.
+    // 2.38.79: Fixed Z-Report financial transparency (Token Credits display) and hardened token redemption logic for multi-item carts.
+    // 2.38.78: Implemented Smart Token redemption system with category-restricted credit upgrades and detailed financial audit tracking.
     // 2.38.77: Optimized Banquet Manager to hide the 'Starting Cash Deposit' field for Running Tab events, enabling one-click event starts for non-prepaid tabs.
     // 2.38.76: Fixed banquet persistence (Vault-Sync on close), optimized Storage Worker DB initialization for offline startup, and eliminated global button latency via connectivity heartbeat caching.
     // 2.38.74: Integrated detailed banquet breakdown into Z-Reports, including individual deposit tracking and itemized tab expenditures.
@@ -74,8 +100,6 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
-
-
 
 
 

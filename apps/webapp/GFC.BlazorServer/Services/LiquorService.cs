@@ -64,6 +64,9 @@ namespace GFC.BlazorServer.Services
 
             try 
             {
+                // [POS SYNC] Default to showing in POS when created via Hub
+                item.ShowInPos = true;
+                
                 db.LiquorItems.Add(item);
                 await db.SaveChangesAsync();
 

@@ -25,5 +25,10 @@ namespace GFC.Core.Models
         // Comma-separated list of LiquorItem IDs that this token can cover
         // This is a simplified many-to-many storage for easier migration in this environment
         public string EligibleItemIds { get; set; } = string.Empty;
+
+        // SMART TOKEN UPGRADES
+        public bool? AllowCreditUpgrade { get; set; } = false;
+        public decimal? CreditValue { get; set; }
+        public string? CreditEligibleCategories { get; set; } = string.Empty;
     }
 }
