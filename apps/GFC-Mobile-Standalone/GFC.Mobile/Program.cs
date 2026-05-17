@@ -20,14 +20,14 @@ if (apiBaseUrl.Contains("/mobile", StringComparison.OrdinalIgnoreCase))
     var uri = new Uri(apiBaseUrl);
     apiBaseUrl = $"{uri.Scheme}://{uri.Authority}/";
 }
-else if (apiBaseUrl.Contains("localhost"))
+// [HARDENED-ROUTING] Ensure we always talk to the correct API server
+if (apiBaseUrl.Contains("localhost"))
 {
-    // Local development fallback
     apiBaseUrl = "https://localhost:7073/";
 }
-else if (apiBaseUrl.Contains("mobile.lovanow.com"))
+else 
 {
-    // Specific case where hub is on a different subdomain but server is at gfc.lovanow.com
+    // For all production environments (mobile.lovanow.com, etc.), target the main API
     apiBaseUrl = "https://gfc.lovanow.com/";
 }
 // Otherwise, keep apiBaseUrl as is (the same server that served the app)

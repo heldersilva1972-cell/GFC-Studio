@@ -54,10 +54,36 @@ public class PosApiController : ControllerBase
             using var db = await _dbFactory.CreateDbContextAsync();
             
             var categories = await db.PosCategories
-                .Where(c => c.IsActive)
+                .Where(c => c.IsActive && !c.IsModifierCategory)
                 .OrderBy(c => c.DisplayOrder)
                 .Select(c => c.Name)
                 .ToListAsync();
+
+            var modifierCategoriesList = await db.PosCategories
+                .Where(c => c.IsActive && c.IsModifierCategory)
+                .ToListAsync();
+
+            var modifierCategories = modifierCategoriesList.Select(c => c.Name).ToList();
+
+            var flatModifiers = new List<PosModifierDto>();
+            foreach (var cat in modifierCategoriesList)
+            {
+                if (!string.IsNullOrWhiteSpace(cat.ModifiersJson))
+                {
+                    try
+                    {
+                        var mods = System.Text.Json.JsonSerializer.Deserialize<List<PosModifierDto>>(cat.ModifiersJson);
+                        if (mods != null)
+                        {
+                            flatModifiers.AddRange(mods);
+                        }
+                    }
+                    catch (Exception jsonEx)
+                    {
+                        _logger.LogWarning("Failed to deserialize ModifiersJson for category {Id}: {Msg}", cat.Id, jsonEx.Message);
+                    }
+                }
+            }
 
             var items = await db.LiquorItems
                 .Where(i => i.ShowInPos)
@@ -84,13 +110,15 @@ public class PosApiController : ControllerBase
                 Items = items,
                 Tokens = tokens,
                 ActiveEvents = activeEvents,
-                EventTemplates = templates
+                EventTemplates = templates,
+                ModifierCategories = modifierCategories,
+                Modifiers = flatModifiers
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching POS menu");
-            return StatusCode(500, "Internal Server Error");
+            return StatusCode(500, $"Internal Server Error: {ex.Message} {(ex.InnerException != null ? " | Inner: " + ex.InnerException.Message : "")}");
         }
     }
 
@@ -196,13 +224,30 @@ public class PosApiController : ControllerBase
                 var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(saleDto.ItemsJson);
                 if (items != null)
                 {
-                    foreach (var item in items.Where(i => i.Id > 0))
+                    foreach (var parent in items)
                     {
-                        try {
-                            // Note: Using a default system user ID (1) for POS adjustments
-                            await _liquorService.AdjustStockAsync(item.Id, 1, -item.Quantity, $"POS Sale: {item.Name}");
-                        } catch (Exception invEx) {
-                            _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", item.Id, item.Name, invEx.Message);
+                        if (parent.Id > 0)
+                        {
+                            try {
+                                // Note: Using a default system user ID (1) for POS adjustments
+                                await _liquorService.AdjustStockAsync(parent.Id, 1, -parent.Quantity, $"POS Sale: {parent.Name}");
+                            } catch (Exception invEx) {
+                                _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
+                            }
+                        }
+
+                        if (parent.Modifiers != null)
+                        {
+                            foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
+                            {
+                                try {
+                                    // Total deduction is parent quantity * modifier quantity
+                                    int totalModQty = parent.Quantity * mod.Quantity;
+                                    await _liquorService.AdjustStockAsync(mod.Id, 1, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                } catch (Exception invEx) {
+                                    _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
+                                }
+                            }
                         }
                     }
                 }

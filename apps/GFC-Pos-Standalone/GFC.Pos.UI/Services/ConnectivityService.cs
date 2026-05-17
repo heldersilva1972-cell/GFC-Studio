@@ -62,6 +62,9 @@ public class ConnectivityService : IAsyncDisposable
         }
     }
 
+    private int _consecutiveFailures = 0;
+    private const int MaxConsecutiveFailures = 3;
+
     public async Task<bool> CheckServerReachableAsync()
     {
         try
@@ -72,22 +75,40 @@ public class ConnectivityService : IAsyncDisposable
             {
                 _isServerReachable = false;
                 _isOnline = false;
+                _consecutiveFailures = MaxConsecutiveFailures; // Trigger offline immediately if hardware is cut
                 return false;
             }
 
-            // 2. Real API Heartbeat (with Mobile-spec Cache Buster)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            // 2. Real API Heartbeat (with Relaxed Timeout)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var timestamp = DateTime.Now.Ticks;
             var response = await _http.GetAsync($"api/Health?t={timestamp}", cts.Token);
             
-            _isServerReachable = response.IsSuccessStatusCode;
-            _isOnline = _isServerReachable;
+            if (response.IsSuccessStatusCode)
+            {
+                _consecutiveFailures = 0;
+                _isServerReachable = true;
+                _isOnline = true;
+            }
+            else
+            {
+                _consecutiveFailures++;
+                if (_consecutiveFailures >= MaxConsecutiveFailures)
+                {
+                    _isServerReachable = false;
+                    _isOnline = false;
+                }
+            }
             return _isOnline;
         }
         catch
         {
-            _isServerReachable = false;
-            _isOnline = false;
+            _consecutiveFailures++;
+            if (_consecutiveFailures >= MaxConsecutiveFailures)
+            {
+                _isServerReachable = false;
+                _isOnline = false;
+            }
             return false;
         }
     }

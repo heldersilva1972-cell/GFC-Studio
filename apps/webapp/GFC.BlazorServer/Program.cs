@@ -1344,6 +1344,39 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     }
                     Console.WriteLine(">>> PosTokens Schema Fixes Applied Successfully.");
                 }
+
+                // [AUTO-FIX 9] Run PosTokens Column Repair inline (ensures smart upgrades and liability columns exist on server DB)
+                try
+                {
+                    Console.WriteLine(">>> Applying PosTokens Inline Column Repair...");
+                    var tokenFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosTokens]') AND name = 'AllowCreditUpgrade')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosTokens] ADD [AllowCreditUpgrade] BIT NULL DEFAULT 0;
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosTokens]') AND name = 'CreditValue')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosTokens] ADD [CreditValue] DECIMAL(18,2) NULL;
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosTokens]') AND name = 'CreditEligibleCategories')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosTokens] ADD [CreditEligibleCategories] NVARCHAR(MAX) NULL;
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosTokens]') AND name = 'StartingLiabilityBalance')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosTokens] ADD [StartingLiabilityBalance] INT NOT NULL DEFAULT 0;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(tokenFixSql);
+                    Console.WriteLine(">>> PosTokens Inline Column Repair Applied Successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing PosTokens inline columns repair: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {

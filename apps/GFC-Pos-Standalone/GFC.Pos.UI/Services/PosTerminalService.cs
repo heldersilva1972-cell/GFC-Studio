@@ -104,9 +104,10 @@ public class PosTerminalService : IPosTerminalService
                                     // TRACK TOTALS
                                     if (!isDeposit)
                                     {
-                                        // Gross Total is the sum of all FULL PRICE items (Price > 0)
-                                        // Token Credits is the sum of all NEGATIVE items (Price < 0)
+                                        // Gross Total is the sum of all FULL PRICE items (Price > 0) + their modifiers
                                         audit.GrossTotal += salesItems.Where(i => i.Price > 0).Sum(i => i.Price * i.Quantity);
+                                        audit.GrossTotal += salesItems.Sum(i => i.Modifiers?.Where(m => m.Price > 0).Sum(m => m.Price * m.Quantity) ?? 0);
+                                        
                                         audit.TokenCredits += salesItems.Where(i => i.Price < 0).Sum(i => Math.Abs(i.Price * i.Quantity));
                                     }
 
@@ -127,7 +128,18 @@ public class PosTerminalService : IPosTerminalService
                                 var items = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
                                 if (items != null)
                                 {
+                                    // Flatten items to include modifiers for tracking
+                                    var flatList = new List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>();
                                     foreach (var i in items)
+                                    {
+                                        flatList.Add(i);
+                                        if (i.Modifiers != null)
+                                        {
+                                            flatList.AddRange(i.Modifiers);
+                                        }
+                                    }
+
+                                    foreach (var i in flatList)
                                     {
                                         if (i.Name.StartsWith("TAB DEPOSIT:"))
                                         {
@@ -152,7 +164,18 @@ public class PosTerminalService : IPosTerminalService
 
                             if (salesItems != null)
                             {
+                                // Flatten items to include modifiers for tracking
+                                var flatList = new List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>();
                                 foreach (var i in salesItems)
+                                {
+                                    flatList.Add(i);
+                                    if (i.Modifiers != null)
+                                    {
+                                        flatList.AddRange(i.Modifiers);
+                                    }
+                                }
+
+                                foreach (var i in flatList)
                                 {
                                     if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
                                     if (!audit.ItemTotals.ContainsKey(i.Name)) audit.ItemTotals[i.Name] = 0;
@@ -263,9 +286,22 @@ public class PosTerminalService : IPosTerminalService
     {
         try
         {
-            // [ROBUST-UPDATE] Check the static version file in the deployment root.
             var timestamp = DateTime.UtcNow.Ticks;
-            var request = new HttpRequestMessage(HttpMethod.Get, $"version.txt?v={timestamp}");
+            
+            // [ROBUST-UPDATE] Fetch version.txt from the POS PWA static hosting origin rather than the API BaseAddress
+            string origin = "https://localhost:7157";
+            try
+            {
+                var currentOrigin = await _js.InvokeAsync<string>("eval", "window.location.origin");
+                if (!string.IsNullOrEmpty(currentOrigin))
+                {
+                    origin = currentOrigin;
+                }
+            }
+            catch { }
+
+            var url = $"{origin.TrimEnd('/')}/version.txt?v={timestamp}";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             
             // Force bypass of any server-side or browser caching
             request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
@@ -399,7 +435,16 @@ public class PosTerminalService : IPosTerminalService
         }
         catch { }
 
-        return await RefreshAuthorizedUsersCacheAsync();
+        var freshUsers = await RefreshAuthorizedUsersCacheAsync();
+        if (freshUsers == null || !freshUsers.Any())
+        {
+            // Seed a local offline fallback operator so developers/operators are never locked out 
+            // when cache is cleared and server is offline.
+            Console.WriteLine("[POS] Server offline and no cached users found. Seeding local offline fallback operator...");
+            var fallbackUser = new UserListItemDto(1, "GFC", true, true, null, null, null, "OFFLINE OVERRIDE", null, true, null);
+            return new List<UserListItemDto> { fallbackUser };
+        }
+        return freshUsers;
     }
 
     private async Task<List<UserListItemDto>> RefreshAuthorizedUsersCacheAsync()

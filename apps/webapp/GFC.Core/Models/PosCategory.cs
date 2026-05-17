@@ -18,5 +18,9 @@ namespace GFC.Core.Models
         public int DisplayOrder { get; set; } = 0;
 
         public bool IsActive { get; set; } = true;
+
+        public bool IsModifierCategory { get; set; } = false;
+
+        public string? ModifiersJson { get; set; }
     }
 }

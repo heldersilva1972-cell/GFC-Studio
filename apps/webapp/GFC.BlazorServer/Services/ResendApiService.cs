@@ -36,9 +36,22 @@ public class ResendApiService(
             }
 
             var message = new EmailMessage();
+            
+            // Ensure collections are initialized (Resend library uses custom EmailAddressList type)
+            if (message.To == null) message.To = new EmailAddressList();
+            if (message.Cc == null) message.Cc = new EmailAddressList();
+            
+            // Attachments is a standard List<EmailAttachment> in this library
+            if (message.Attachments == null) message.Attachments = new List<EmailAttachment>();
+
             message.From = string.IsNullOrWhiteSpace(_settings.FromName) 
                 ? _settings.FromAddress 
                 : $"\"{_settings.FromName}\" <{_settings.FromAddress}>";
+            
+            if (string.IsNullOrWhiteSpace(recipientEmail))
+            {
+                return EmailResult.Failure("Recipient email is empty.");
+            }
             message.To.Add(recipientEmail);
             
             if (!string.IsNullOrWhiteSpace(ccEmail))

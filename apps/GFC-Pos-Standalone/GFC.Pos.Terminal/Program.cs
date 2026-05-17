@@ -28,6 +28,14 @@ else if (apiBaseUrl.Contains("/pos", StringComparison.OrdinalIgnoreCase))
     var uri = new Uri(apiBaseUrl);
     apiBaseUrl = $"{uri.Scheme}://{uri.Authority}/";
 }
+// If we're running locally on the standalone dev port, route to the BlazorServer backend matching the protocol
+else if (apiBaseUrl.Contains("localhost:7157", StringComparison.OrdinalIgnoreCase) || 
+         apiBaseUrl.Contains("localhost:5091", StringComparison.OrdinalIgnoreCase) ||
+         apiBaseUrl.Contains("localhost:5100", StringComparison.OrdinalIgnoreCase))
+{
+    apiBaseUrl = apiBaseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "https://localhost:7073/" : "http://localhost:5207/";
+    Console.WriteLine($"[POS] LOCAL DEV ROUTING ACTIVE: API -> {apiBaseUrl}");
+}
 
 builder.Services.AddScoped(sp => new HttpClient 
 { 

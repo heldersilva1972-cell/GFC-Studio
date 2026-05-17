@@ -394,12 +394,6 @@ namespace GFC.BlazorServer.Services
             order.Status = "Placed";
             order.OrderDate = DateTime.UtcNow;
             
-            // If requested, set intent flag immediately so UI doesn't show "Logged Only"
-            if (sendEmail)
-            {
-                order.IsEmailed = true;
-            }
-
             db.LiquorOrders.Add(order);
             await db.SaveChangesAsync();
 
@@ -426,12 +420,19 @@ namespace GFC.BlazorServer.Services
                             if (fullOrder != null)
                             {
                                 var body = GetOrderEmailHtmlBody(fullOrder, vendor, settings);
-                                await _emailService.SendEmailAsync(vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
+                                var result = await _emailService.SendEmailAsync(vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
                                 
-                                // Mark as emailed
-                                fullOrder.IsEmailed = true;
-                                fullOrder.LastEmailedDate = DateTime.UtcNow;
-                                await taskDb.SaveChangesAsync();
+                                if (result.Success)
+                                {
+                                    // Mark as emailed ONLY if successful
+                                    fullOrder.IsEmailed = true;
+                                    fullOrder.LastEmailedDate = DateTime.UtcNow;
+                                    await taskDb.SaveChangesAsync();
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"[LiquorService] Email delivery failed for Order #{order.Id}: {result.ErrorMessage}");
+                                }
                             }
                         }
                     }

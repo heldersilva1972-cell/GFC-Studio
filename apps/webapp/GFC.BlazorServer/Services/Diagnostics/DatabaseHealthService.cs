@@ -237,8 +237,21 @@ public class DatabaseHealthService
         }
     }
 
+    private static DiagnosticActionResult? _cachedDbResult;
+    private static DateTime _lastDbCheck = DateTime.MinValue;
+    private static readonly object _dbLock = new object();
+    private const int CacheExpirySeconds = 30;
+
     public async Task<DiagnosticActionResult> TestDatabaseConnectionAsync()
     {
+        lock (_dbLock)
+        {
+            if (_cachedDbResult != null && (DateTime.UtcNow - _lastDbCheck).TotalSeconds < CacheExpirySeconds)
+            {
+                return _cachedDbResult;
+            }
+        }
+
         var result = new DiagnosticActionResult
         {
             ActionName = "Database Connection Test",
@@ -265,6 +278,12 @@ public class DatabaseHealthService
             result.Success = false;
             result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
             result.Message = $"Connection test failed: {ex.Message}";
+        }
+
+        lock (_dbLock)
+        {
+            _cachedDbResult = result;
+            _lastDbCheck = DateTime.UtcNow;
         }
         
         return result;

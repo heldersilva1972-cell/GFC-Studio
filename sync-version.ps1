@@ -129,6 +129,15 @@ try {
                 $s | ConvertTo-Json | Set-Content $mobileClientSettings
             }
         }
+
+        # index.html (Blazor Boot Cache Buster)
+        $mobileIndex = Join-Path $basePath "apps/GFC-Mobile-Standalone/GFC.Mobile/wwwroot/index.html"
+        if (Test-Path $mobileIndex) {
+            Write-Step "Updating index.html (Cache Buster)..."
+            $c = Get-Content $mobileIndex -Raw
+            $nc = $c -replace "(const version = ')[^']+", ("`${1}" + $targetVersion)
+            if ($DryRun) { Write-DryRun "Would update $mobileIndex" } else { Set-Content $mobileIndex $nc }
+        }
     } 
     else { # POS PROJECT
         # PosVersionService.cs
