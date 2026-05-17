@@ -23,7 +23,10 @@ if (apiBaseUrl.Contains("/mobile", StringComparison.OrdinalIgnoreCase))
 // [HARDENED-ROUTING] Ensure we always talk to the correct API server
 if (apiBaseUrl.Contains("localhost"))
 {
-    apiBaseUrl = "https://localhost:7073/";
+    // Dynamically target HTTP or HTTPS to allow bypassing SSL certificate issues in local development
+    apiBaseUrl = apiBaseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) 
+        ? "https://localhost:7073/" 
+        : "http://localhost:5207/";
 }
 else 
 {
