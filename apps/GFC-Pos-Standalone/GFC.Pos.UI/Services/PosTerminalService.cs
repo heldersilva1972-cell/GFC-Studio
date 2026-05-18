@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using GFC.Core.DTOs;
+using GFC.Core.Models;
 using Microsoft.JSInterop;
 using System.Text.Json;
 
@@ -650,6 +651,111 @@ public class PosTerminalService : IPosTerminalService
             foreach (var item in itemsArray) {
                 var key = item.GetProperty("key").GetString();
                 if (key == null) continue;
+
+                if (key.StartsWith("gfc_pos_vault_event_start_")) {
+                    Console.WriteLine($"[SYNC] Processing Offline Event Startup: {key}");
+                    ActiveEvent? data = null;
+                    try 
+                    {
+                        var dataElement = item.GetProperty("data");
+                        if (dataElement.ValueKind == JsonValueKind.String)
+                        {
+                            data = JsonSerializer.Deserialize<ActiveEvent>(dataElement.GetString()!, _jsonOptions);
+                        }
+                        else
+                        {
+                            data = dataElement.Deserialize<ActiveEvent>(_jsonOptions);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SYNC] Deserialization failed for offline event startup {key}: {ex.Message}");
+                        continue;
+                    }
+
+                    if (data != null) {
+                        try {
+                            Console.WriteLine($"[SYNC] Posting offline event startup {data.Name} to server...");
+                            
+                            var tempId = data.Id;
+                            data.Id = 0; // Let DB generate ID
+                            
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                            var resp = await _http.PostAsJsonAsync("api/pos/events/start", data, cts.Token);
+                            if (resp.IsSuccessStatusCode) {
+                                var createdEvent = await resp.Content.ReadFromJsonAsync<ActiveEvent>(_jsonOptions, cts.Token);
+                                if (createdEvent != null) {
+                                    Console.WriteLine($"[SYNC] Server created event with real ID: {createdEvent.Id}");
+                                    
+                                    await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                    
+                                    var allVault = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+                                    if (allVault.ValueKind == JsonValueKind.Array) {
+                                        foreach (var vItem in allVault.EnumerateArray()) {
+                                            var vKey = vItem.GetProperty("key").GetString();
+                                            if (vKey == null) continue;
+                                            
+                                            if (vKey.StartsWith(VaultPrefixSales)) {
+                                                try {
+                                                    PosSaleDto? saleData = null;
+                                                    var rawData = vItem.GetProperty("data");
+                                                    if (rawData.ValueKind == JsonValueKind.String)
+                                                        saleData = JsonSerializer.Deserialize<PosSaleDto>(rawData.GetString()!, _jsonOptions);
+                                                    else
+                                                        saleData = rawData.Deserialize<PosSaleDto>(_jsonOptions);
+
+                                                    if (saleData != null && saleData.ActiveEventId == tempId) {
+                                                        saleData.ActiveEventId = createdEvent.Id;
+                                                        await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, saleData);
+                                                        Console.WriteLine($"[SYNC] Remapped pending sale {vKey} ActiveEventId to {createdEvent.Id}");
+                                                    }
+                                                } catch {}
+                                            }
+                                            
+                                            if (vKey.StartsWith(ShiftLogPrefix)) {
+                                                try {
+                                                    PosSaleDto? saleData = null;
+                                                    var rawData = vItem.GetProperty("data");
+                                                    if (rawData.ValueKind == JsonValueKind.String)
+                                                        saleData = JsonSerializer.Deserialize<PosSaleDto>(rawData.GetString()!, _jsonOptions);
+                                                    else
+                                                        saleData = rawData.Deserialize<PosSaleDto>(_jsonOptions);
+
+                                                    if (saleData != null && saleData.ActiveEventId == tempId) {
+                                                        saleData.ActiveEventId = createdEvent.Id;
+                                                        await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, saleData);
+                                                        Console.WriteLine($"[SYNC] Remapped shift log {vKey} ActiveEventId to {createdEvent.Id}");
+                                                    }
+                                                } catch {}
+                                            }
+                                        }
+                                    }
+
+                                    try {
+                                        var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                        if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                            var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                            if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                                var offlineEv = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id == tempId);
+                                                if (offlineEv != null) {
+                                                    offlineEv.Id = createdEvent.Id;
+                                                    await SaveMenuToVaultAsync(cachedMenu);
+                                                    Console.WriteLine($"[SYNC] Remapped cached menu active events");
+                                                }
+                                            }
+                                        }
+                                    } catch {}
+                                    
+                                    LastSynced = DateTime.Now;
+                                }
+                            } else {
+                                Console.WriteLine($"[SYNC] Server rejected offline event start: {resp.StatusCode}");
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine($"[SYNC] Network error starting offline event {data.Name}: {ex.Message}");
+                        }
+                    }
+                }
 
                 if (key.StartsWith(VaultPrefixSales)) {
                     Console.WriteLine($"[SYNC] Processing sale: {key}");

@@ -1577,6 +1577,11 @@
                         var overrides = JsonSerializer.Deserialize<List<BanquetOverrideDto>>(template.ItemsOverrideJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
                         var visibleItemIds = overrides.Where(o => o.IsVisible).Select(o => o.ItemId).ToList();
                         
+                        if (!visibleItemIds.Any())
+                        {
+                            return Categories;
+                        }
+                        
                         var banquetCategories = DbItems
                             .Where(i => visibleItemIds.Contains(i.Id))
                             .Select(i => (i.Category ?? "MISC").Trim().ToUpper())
@@ -1587,7 +1592,7 @@
                     }
                     catch
                     {
-                        return new List<string>();
+                        return Categories;
                     }
                 }
                 else
@@ -1616,12 +1621,15 @@
                 {
                     var overrides = JsonSerializer.Deserialize<List<BanquetOverrideDto>>(template.ItemsOverrideJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
                     var visibleItemIds = overrides.Where(o => o.IsVisible).Select(o => o.ItemId).ToList();
-                    var visibleCategories = DbItems.Where(i => visibleItemIds.Contains(i.Id)).Select(i => (i.Category ?? "MISC").Trim().ToUpper()).Distinct().ToList();
-                    
-                    if (!visibleCategories.Contains(ActiveCategory.Trim().ToUpper()))
+                    if (visibleItemIds.Any())
                     {
-                        var firstCat = visibleCategories.FirstOrDefault();
-                        if (firstCat != null) ActiveCategory = firstCat;
+                        var visibleCategories = DbItems.Where(i => visibleItemIds.Contains(i.Id)).Select(i => (i.Category ?? "MISC").Trim().ToUpper()).Distinct().ToList();
+                        
+                        if (!visibleCategories.Contains(ActiveCategory.Trim().ToUpper()))
+                        {
+                            var firstCat = visibleCategories.FirstOrDefault();
+                            if (firstCat != null) ActiveCategory = firstCat;
+                        }
                     }
                 }
                 catch {}
@@ -1677,7 +1685,13 @@
                         var overrides = JsonSerializer.Deserialize<List<BanquetOverrideDto>>(template.ItemsOverrideJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
                         var visibleOverrides = overrides.Where(o => o.IsVisible).ToList();
                         var visibleItemIds = visibleOverrides.Select(o => o.ItemId).ToList();
-
+                        
+                        if (!visibleItemIds.Any())
+                        {
+                            // No overrides defined — show all items at standard prices
+                            return items.OrderBy(x => x.Name).ToList();
+                        }
+                        
                         items = items.Where(i => visibleItemIds.Contains(i.Id));
 
                         return items
@@ -1700,14 +1714,14 @@
                     catch (Exception ex)
                     {
                         Console.WriteLine($"[POS] Error processing overrides: {ex.Message}");
-                        // Do NOT fall through — return empty to avoid leaking unfiltered items
-                        return new List<ProductItem>();
+                        // Fall back to standard prices on JSON errors
+                        return items.OrderBy(x => x.Name).ToList();
                     }
                 }
                 else
                 {
                     // No custom menu defined — show all items at standard prices
-                    return items.ToList();
+                    return items.OrderBy(x => x.Name).ToList();
                 }
             }
 
@@ -2918,6 +2932,7 @@
             _newEventDirectCheckout = false;
             _banquetNumpadValue = "0";
             _isFirstKeyAfterFocus = true;
+            showBanquetsModal = false;
             
             // Reload
             await LoadLiveData();
