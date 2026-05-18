@@ -74,6 +74,49 @@ public class PosTerminalService : IPosTerminalService
         try
         {
             var menu = await GetCachedMenuAsync();
+
+            // Retrieve persistent event name/type caches from localStorage
+            var cachedNamesJson = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_event_names_cache");
+            var cachedTypesJson = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_event_types_cache");
+            var cachedNames = new Dictionary<string, string>();
+            var cachedTypes = new Dictionary<string, string>();
+            try
+            {
+                if (!string.IsNullOrEmpty(cachedNamesJson))
+                    cachedNames = JsonSerializer.Deserialize<Dictionary<string, string>>(cachedNamesJson, _jsonOptions) ?? new();
+            }
+            catch {}
+            try
+            {
+                if (!string.IsNullOrEmpty(cachedTypesJson))
+                    cachedTypes = JsonSerializer.Deserialize<Dictionary<string, string>>(cachedTypesJson, _jsonOptions) ?? new();
+            }
+            catch {}
+
+            // Update caches with any active events currently in menu
+            if (menu != null && menu.ActiveEvents != null)
+            {
+                bool cacheUpdated = false;
+                foreach (var ev in menu.ActiveEvents)
+                {
+                    var idStr = ev.Id.ToString();
+                    if (!cachedNames.ContainsKey(idStr) || cachedNames[idStr] != ev.Name)
+                    {
+                        cachedNames[idStr] = ev.Name;
+                        cacheUpdated = true;
+                    }
+                    if (!cachedTypes.ContainsKey(idStr) || cachedTypes[idStr] != ev.Type.ToString())
+                    {
+                        cachedTypes[idStr] = ev.Type.ToString();
+                        cacheUpdated = true;
+                    }
+                }
+                if (cacheUpdated)
+                {
+                    await _js.InvokeVoidAsync("localStorage.setItem", "gfc_event_names_cache", JsonSerializer.Serialize(cachedNames));
+                    await _js.InvokeVoidAsync("localStorage.setItem", "gfc_event_types_cache", JsonSerializer.Serialize(cachedTypes));
+                }
+            }
             var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
             if (vaultItems.ValueKind == JsonValueKind.Array)
             {
@@ -144,6 +187,20 @@ public class PosTerminalService : IPosTerminalService
                                             }
                                         }
                                     }
+
+                                    // If we couldn't resolve from the active events (closed event), try our local persistent cache
+                                    if (string.IsNullOrEmpty(banquet.EventName) && data.ActiveEventId.HasValue)
+                                    {
+                                        var idStr = data.ActiveEventId.Value.ToString();
+                                        if (cachedNames.ContainsKey(idStr))
+                                        {
+                                            banquet.EventName = cachedNames[idStr];
+                                        }
+                                        if (cachedTypes.ContainsKey(idStr))
+                                        {
+                                            banquet.EventType = cachedTypes[idStr];
+                                        }
+                                    }
                                     audit.Banquets.Add(banquet);
                                 }
 
@@ -179,7 +236,7 @@ public class PosTerminalService : IPosTerminalService
                                             
                                             // Set event name from the first item if not set (fallback)
                                             if (string.IsNullOrEmpty(banquet.EventName))
-                                                banquet.EventName = "Active Banquet"; // Will be updated by deposit if found
+                                                banquet.EventName = "Active Event"; // Will be updated by deposit if found
                                         }
                                     }
                                 }
