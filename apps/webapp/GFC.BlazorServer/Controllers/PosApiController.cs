@@ -476,4 +476,84 @@ public class PosApiController : ControllerBase
             return StatusCode(500, "Internal Server Error");
         }
     }
+
+    [HttpGet("events/summary/{eventId}")]
+    public async Task<IActionResult> GetBanquetMasterSummary(int eventId)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var activeEvent = await db.ActiveEvents.FindAsync(eventId);
+            if (activeEvent == null) return NotFound("Event not found");
+
+            var summary = new BanquetMasterSummaryDto
+            {
+                EventName = activeEvent.Name,
+                TotalSpent = 0,
+                TotalDeposited = activeEvent.InitialAmount
+            };
+
+            var sales = await db.PosSales
+                .Where(s => s.ActiveEventId == eventId && !s.IsVoided)
+                .ToListAsync();
+
+            var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            foreach (var sale in sales)
+            {
+                if (string.IsNullOrEmpty(sale.ItemsJson)) continue;
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(sale.ItemsJson, jsonOptions);
+                    if (items != null)
+                    {
+                        foreach (var i in items)
+                        {
+                            if (i.Name.StartsWith("TAB DEPOSIT:"))
+                            {
+                                summary.TotalDeposited += i.Price;
+                            }
+                            else if (sale.PaymentType == "TAB")
+                            {
+                                if (!summary.ItemQuantities.ContainsKey(i.Name))
+                                {
+                                    summary.ItemQuantities[i.Name] = 0;
+                                    summary.ItemTotals[i.Name] = 0;
+                                }
+                                summary.ItemQuantities[i.Name] += i.Quantity;
+                                summary.ItemTotals[i.Name] += (i.Price * i.Quantity);
+                                summary.TotalSpent += (i.Price * i.Quantity);
+                            }
+
+                            if (i.Modifiers != null && sale.PaymentType == "TAB")
+                            {
+                                foreach (var m in i.Modifiers)
+                                {
+                                    if (!summary.ItemQuantities.ContainsKey(m.Name))
+                                    {
+                                        summary.ItemQuantities[m.Name] = 0;
+                                        summary.ItemTotals[m.Name] = 0;
+                                    }
+                                    summary.ItemQuantities[m.Name] += m.Quantity;
+                                    summary.ItemTotals[m.Name] += (m.Price * m.Quantity);
+                                    summary.TotalSpent += (m.Price * m.Quantity);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to deserialize ItemsJson in banquet summary for sale {Id}: {Msg}", sale.Id, ex.Message);
+                }
+            }
+
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[POS API] Error compiling banquet master summary for event {EventId}", eventId);
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
 }

@@ -13,4 +13,6 @@ public class EventTemplate : BaseEntity
     public string Name { get; set; } = string.Empty;
 
     public EventTabType DefaultType { get; set; } = EventTabType.RunningTab;
+
+    public string? ItemsOverrideJson { get; set; }
 }

@@ -25,6 +25,7 @@ public class PosTerminalService : IPosTerminalService
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public event Action? OutboxChanged;
+    public event Action<PosMenuDto>? MenuRefreshed;
 
     public int PendingSalesCount  { get; private set; }
     public int PendingZCount      { get; private set; }
@@ -71,6 +72,7 @@ public class PosTerminalService : IPosTerminalService
         var audit = new ShiftAuditDto();
         try
         {
+            var menu = await GetCachedMenuAsync();
             var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
             if (vaultItems.ValueKind == JsonValueKind.Array)
             {
@@ -121,7 +123,20 @@ public class PosTerminalService : IPosTerminalService
                                 var banquet = audit.Banquets.FirstOrDefault(b => b.ActiveEventId == data.ActiveEventId);
                                 if (banquet == null)
                                 {
-                                    banquet = new BanquetShiftReportDto { ActiveEventId = data.ActiveEventId };
+                                    banquet = new BanquetShiftReportDto 
+                                    { 
+                                        ActiveEventId = data.ActiveEventId,
+                                        EventType = "RunningTab" // Default
+                                    };
+                                    if (menu != null && menu.ActiveEvents != null)
+                                    {
+                                        var activeEv = menu.ActiveEvents.FirstOrDefault(e => e.Id == data.ActiveEventId);
+                                        if (activeEv != null)
+                                        {
+                                            banquet.EventType = activeEv.Type.ToString();
+                                            banquet.EventName = activeEv.Name;
+                                        }
+                                    }
                                     audit.Banquets.Add(banquet);
                                 }
 
@@ -144,6 +159,7 @@ public class PosTerminalService : IPosTerminalService
                                         if (i.Name.StartsWith("TAB DEPOSIT:"))
                                         {
                                             banquet.Deposits.Add(i.Price);
+                                            banquet.EventType = "PrePaid";
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))
                                                 banquet.EventName = i.Name.Replace("TAB DEPOSIT: ", "");
@@ -320,6 +336,21 @@ public class PosTerminalService : IPosTerminalService
         catch { return "Offline"; }
     }
 
+    public async Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId)
+    {
+        try
+        {
+            if (!await CheckConnectivityAsync()) return null;
+            var json = await _http.GetStringAsync($"api/pos/events/summary/{eventId}");
+            if (string.IsNullOrEmpty(json)) return null;
+            return System.Text.Json.JsonSerializer.Deserialize<BanquetMasterSummaryDto>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<PosMenuDto?> GetCachedMenuAsync()
     {
         try
@@ -392,9 +423,10 @@ public class PosTerminalService : IPosTerminalService
                     // We only save to vault if there's actually something to show
                     if (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any())
                     {
-                        // Save to LocalForage Vault (IndexedDB)
                         await _js.InvokeVoidAsync("window.gfcSetAsync", CachedMenuKey, menu);
                         Console.WriteLine($"[POS] MENU PERSISTED TO VAULT - {menu.Items.Count} items.");
+                        // Notify subscribers (e.g. PosTerminal component) that fresh menu data is available
+                        MenuRefreshed?.Invoke(menu);
                     }
                     else
                     {

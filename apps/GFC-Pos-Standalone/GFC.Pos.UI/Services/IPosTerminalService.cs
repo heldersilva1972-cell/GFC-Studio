@@ -16,6 +16,7 @@ public interface IPosTerminalService
     Task<List<PosZReportDto>> GetZReportsAsync(string terminalName);
     Task SaveZReportAsync(PosZReportDto report);
     event Action? OutboxChanged;
+    event Action<PosMenuDto>? MenuRefreshed;
     int TotalPendingCount { get; }
     DateTime? LastSynced { get; }
     Task<int> GetTotalPendingAsync();
@@ -31,6 +32,7 @@ public interface IPosTerminalService
     Task ClearShiftAsync();
     Task FlushAllPendingAsync();
     Task<string> GetServerVersionAsync();
+    Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId);
 }
 
 public class ShiftAuditDto
@@ -55,4 +57,5 @@ public class BanquetShiftReportDto
     public decimal TotalSpent { get; set; }
     public Dictionary<string, int> ItemSummary { get; set; } = new();
     public Dictionary<string, decimal> ItemTotals { get; set; } = new();
+    public string EventType { get; set; } = "RunningTab";
 }

@@ -5,6 +5,7 @@ BEGIN
         [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
         [Name] VARCHAR(100) NOT NULL,
         [DefaultType] INT NOT NULL,
+        [ItemsOverrideJson] NVARCHAR(MAX) NULL,
         
         -- BaseEntity fields
         [GlobalId] UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),

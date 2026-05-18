@@ -4,6 +4,7 @@
 @using GFC.BlazorServer.Data
 @using GFC.Core.Models
 @using GFC.Core.Enums
+@using GFC.Core.DTOs
 @attribute [Authorize]
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @inject GFC.BlazorServer.Services.IToastService ToastService
@@ -173,13 +174,13 @@
                             <div class="list-group-item p-4 border-2 rounded-4 mb-3 shadow-sm" style="border-left: 6px solid @(ae.Type == EventTabType.PrePaid ? "var(--bs-primary)" : "var(--bs-success)") !important;">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h5 class="fw-bold mb-1">@ae.Name <span class="badge @(ae.Type == EventTabType.PrePaid ? "bg-primary" : "bg-success") ms-2">@ae.Type</span></h5>
+                                        <h5 class="fw-bold mb-1">@GetEventDisplayName(ae.Name) <span class="badge @(ae.Type == EventTabType.PrePaid ? "bg-primary" : "bg-success") ms-2">@ae.Type</span></h5>
                                         <p class="mb-0 small text-muted">Started: @ae.CreatedAt.ToLocalTime().ToString("g")</p>
                                     </div>
                                     <div class="text-end">
                                         <div class="small fw-bold text-muted text-uppercase mb-1">@(ae.Type == EventTabType.PrePaid ? "Remaining Balance" : "Current Tab")</div>
                                         <h4 class="fw-black mb-2 @(ae.CurrentBalance <= 0 && ae.Type == EventTabType.PrePaid ? "text-danger" : "text-dark")">
-                                            @ae.CurrentBalance.ToString("C")
+                                            @(ae.Type == EventTabType.PrePaid ? ae.CurrentBalance.ToString("C") : Math.Abs(ae.CurrentBalance).ToString("C"))
                                         </h4>
                                         <div class="d-flex gap-2 justify-content-end">
                                             @if(ae.Type == EventTabType.PrePaid) {
@@ -206,7 +207,7 @@
                                 <div class="card h-100 border-2 rounded-4 p-3 bg-white">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div>
-                                            <h6 class="fw-bold mb-1">@t.Name</h6>
+                                            <h6 class="fw-bold mb-1">@GetEventDisplayName(t.Name)</h6>
                                             <span class="badge bg-light text-dark border rounded-pill">Default: @t.DefaultType</span>
                                         </div>
                                         <div class="d-flex gap-2">
@@ -698,26 +699,114 @@
 @if (editingEventTemplate != null)
 {
     <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg rounded-4">
                 <div class="modal-header border-0 pb-0">
                     <h5 class="modal-title fw-bold">@(editingEventTemplate.Id == 0 ? "New Event Template" : "Edit Event Template")</h5>
                     <button type="button" class="btn-close" @onclick="() => editingEventTemplate = null"></button>
                 </div>
-                <div class="modal-body py-4">
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-muted text-uppercase">Event Name</label>
-                        <input type="text" class="form-control form-control-lg rounded-3 border-2" @bind="editingEventTemplate.Name" placeholder="e.g. Annual Gala" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-muted text-uppercase">Default Tab Type</label>
-                        <select class="form-select form-select-lg rounded-3 border-2" @bind="editingEventTemplate.DefaultType">
-                            @foreach (var type in Enum.GetValues(typeof(EventTabType)).Cast<EventTabType>())
-                            {
-                                <option value="@type">@type</option>
-                            }
-                        </select>
-                    </div>
+                <div class="modal-body py-3">
+                    <ul class="nav nav-pills mb-3 border-bottom pb-2" role="tablist">
+                        <li class="nav-item">
+                            <button type="button" class="nav-link @(activeEventTemplateTab == "general" ? "active" : "")" @onclick='() => activeEventTemplateTab = "general"'>General Info</button>
+                        </li>
+                        <li class="nav-item">
+                            <button type="button" class="nav-link @(activeEventTemplateTab == "menu" ? "active" : "")" @onclick='() => activeEventTemplateTab = "menu"'>Custom Menu & Prices</button>
+                        </li>
+                    </ul>
+
+                    @if (activeEventTemplateTab == "general")
+                    {
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-muted text-uppercase">Event Name</label>
+                            <input type="text" class="form-control form-control-lg rounded-3 border-2" @bind="editingEventTemplate.Name" placeholder="e.g. Annual Gala" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-muted text-uppercase">Default Tab Type</label>
+                            <select class="form-select form-select-lg rounded-3 border-2" @bind="editingEventTemplate.DefaultType">
+                                @foreach (var type in Enum.GetValues(typeof(EventTabType)).Cast<EventTabType>())
+                                {
+                                    <option value="@type">@type</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="mb-3 p-3 bg-light rounded-3 border">
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                                <div>
+                                    <label class="form-check-label fw-bold text-dark mb-0" for="directCheckoutSwitchTemplate" style="font-size: 0.9rem; cursor: pointer;">
+                                        Direct Tab Checkout
+                                    </label>
+                                    <div class="small text-muted" style="font-size: 0.75rem;">Default to showing the TAB button side-by-side with PAY</div>
+                                </div>
+                                <input class="form-check-input ms-2" type="checkbox" role="switch" id="directCheckoutSwitchTemplate" @bind="_templateDirectCheckout" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                            </div>
+                        </div>
+                    }
+                    else if (activeEventTemplateTab == "menu")
+                    {
+                        <div class="row">
+                            <div class="col-4 border-end">
+                                <label class="form-label small fw-bold text-muted text-uppercase d-block mb-2">Categories</label>
+                                <div class="list-group list-group-flush rounded-3 border">
+                                    @foreach (var cat in categories ?? new())
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action py-2 @(selectedOverrideCategory.Trim().ToUpper() == cat.Name.Trim().ToUpper() ? "active fw-bold" : "")" @onclick="() => selectedOverrideCategory = cat.Name">
+                                            @cat.Name
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-8">
+                                <label class="form-label small fw-bold text-muted text-uppercase d-block mb-2">Items in @selectedOverrideCategory</label>
+                                <div class="border rounded-3 p-2 bg-light" style="max-height: 380px; overflow-y: auto;">
+                                    @{
+                                        var itemsInCategory = allItemsForTokens?.Where(i => i.Category?.Trim().ToUpper() == selectedOverrideCategory.Trim().ToUpper()).ToList() ?? new();
+                                    }
+                                    @if (!itemsInCategory.Any())
+                                    {
+                                        <div class="text-center text-muted small py-4">No active items in this category.</div>
+                                    }
+                                    else
+                                    {
+                                        <table class="table table-sm table-hover align-middle m-0 sticky-header" style="background: white;">
+                                            <thead class="table-light small">
+                                                <tr>
+                                                    <th class="ps-2">Include</th>
+                                                    <th>Drink Name</th>
+                                                    <th>Retail</th>
+                                                    <th style="width: 130px;">Banquet Price</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var item in itemsInCategory)
+                                                {
+                                                    var overrideItem = editingEventOverrides.FirstOrDefault(o => o.ItemId == item.Id);
+                                                    var isChecked = overrideItem?.IsVisible ?? false;
+                                                    var currentPrice = overrideItem?.OverridePrice ?? item.RetailPrice;
+                                                    
+                                                    <tr>
+                                                        <td class="ps-2">
+                                                            <div class="form-check form-switch m-0">
+                                                                <input class="form-check-input" type="checkbox" checked="@isChecked" @onchange="(e) => ToggleItemOverride(item.Id, (bool)e.Value)" style="cursor: pointer;" />
+                                                            </div>
+                                                        </td>
+                                                        <td class="small fw-bold text-dark">@item.Name</td>
+                                                        <td class="small text-muted">@item.RetailPrice.ToString("C")</td>
+                                                        <td class="pe-2">
+                                                            <div class="input-group input-group-sm">
+                                                                <span class="input-group-text bg-light border-end-0">$</span>
+                                                                <input type="number" class="form-control ps-1 border-start-0" step="0.01" min="0" value="@currentPrice.ToString("F2")" @onchange="(e) => UpdateItemOverridePrice(item.Id, e.Value)" disabled="@(!isChecked)" />
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer border-0 pt-0">
                     <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => editingEventTemplate = null">Cancel</button>
@@ -760,6 +849,17 @@
                             </div>
                         </div>
                     }
+                    <div class="mb-3 p-3 bg-light rounded-3 border">
+                        <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                            <div>
+                                <label class="form-check-label fw-bold text-dark mb-0" for="directCheckoutSwitchAdmin" style="font-size: 0.9rem; cursor: pointer;">
+                                    Direct Tab Checkout
+                                </label>
+                                <div class="small text-muted" style="font-size: 0.75rem;">Shows TAB button side-by-side with PAY</div>
+                            </div>
+                            <input class="form-check-input ms-2" type="checkbox" role="switch" id="directCheckoutSwitchAdmin" @bind="_newEventDirectCheckout" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer border-0 pt-0">
                     <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => creatingActiveEvent = null">Cancel</button>
@@ -842,6 +942,16 @@
     .overflow-y-auto::-webkit-scrollbar-thumb:hover {
         background: rgba(0,0,0,0.2);
     }
+
+    /* Hide spin-button arrows */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none !important;
+        margin: 0 !important;
+    }
+    input[type=number] {
+        -moz-appearance: textfield !important;
+    }
 </style>
 
 @code {
@@ -864,6 +974,11 @@
     private List<ActiveEvent>? activeEvents;
     private EventTemplate? editingEventTemplate;
     private ActiveEvent? creatingActiveEvent;
+    private bool _newEventDirectCheckout = false;
+    private bool _templateDirectCheckout = false;
+    private List<BanquetOverrideDto> editingEventOverrides = new();
+    private string selectedOverrideCategory = "BEER";
+    private string activeEventTemplateTab = "general";
 
     private LiquorItem? editingItem;
 
@@ -934,17 +1049,78 @@
     private void OpenAddEventTemplateModal()
     {
         editingEventTemplate = new EventTemplate { DefaultType = EventTabType.PrePaid, Name = "" };
+        _templateDirectCheckout = false;
+        editingEventOverrides = new();
+        selectedOverrideCategory = "BEER";
+        activeEventTemplateTab = "general";
     }
     
     private void OpenEditEventTemplateModal(EventTemplate t)
     {
-        editingEventTemplate = new EventTemplate { Id = t.Id, Name = t.Name, DefaultType = t.DefaultType };
+        editingEventTemplate = new EventTemplate { Id = t.Id, Name = t.Name, DefaultType = t.DefaultType, ItemsOverrideJson = t.ItemsOverrideJson };
+        _templateDirectCheckout = t.Name.EndsWith(" [Direct]") || t.Name.EndsWith("[Direct]");
+        if (editingEventTemplate.Name.EndsWith(" [Direct]"))
+            editingEventTemplate.Name = editingEventTemplate.Name.Substring(0, editingEventTemplate.Name.Length - 9);
+        else if (editingEventTemplate.Name.EndsWith("[Direct]"))
+            editingEventTemplate.Name = editingEventTemplate.Name.Substring(0, editingEventTemplate.Name.Length - 8);
+
+        selectedOverrideCategory = "BEER";
+        activeEventTemplateTab = "general";
+        try
+        {
+            editingEventOverrides = string.IsNullOrEmpty(t.ItemsOverrideJson)
+                ? new List<BanquetOverrideDto>()
+                : global::System.Text.Json.JsonSerializer.Deserialize<List<BanquetOverrideDto>>(t.ItemsOverrideJson, new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        }
+        catch
+        {
+            editingEventOverrides = new();
+        }
+    }
+    
+    private void ToggleItemOverride(int itemId, bool isChecked)
+    {
+        var item = editingEventOverrides.FirstOrDefault(o => o.ItemId == itemId);
+        if (item == null)
+        {
+            var retailItem = allItemsForTokens?.FirstOrDefault(i => i.Id == itemId);
+            item = new BanquetOverrideDto { ItemId = itemId, IsVisible = isChecked, OverridePrice = retailItem?.RetailPrice ?? 0 };
+            editingEventOverrides.Add(item);
+        }
+        else
+        {
+            item.IsVisible = isChecked;
+        }
+    }
+
+    private void UpdateItemOverridePrice(int itemId, object? value)
+    {
+        var item = editingEventOverrides.FirstOrDefault(o => o.ItemId == itemId);
+        if (item != null && value != null && decimal.TryParse(value.ToString(), out var price))
+        {
+            item.OverridePrice = price;
+        }
     }
     
     private async Task SaveEventTemplate()
     {
         if (editingEventTemplate == null || string.IsNullOrWhiteSpace(editingEventTemplate.Name)) return;
         try {
+            var cleanName = editingEventTemplate.Name.Trim();
+            if (cleanName.EndsWith(" [Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 9).Trim();
+            else if (cleanName.EndsWith("[Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 8).Trim();
+
+            if (_templateDirectCheckout)
+            {
+                editingEventTemplate.Name = cleanName + " [Direct]";
+            }
+            else
+            {
+                editingEventTemplate.Name = cleanName;
+            }
+
+            editingEventTemplate.ItemsOverrideJson = global::System.Text.Json.JsonSerializer.Serialize(editingEventOverrides);
+            
             using var db = await DbFactory.CreateDbContextAsync();
             if (editingEventTemplate.Id == 0) {
                 db.EventTemplates.Add(editingEventTemplate);
@@ -954,6 +1130,7 @@
                 if (orig != null) {
                     orig.Name = editingEventTemplate.Name;
                     orig.DefaultType = editingEventTemplate.DefaultType;
+                    orig.ItemsOverrideJson = editingEventTemplate.ItemsOverrideJson;
                     await ToastService.ShowSuccess("Template updated.");
                 }
             }
@@ -967,6 +1144,7 @@
     
     private void OpenCreateActiveEventModal(EventTemplate t)
     {
+        _newEventDirectCheckout = t.Name.EndsWith(" [Direct]") || t.Name.EndsWith("[Direct]");
         creatingActiveEvent = new ActiveEvent 
         { 
             TemplateId = t.Id, 
@@ -982,12 +1160,17 @@
     {
         if (creatingActiveEvent == null) return;
         try {
+            if (_newEventDirectCheckout)
+            {
+                creatingActiveEvent.Name += " [Direct]";
+            }
             creatingActiveEvent.CurrentBalance = creatingActiveEvent.Type == EventTabType.PrePaid ? creatingActiveEvent.InitialAmount : 0;
             using var db = await DbFactory.CreateDbContextAsync();
             db.ActiveEvents.Add(creatingActiveEvent);
             await db.SaveChangesAsync();
             await ToastService.ShowSuccess("Event started!");
             creatingActiveEvent = null;
+            _newEventDirectCheckout = false;
             await LoadEvents();
         } catch (Exception ex) {
             await ToastService.ShowError(ex.Message);
@@ -1593,5 +1776,13 @@
                 await ToastService.ShowSuccess("Modifier name updated");
             }
         }
+    }
+
+    private string GetEventDisplayName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "";
+        if (name.EndsWith(" [Direct]")) return name.Substring(0, name.Length - 9);
+        if (name.EndsWith("[Direct]")) return name.Substring(0, name.Length - 8);
+        return name;
     }
 }
