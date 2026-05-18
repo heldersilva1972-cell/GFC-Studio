@@ -3825,7 +3825,9 @@
                 Type = template.DefaultType,
                 TemplateId = template.Id,   // ← Link to template for price overrides & category filtering
                 CurrentBalance = _newBanquetAmount,
-                Status = GFC.Core.Enums.EventTabStatus.Open
+                Status = GFC.Core.Enums.EventTabStatus.Open,
+                InitialAmount = _newBanquetAmount,
+                CreatedAt = DateTime.UtcNow
             };
             
             if (!Connectivity.IsOnline)
@@ -3846,7 +3848,7 @@
 
                 if (_newBanquetAmount > 0)
                 {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id);
+                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
                 }
 
                 Toast.ShowSuccess("Banquet started offline! It will sync once connection is restored.");
@@ -3864,7 +3866,7 @@
                 var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
                 if (_newBanquetAmount > 0)
                 {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id);
+                    await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id, isInitial: true);
                 }
                 Toast.ShowSuccess("Banquet started!");
                 _newBanquetTemplateId = 0;
@@ -3982,6 +3984,16 @@
     {
         try
         {
+            // 1. Force flush the sync outbox so any newly logged added funds sales are pushed to the server first
+            try
+            {
+                await PosService.FlushAllPendingAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] Pre-print outbox flush failed: {ex.Message}");
+            }
+
             var master = await PosService.GetBanquetMasterSummaryAsync(ev.Id);
             bool isOffline = (master == null);
 
@@ -3993,6 +4005,17 @@
 
             BanquetShiftReportDto? localB = null;
 
+            // Load local shift banquet report as fallback/merge database
+            try
+            {
+                var finalAudit = await PosService.GetShiftAuditAsync();
+                localB = finalAudit.Banquets.FirstOrDefault(b => b.ActiveEventId == ev.Id);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] Failed to load local banquet shift report: {ex.Message}");
+            }
+
             if (!isOffline && master != null)
             {
                 eventName = master.EventName;
@@ -4001,21 +4024,16 @@
                 items = master.ItemQuantities;
                 totals = master.ItemTotals;
             }
-            else
+            else if (localB != null)
             {
-                var finalAudit = await PosService.GetShiftAuditAsync();
-                localB = finalAudit.Banquets.FirstOrDefault(b => b.ActiveEventId == ev.Id);
-                if (localB != null)
-                {
-                    eventName = localB.EventName;
-                    totalDeposited += localB.Deposits.Sum();
-                    totalSpent = localB.TotalSpent;
-                    items = localB.ItemSummary;
-                    totals = localB.ItemTotals;
-                }
+                eventName = localB.EventName;
+                totalDeposited = localB.Deposits.Sum();
+                totalSpent = localB.TotalSpent;
+                items = localB.ItemSummary;
+                totals = localB.ItemTotals;
             }
 
-            var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab || IsEventDirect(ev);
+            var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab;
             var html = $@"
                 <div style='font-family:monospace; width:280px; font-size:12px; line-height:1.4;'>
                     <div style='text-align:center; font-weight:bold; font-size:16px; margin-bottom:4px;'>GFC BANQUET RECEIPT</div>
@@ -4031,9 +4049,46 @@
                     <div style='border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:8px;'>
                         <div style='font-weight:bold; margin-bottom:4px;'>FUNDS & DEPOSITS LOG</div>";
 
-                if (!isOffline && master != null && master.Deposits.Any())
+                // Compile a fully unified, robust deposits list
+                var depositsToPrint = new List<BanquetDepositDetailDto>();
+
+                if (master != null && master.Deposits != null && master.Deposits.Any())
                 {
-                    foreach (var dep in master.Deposits)
+                    depositsToPrint = master.Deposits.ToList();
+                }
+
+                // If local has more deposits, use local deposits to make sure nothing is missed!
+                if (localB != null && localB.Deposits != null && localB.Deposits.Count > depositsToPrint.Count)
+                {
+                    depositsToPrint = new List<BanquetDepositDetailDto>();
+                    bool initialAdded = false;
+                    foreach (var amt in localB.Deposits)
+                    {
+                        if (amt == ev.InitialAmount && !initialAdded)
+                        {
+                            depositsToPrint.Add(new BanquetDepositDetailDto
+                            {
+                                Timestamp = ev.CreatedAt,
+                                Amount = amt,
+                                IsInitial = true
+                            });
+                            initialAdded = true;
+                        }
+                        else
+                        {
+                            depositsToPrint.Add(new BanquetDepositDetailDto
+                            {
+                                Timestamp = DateTime.Now,
+                                Amount = amt,
+                                IsInitial = false
+                            });
+                        }
+                    }
+                }
+
+                if (depositsToPrint.Any())
+                {
+                    foreach (var dep in depositsToPrint)
                     {
                         var label = dep.IsInitial ? "INITIAL DEPOSIT" : "ADDED FUNDS";
                         html += $@"
@@ -4050,24 +4105,6 @@
                             <span>- INITIAL DEPOSIT</span>
                             <span>{ev.InitialAmount:C}</span>
                         </div>";
-
-                    if (localB != null)
-                    {
-                        bool initialPrinted = false;
-                        foreach (var dep in localB.Deposits)
-                        {
-                            if (dep == ev.InitialAmount && !initialPrinted)
-                            {
-                                initialPrinted = true;
-                                continue;
-                            }
-                            html += $@"
-                                <div style='display:flex; justify-content:space-between; font-size:11px;'>
-                                    <span>- ADDED FUNDS (Offline)</span>
-                                    <span>{dep:C}</span>
-                                </div>";
-                        }
-                    }
                 }
 
                 html += $@"
@@ -4138,13 +4175,14 @@
         }
     }
 
-    private async Task LogTabDeposit(string eventName, decimal amount, int? eventId)
+    private async Task LogTabDeposit(string eventName, decimal amount, int? eventId, bool isInitial = false)
     {
+        var label = isInitial ? "INITIAL DEPOSIT" : "TAB DEPOSIT";
         var depositSale = new PosSaleDto
         {
             Id = Guid.NewGuid(),
             Timestamp = DateTime.UtcNow,
-            TerminalName = TerminalName,
+            TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
             BartenderName = CurrentUserName,
             TotalAmount = amount,
             PaymentType = "CASH",
@@ -4156,15 +4194,19 @@
             {
                 new ProductItem { 
                     Id = 0, 
-                    Name = $"TAB DEPOSIT: {eventName}", 
+                    Name = $"{label}: {eventName}", 
                     Price = amount, 
                     Quantity = 1, 
                     Category = "DEPOSIT" 
                 }
             })
         };
-        await PosService.AddSaleToShiftAsync(depositSale);
-        await UpdateAuditAsync();
+        if (!forceTrainingMode)
+        {
+            await PosService.AddSaleToShiftAsync(depositSale);
+            await PosService.SaveSaleAsync(depositSale);
+            await UpdateAuditAsync();
+        }
     }
 
     public class ProductItem { public Guid CartItemId { get; set; } = Guid.NewGuid(); public int Id { get; set; } public string Name { get; set; } = ""; public decimal Price { get; set; } public int Quantity { get; set; } = 1; public string Category { get; set; } = "MISC"; public bool IsTokenApplied { get; set; } public int DisplayOrder { get; set; } public List<ProductItem> Modifiers { get; set; } = new(); }

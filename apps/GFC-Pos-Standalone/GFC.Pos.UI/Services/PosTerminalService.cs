@@ -165,10 +165,7 @@ public class PosTerminalService : IPosTerminalService
                                     {
                                         if (i.Name.StartsWith("TAB DEPOSIT:"))
                                         {
-                                            if (!banquet.Deposits.Contains(i.Price))
-                                            {
-                                                banquet.Deposits.Add(i.Price);
-                                            }
+                                            banquet.Deposits.Add(i.Price);
                                             banquet.EventType = "PrePaid";
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))
