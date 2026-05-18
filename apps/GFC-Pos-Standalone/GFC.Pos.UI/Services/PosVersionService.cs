@@ -10,7 +10,7 @@ public class PosVersionService : IVersionService
 {
     public string GetDeveloper() => "GFC";
     public string GetYear() => "2026";
-    public string GetRevision() => "2.43.39"; 
+    public string GetRevision() => "2.43.41"; 
     public string GetBuildDate() => "2026-05-16";
     public string GetChanges() => "Checkout UI & Sync Hardening (v2.43.4)";
     public string GetVersion() => "2.43.4";
@@ -135,6 +135,8 @@ public class PosVersionService : IVersionService
     public string GetMobileVersion() => GetFullVersion();
     public string GetPosVersion() => GetFullVersion();
 }
+
+
 
 
 

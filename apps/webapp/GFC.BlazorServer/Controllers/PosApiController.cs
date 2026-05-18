@@ -213,7 +213,10 @@ public class PosApiController : ControllerBase
                 IsCorrection = saleDto.IsCorrection,
                 OriginalSaleId = saleDto.OriginalSaleId,
                 AdjustmentReason = saleDto.AdjustmentReason,
-                ActiveEventId = saleDto.ActiveEventId
+                ActiveEventId = (saleDto.ActiveEventId.HasValue && saleDto.ActiveEventId.Value > 0 && 
+                                 await db.ActiveEvents.AnyAsync(e => e.Id == saleDto.ActiveEventId.Value)) 
+                                 ? saleDto.ActiveEventId.Value 
+                                 : null
             };
 
             db.PosSales.Add(sale);

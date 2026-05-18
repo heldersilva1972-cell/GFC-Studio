@@ -842,8 +842,17 @@ public class PosTerminalService : IPosTerminalService
                         Console.WriteLine($"[SYNC] Deserialization failed for {key}: {ex.Message}");
                         continue;
                     }
-
                     if (data != null) {
+                        if (data.ActiveEventId < 0) {
+                            // If we still couldn't resolve the offline negative ID, set it to null so the sale can sync successfully
+                            // rather than causing a database foreign key constraint crash (500) and blocking the outbox forever.
+                            Console.WriteLine($"[SYNC] Could not resolve negative ActiveEventId {data.ActiveEventId} for sale {key}. Resetting to null to allow sync.");
+                            data.ActiveEventId = null;
+                            try {
+                                await _js.InvokeVoidAsync("window.gfcSetAsync", key, data);
+                            } catch {}
+                        }
+
                         try {
                             Console.WriteLine($"[SYNC] Sending sale {data.Id} to server ({_http.BaseAddress}api/pos/sale)...");
                             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
