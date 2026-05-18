@@ -493,6 +493,16 @@ public class PosApiController : ControllerBase
                 TotalDeposited = activeEvent.InitialAmount
             };
 
+            if (activeEvent.InitialAmount > 0)
+            {
+                summary.Deposits.Add(new BanquetDepositDetailDto
+                {
+                    Timestamp = activeEvent.CreatedAt,
+                    Amount = activeEvent.InitialAmount,
+                    IsInitial = true
+                });
+            }
+
             var sales = await db.PosSales
                 .Where(s => s.ActiveEventId == eventId && !s.IsVoided)
                 .ToListAsync();
@@ -512,6 +522,12 @@ public class PosApiController : ControllerBase
                             if (i.Name.StartsWith("TAB DEPOSIT:"))
                             {
                                 summary.TotalDeposited += i.Price;
+                                summary.Deposits.Add(new BanquetDepositDetailDto
+                                {
+                                    Timestamp = sale.Timestamp,
+                                    Amount = i.Price,
+                                    IsInitial = false
+                                });
                             }
                             else if (sale.PaymentType == "TAB")
                             {

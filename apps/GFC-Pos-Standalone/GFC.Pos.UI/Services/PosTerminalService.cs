@@ -136,6 +136,12 @@ public class PosTerminalService : IPosTerminalService
                                         {
                                             banquet.EventType = activeEv.Type.ToString();
                                             banquet.EventName = activeEv.Name;
+                                            
+                                            // Seed deposits with the initial prepaid amount if this is a Prepaid event
+                                            if (activeEv.Type.ToString() == "PrePaid" && activeEv.InitialAmount > 0)
+                                            {
+                                                banquet.Deposits.Add(activeEv.InitialAmount);
+                                            }
                                         }
                                     }
                                     audit.Banquets.Add(banquet);
@@ -159,7 +165,10 @@ public class PosTerminalService : IPosTerminalService
                                     {
                                         if (i.Name.StartsWith("TAB DEPOSIT:"))
                                         {
-                                            banquet.Deposits.Add(i.Price);
+                                            if (!banquet.Deposits.Contains(i.Price))
+                                            {
+                                                banquet.Deposits.Add(i.Price);
+                                            }
                                             banquet.EventType = "PrePaid";
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))

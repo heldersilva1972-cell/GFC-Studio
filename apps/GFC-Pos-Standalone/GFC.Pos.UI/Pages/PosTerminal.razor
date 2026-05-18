@@ -1338,7 +1338,17 @@
                             var ev = DbActiveEvents.First();
                             var isSelected = _selectedActiveEvent?.Id == ev.Id;
                             
-                            <button type="button" class="btn rounded-pill fw-black transition-all"
+                            @if (IsEventDirect(ev))
+                            {
+                                <span class="badge bg-success px-4 py-2.5 rounded-pill fw-black text-white" 
+                                      style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important;
+                                             box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;">
+                                    <i class="bi bi-journal-check me-1"></i> DIRECT TAB ACTIVE
+                                </span>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn rounded-pill fw-black transition-all"
                                     style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
                                            background: @(isSelected ? "#10b981" : "white") !important;
                                            color: @(isSelected ? "white" : "#334155") !important;
@@ -1354,6 +1364,7 @@
                                     <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
                                 }
                             </button>
+                            }
                             
                             <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-2"
                                     style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
@@ -2770,6 +2781,16 @@
         DbActiveEvents = menu.ActiveEvents ?? new();
         DbEventTemplates = menu.EventTemplates ?? new();
         
+        var directEvent = DbActiveEvents.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
+        if (directEvent != null)
+        {
+            _selectedActiveEvent = directEvent;
+        }
+        else if (_selectedActiveEvent != null && IsEventDirect(_selectedActiveEvent))
+        {
+            _selectedActiveEvent = null;
+        }
+        
         DbItems = menu.Items.Select(i => new ProductItem { 
             Id = i.Id, 
             Name = i.Name, 
@@ -3168,7 +3189,9 @@
         ClearCart(); 
         _correctingSaleId = null; 
         _isTabPayment = false;
-        _selectedActiveEvent = null; // Snap back to regular walk-in mode!
+        // Snap back to regular walk-in mode, or the active direct event if one exists!
+        var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
+        _selectedActiveEvent = directEvent;
         ActiveCategory = "BEER"; // Reset default category
         ShowCheckoutOverlay = false; 
         CashReceived = null; 
@@ -3210,6 +3233,7 @@
         var salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(z.SalesSummaryJson) ?? new();
         var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
         var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
+        var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Sum());
 
         // [SMART SUBTRACTION] Subtract banquet item sales from standard category calculations
         var regularSalesSummary = new Dictionary<string, int>(salesSummary);
@@ -3277,7 +3301,7 @@
         var banquetRows = "";
         foreach (var b in banquetSummary)
         {
-            var isRunningTab = b.EventType == "RunningTab";
+            var isRunningTab = b.EventType == "RunningTab" || b.EventName.EndsWith(" [Direct]") || b.EventName.EndsWith("[Direct]");
             banquetRows += $@"
                 <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
                     <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>BANQUET: {b.EventName}</div>";
@@ -3298,11 +3322,27 @@
                 banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
             }
             
+            var remaining = b.Deposits.Sum() - b.TotalSpent;
             banquetRows += $@"
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
-                        <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
-                    </div>
-                </div>";
+                    <div style='display:flex; justify-content:space-between; font-size:0.9em; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
+                        <span>TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
+                    </div>";
+
+            if (!isRunningTab)
+            {
+                banquetRows += $@"
+                    <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.95em;'>
+                        <span>TAB BALANCE:</span><span>{remaining:C}</span>
+                    </div>";
+            }
+            else
+            {
+                banquetRows += $@"
+                    <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.95em;'>
+                        <span>TOTAL DUE:</span><span>{b.TotalSpent:C}</span>
+                    </div>";
+            }
+            banquetRows += "</div>";
         }
 
         return $@"
@@ -3324,6 +3364,10 @@
                     <div style='display:flex; justify-content:space-between; font-weight:bold;'>
                         <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
                     </div>
+                    {(totalPrepaidDeposits > 0 ? $@"
+                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #166534; margin-top:2px;'>
+                            <span>PREPAID FUNDS ADDED:</span><span>+ {totalPrepaidDeposits:C}</span>
+                        </div>" : "")}
                     {(tokenCredits > 0 ? $@"
                         <div style='display:flex; justify-content:space-between; font-weight:bold; color: #991b1b; margin-top:2px;'>
                             <span>TOKEN CREDITS:</span><span>- {tokenCredits:C}</span>
@@ -3947,6 +3991,8 @@
             var items = new Dictionary<string, int>();
             var totals = new Dictionary<string, decimal>();
 
+            BanquetShiftReportDto? localB = null;
+
             if (!isOffline && master != null)
             {
                 eventName = master.EventName;
@@ -3958,7 +4004,7 @@
             else
             {
                 var finalAudit = await PosService.GetShiftAuditAsync();
-                var localB = finalAudit.Banquets.FirstOrDefault(b => b.ActiveEventId == ev.Id);
+                localB = finalAudit.Banquets.FirstOrDefault(b => b.ActiveEventId == ev.Id);
                 if (localB != null)
                 {
                     eventName = localB.EventName;
@@ -3969,6 +4015,7 @@
                 }
             }
 
+            var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab || IsEventDirect(ev);
             var html = $@"
                 <div style='font-family:monospace; width:280px; font-size:12px; line-height:1.4;'>
                     <div style='text-align:center; font-weight:bold; font-size:16px; margin-bottom:4px;'>GFC BANQUET RECEIPT</div>
@@ -3976,17 +4023,62 @@
                         {(isOffline ? "<span style='color:red; font-weight:bold;'>*** OFFLINE MODE ***</span><br/>" : "")}
                         EVENT: {eventName.ToUpper()}<br/>
                         DATE: {DateTime.Now:MM/dd/yyyy h:mm tt}
-                    </div>
+                    </div>";
 
-                    <div style='display:flex; justify-content:space-between; font-weight:bold;'>
-                        <span>INITIAL DEPOSIT:</span>
-                        <span>{ev.InitialAmount:C}</span>
-                    </div>
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:8px;'>
-                        <span>TOTAL FUNDS ADDED:</span>
-                        <span>{totalDeposited:C}</span>
-                    </div>
+            if (!isRunningTab)
+            {
+                html += $@"
+                    <div style='border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:8px;'>
+                        <div style='font-weight:bold; margin-bottom:4px;'>FUNDS & DEPOSITS LOG</div>";
 
+                if (!isOffline && master != null && master.Deposits.Any())
+                {
+                    foreach (var dep in master.Deposits)
+                    {
+                        var label = dep.IsInitial ? "INITIAL DEPOSIT" : "ADDED FUNDS";
+                        html += $@"
+                            <div style='display:flex; justify-content:space-between; font-size:11px;'>
+                                <span>- {label} ({dep.Timestamp.ToLocalTime():MM/dd h:mm tt})</span>
+                                <span>{dep.Amount:C}</span>
+                            </div>";
+                    }
+                }
+                else
+                {
+                    html += $@"
+                        <div style='display:flex; justify-content:space-between; font-size:11px;'>
+                            <span>- INITIAL DEPOSIT</span>
+                            <span>{ev.InitialAmount:C}</span>
+                        </div>";
+
+                    if (localB != null)
+                    {
+                        bool initialPrinted = false;
+                        foreach (var dep in localB.Deposits)
+                        {
+                            if (dep == ev.InitialAmount && !initialPrinted)
+                            {
+                                initialPrinted = true;
+                                continue;
+                            }
+                            html += $@"
+                                <div style='display:flex; justify-content:space-between; font-size:11px;'>
+                                    <span>- ADDED FUNDS (Offline)</span>
+                                    <span>{dep:C}</span>
+                                </div>";
+                        }
+                    }
+                }
+
+                html += $@"
+                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:13px; border-top:1px solid #000; margin-top:4px; padding-top:4px;'>
+                            <span>TOTAL FUNDS ADDED:</span>
+                            <span>{totalDeposited:C}</span>
+                        </div>
+                    </div>";
+            }
+
+            html += $@"
                     <div style='font-weight:bold; text-transform:uppercase; margin-bottom:4px;'>TAB ITEM SUMMARY</div>";
 
             if (items.Any())
@@ -4006,21 +4098,34 @@
             }
 
             var remaining = totalDeposited - totalSpent;
-            var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab;
             html += $@"
-                    <div style='border-top:1px dashed #000; margin-top:8px; padding-top:4px;'>
+                    <div style='border-top:1px dashed #000; margin-top:8px; padding-top:4px;'>";
+
+            if (!isRunningTab)
+            {
+                html += $@"
                         <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:13px;'>
                             <span>TOTAL SPENT:</span>
                             <span>{totalSpent:C}</span>
                         </div>
                         <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px; border-top:1px solid #000; padding-top:4px;'>
-                            <span>{(isRunningTab ? "TOTAL DUE:" : "TAB BALANCE:")}</span>
-                            <span>{(isRunningTab ? totalSpent.ToString("C") : remaining.ToString("C"))}</span>
-                        </div>
-                    </div>
+                            <span>TAB BALANCE:</span>
+                            <span>{remaining:C}</span>
+                        </div>";
+            }
+            else
+            {
+                html += $@"
+                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px; border-top:1px solid #000; padding-top:4px;'>
+                            <span>TOTAL DUE:</span>
+                            <span>{totalSpent:C}</span>
+                        </div>";
+            }
+            html += "</div>";
 
+            html += $@"
                     <div style='text-align:center; margin-top:20px; border-top:1px dashed #000; padding-top:8px; font-size:10px; color:#555;'>
-                        {(isRunningTab ? "Thank you for hosting your event with GFC!" : "Thank you for hosting your event with GFC!")}
+                        Thank you for hosting your event with GFC!
                     </div>
                 </div>";
 
