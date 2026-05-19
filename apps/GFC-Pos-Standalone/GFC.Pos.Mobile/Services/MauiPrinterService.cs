@@ -1,5 +1,7 @@
 using GFC.Pos.UI.Services;
+#if ANDROID
 using GFC.Pos.Mobile.Platforms.Android.Services;
+#endif
 
 namespace GFC.Pos.Mobile.Services;
 

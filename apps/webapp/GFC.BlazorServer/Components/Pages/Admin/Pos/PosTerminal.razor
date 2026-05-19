@@ -367,9 +367,13 @@
                     <h6 class="text-muted small fw-bold text-uppercase mb-3">Unit Configuration</h6>
                     <div class="p-3 bg-light rounded-4 mb-3">
                         <label class="small text-muted mb-2 d-block ms-1">Station Name</label>
-                        <input type="text" class="form-control form-control-lg border-0 shadow-sm rounded-3" 
+                        <input type="text" class="form-control form-control-lg border-0 shadow-sm rounded-3 mb-3" 
                                @bind="TerminalName" @bind:after="SaveTerminalName" 
                                placeholder="e.g. Main Bar" />
+                        <label class="small text-muted mb-1 d-block ms-1">Assigned Menu Profile</label>
+                        <div class="fw-black text-primary ms-1" style="font-size: 1.15rem; letter-spacing: -0.5px;">
+                            <i class="bi bi-tags-fill me-2"></i> @AssignedProfileName
+                        </div>
                     </div>
 
                     <h6 class="text-muted small fw-bold text-uppercase mb-3">Operational Training Mode</h6>
@@ -1918,6 +1922,7 @@
     private bool allowHardwareInTraining = false;
     private bool isDartsModeActive = false;
     private string TerminalName = "TERMINAL 1";
+    private string AssignedProfileName = "Default Retail (No Profile)";
 
     private bool showBanquetsModal = false;
     private int _newBanquetTemplateId = 0;
@@ -1977,7 +1982,7 @@
 
         // 4. Load Active Events & Templates
         DbActiveEvents = await db.ActiveEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open).ToListAsync();
-        DbEventTemplates = await db.EventTemplates.ToListAsync();
+        DbEventTemplates = await db.EventTemplates.Where(t => !t.IsDeleted).ToListAsync();
         
         var directEvent = DbActiveEvents.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
         if (directEvent != null)
@@ -1987,6 +1992,26 @@
         else if (_selectedActiveEvent != null && IsEventDirect(_selectedActiveEvent))
         {
             _selectedActiveEvent = null;
+        }
+        
+        // 5. Load Assigned Menu Profile Name
+        try
+        {
+            var terminal = await db.PosTerminals
+                .Include(t => t.MenuProfile)
+                .FirstOrDefaultAsync(t => t.TerminalName == TerminalName && !t.IsDeleted);
+            if (terminal != null && terminal.MenuProfile != null)
+            {
+                AssignedProfileName = terminal.MenuProfile.Name;
+            }
+            else
+            {
+                AssignedProfileName = "Default Retail (No Profile)";
+            }
+        }
+        catch
+        {
+            AssignedProfileName = "Default Retail (No Profile)";
         }
         
         StateHasChanged();
@@ -3144,6 +3169,7 @@
     private async Task SaveTerminalName()
     {
         await JSRuntime.InvokeVoidAsync("localStorage.setItem", "GfcPos_TerminalName", TerminalName);
+        await LoadLiveData();
     }
 
     private SystemSettings _sysSettings = new();

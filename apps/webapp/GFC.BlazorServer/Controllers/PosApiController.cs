@@ -47,14 +47,65 @@ public class PosApiController : ControllerBase
     }
 
     [HttpGet("menu")]
-    public async Task<IActionResult> GetMenu()
+    public async Task<IActionResult> GetMenu([FromQuery] string? terminalName = null)
     {
         try 
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             
-            var categories = await db.PosCategories
-                .Where(c => c.IsActive && !c.IsModifierCategory)
+            int? profileId = null;
+            string profileName = "Default Retail (No Profile)";
+            if (!string.IsNullOrWhiteSpace(terminalName))
+            {
+                var searchName = terminalName.Trim();
+                var terminal = await db.PosTerminals
+                    .Include(t => t.MenuProfile)
+                    .FirstOrDefaultAsync(t => t.TerminalName.Trim() == searchName);
+                
+                // Fallback to case-insensitive match if not found exactly
+                if (terminal == null)
+                {
+                    terminal = await db.PosTerminals
+                        .Include(t => t.MenuProfile)
+                        .FirstOrDefaultAsync(t => t.TerminalName.ToLower().Trim() == searchName.ToLower());
+                }
+
+                if (terminal == null)
+                {
+                    terminal = new PosTerminal
+                    {
+                        TerminalName = searchName,
+                        MenuProfileId = null,
+                        LastSeenAt = DateTime.UtcNow
+                    };
+                    db.PosTerminals.Add(terminal);
+                    await db.SaveChangesAsync();
+                }
+                else
+                {
+                    terminal.LastSeenAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+                profileId = terminal.MenuProfileId;
+                if (terminal.MenuProfile != null)
+                {
+                    profileName = terminal.MenuProfile.Name;
+                }
+            }
+
+            var categoriesQuery = db.PosCategories
+                .Where(c => c.IsActive && !c.IsModifierCategory);
+
+            if (profileId.HasValue)
+            {
+                categoriesQuery = categoriesQuery.Where(c => c.MenuProfileId == null || c.MenuProfileId == profileId.Value);
+            }
+            else
+            {
+                categoriesQuery = categoriesQuery.Where(c => c.MenuProfileId == null);
+            }
+
+            var categories = await categoriesQuery
                 .OrderBy(c => c.DisplayOrder)
                 .Select(c => c.Name)
                 .ToListAsync();
@@ -85,18 +136,55 @@ public class PosApiController : ControllerBase
                 }
             }
 
-            var items = await db.LiquorItems
-                .Where(i => i.ShowInPos)
-                .OrderBy(i => i.DisplayOrder)
-                .Select(i => new PosItemDto 
+            var liquorItems = await db.LiquorItems.ToListAsync();
+            var overrides = profileId.HasValue 
+                ? await db.PosMenuOverrides.Where(o => o.MenuProfileId == profileId.Value).ToListAsync()
+                : new List<PosMenuOverride>();
+
+            var overrideMap = overrides.ToDictionary(o => o.LiquorItemId);
+            var items = new List<PosItemDto>();
+
+            foreach (var i in liquorItems)
+            {
+                bool showInPos = i.ShowInPos;
+                decimal price = i.RetailPrice;
+                string category = i.Category ?? "MISC";
+                int displayOrder = i.DisplayOrder;
+
+                if (overrideMap.TryGetValue(i.Id, out var o))
                 {
-                    Id = i.Id,
-                    Name = i.Name,
-                    Price = i.RetailPrice,
-                    Category = (i.Category ?? "MISC").Trim().ToUpper(),
-                    DisplayOrder = i.DisplayOrder
-                })
-                .ToListAsync();
+                    if (o.IsVisible.HasValue)
+                    {
+                        showInPos = o.IsVisible.Value;
+                    }
+                    if (o.OverridePrice.HasValue)
+                    {
+                        price = o.OverridePrice.Value;
+                    }
+                    if (!string.IsNullOrWhiteSpace(o.OverrideCategory))
+                    {
+                        category = o.OverrideCategory;
+                    }
+                    if (o.DisplayOrder.HasValue)
+                    {
+                        displayOrder = o.DisplayOrder.Value;
+                    }
+                }
+
+                if (showInPos)
+                {
+                    items.Add(new PosItemDto 
+                    {
+                        Id = i.Id,
+                        Name = i.Name,
+                        Price = price,
+                        Category = category.Trim().ToUpper(),
+                        DisplayOrder = displayOrder
+                    });
+                }
+            }
+
+            items = items.OrderBy(x => x.DisplayOrder).ToList();
 
             if (!categories.Contains("TOKENS")) categories.Add("TOKENS");
 
@@ -127,7 +215,8 @@ public class PosApiController : ControllerBase
                 EventTemplates = templates,
                 ModifierCategories = modifierCategories,
                 Modifiers = flatModifiers,
-                PayoutCategories = payoutCategories
+                PayoutCategories = payoutCategories,
+                ProfileName = profileName
             });
         }
         catch (Exception ex)

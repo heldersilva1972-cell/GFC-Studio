@@ -1,31 +1,24 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
-    [Table("PosCategories")]
-    public class PosCategory : BaseEntity
+    [Table("PosTerminals")]
+    public class PosTerminal : BaseEntity
     {
         [Key]
         public int Id { get; set; }
 
         [Required]
         [StringLength(100)]
-        public string Name { get; set; } = string.Empty;
-
-        public int DisplayOrder { get; set; } = 0;
-
-        public bool IsActive { get; set; } = true;
-
-        public bool IsModifierCategory { get; set; } = false;
-
-        public string? ModifiersJson { get; set; }
+        public string TerminalName { get; set; } = string.Empty;
 
         public int? MenuProfileId { get; set; }
 
         [ForeignKey("MenuProfileId")]
         public virtual PosMenuProfile? MenuProfile { get; set; }
+
+        public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
     }
 }

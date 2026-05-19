@@ -16,6 +16,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private readonly HttpClient _http;
     private readonly IJSRuntime _js;
     private readonly ConnectivityService _connectivity;
+    private readonly IStationSettingsService _stationSettings;
 
     private const string VaultPrefixSales = "gfc_pos_vault_sale_";
     private const string VaultPrefixZ     = "gfc_pos_vault_z_";
@@ -340,11 +341,12 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private readonly SemaphoreSlim _syncLock = new(1, 1);
     private readonly Timer _syncTimer;
 
-    public PosTerminalService(HttpClient http, IJSRuntime js, ConnectivityService connectivity)
+    public PosTerminalService(HttpClient http, IJSRuntime js, ConnectivityService connectivity, IStationSettingsService stationSettings)
     {
         _http = http;
         _js = js;
         _connectivity = connectivity;
+        _stationSettings = stationSettings;
 
         // [SYNC HEARTBEAT] Pulse every 30 seconds to flush trapped data
         _syncTimer = new Timer(async _ => await SafeFlushAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
@@ -543,7 +545,9 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             if (await _connectivity.GateAsync("RefreshMenu"))
             {
                 Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Server is reachable, fetching...");
-                var menu = await _http.GetFromJsonAsync<PosMenuDto>("api/pos/menu");
+                var terminalName = await _stationSettings.GetTerminalNameAsync();
+                var url = $"api/pos/menu?terminalName={Uri.EscapeDataString(terminalName ?? string.Empty)}";
+                var menu = await _http.GetFromJsonAsync<PosMenuDto>(url);
                 
                 if (menu != null)
                 {

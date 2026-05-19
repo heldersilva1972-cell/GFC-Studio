@@ -12,6 +12,7 @@ public class PosMenuDto
     public List<string> ModifierCategories { get; set; } = new();
     public List<PosModifierDto> Modifiers { get; set; } = new();
     public List<string> PayoutCategories { get; set; } = new();
+    public string ProfileName { get; set; } = "Default Retail (No Profile)";
 }
 
 public class PosModifierDto

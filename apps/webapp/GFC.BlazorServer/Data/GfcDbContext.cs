@@ -146,6 +146,9 @@ public class GfcDbContext : DbContext
     public DbSet<PosToken> PosTokens => Set<PosToken>();
     public DbSet<PosSale> PosSales => Set<PosSale>();
     public DbSet<PosZReport> PosZReports => Set<PosZReport>();
+    public DbSet<PosMenuProfile> PosMenuProfiles => Set<PosMenuProfile>();
+    public DbSet<PosMenuOverride> PosMenuOverrides => Set<PosMenuOverride>();
+    public DbSet<PosTerminal> PosTerminals => Set<PosTerminal>();
     
     // Events & Banquets
     public DbSet<EventTemplate> EventTemplates => Set<EventTemplate>();
@@ -968,6 +971,7 @@ public class GfcDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.CashTotal).HasColumnType("decimal(18,2)");
             entity.Property(e => e.TotalGrossSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.BanquetSummaryJson).IsRequired(false);
         });
 
         // Finance System Configuration
@@ -1189,6 +1193,29 @@ public class GfcDbContext : DbContext
             entity.ToTable("PosSales", "dbo");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<PosMenuProfile>(entity =>
+        {
+            entity.ToTable("PosMenuProfiles");
+            entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<PosMenuOverride>(entity =>
+        {
+            entity.ToTable("PosMenuOverrides");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.OverridePrice).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<PosTerminal>(entity =>
+        {
+            entity.ToTable("PosTerminals");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.TerminalName).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
         });
     }
 
