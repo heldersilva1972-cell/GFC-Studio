@@ -11,6 +11,7 @@ public class ConnectivityService : IAsyncDisposable
     private readonly IJSRuntime _js;
     private readonly HttpClient _http;
     private DotNetObjectReference<ConnectivityService>? _selfRef;
+    private readonly CancellationTokenSource _cts = new();
 
     private bool _isOnline = true;
     private bool _isHardwareOnline = true;
@@ -39,22 +40,33 @@ public class ConnectivityService : IAsyncDisposable
             
             // [MOBILE PARITY] Pulse every 5 seconds exactly like mobile hub
             _ = Task.Run(async () => {
-                while (true) {
-                    var prevOnline = _isOnline;
-                    var prevHardware = _isHardwareOnline;
-                    var prevServer = _isServerReachable;
+                try
+                {
+                    while (!_cts.Token.IsCancellationRequested) {
+                        var prevOnline = _isOnline;
+                        var prevHardware = _isHardwareOnline;
+                        var prevServer = _isServerReachable;
 
-                    await CheckServerReachableAsync();
+                        await CheckServerReachableAsync();
 
-                    // Fire if ANY state changed (Diagnostics dots need this)
-                    if (prevOnline != _isOnline || prevHardware != _isHardwareOnline || prevServer != _isServerReachable)
-                    {
-                        ConnectivityChanged?.Invoke(_isOnline);
+                        // Fire if ANY state changed (Diagnostics dots need this)
+                        if (prevOnline != _isOnline || prevHardware != _isHardwareOnline || prevServer != _isServerReachable)
+                        {
+                            ConnectivityChanged?.Invoke(_isOnline);
+                        }
+
+                        await Task.Delay(5000, _cts.Token);
                     }
-
-                    await Task.Delay(5000);
                 }
-            });
+                catch (OperationCanceledException)
+                {
+                    // Safe exit when task is cancelled
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Connectivity] Background loop exception: {ex.Message}");
+                }
+            }, _cts.Token);
         }
         catch (Exception ex)
         {
@@ -144,7 +156,14 @@ public class ConnectivityService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try
+        {
+            _cts.Cancel();
+        }
+        catch (ObjectDisposedException) { }
+
         try { await _js.InvokeVoidAsync("GfcConnectivity.dispose"); } catch { }
         _selfRef?.Dispose();
+        _cts.Dispose();
     }
 }

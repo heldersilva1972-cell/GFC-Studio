@@ -11,7 +11,7 @@ namespace GFC.Pos.UI.Services;
 /// Saves go to localStorage FIRST (instant). 
 /// Auto-flushes both sales and Z-reports when connectivity is restored.
 /// </summary>
-public class PosTerminalService : IPosTerminalService
+public class PosTerminalService : IPosTerminalService, IDisposable
 {
     private readonly HttpClient _http;
     private readonly IJSRuntime _js;
@@ -324,17 +324,19 @@ public class PosTerminalService : IPosTerminalService
         // [SYNC HEARTBEAT] Pulse every 30 seconds to flush trapped data
         _syncTimer = new Timer(async _ => await SafeFlushAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
 
-        _connectivity.ConnectivityChanged += async isOnline =>
-        {
-            if (isOnline)
-            {
-                Console.WriteLine("[SYNC] Server detected! Triggering immediate vault sweep...");
-                _ = SafeFlushAsync();
-            }
-        };
+        _connectivity.ConnectivityChanged += HandleConnectivityChanged;
 
         // Initialize API Base Address from Override if present
         _ = InitializeApiUrlAsync();
+    }
+
+    private void HandleConnectivityChanged(bool isOnline)
+    {
+        if (isOnline)
+        {
+            Console.WriteLine("[SYNC] Server detected! Triggering immediate vault sweep...");
+            _ = SafeFlushAsync();
+        }
     }
 
     private async Task InitializeApiUrlAsync()
@@ -715,6 +717,21 @@ public class PosTerminalService : IPosTerminalService
                 var key = item.GetProperty("key").GetString();
                 if (key == null) continue;
 
+                var retryKey = $"gfc_sync_retry_{key}";
+                int retryCount = 0;
+                try {
+                    var retryCountStr = await _js.InvokeAsync<string>("localStorage.getItem", retryKey);
+                    if (!string.IsNullOrEmpty(retryCountStr) && int.TryParse(retryCountStr, out var parsedRetry))
+                    {
+                        retryCount = parsedRetry;
+                    }
+                } catch { }
+
+                if (retryCount >= 5) {
+                    Console.WriteLine($"[SYNC] Skipping poison-pill outbox item {key} due to {retryCount} consecutive server rejections.");
+                    continue;
+                }
+
                 if (key.StartsWith("gfc_pos_vault_event_start_")) {
                     Console.WriteLine($"[SYNC] Processing Offline Event Startup: {key}");
                     ActiveEvent? data = null;
@@ -751,6 +768,7 @@ public class PosTerminalService : IPosTerminalService
                                     Console.WriteLine($"[SYNC] Server created event with real ID: {createdEvent.Id}");
                                     
                                     await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                    try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
                                     
                                     var allVault = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
                                     if (allVault.ValueKind == JsonValueKind.Array) {
@@ -813,6 +831,8 @@ public class PosTerminalService : IPosTerminalService
                                 }
                             } else {
                                 Console.WriteLine($"[SYNC] Server rejected offline event start: {resp.StatusCode}");
+                                retryCount++;
+                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error starting offline event {data.Name}: {ex.Message}");
@@ -860,11 +880,14 @@ public class PosTerminalService : IPosTerminalService
                             if (resp.IsSuccessStatusCode) {
                                 Console.WriteLine($"[SYNC] Sale {data.Id} SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
                                 LastSynced = DateTime.Now;
                             } else {
                                 Console.WriteLine($"[SYNC] Server REJECTED sale {data.Id}: {resp.StatusCode} at {_http.BaseAddress}");
                                 var err = await resp.Content.ReadAsStringAsync();
                                 Console.WriteLine($"[SYNC] Server Error Detail: {err}");
+                                retryCount++;
+                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error sending sale {data.Id}: {ex.Message}");
@@ -901,9 +924,12 @@ public class PosTerminalService : IPosTerminalService
                             if (resp.IsSuccessStatusCode) {
                                 Console.WriteLine($"[SYNC] Z-Report SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
                                 LastSynced = DateTime.Now;
                             } else {
                                 Console.WriteLine($"[SYNC] Server REJECTED Z-Report: {resp.StatusCode}");
+                                retryCount++;
+                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error sending Z-Report: {ex.Message}");
@@ -939,5 +965,19 @@ public class PosTerminalService : IPosTerminalService
             PendingZCount = z;
             return TotalPendingCount;
         } catch { return 0; }
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _syncTimer?.Dispose();
+        }
+        catch { }
+
+        if (_connectivity != null)
+        {
+            _connectivity.ConnectivityChanged -= HandleConnectivityChanged;
+        }
     }
 }
