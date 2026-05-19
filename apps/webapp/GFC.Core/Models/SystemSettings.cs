@@ -124,6 +124,8 @@ public class SystemSettings
     public decimal BingoAdditionalCardPrice { get; set; } = 3.00m;
     public int BingoPayoutRoundingMode { get; set; } = 0; // 0: None, 1: Round Up, 2: Round Down
 
+    public string? PayoutCategories { get; set; } = "FOOD,SUPPLIES,MAINTENANCE,REBATE/REFUND,OTHER";
+
     // --- REVISION TRACKING (DB-DRIVEN FOR INDEPENDENT UPDATES) ---
     public string? WebappRevision { get; set; }
     public string? MobileRevision { get; set; }

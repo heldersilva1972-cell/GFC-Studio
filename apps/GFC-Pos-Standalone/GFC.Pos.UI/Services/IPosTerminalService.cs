@@ -48,6 +48,8 @@ public class ShiftAuditDto
     public List<PosSaleDto> VoidedSales { get; set; } = new();
     public PosSaleDto? LatestSale { get; set; }
     public List<BanquetShiftReportDto> Banquets { get; set; } = new();
+    public decimal PayoutTotal { get; set; }
+    public List<PosSaleDto> Payouts { get; set; } = new();
 }
 
 public class BanquetShiftReportDto

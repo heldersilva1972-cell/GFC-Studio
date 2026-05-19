@@ -104,6 +104,20 @@ public class PosApiController : ControllerBase
             var activeEvents = await db.ActiveEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted).ToListAsync();
             var templates = await db.EventTemplates.Where(t => !t.IsDeleted).ToListAsync();
 
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
+            var payoutCategories = new List<string>();
+            if (settings != null && !string.IsNullOrEmpty(settings.PayoutCategories))
+            {
+                payoutCategories = settings.PayoutCategories
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(c => c.Trim().ToUpper())
+                    .ToList();
+            }
+            else
+            {
+                payoutCategories = new List<string> { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+            }
+
             return Ok(new PosMenuDto
             {
                 Categories = categories,
@@ -112,7 +126,8 @@ public class PosApiController : ControllerBase
                 ActiveEvents = activeEvents,
                 EventTemplates = templates,
                 ModifierCategories = modifierCategories,
-                Modifiers = flatModifiers
+                Modifiers = flatModifiers,
+                PayoutCategories = payoutCategories
             });
         }
         catch (Exception ex)

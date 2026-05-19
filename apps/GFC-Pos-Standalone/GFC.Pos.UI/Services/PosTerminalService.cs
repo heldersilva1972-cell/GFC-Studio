@@ -143,6 +143,26 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                             if (!string.IsNullOrEmpty(data.ItemsJson))
                             {
                                 salesItems = JsonSerializer.Deserialize<List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>>(data.ItemsJson, _jsonOptions);
+                                if (data.PaymentType == "PAYOUT")
+                                {
+                                    audit.PayoutTotal += data.TotalAmount;
+                                    audit.Payouts.Add(data);
+                                    if (salesItems != null && salesItems.Any())
+                                    {
+                                        var pItem = salesItems.First();
+                                        var parts = pItem.Name.Split(':');
+                                        var category = parts.Length > 1 ? parts[1] : "OTHER";
+                                        var desc = parts.Length > 2 ? parts[2] : "";
+                                        var cents = (int)(data.TotalAmount * 100);
+                                        var summaryKey = $"PAYOUT:{category}:{desc}:{cents}";
+                                        
+                                        if (!audit.ItemSummary.ContainsKey(summaryKey))
+                                            audit.ItemSummary[summaryKey] = 0;
+                                        audit.ItemSummary[summaryKey]++;
+                                    }
+                                    continue;
+                                }
+
                                 if (salesItems != null)
                                 {
                                     bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:");
@@ -220,13 +240,18 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
                                     foreach (var i in flatList)
                                     {
-                                        if (i.Name.StartsWith("TAB DEPOSIT:"))
+                                        if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:"))
                                         {
                                             banquet.Deposits.Add(i.Price);
                                             banquet.EventType = "PrePaid";
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))
-                                                banquet.EventName = i.Name.Replace("TAB DEPOSIT: ", "");
+                                            {
+                                                banquet.EventName = i.Name
+                                                    .Replace("TAB DEPOSIT: ", "")
+                                                    .Replace("DEPOSIT CORRECTION: ", "")
+                                                    .Replace("INITIAL DEPOSIT: ", "");
+                                            }
                                         }
                                         else if (data.PaymentType == "TAB")
                                         {

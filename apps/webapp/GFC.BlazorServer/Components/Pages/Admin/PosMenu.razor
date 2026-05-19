@@ -91,6 +91,17 @@
                                 <i class="bi bi-chevron-right small"></i>
                             </div>
                         </button>
+
+                        <div class="card-header bg-light border-0 py-2 mt-3">
+                            <h6 class="fw-bold mb-0 text-muted extra-small text-uppercase">Drawer Control</h6>
+                        </div>
+                        <button class="list-group-item list-group-item-action border-0 py-3 @(showPayoutTab ? "active" : "")" 
+                                @onclick="SelectPayoutTab">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-wallet2 me-2"></i> PAYOUT SETTINGS</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </div>
+                        </button>
                     }
                 </div>
             </div>
@@ -218,6 +229,63 @@
                                 </div>
                             </div>
                         }
+                        </div>
+                    }
+                </div>
+            }
+            else if (showPayoutTab)
+            {
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-4 flex-shrink-0">
+                    <div>
+                        <h2 class="fw-black mb-1" style="color: #ea580c;"><i class="bi bi-wallet2 me-2"></i>Drawer Payout Categories</h2>
+                        <p class="text-muted small mb-0">Configure standard bookkeeping options for bartender/cashier cash drawer payouts.</p>
+                    </div>
+                </div>
+
+                <div class="flex-grow-1 overflow-y-auto pe-2 scroll-area">
+                    <div class="card border-0 rounded-4 p-4 mb-4 shadow-sm" style="background-color: #fff7ed;">
+                        <h5 class="fw-bold mb-3 text-dark"><i class="bi bi-plus-circle-fill me-2" style="color: #ea580c;"></i>Create Category</h5>
+                        <div class="d-flex gap-3 align-items-center">
+                            <div class="flex-grow-1">
+                                <input type="text" class="form-control form-control-lg rounded-3 border-2" 
+                                       @bind="newPayoutCategory" placeholder="e.g. FOOD, SUPPLIES, MUSIC, POSTAGE..." />
+                            </div>
+                            <button class="btn rounded-pill px-4 py-2 fw-bold shadow-sm text-white" style="background-color: #ea580c; border-color: #ea580c;" @onclick="AddPayoutCategory" disabled="@string.IsNullOrWhiteSpace(newPayoutCategory)">
+                                <i class="bi bi-plus-lg me-2"></i> Add Category
+                            </button>
+                        </div>
+                    </div>
+
+                    <h5 class="fw-bold mb-3 d-flex align-items-center justify-content-between">
+                        <span>Current Payout Options</span>
+                        <span class="badge bg-secondary rounded-pill">@payoutCategories.Count categories</span>
+                    </h5>
+
+                    @if (!payoutCategories.Any())
+                    {
+                        <div class="text-center py-5 bg-white border border-2 border-dashed rounded-4">
+                            <i class="bi bi-wallet fs-1 text-muted opacity-25"></i>
+                            <h5 class="mt-3">No Payout Categories Configured</h5>
+                            <p class="text-muted">Without categories, POS operators cannot file drawer payouts.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group rounded-4 shadow-sm border overflow-hidden">
+                            @foreach (var pCat in payoutCategories)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center py-3 px-4 hover-bg bg-white border-0 border-bottom">
+                                    <div class="d-flex align-items-center">
+                                        <div class="rounded-circle px-3 py-2 me-3 fw-bold small" style="background-color: #ffedd5; color: #ea580c;">
+                                            @pCat.Substring(0, 1)
+                                        </div>
+                                        <span class="fw-bold text-dark fs-5">@pCat</span>
+                                    </div>
+                                    <button class="btn btn-outline-danger btn-sm border-0 rounded-circle p-2" @onclick="() => DeletePayoutCategory(pCat)" title="Delete @pCat">
+                                        <i class="bi bi-trash-fill fs-5"></i>
+                                    </button>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -980,12 +1048,17 @@
     private string selectedOverrideCategory = "BEER";
     private string activeEventTemplateTab = "general";
 
+    private bool showPayoutTab = false;
+    private List<string> payoutCategories = new();
+    private string newPayoutCategory = "";
+
     private LiquorItem? editingItem;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadCategories();
         await LoadAllItems();
+        await LoadPayoutCategories();
     }
 
     private void GoBack()
@@ -1018,6 +1091,8 @@
     {
         showUncategorized = false;
         showEventsTab = false;
+        showTokensTab = false;
+        showPayoutTab = false;
         selectedCategory = cat;
         await ReloadItems();
     }
@@ -1027,6 +1102,8 @@
         selectedCategory = new PosCategory { Name = "NEEDS CATEGORY" };
         showUncategorized = true;
         showEventsTab = false;
+        showTokensTab = false;
+        showPayoutTab = false;
         await ReloadItems();
     }
 
@@ -1035,10 +1112,82 @@
         selectedCategory = null;
         showUncategorized = false;
         showTokensTab = false;
+        showPayoutTab = false;
         showEventsTab = true;
         await LoadEvents();
     }
     
+    private async Task SelectPayoutTab()
+    {
+        selectedCategory = null;
+        showUncategorized = false;
+        showTokensTab = false;
+        showEventsTab = false;
+        showPayoutTab = true;
+        await LoadPayoutCategories();
+    }
+
+    private async Task LoadPayoutCategories()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.SystemSettings.FirstOrDefaultAsync();
+        if (settings != null && !string.IsNullOrEmpty(settings.PayoutCategories))
+        {
+            payoutCategories = settings.PayoutCategories
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(c => c.Trim().ToUpper())
+                .ToList();
+        }
+        else
+        {
+            payoutCategories = new List<string> { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+        }
+    }
+
+    private async Task SavePayoutCategories()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
+            if (settings != null)
+            {
+                settings.PayoutCategories = string.Join(",", payoutCategories.Select(c => c.Trim().ToUpper()));
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess("Payout categories saved successfully.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save: {ex.Message}");
+        }
+    }
+
+    private async Task AddPayoutCategory()
+    {
+        var cleanCat = newPayoutCategory?.Trim().ToUpper();
+        if (string.IsNullOrWhiteSpace(cleanCat)) return;
+        
+        if (payoutCategories.Contains(cleanCat))
+        {
+            await ToastService.ShowError($"Category '{cleanCat}' already exists.");
+            return;
+        }
+        
+        payoutCategories.Add(cleanCat);
+        newPayoutCategory = "";
+        await SavePayoutCategories();
+    }
+
+    private async Task DeletePayoutCategory(string catName)
+    {
+        if (payoutCategories.Contains(catName))
+        {
+            payoutCategories.Remove(catName);
+            await SavePayoutCategories();
+        }
+    }
+
     private async Task LoadEvents()
     {
         using var db = await DbFactory.CreateDbContextAsync();
@@ -1198,6 +1347,7 @@
         selectedCategory = null;
         showUncategorized = false;
         showEventsTab = false;
+        showPayoutTab = false;
         showTokensTab = true;
         await LoadTokens();
     }
@@ -1217,6 +1367,7 @@
     {
         showTokensTab = false;
         showEventsTab = false;
+        showPayoutTab = false;
         if (selectedCategory == null) return;
         
         isLoadingItems = true;

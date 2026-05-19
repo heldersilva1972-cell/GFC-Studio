@@ -11,6 +11,7 @@ public class PosMenuDto
     public List<EventTemplate> EventTemplates { get; set; } = new();
     public List<string> ModifierCategories { get; set; } = new();
     public List<PosModifierDto> Modifiers { get; set; } = new();
+    public List<string> PayoutCategories { get; set; } = new();
 }
 
 public class PosModifierDto

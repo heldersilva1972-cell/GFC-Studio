@@ -1377,6 +1377,25 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($"Error executing PosTokens inline columns repair: {ex.Message}");
                 }
+
+                // [AUTO-FIX 10] Run Payout Categories SystemSettings Column Repair
+                try
+                {
+                    Console.WriteLine(">>> Applying Payout Categories SystemSettings Column Repair...");
+                    var payoutFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PayoutCategories')
+                        BEGIN
+                            ALTER TABLE [dbo].[SystemSettings] ADD [PayoutCategories] NVARCHAR(MAX) NULL;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(payoutFixSql);
+                    db.Database.ExecuteSqlRaw("UPDATE [dbo].[SystemSettings] SET [PayoutCategories] = 'FOOD,SUPPLIES,MAINTENANCE,REBATE/REFUND,OTHER' WHERE [PayoutCategories] IS NULL");
+                    Console.WriteLine(">>> Payout Categories SystemSettings Column Repair Applied Successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing SystemSettings PayoutCategories repair: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {
