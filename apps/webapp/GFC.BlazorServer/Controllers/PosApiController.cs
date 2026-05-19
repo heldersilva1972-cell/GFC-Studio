@@ -583,7 +583,7 @@ public class PosApiController : ControllerBase
             var allActiveCards = await db.KeyCards.Where(k => k.IsActive).ToListAsync();
 
             var users = allActiveUsers
-                .Where(u => userIds.Contains(u.UserId) || u.IsAdmin || (u.MemberId.HasValue && allActiveCards.Any(kc => kc.MemberId == u.MemberId.Value)))
+                .Where(u => userIds.Contains(u.UserId) || u.IsAdmin)
                 .Select(u => {
                     var kc = u.MemberId.HasValue ? allActiveCards.FirstOrDefault(k => k.MemberId == u.MemberId.Value) : null;
                     return new UserListItemDto(

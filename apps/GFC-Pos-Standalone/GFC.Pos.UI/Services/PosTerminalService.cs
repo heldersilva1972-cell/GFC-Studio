@@ -75,6 +75,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         try
         {
             var menu = await GetCachedMenuAsync();
+            var eventsWithExplicitInitialDeposit = new HashSet<int>();
 
             // Retrieve persistent event name/type caches from localStorage
             var cachedNamesJson = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_event_names_cache");
@@ -166,7 +167,9 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
                                 if (salesItems != null)
                                 {
-                                    bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:");
+                                    bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:") || 
+                                                     data.ItemsJson.Contains("INITIAL DEPOSIT:") || 
+                                                     data.ItemsJson.Contains("DEPOSIT CORRECTION:");
                                     
                                     // TRACK TOTALS
                                     if (!isDeposit)
@@ -200,12 +203,6 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         {
                                             banquet.EventType = activeEv.Type.ToString();
                                             banquet.EventName = activeEv.Name;
-                                            
-                                            // Seed deposits with the initial prepaid amount if this is a Prepaid event
-                                            if (activeEv.Type.ToString() == "PrePaid" && activeEv.InitialAmount > 0)
-                                            {
-                                                banquet.Deposits.Add(activeEv.InitialAmount);
-                                            }
                                         }
                                     }
 
@@ -245,6 +242,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         {
                                             banquet.Deposits.Add(i.Price);
                                             banquet.EventType = "PrePaid";
+                                            if (i.Name.StartsWith("INITIAL DEPOSIT:") && data.ActiveEventId.HasValue)
+                                            {
+                                                eventsWithExplicitInitialDeposit.Add(data.ActiveEventId.Value);
+                                            }
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))
                                             {
@@ -308,6 +309,27 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         audit.RegularItemTotals[i.Name] += (i.Price * i.Quantity);
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Seed deposits with initial prepaid amount only if no explicit initial deposit sale is in the current shift's log.
+            // This prevents double-deposits for events started offline/online during the current shift,
+            // while correctly supporting events started in a previous shift that are still active.
+            foreach (var banquet in audit.Banquets)
+            {
+                if (banquet.ActiveEventId.HasValue && banquet.EventType == "PrePaid")
+                {
+                    if (!eventsWithExplicitInitialDeposit.Contains(banquet.ActiveEventId.Value))
+                    {
+                        if (menu != null && menu.ActiveEvents != null)
+                        {
+                            var activeEv = menu.ActiveEvents.FirstOrDefault(e => e.Id == banquet.ActiveEventId.Value);
+                            if (activeEv != null && activeEv.InitialAmount > 0)
+                            {
+                                banquet.Deposits.Insert(0, activeEv.InitialAmount);
                             }
                         }
                     }
@@ -990,7 +1012,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                                     if (eventId == tempId) {
                                                         await _js.InvokeVoidAsync("window.gfcRemoveAsync", vKey);
                                                         var newCloseKey = $"gfc_pos_vault_event_close_{createdEvent.Id}";
-                                                        await _js.InvokeVoidAsync("window.gfcSetAsync", newCloseKey, eventId);
+                                                        await _js.InvokeVoidAsync("window.gfcSetAsync", newCloseKey, createdEvent.Id);
                                                         await _js.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_retry_{vKey}");
                                                         await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{newCloseKey}", "0");
                                                         Console.WriteLine($"[SYNC] Remapped pending event close from negative ID {tempId} to {createdEvent.Id}");
@@ -1145,6 +1167,23 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 Console.WriteLine($"[SYNC] Event {eventId} closed successfully on server. Removing from outbox.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                 try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
+                                
+                                // Proactively remove the closed event from the local cached menu
+                                try {
+                                    var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                    if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                        var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                        if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                            var closedEv = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id == eventId);
+                                            if (closedEv != null) {
+                                                cachedMenu.ActiveEvents.Remove(closedEv);
+                                                await SaveMenuToVaultAsync(cachedMenu);
+                                                Console.WriteLine($"[SYNC] Removed closed event {eventId} from cached menu");
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                                
                                 LastSynced = DateTime.Now;
                             } else {
                                 Console.WriteLine($"[SYNC] Server REJECTED event closure {eventId}: {resp.StatusCode}");
