@@ -879,7 +879,7 @@
                     <div class="row g-3 mt-4">
                         <div class="col-12">
                             <button class="btn btn-warning w-100 py-3 rounded-pill fw-black text-uppercase shadow-lg fs-5 border border-warning" 
-                                    disabled="@(_payoutAmount <= 0 || string.IsNullOrEmpty(_selectedPayoutCategory))" 
+                                    disabled="@(_payoutAmount <= 0)" 
                                     @onclick="SubmitPayout">
                                 RECORD PAYOUT
                             </button>
@@ -908,6 +908,22 @@
                         }
                     </div>
                 </div>
+            </div>
+        </div>
+    }
+
+    @if (_showMissingCategoryModal)
+    {
+        <div class="shift-overlay" style="z-index: 1060; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+            <div class="banquet-manager-card animate__animated animate__zoomIn text-center" style="width: 450px !important; padding: 2.5rem !important; border-radius: 32px !important; box-shadow: 0 50px 100px -20px rgba(0,0,0,0.4) !important;">
+                <div class="mb-4">
+                    <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 4rem;"></i>
+                </div>
+                <h3 class="fw-black mb-3 text-dark">CATEGORY REQUIRED</h3>
+                <p class="text-muted fw-bold mb-4">Please select a category for the payout before recording it.</p>
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm fs-5" @onclick="() => _showMissingCategoryModal = false">
+                    OK, GOT IT
+                </button>
             </div>
         </div>
     }
@@ -1222,6 +1238,18 @@
                                 <label class="settings-switch-label">Enable Training Mode</label>
                                 <label class="premium-switch">
                                     <input type="checkbox" checked="@forceTrainingMode" @onchange="(e) => ToggleTrainingMode(e.Value)">
+                                    <span class="slider-track">
+                                        <span class="slider-thumb"></span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-switch-container">
+                                <label class="settings-switch-label">Print Payout Voucher</label>
+                                <label class="premium-switch">
+                                    <input type="checkbox" checked="@_printPayoutVoucher" @onchange="(e) => TogglePrintPayoutVoucher(e.Value)">
                                     <span class="slider-track">
                                         <span class="slider-thumb"></span>
                                     </span>
@@ -2333,12 +2361,13 @@
     private bool showOptionsMenu = false;
     private bool showBanquetsModal = false;
 
-    // PAYOUT STATE
     private bool showPayoutModal = false;
     private decimal _payoutAmount = 0;
     private string _payoutInputString = "";
     private string _selectedPayoutCategory = "";
     private List<string> _payoutCategories = new();
+    private bool _showMissingCategoryModal = false;
+    private bool _printPayoutVoucher = true;
 
     private void PayoutKeypadPress(string key)
     {
@@ -2575,6 +2604,9 @@
         
         var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
         if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
+        
+        var voucherStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_payout_voucher");
+        if (!string.IsNullOrEmpty(voucherStored)) _printPayoutVoucher = bool.Parse(voucherStored);
 
         // HARDENED LOAD: The source of truth is now the Database (Shift Log)
         await UpdateAuditAsync();
@@ -3629,16 +3661,23 @@
         showOptionsMenu = false;
         _payoutAmount = 0;
         _payoutInputString = "";
-        _selectedPayoutCategory = _payoutCategories.FirstOrDefault() ?? "";
+        _selectedPayoutCategory = "";
         showPayoutModal = true;
         StateHasChanged();
     }
 
     private async Task SubmitPayout()
     {
-        if (_payoutAmount <= 0 || string.IsNullOrEmpty(_selectedPayoutCategory))
+        if (string.IsNullOrEmpty(_selectedPayoutCategory))
         {
-            Toast.ShowError("Please enter a valid amount and select a category.");
+            _showMissingCategoryModal = true;
+            StateHasChanged();
+            return;
+        }
+        
+        if (_payoutAmount <= 0)
+        {
+            Toast.ShowError("Please enter a valid amount.");
             return;
         }
 
@@ -3677,7 +3716,10 @@
             }
 
             // Print the receipt voucher so they can keep it in the drawer!
-            await PrintPayoutVoucher(payoutSale);
+            if (_printPayoutVoucher)
+            {
+                await PrintPayoutVoucher(payoutSale);
+            }
 
             showPayoutModal = false;
             Toast.ShowSuccess($"Payout of {_payoutAmount:C} recorded successfully.");
@@ -4189,6 +4231,7 @@
     private async Task LoadTerminalName() { TerminalName = await StationSettings.GetTerminalNameAsync(); }
     private async Task ToggleTrainingMode(object? val) { if (val is bool isChecked) { forceTrainingMode = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_training_mode", forceTrainingMode.ToString().ToLower()); await RefreshData(); } }
     private async Task ToggleHardwarePractice(object? val) { if (val is bool isChecked) { allowHardwareInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_hardware_practice", allowHardwareInTraining.ToString().ToLower()); } }
+    private async Task TogglePrintPayoutVoucher(object? val) { if (val is bool isChecked) { _printPayoutVoucher = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_print_payout_voucher", _printPayoutVoucher.ToString().ToLower()); } }
 
     private bool _showNoticeModal = false; private string _noticeTitle = "", _noticeMessage = "", _noticeType = "info", _noticeBtnText = "OK, GOT IT"; private Action? _onConfirm;
     private void ShowNotice(string t, string m, string type, Action? c = null, string btnText = "OK, GOT IT") { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _noticeBtnText = btnText; _showNoticeModal = true; StateHasChanged(); }

@@ -11,13 +11,11 @@ namespace GFC.BlazorServer.Data.Entities
         [Required]
         public DateTime Timestamp { get; set; } = DateTime.Now;
         
-        [Required]
         [MaxLength(100)]
-        public string TerminalName { get; set; } = "TERMINAL 1";
+        public string? TerminalName { get; set; } = "TERMINAL 1";
         
-        [Required]
         [MaxLength(100)]
-        public string BartenderName { get; set; } = "";
+        public string? BartenderName { get; set; } = "";
         
         [Required]
         public decimal CashTotal { get; set; }
@@ -28,14 +26,11 @@ namespace GFC.BlazorServer.Data.Entities
         [Required]
         public decimal TokenCredits { get; set; }
 
-        [Required]
-        public string InventoryPullsJson { get; set; } = "[]";
+        public string? InventoryPullsJson { get; set; } = "[]";
 
-        [Required]
-        public string SalesSummaryJson { get; set; } = "[]";
+        public string? SalesSummaryJson { get; set; } = "[]";
         
-        [Required]
-        public string BanquetSummaryJson { get; set; } = "[]";
+        public string? BanquetSummaryJson { get; set; } = "[]";
 
         public bool IsSynced { get; set; } = false;
     }
