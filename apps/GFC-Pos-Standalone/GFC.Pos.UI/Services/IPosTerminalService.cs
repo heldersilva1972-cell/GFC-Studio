@@ -33,6 +33,7 @@ public interface IPosTerminalService
     Task FlushAllPendingAsync();
     Task<string> GetServerVersionAsync();
     Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId);
+    Task<List<PosSaleDto>> GetUnsyncedSalesAsync();
 }
 
 public class ShiftAuditDto

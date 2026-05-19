@@ -307,6 +307,8 @@ public class PosApiController : ControllerBase
                 TotalGrossSales = reportDto.TotalGrossSales,
                 InventoryPullsJson = reportDto.InventoryPullsJson,
                 SalesSummaryJson = reportDto.SalesSummaryJson,
+                BanquetSummaryJson = reportDto.BanquetSummaryJson,
+                TokenCredits = reportDto.TokenCredits,
                 IsSynced = true
             };
 
@@ -318,11 +320,38 @@ public class PosApiController : ControllerBase
                 var pulls = JsonSerializer.Deserialize<Dictionary<int, int>>(reportDto.InventoryPullsJson);
                 if (pulls != null)
                 {
+                    // Resolve user ID dynamically using BartenderName, falling back to first available user
+                    int userId = 1;
+                    if (!string.IsNullOrEmpty(reportDto.BartenderName))
+                    {
+                        var userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == reportDto.BartenderName);
+                        if (userObj != null)
+                        {
+                            userId = userObj.UserId;
+                        }
+                        else
+                        {
+                            var fallbackUser = await db.AppUsers.OrderBy(u => u.UserId).FirstOrDefaultAsync();
+                            if (fallbackUser != null)
+                            {
+                                userId = fallbackUser.UserId;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var fallbackUser = await db.AppUsers.OrderBy(u => u.UserId).FirstOrDefaultAsync();
+                        if (fallbackUser != null)
+                        {
+                            userId = fallbackUser.UserId;
+                        }
+                    }
+
                     foreach (var pull in pulls)
                     {
                         for (int i = 0; i < pull.Value; i++)
                         {
-                            await _liquorService.CheckoutBottleAsync(pull.Key, 1, $"[{reportDto.TerminalName}] POS End-of-Shift Removal");
+                            await _liquorService.CheckoutBottleAsync(pull.Key, userId, $"[{reportDto.TerminalName}] POS End-of-Shift Removal");
                         }
                     }
                 }

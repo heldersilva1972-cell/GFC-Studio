@@ -800,6 +800,26 @@
                         </div>
                     </button>
 
+                    <button class="btn btn-outline-primary btn-lg rounded-4 text-start p-4 fw-bold" style="border-width: 2px;" @onclick="ReprintLastEventReceipt">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-receipt-cutoff fs-3"></i>
+                            <div>
+                                <div class="fs-5 fw-black">REPRINT LAST EVENT RECEIPT</div>
+                                <div class="small text-muted fw-normal">Print receipt for the last active event</div>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button class="btn btn-outline-primary btn-lg rounded-4 text-start p-4 fw-bold" style="border-width: 2px;" @onclick="PrintXReport">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-file-earmark-bar-graph-fill fs-3"></i>
+                            <div>
+                                <div class="fs-5 fw-black">PRINT X-REPORT</div>
+                                <div class="small text-muted fw-normal">Print mid-day shift totals without closing out</div>
+                            </div>
+                        </div>
+                    </button>
+
                 </div>
             </div>
         </div>
@@ -1355,16 +1375,20 @@
                         {
                             var ev = DbActiveEvents.First();
                             var isSelected = _selectedActiveEvent?.Id == ev.Id;
+                            var isBanquetPrePaid = ev.Type == GFC.Core.Enums.EventTabType.PrePaid;
                             
-                            @if (IsEventDirect(ev))
+                            @if (isBanquetPrePaid)
                             {
-                                <span class="badge bg-success px-4 py-2.5 rounded-pill fw-black text-white" 
-                                      style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important;
-                                             box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;">
-                                    <i class="bi bi-journal-check me-1"></i> DIRECT TAB ACTIVE
-                                </span>
+                                <button type="button" class="btn btn-success rounded-pill fw-black transition-all me-1"
+                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                               background: #16a34a !important; color: white !important; border: 2px solid #16a34a !important;
+                                               box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2) !important;"
+                                        @onclick="() => OpenAddFunds(ev)">
+                                    <i class="bi bi-cash-coin me-1"></i> ADD FUNDS
+                                </button>
                             }
-                            else
+
+                            @if (!IsEventDirect(ev))
                             {
                                 <button type="button" class="btn rounded-pill fw-black transition-all"
                                     style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
@@ -1372,16 +1396,16 @@
                                            color: @(isSelected ? "white" : "#334155") !important;
                                            border: 2px solid @(isSelected ? "#10b981" : "#94a3b8") !important;
                                            box-shadow: @(isSelected ? "0 4px 12px rgba(16, 185, 129, 0.2)" : "none") !important;"
-                                     @onclick="async () => await SetOrderMode(isSelected ? null : ev)">
-                                @if (isSelected)
-                                {
-                                    <i class="bi bi-check-circle-fill me-1"></i> @("BANQUET SALES ACTIVE")
-                                }
-                                else
-                                {
-                                    <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
-                                }
-                            </button>
+                                      @onclick="async () => await SetOrderMode(isSelected ? null : ev)">
+                                    @if (isSelected)
+                                    {
+                                        <i class="bi bi-check-circle-fill me-1"></i> @("BANQUET SALES ACTIVE")
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
+                                    }
+                                </button>
                             }
                             
                             <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-2"
@@ -1405,7 +1429,7 @@
                     }
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    @if (_selectedActiveEvent == null && ModifierCategories != null && ModifierCategories.Any())
+                    @if (ModifierCategories != null && ModifierCategories.Any())
                     {
                         <button class="btn-addon shadow-sm text-uppercase fw-black" style="background-color: transparent; border: 3px solid #8b5cf6; color: #8b5cf6; border-radius: 50px; padding: 0.5rem 1.5rem; letter-spacing: 1px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 6px rgba(139,92,246,0.1) !important;" @onclick="OpenModifiersOverlay">
                             <i class="bi bi-plus-circle-fill"></i> ADD-ONS
@@ -2690,10 +2714,12 @@
     {
         // Background menu refresh completed — update in-memory collections so banquet
         // template prices and active events are immediately reflected in the UI.
-        InvokeAsync(() =>
+        InvokeAsync(async () =>
         {
             _cachedMenu = freshMenu;
             UpdateLocalCollections(freshMenu);
+            await FilterDbActiveEventsWithPendingClosures();
+            await AdjustActiveEventBalancesWithPendingSales();
             StateHasChanged();
         });
     }
@@ -3084,7 +3110,19 @@
         
         if (_isCorrectionMode)
         {
-            _showMoneyCollectedQuestion = true;
+            // If the original transaction was made towards an event (prepaid or running tab),
+            // no cash was originally collected from the customer. Therefore, we bypass
+            // the cash reconciliation question and go straight to the checkout overlay.
+            if (_lastSale != null && (_lastSale.PaymentType == "TAB" || _lastSale.ActiveEventId != null))
+            {
+                _isMoneyCollected = false;
+                _showMoneyCollectedQuestion = false;
+                ShowCheckoutOverlay = true;
+            }
+            else
+            {
+                _showMoneyCollectedQuestion = true;
+            }
         }
         else
         {
@@ -3174,6 +3212,10 @@
         if (!forceTrainingMode && _isTabPayment && _selectedActiveEvent != null)
         {
             _selectedActiveEvent.CurrentBalance -= amountToRecord;
+            if (_cachedMenu != null)
+            {
+                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+            }
         }
         
         // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
@@ -3182,6 +3224,23 @@
             if (_isCorrectionMode && _lastSale != null)
             {
                 await PosService.VoidSaleAsync(_lastSale.Id, "Correction Replacement");
+                
+                // Return the money originally removed from the event (prepaid or running tab)
+                if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
+                {
+                    var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
+                    if (originalEvent != null)
+                    {
+                        originalEvent.CurrentBalance += _lastSale.TotalAmount;
+                        if (_cachedMenu != null)
+                        {
+                            _cachedMenu.ActiveEvents = DbActiveEvents;
+                            await PosService.SaveMenuToVaultAsync(_cachedMenu);
+                        }
+                        Console.WriteLine($"[POS] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
+                    }
+                }
+
                 sale.IsCorrection = true;
                 sale.OriginalSaleId = _lastSale.Id;
                 sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
@@ -3259,7 +3318,91 @@
         }
     }
 
-    private string BuildZReportHtml(PosZReportDto z)
+    private async Task ReprintLastEventReceipt()
+    {
+        ActiveEvent? eventToPrint = null;
+
+        // 1. Try to load the last printed event ID from localStorage
+        try
+        {
+            var storedIdStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_printed_event_id");
+            if (!string.IsNullOrEmpty(storedIdStr) && int.TryParse(storedIdStr, out var storedId) && DbActiveEvents != null)
+            {
+                eventToPrint = DbActiveEvents.FirstOrDefault(e => e.Id == storedId);
+            }
+        }
+        catch {}
+
+        // 2. Fallback: If not found, use the most recently created prepaid/running active event
+        if (eventToPrint == null && DbActiveEvents != null && DbActiveEvents.Any())
+        {
+            eventToPrint = DbActiveEvents.OrderByDescending(e => e.CreatedAt).FirstOrDefault();
+        }
+
+        if (eventToPrint != null)
+        {
+            showOptionsMenu = false;
+            await PrintBanquetMasterSummary(eventToPrint);
+            Toast.ShowSuccess($"Reprinting receipt for event '{eventToPrint.Name}'...");
+        }
+        else
+        {
+            Toast.ShowError("No active event found to reprint.");
+        }
+    }
+
+    private async Task PrintXReport()
+    {
+        try
+        {
+            showOptionsMenu = false;
+            
+            // Calculate current shift totals from Database
+            var currentAudit = await PosService.GetShiftAuditAsync();
+            
+            // Calculate Token Credits
+            decimal tokenCredits = 0;
+            if (currentAudit.ItemSummary != null)
+            {
+                foreach (var kvp in currentAudit.ItemSummary)
+                {
+                    if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)"))
+                    {
+                        var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                        if (product != null) tokenCredits += Math.Abs(product.Price) * kvp.Value;
+                    }
+                }
+            }
+            
+            var x = new PosZReportDto { 
+                Id = Guid.NewGuid(), 
+                Timestamp = DateTime.Now, 
+                TerminalName = TerminalName, 
+                BartenderName = CurrentUserName, 
+                CashTotal = currentAudit.CashTotal, 
+                TotalGrossSales = currentAudit.GrossTotal, 
+                InventoryPullsJson = JsonSerializer.Serialize(new Dictionary<int, int>()),
+                SalesSummaryJson = JsonSerializer.Serialize(currentAudit.ItemSummary),
+                BanquetSummaryJson = JsonSerializer.Serialize(currentAudit.Banquets),
+                TokenCredits = tokenCredits
+            };
+            
+            if (!forceTrainingMode || allowHardwareInTraining)
+            {
+                await PrinterService.KickDrawerAsync();
+            }
+            
+            var html = BuildZReportHtml(x, isXReport: true);
+            await PrinterService.PrintReceiptAsync(html);
+            Toast.ShowSuccess("X-Report printed successfully!");
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Error printing X-report: {ex.Message}");
+        }
+    }
+
+    private string BuildZReportHtml(PosZReportDto z, bool isXReport = false)
     {
         var salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(z.SalesSummaryJson) ?? new();
         var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
@@ -3382,7 +3525,7 @@
                     <h2 style='margin:0;'>GFC TERMINAL</h2>
                     <div style='font-size:0.9em;'>{TerminalName}</div>
                     <hr/>
-                    <h3 style='margin:10px 0;'>Z-REPORT SUMMARY</h3>
+                    <h3 style='margin:10px 0;'>{(isXReport ? "X-REPORT SUMMARY" : "Z-REPORT SUMMARY")}</h3>
                     <hr/>
                 </div>
                 
@@ -3477,12 +3620,27 @@
             // Calculate final audit from Database
             var finalAudit = await PosService.GetShiftAuditAsync();
             
+            // Calculate Token Credits
+            decimal tokenCredits = 0;
+            if (finalAudit.ItemSummary != null)
+            {
+                foreach (var kvp in finalAudit.ItemSummary)
+                {
+                    if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)"))
+                    {
+                        var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                        if (product != null) tokenCredits += Math.Abs(product.Price) * kvp.Value;
+                    }
+                }
+            }
+            
             var z = new PosZReportDto { 
                 Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
                 CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
                 InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
                 SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
-                BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets)
+                BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
+                TokenCredits = tokenCredits
             };
             await PosService.SaveZReportAsync(z);
 
@@ -3727,6 +3885,8 @@
                 {
                     _cachedMenu = menu;
                     UpdateLocalCollections(menu);
+                    await FilterDbActiveEventsWithPendingClosures();
+                    await AdjustActiveEventBalancesWithPendingSales();
                     Console.WriteLine($"[POS] SYNC SUCCESS: Updated Vault with {menu.Items.Count} items.");
                 }
                 else
@@ -3743,6 +3903,127 @@
         {
             _isInitialLoading = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task FilterDbActiveEventsWithPendingClosures()
+    {
+        try
+        {
+            var vaultItems = await JSRuntime.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array && DbActiveEvents != null && DbActiveEvents.Any())
+            {
+                var closedEventIds = new HashSet<int>();
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith("gfc_pos_vault_event_close_"))
+                    {
+                        var rawData = item.GetProperty("data");
+                        int eventId = 0;
+                        if (rawData.ValueKind == JsonValueKind.Number)
+                            eventId = rawData.GetInt32();
+                        else if (rawData.ValueKind == JsonValueKind.String)
+                            int.TryParse(rawData.GetString(), out eventId);
+                        
+                        if (eventId != 0)
+                        {
+                            closedEventIds.Add(eventId);
+                        }
+                    }
+                }
+
+                if (closedEventIds.Any())
+                {
+                    DbActiveEvents.RemoveAll(e => closedEventIds.Contains(e.Id));
+                    if (_cachedMenu != null)
+                    {
+                        _cachedMenu.ActiveEvents = DbActiveEvents;
+                    }
+                    Console.WriteLine($"[POS] Filtered out {closedEventIds.Count} pending closed events from active UI list.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error filtering pending event closures: {ex.Message}");
+        }
+    }
+
+    private async Task AdjustActiveEventBalancesWithPendingSales()
+    {
+        try
+        {
+            // 1. Adjust for pending TAB sales
+            var unsyncedSales = await PosService.GetUnsyncedSalesAsync();
+            if (unsyncedSales != null && unsyncedSales.Any())
+            {
+                // Group unsynced, non-voided TAB sales by ActiveEventId and sum their TotalAmount
+                var unsyncedTabTotals = unsyncedSales
+                    .Where(s => s.PaymentType == "TAB" && s.ActiveEventId.HasValue && !s.IsVoided)
+                    .GroupBy(s => s.ActiveEventId!.Value)
+                    .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+
+                if (unsyncedTabTotals.Any() && DbActiveEvents != null)
+                {
+                    foreach (var ev in DbActiveEvents)
+                    {
+                        if (unsyncedTabTotals.TryGetValue(ev.Id, out var pendingDeduction))
+                        {
+                            ev.CurrentBalance -= pendingDeduction;
+                            Console.WriteLine($"[POS] Adjusted event '{ev.Name}' balance with pending outbox sales: -{pendingDeduction:C} (New Balance: {ev.CurrentBalance:C})");
+                        }
+                    }
+                }
+            }
+
+            // 2. Adjust for pending offline Add Funds requests
+            var vaultItems = await JSRuntime.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array && DbActiveEvents != null && DbActiveEvents.Any())
+            {
+                var pendingAddFunds = new Dictionary<int, decimal>();
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith("gfc_pos_vault_event_add_funds_"))
+                    {
+                        try
+                        {
+                            var rawData = item.GetProperty("data");
+                            AddFundsRequest? req = null;
+                            if (rawData.ValueKind == JsonValueKind.String)
+                                req = JsonSerializer.Deserialize<AddFundsRequest>(rawData.GetString()!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            else
+                                req = JsonSerializer.Deserialize<AddFundsRequest>(rawData.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            
+                            if (req != null && req.Amount > 0)
+                            {
+                                if (pendingAddFunds.ContainsKey(req.Id))
+                                    pendingAddFunds[req.Id] += req.Amount;
+                                else
+                                    pendingAddFunds[req.Id] = req.Amount;
+                            }
+                        }
+                        catch {}
+                    }
+                }
+
+                if (pendingAddFunds.Any())
+                {
+                    foreach (var ev in DbActiveEvents)
+                    {
+                        if (pendingAddFunds.TryGetValue(ev.Id, out var pendingAddition))
+                        {
+                            ev.CurrentBalance += pendingAddition;
+                            Console.WriteLine($"[POS] Adjusted event '{ev.Name}' balance with pending offline added funds: +{pendingAddition:C} (New Balance: {ev.CurrentBalance:C})");
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error adjusting balances with pending sales/funds: {ex.Message}");
         }
     }
 
@@ -3938,14 +4219,26 @@
         showBanquetsModal = false; // Close the entire modal after funds are added
         StateHasChanged();
 
+        var addFundsKey = $"gfc_pos_vault_event_add_funds_{Guid.NewGuid()}";
+        var request = new AddFundsRequest { Id = id, Amount = amt };
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", addFundsKey, request);
+        }
+        catch {}
+
         try
         {
             // 2. BACKGROUND SERVER SYNC
-            var request = new AddFundsRequest { Id = id, Amount = amt };
             var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
             if (response.IsSuccessStatusCode)
             {
                 Toast.ShowSuccess("Funds synced to server");
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", addFundsKey);
+                }
+                catch {}
             }
         }
         catch (Exception ex)
@@ -3985,6 +4278,14 @@
             await PosService.SaveMenuToVaultAsync(_cachedMenu);
         }
 
+        // Queue the event closure request in IndexedDB outbox
+        var closeKey = $"gfc_pos_vault_event_close_{ev.Id}";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", closeKey, ev.Id);
+        }
+        catch {}
+
         // Auto reset selected active event if it was the one closed
         if (_selectedActiveEvent?.Id == ev.Id)
         {
@@ -4001,6 +4302,11 @@
             if (response.IsSuccessStatusCode)
             {
                 Toast.ShowSuccess("Event closed on server");
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", closeKey);
+                }
+                catch {}
             }
         }
         catch (Exception ex)
@@ -4014,6 +4320,12 @@
     {
         try
         {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_event_id", ev.Id.ToString());
+            }
+            catch {}
+
             // 1. Force flush the sync outbox so any newly logged added funds sales are pushed to the server first
             try
             {
@@ -4063,6 +4375,16 @@
                 totals = localB.ItemTotals;
             }
 
+            // Enforce absolute mathematical integrity for prepaid events: Total Deposited = CurrentBalance + TotalSpent
+            if (ev.Type == GFC.Core.Enums.EventTabType.PrePaid)
+            {
+                var computedDeposited = ev.CurrentBalance + totalSpent;
+                if (computedDeposited > totalDeposited)
+                {
+                    totalDeposited = computedDeposited;
+                }
+            }
+
             var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab;
             var html = $@"
                 <div style='font-family:monospace; width:280px; font-size:12px; line-height:1.4;'>
@@ -4110,6 +4432,43 @@
                             {
                                 Timestamp = DateTime.Now,
                                 Amount = amt,
+                                IsInitial = false
+                            });
+                        }
+                    }
+                }
+
+                // If the compiled deposits list is missing additional funds (offline or unsynced states),
+                // dynamically generate the deposit entries from the initial amount and calculated total deposited.
+                if (totalDeposited > ev.InitialAmount)
+                {
+                    var printedSum = depositsToPrint.Sum(d => d.Amount);
+                    if (printedSum < totalDeposited)
+                    {
+                        if (depositsToPrint.Count <= 1)
+                        {
+                            depositsToPrint = new List<BanquetDepositDetailDto>
+                            {
+                                new BanquetDepositDetailDto
+                                {
+                                    Timestamp = ev.CreatedAt,
+                                    Amount = ev.InitialAmount,
+                                    IsInitial = true
+                                },
+                                new BanquetDepositDetailDto
+                                {
+                                    Timestamp = DateTime.Now,
+                                    Amount = totalDeposited - ev.InitialAmount,
+                                    IsInitial = false
+                                }
+                            };
+                        }
+                        else
+                        {
+                            depositsToPrint.Add(new BanquetDepositDetailDto
+                            {
+                                Timestamp = DateTime.Now,
+                                Amount = totalDeposited - printedSum,
                                 IsInitial = false
                             });
                         }

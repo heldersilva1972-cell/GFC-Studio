@@ -13,4 +13,5 @@ public class PosZReportDto
     public string InventoryPullsJson { get; set; } = "";
     public string SalesSummaryJson { get; set; } = "";
     public string BanquetSummaryJson { get; set; } = "[]";
+    public decimal TokenCredits { get; set; }
 }
