@@ -23,6 +23,8 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private const string ShiftLogPrefix   = "gfc_shift_log_";
     private const string CachedMenuKey      = "gfc_pos_cached_menu";
     private const string AuthorizedUsersKey = "gfc_pos_authorized_users";
+    private const string VaultPrefixLiquorReceipt = "gfc_pos_vault_liquor_receipt_";
+    private const string CachedLiquorOrdersKey = "gfc_pos_cached_liquor_orders";
     private const int MaxAttempts           = 5;
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -1227,6 +1229,41 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                         }
                     }
                 }
+
+                if (key.StartsWith(VaultPrefixLiquorReceipt)) {
+                    Console.WriteLine($"[SYNC] Processing Offline Liquor Receipt: {key}");
+                    LiquorOrderReceiptDto? receipt = null;
+                    try {
+                        var rawData = item.GetProperty("data");
+                        if (rawData.ValueKind == JsonValueKind.String)
+                            receipt = JsonSerializer.Deserialize<LiquorOrderReceiptDto>(rawData.GetString()!, _jsonOptions);
+                        else
+                            receipt = rawData.Deserialize<LiquorOrderReceiptDto>(_jsonOptions);
+                    } catch (Exception ex) {
+                        Console.WriteLine($"[SYNC] Deserialization failed for liquor receipt {key}: {ex.Message}");
+                        continue;
+                    }
+
+                    if (receipt != null) {
+                        try {
+                            Console.WriteLine($"[SYNC] Sending offline liquor receipt for Order #{receipt.OrderId} to server...");
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                            var resp = await _http.PostAsJsonAsync($"api/liquor/orders/{receipt.OrderId}/receive", receipt, cts.Token);
+                            if (resp.IsSuccessStatusCode) {
+                                Console.WriteLine($"[SYNC] Liquor receipt for Order #{receipt.OrderId} synced successfully. Removing from outbox.");
+                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
+                                LastSynced = DateTime.Now;
+                            } else {
+                                Console.WriteLine($"[SYNC] Server REJECTED liquor receipt for Order #{receipt.OrderId}: {resp.StatusCode}");
+                                retryCount++;
+                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine($"[SYNC] Network error sending offline liquor receipt for Order #{receipt.OrderId}: {ex.Message}");
+                        }
+                    }
+                }
             }
         } catch (Exception ex) {
             Console.WriteLine($"[SYNC] Global Flush Error: {ex.Message}");
@@ -1234,6 +1271,63 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
         await GetTotalPendingAsync();
         OutboxChanged?.Invoke();
+    }
+
+    public async Task<List<LiquorOrder>> GetPendingLiquorOrdersAsync(bool force = false)
+    {
+        bool isOnline = await CheckConnectivityAsync();
+        if (isOnline)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var orders = await _http.GetFromJsonAsync<List<LiquorOrder>>("api/liquor/orders/pending", cts.Token);
+                if (orders != null)
+                {
+                    // Cache locally in IndexedDB
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", CachedLiquorOrdersKey, orders);
+                    return orders;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LIQUOR SERVICE CLIENT] Failed to fetch pending orders from server: {ex.Message}. Falling back to cache.");
+            }
+        }
+
+        // Offline / Fallback
+        try
+        {
+            var cachedJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedLiquorOrdersKey);
+            if (!string.IsNullOrEmpty(cachedJson) && cachedJson != "null")
+            {
+                var cached = JsonSerializer.Deserialize<List<LiquorOrder>>(cachedJson, _jsonOptions);
+                if (cached != null)
+                {
+                    return cached;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LIQUOR SERVICE CLIENT] Failed to read cached orders: {ex.Message}");
+        }
+
+        return new List<LiquorOrder>();
+    }
+
+    public async Task ReceiveLiquorOrderAsync(LiquorOrderReceiptDto receipt)
+    {
+        var key = $"{VaultPrefixLiquorReceipt}{receipt.OrderId}_{DateTime.UtcNow.Ticks}";
+        await _js.InvokeVoidAsync("window.gfcSetAsync", key, receipt);
+        
+        await GetTotalPendingAsync();
+        OutboxChanged?.Invoke();
+
+        // Trigger immediate background sync flush attempt
+        _ = Task.Run(async () => {
+            await FlushAllPendingAsync();
+        });
     }
 
     public async Task<int> GetTotalPendingAsync()
@@ -1251,6 +1345,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     if (key.StartsWith(VaultPrefixZ)) z++;
                     if (key.StartsWith("gfc_pos_vault_event_close_")) sales++;
                     if (key.StartsWith("gfc_pos_vault_event_add_funds_")) sales++;
+                    if (key.StartsWith(VaultPrefixLiquorReceipt)) sales++;
                 }
             }
 

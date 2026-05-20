@@ -33,7 +33,7 @@ else if (apiBaseUrl.Contains("localhost:7157", StringComparison.OrdinalIgnoreCas
          apiBaseUrl.Contains("localhost:5091", StringComparison.OrdinalIgnoreCase) ||
          apiBaseUrl.Contains("localhost:5100", StringComparison.OrdinalIgnoreCase))
 {
-    apiBaseUrl = apiBaseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "https://localhost:7073/" : "http://localhost:5207/";
+    apiBaseUrl = "https://localhost:7073/";
     Console.WriteLine($"[POS] LOCAL DEV ROUTING ACTIVE: API -> {apiBaseUrl}");
 }
 

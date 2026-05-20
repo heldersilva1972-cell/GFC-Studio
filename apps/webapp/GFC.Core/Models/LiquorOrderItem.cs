@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models
 {
@@ -14,6 +15,7 @@ namespace GFC.Core.Models
         public int OrderId { get; set; }
 
         [ForeignKey("OrderId")]
+        [JsonIgnore]
         public virtual LiquorOrder? Order { get; set; }
 
         [Required]

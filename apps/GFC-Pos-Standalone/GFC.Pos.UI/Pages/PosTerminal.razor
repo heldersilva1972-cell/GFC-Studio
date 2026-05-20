@@ -615,6 +615,83 @@
     .blazored-toast-container {
         z-index: 30000 !important;
     }
+
+    /* Receive Supplier Orders (Teal/Emerald) */
+    .tile-liquorreceive {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
+        color: #166534 !important;
+    }
+    .tile-liquorreceive:hover {
+        background: #dcfce7;
+        box-shadow: 0 12px 24px rgba(22, 163, 74, 0.15);
+    }
+    .tile-liquorreceive .tile-icon-box {
+        background: #22c55e;
+        color: white;
+    }
+
+    .liquor-receive-card {
+        background: white !important;
+        width: 1000px !important;
+        max-width: 98vw !important;
+        border-radius: 40px !important;
+        padding: 2.5rem !important;
+        border: 1px solid rgba(0,0,0,0.1) !important;
+        box-shadow: 0 50px 100px -20px rgba(0,0,0,0.3) !important;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    
+    .liquor-items-list, .liquor-shipments-list {
+        max-height: 48vh;
+        overflow-y: auto;
+        padding-right: 10px;
+    }
+
+    .liquor-item-row {
+        background: #f8fafc;
+        border: 2px solid #e2e8f0;
+        border-radius: 16px;
+        transition: all 0.2s;
+    }
+    
+    .liquor-item-row:hover {
+        border-color: #cbd5e1;
+    }
+
+    .btn-toggle-received {
+        background: #dcfce7 !important;
+        color: #15803d !important;
+        border: 2px solid #bbf7d0 !important;
+        font-weight: 800 !important;
+        border-radius: 12px !important;
+        transition: all 0.15s !important;
+    }
+
+    .btn-toggle-backordered {
+        background: #fee2e2 !important;
+        color: #991b1b !important;
+        border: 2px solid #fecaca !important;
+        font-weight: 800 !important;
+        border-radius: 12px !important;
+        transition: all 0.15s !important;
+    }
+
+    .liquor-keypad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        background: #f8fafc;
+        padding: 12px;
+        border-radius: 24px;
+        border: 2px solid #e2e8f0;
+    }
+    .grid-span-2 {
+        grid-column: span 2 !important;
+    }
 </style>
 
 <PageTitle>GFC - @TerminalName.ToUpper()</PageTitle>
@@ -1022,8 +1099,22 @@
                             <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
                         </div>
                         <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT EVENT</h5>
+                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT EVENT REPORT</h5>
                             <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print receipt for the last active event</div>
+                        </div>
+                    </button>
+
+                    <!-- SUPPLIER ORDERS: RECEIVE ORDERS -->
+                    <button class="option-tile-medium tile-liquorreceive border" @onclick="OpenLiquorOrdersWorkflow">
+                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                            <div class="tile-icon-box shadow-sm">
+                                <i class="bi bi-truck"></i>
+                            </div>
+                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                        </div>
+                        <div>
+                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">RECEIVE ORDERS</h5>
+                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Reconcile and stock supplier deliveries</div>
                         </div>
                     </button>
                 </div>
@@ -2695,12 +2786,280 @@
     </div>
 }
 
+@if (showLiquorOrdersModal)
+{
+    <div class="shift-overlay" style="z-index: 10000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
+        <div class="liquor-receive-card animate__animated animate__zoomIn bg-white shadow-lg border p-4 rounded-4" style="width: 1000px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+            
+            <!-- Modal Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="rounded-circle text-white d-flex align-items-center justify-content-center" style="width: 50px; height: 50px; background-color: #22c55e;">
+                        <i class="bi bi-truck fs-4"></i>
+                    </span>
+                    <div>
+                        <h3 class="fw-black m-0" style="letter-spacing: -0.5px;">RECONCILE SUPPLIER DELIVERY</h3>
+                        <p class="text-muted m-0 small">Mark incoming Liquor Hub shipments as received and update local stocks</p>
+                    </div>
+                </div>
+                <button class="btn border-0 bg-transparent" @onclick="CloseLiquorOrdersWorkflow">
+                    <i class="bi bi-x-lg fs-4"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content -->
+            <div class="row g-4 flex-grow-1 overflow-hidden" style="min-height: 0;">
+                <!-- LEFT COLUMN: Shipments list OR Order item reconciliation -->
+                <div class="col-7 d-flex flex-column h-100 overflow-hidden">
+                    @if (_isFetchingLiquorOrders)
+                    {
+                        <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 py-5">
+                            <div class="spinner-border text-success mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                            <h5 class="fw-bold text-muted">Retrieving Active Deliveries...</h5>
+                        </div>
+                    }
+                    else if (_selectedLiquorOrder == null)
+                    {
+                        <h5 class="fw-black mb-3 text-secondary" style="font-size: 0.9rem; letter-spacing: 0.5px; text-transform: uppercase;">Pending Supplier Shipments (@_pendingLiquorOrders.Count)</h5>
+                        @if (!_pendingLiquorOrders.Any())
+                        {
+                            <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 bg-light rounded-4 border border-dashed p-5 text-center">
+                                <i class="bi bi-check-circle-fill text-success fs-1 mb-3"></i>
+                                <h5 class="fw-bold m-0">All Deliveries Reconciled</h5>
+                                <p class="text-muted small m-0 mt-1">There are no outstanding Liquor Hub orders to receive at this time.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="liquor-shipments-list flex-grow-1 overflow-auto pe-2">
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var order in _pendingLiquorOrders)
+                                    {
+                                        <div class="card border-2 p-4 rounded-4 shadow-sm cursor-pointer position-relative animate__animated animate__fadeInUp" 
+                                             style="border-color: #e2e8f0; transition: transform 0.2s;" 
+                                             @onclick="() => SelectLiquorOrder(order)">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <div>
+                                                    <div class="badge text-emerald mb-2 px-3 py-2 rounded-pill fw-bold" style="background: #f0fdf4; color: #166534;">
+                                                        <i class="bi bi-box-seam me-1"></i> Order #@order.Id
+                                                    </div>
+                                                    <h4 class="fw-black m-0" style="color: #0f172a;">@(order.Vendor?.Name ?? "Supplier Delivery")</h4>
+                                                    <p class="text-muted small mt-1 mb-0">
+                                                        Ordered on <strong>@order.OrderDate.ToLocalTime().ToString("MMM dd, yyyy")</strong>
+                                                    </p>
+                                                </div>
+                                                <div class="text-end">
+                                                    <h3 class="fw-black text-dark m-0">@order.TotalCost.ToString("C")</h3>
+                                                    <span class="badge rounded-pill mt-2 px-2 py-1 small" style="background: #f1f5f9; color: #475569;">
+                                                        @(order.OrderItems?.Count ?? 0) Items
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <!-- Order selected: list items -->
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary border-2 rounded-pill fw-bold px-3 py-1 me-2" @onclick="() => _selectedLiquorOrder = null">
+                                    <i class="bi bi-chevron-left"></i> Back to List
+                                </button>
+                                <span class="fw-black text-dark fs-5">@(_selectedLiquorOrder.Vendor?.Name ?? "Supplier") Order #@_selectedLiquorOrder.Id</span>
+                            </div>
+                            <div class="text-muted small">
+                                Reconciling @(_selectedLiquorOrder.OrderItems?.Count ?? 0) item@(_selectedLiquorOrder.OrderItems?.Count == 1 ? "" : "s")
+                            </div>
+                        </div>
+
+                        <div class="liquor-items-list flex-grow-1 overflow-auto pe-2">
+                            <div class="d-flex flex-column gap-2">
+                                @foreach (var item in _selectedLiquorOrder.OrderItems)
+                                {
+                                    var isBackordered = _selectedBackorderItemIds.Contains(item.Id);
+                                    <div class="liquor-item-row p-3 d-flex justify-content-between align-items-center animate__animated animate__fadeIn">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="rounded-circle d-flex align-items-center justify-content-center fw-black text-white" 
+                                                 style="width: 40px; height: 40px; background-color: @(isBackordered ? "#ef4444" : "#22c55e"); font-size: 1rem;">
+                                                @(item.Quantity)
+                                            </div>
+                                            <div>
+                                                <h5 class="fw-bold m-0" style="color: #1e293b;">@(item.LiquorItem?.Name ?? "Liquor Item")</h5>
+                                                <p class="text-muted small m-0">
+                                                    Size: @(item.LiquorItem?.BottleSize ?? "Standard") | Category: @(item.LiquorItem?.Category ?? "General")
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="text-end me-2">
+                                                <div class="fw-bold">@((item.Quantity * item.UnitPriceAtTimeOfOrder).ToString("C"))</div>
+                                                <div class="text-muted small">@item.UnitPriceAtTimeOfOrder.ToString("C") ea</div>
+                                            </div>
+                                            
+                                            <!-- RECEIVED / BACKORDER PILL -->
+                                            <button type="button" class="btn @(isBackordered ? "btn-toggle-backordered" : "btn-toggle-received") px-3 py-2 border-0" 
+                                                    style="min-width: 140px;" @onclick="() => ToggleBackorderItem(item.Id)">
+                                                @if (isBackordered)
+                                                {
+                                                    <i class="bi bi-clock-history me-1"></i><span>BACKORDERED</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-check-circle-fill me-1"></i><span>RECEIVED</span>
+                                                }
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- RIGHT COLUMN: Inputs & Custom Keypad -->
+                <div class="col-5 d-flex flex-column h-100 overflow-hidden border-start ps-4">
+                    @if (_selectedLiquorOrder == null)
+                    {
+                        <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 text-center py-5">
+                            <div class="rounded-circle bg-light d-flex align-items-center justify-content-center mb-4" style="width: 120px; height: 120px;">
+                                <i class="bi bi-receipt-cutoff text-muted" style="font-size: 3.5rem;"></i>
+                            </div>
+                            <h4 class="fw-black text-dark">Supplier Reconciliation</h4>
+                            <p class="text-muted px-4" style="max-width: 320px;">Select a pending delivery from the list on the left to verify item counts, invoice numbers, and finalize stock receiving.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column h-100">
+                            <!-- Invoice / Price Fields -->
+                            <div class="d-flex flex-column gap-2 mb-3">
+                                <div class="p-3 rounded-4 border-2 d-flex justify-content-between align-items-center cursor-pointer" 
+                                     style="@InvoiceInputStyle" 
+                                     @onclick="() => _isEditingTotalMode = false">
+                                    <div>
+                                        <span class="text-muted small uppercase fw-bold" style="letter-spacing: 0.5px; font-size: 0.7rem;">INVOICE NUMBER</span>
+                                        <h4 class="fw-black m-0 @(string.IsNullOrEmpty(_invoiceInputString) ? "text-muted" : "text-dark")" style="font-size: 1.15rem;">
+                                            @(string.IsNullOrEmpty(_invoiceInputString) ? "ENTER INVOICE #" : _invoiceInputString)
+                                        </h4>
+                                    </div>
+                                    @if (!_isEditingTotalMode)
+                                    {
+                                        <span class="badge rounded-pill px-2 py-1 fw-bold" style="background: #22c55e; color: white; font-size: 0.7rem;">ACTIVE</span>
+                                    }
+                                </div>
+
+                                <div class="p-3 rounded-4 border-2 d-flex justify-content-between align-items-center cursor-pointer" 
+                                     style="@InvoiceTotalStyle" 
+                                     @onclick="SetEditingTotalMode">
+                                    <div>
+                                        <span class="text-muted small uppercase fw-bold" style="letter-spacing: 0.5px; font-size: 0.7rem;">ACTUAL INVOICE TOTAL</span>
+                                        <h4 class="fw-black m-0 text-dark" style="font-size: 1.15rem;">
+                                            @_invoiceTotalDue.ToString("C")
+                                        </h4>
+                                    </div>
+                                    <div class="text-end">
+                                        <span class="text-muted d-block" style="font-size: 0.75rem;">Expected: @_selectedLiquorOrder.TotalCost.ToString("C")</span>
+                                        @if (_isEditingTotalMode)
+                                        {
+                                            <span class="badge rounded-pill px-2 py-1 fw-bold mt-1" style="background: #22c55e; color: white; font-size: 0.7rem;">ACTIVE</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Visual Keypad -->
+                            <div class="flex-grow-1 d-flex flex-column justify-content-center">
+                                <div class="liquor-keypad mb-3 animate__animated animate__fadeIn">
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("7")'>7</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("8")'>8</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("9")'>9</button>
+
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("4")'>4</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("5")'>5</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("6")'>6</button>
+
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("1")'>1</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("2")'>2</button>
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("3")'>3</button>
+
+                                    @if (!_isEditingTotalMode)
+                                    {
+                                        <button type="button" class="btn btn-light py-3 fw-black fs-6 rounded-4 shadow-sm text-success" @onclick='() => HandleLiquorKeypadPress("INV-")'>INV-</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress(".")'>.</button>
+                                    }
+                                    <button type="button" class="btn btn-light py-3 fw-black fs-5 rounded-4 shadow-sm" @onclick='() => HandleLiquorKeypadPress("0")'>0</button>
+                                    <button type="button" class="btn btn-warning py-3 fw-black fs-6 rounded-4 shadow-sm text-white border-0" style="background-color: #f59e0b;" @onclick='() => HandleLiquorKeypadPress("DEL")'>DEL</button>
+
+                                    <button type="button" class="btn btn-outline-secondary py-2 fw-black fs-6 rounded-4 grid-span-2" @onclick='() => HandleLiquorKeypadPress("CLR")'>CLEAR INPUT</button>
+                                    @if (_isEditingTotalMode)
+                                    {
+                                        <button type="button" class="btn py-2 fw-black fs-6 rounded-4" style="background: #e6fcf5; color: #0ca678; border: 0;" @onclick='() => HandleLiquorKeypadPress("EXPECTED")'>EXPECTED</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-light py-2 fw-black fs-6 rounded-4" @onclick='() => HandleLiquorKeypadPress("-")'>-</button>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Submit buttons -->
+                            <div class="d-flex gap-3 mt-auto pt-3 border-top">
+                                <button type="button" class="btn btn-outline-secondary py-3 rounded-pill fw-bold" style="flex: 1;" @onclick="() => _selectedLiquorOrder = null">
+                                    CANCEL
+                                </button>
+                                <button type="button" class="btn py-3 rounded-pill fw-black text-white shadow-sm border-0" 
+                                        style="flex: 2; background-color: #22c55e;" 
+                                        @onclick="ConfirmReceiveLiquorOrder">
+                                    <i class="bi bi-check-circle-fill me-2"></i> CONFIRM & RECEIVE
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* OFFLINE PRINT ZONE REMOVED (Now using C# Generator) *@
 
 @code {
     private string CurrentUserName = string.Empty;
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
+    
+    // ─── LIQUOR HUB DELIVERY RECONCILIATION STATE ───
+    private bool showLiquorOrdersModal = false;
+    private List<LiquorOrder> _pendingLiquorOrders = new();
+    private LiquorOrder? _selectedLiquorOrder = null;
+    private string _invoiceInputString = "";
+    private decimal _invoiceTotalDue = 0;
+    private string _invoiceTotalString = "";
+    private bool _isEditingTotalMode = false;
+    private List<int> _selectedBackorderItemIds = new();
+    private bool _isFetchingLiquorOrders = false;
+
+    private string InvoiceInputStyle => !_isEditingTotalMode 
+        ? "border: 2px solid #22c55e; background: #f0fdf4;" 
+        : "border: 2px solid #cbd5e1; background: #f8fafc;";
+
+    private string InvoiceTotalStyle => _isEditingTotalMode 
+        ? "border: 2px solid #22c55e; background: #f0fdf4;" 
+        : "border: 2px solid #cbd5e1; background: #f8fafc;";
+
+    private void SetEditingTotalMode()
+    {
+        _isEditingTotalMode = true;
+        _invoiceTotalString = _invoiceTotalDue.ToString("F2");
+    }
+
     private int PendingSyncCount => PosService.TotalPendingCount;
     
     private List<ProductItem> DbItems = new();
@@ -4818,6 +5177,182 @@
     private void ShowNotice(string t, string m, string type, Action? c = null, string btnText = "OK, GOT IT") { _noticeTitle = t; _noticeMessage = m; _noticeType = type; _onConfirm = c; _noticeBtnText = btnText; _showNoticeModal = true; StateHasChanged(); }
     private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
     private void GoBack() => Navigation.NavigateTo("/");
+
+    // ─── LIQUOR HUB RECONCILIATION METHODS ───
+    private async Task OpenLiquorOrdersWorkflow()
+    {
+        try
+        {
+            showOptionsMenu = false; // Hide administration menu
+            showLiquorOrdersModal = true;
+            _isFetchingLiquorOrders = true;
+            _selectedLiquorOrder = null;
+            _pendingLiquorOrders.Clear();
+            await InvokeAsync(StateHasChanged);
+
+            Console.WriteLine("[POS] Fetching pending liquor orders...");
+            var orders = await PosService.GetPendingLiquorOrdersAsync(force: true);
+            if (orders != null)
+            {
+                _pendingLiquorOrders = orders;
+                Console.WriteLine($"[POS] Loaded {_pendingLiquorOrders.Count} pending liquor orders.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] OpenLiquorOrdersWorkflow Error: {ex.Message}");
+            Toast.ShowError($"Could not retrieve pending deliveries: {ex.Message}");
+        }
+        finally
+        {
+            _isFetchingLiquorOrders = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CloseLiquorOrdersWorkflow()
+    {
+        showLiquorOrdersModal = false;
+        _selectedLiquorOrder = null;
+        _invoiceInputString = "";
+        _invoiceTotalDue = 0;
+        _invoiceTotalString = "";
+        _selectedBackorderItemIds.Clear();
+        _isEditingTotalMode = false;
+    }
+
+    private void SelectLiquorOrder(LiquorOrder order)
+    {
+        _selectedLiquorOrder = order;
+        _invoiceTotalDue = order.TotalCost;
+        _invoiceTotalString = order.TotalCost.ToString("F2");
+        _invoiceInputString = "";
+        _selectedBackorderItemIds.Clear();
+        _isEditingTotalMode = false;
+    }
+
+    private void ToggleBackorderItem(int itemId)
+    {
+        if (_selectedBackorderItemIds.Contains(itemId))
+        {
+            _selectedBackorderItemIds.Remove(itemId);
+        }
+        else
+        {
+            _selectedBackorderItemIds.Add(itemId);
+        }
+        StateHasChanged();
+    }
+
+    private void HandleLiquorKeypadPress(string key)
+    {
+        if (_selectedLiquorOrder == null) return;
+        if (!_isEditingTotalMode)
+        {
+            if (key == "DEL")
+            {
+                if (_invoiceInputString.Length > 0)
+                    _invoiceInputString = _invoiceInputString[..^1];
+            }
+            else if (key == "CLR")
+            {
+                _invoiceInputString = "";
+            }
+            else
+            {
+                _invoiceInputString += key;
+            }
+        }
+        else
+        {
+            if (key == "DEL")
+            {
+                if (_invoiceTotalString.Length > 0)
+                    _invoiceTotalString = _invoiceTotalString[..^1];
+            }
+            else if (key == "CLR")
+            {
+                _invoiceTotalString = "";
+            }
+            else if (key == "EXPECTED")
+            {
+                _invoiceTotalString = _selectedLiquorOrder.TotalCost.ToString("F2");
+            }
+            else if (key == ".")
+            {
+                if (!_invoiceTotalString.Contains("."))
+                    _invoiceTotalString += ".";
+            }
+            else if (key == "INV-" || key == "-")
+            {
+                // Ignore hyphen/alphanumeric prefix in amount total mode
+            }
+            else
+            {
+                _invoiceTotalString += key;
+            }
+
+            if (decimal.TryParse(_invoiceTotalString, out var parsed))
+            {
+                _invoiceTotalDue = parsed;
+            }
+            else
+            {
+                _invoiceTotalDue = 0;
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task ConfirmReceiveLiquorOrder()
+    {
+        if (_selectedLiquorOrder == null) return;
+
+        if (string.IsNullOrWhiteSpace(_invoiceInputString))
+        {
+            Toast.ShowWarning("Please enter an Invoice Number before confirming the delivery.");
+            return;
+        }
+
+        try
+        {
+            // Find active logged in bartender ID or default to 1 (fallback)
+            int activeUserId = 1;
+            if (!string.IsNullOrEmpty(CurrentUserName))
+            {
+                var matchingUser = AuthorizedUsers?.FirstOrDefault(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
+                if (matchingUser != null)
+                {
+                    activeUserId = matchingUser.UserId;
+                }
+            }
+
+            var receipt = new LiquorOrderReceiptDto
+            {
+                OrderId = _selectedLiquorOrder.Id,
+                InvoiceNumber = _invoiceInputString,
+                TotalDue = _invoiceTotalDue,
+                BackorderedOrderItemIds = new List<int>(_selectedBackorderItemIds),
+                UserId = activeUserId
+            };
+
+            Console.WriteLine($"[POS] Submitting liquor order receive for Order #{receipt.OrderId}. Invoice: {receipt.InvoiceNumber}, Total: {receipt.TotalDue}");
+            
+            // Reconcile and cache / queue transaction in the background outbox
+            await PosService.ReceiveLiquorOrderAsync(receipt);
+
+            Toast.ShowSuccess("Delivery reconciled successfully! Local inventory stocks updated.");
+            
+            // Refresh list and close / reset
+            _selectedLiquorOrder = null;
+            await OpenLiquorOrdersWorkflow();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] ConfirmReceiveLiquorOrder Error: {ex.Message}");
+            Toast.ShowError($"Failed to reconcile delivery: {ex.Message}");
+        }
+    }
 
     private async Task SyncUsers()
     {

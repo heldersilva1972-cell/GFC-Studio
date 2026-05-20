@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models
 {
@@ -57,10 +58,12 @@ namespace GFC.Core.Models
         public bool IsActive { get; set; } = true;
         public bool IsBeer { get; set; } = false;
         public bool ShowInPos { get; set; } = false;
+        public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        [JsonIgnore]
         public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();
 
         [NotMapped]

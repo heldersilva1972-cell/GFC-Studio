@@ -70,6 +70,157 @@ namespace GFC.BlazorServer.Controllers
                 return BadRequest(ex.Message);
             }
         }
+
+        [HttpGet("orders/pending")]
+        public async Task<IActionResult> GetPendingOrders()
+        {
+            try
+            {
+                var orders = await _liquorService.GetAllOrdersAsync();
+                var pendingOrders = new List<LiquorOrder>();
+                foreach (var dbOrder in orders)
+                {
+                    if (dbOrder.Status == "Placed" || dbOrder.Status == "Sent")
+                    {
+                        // Map to a completely clean POCO graph to bypass EF tracking proxies & cycles
+                        var cleanOrder = new LiquorOrder
+                        {
+                            Id = dbOrder.Id,
+                            VendorId = dbOrder.VendorId,
+                            OrderDate = dbOrder.OrderDate,
+                            Status = dbOrder.Status,
+                            ItemsTotal = dbOrder.ItemsTotal,
+                            TaxAmount = dbOrder.TaxAmount,
+                            AdditionalCosts = dbOrder.AdditionalCosts,
+                            TotalCost = dbOrder.TotalCost,
+                            InvoiceNumber = dbOrder.InvoiceNumber,
+                            IsPaid = dbOrder.IsPaid,
+                            PaidDate = dbOrder.PaidDate,
+                            ActualPaidAmount = dbOrder.ActualPaidAmount,
+                            PaidByUserId = dbOrder.PaidByUserId,
+                            UserId = dbOrder.UserId,
+                            IsEmailed = dbOrder.IsEmailed,
+                            LastEmailedDate = dbOrder.LastEmailedDate,
+                            SpecialInstructions = dbOrder.SpecialInstructions,
+                            
+                            // Flat Vendor
+                            Vendor = dbOrder.Vendor == null ? null : new LiquorVendor
+                            {
+                                Id = dbOrder.Vendor.Id,
+                                Name = dbOrder.Vendor.Name,
+                                ContactName = dbOrder.Vendor.ContactName,
+                                MinimumOrderAmount = dbOrder.Vendor.MinimumOrderAmount,
+                                PhoneNumber = dbOrder.Vendor.PhoneNumber,
+                                Email = dbOrder.Vendor.Email,
+                                Website = dbOrder.Vendor.Website,
+                                Items = new List<LiquorItem>(),
+                                Orders = new List<LiquorOrder>()
+                            },
+                            
+                            OrderItems = new List<LiquorOrderItem>()
+                        };
+                        
+                        if (dbOrder.OrderItems != null)
+                        {
+                            foreach (var dbItem in dbOrder.OrderItems)
+                            {
+                                var cleanItem = new LiquorOrderItem
+                                {
+                                    Id = dbItem.Id,
+                                    OrderId = dbItem.OrderId,
+                                    LiquorItemId = dbItem.LiquorItemId,
+                                    Quantity = dbItem.Quantity,
+                                    UnitPriceAtTimeOfOrder = dbItem.UnitPriceAtTimeOfOrder,
+                                    BottleFeeAtTimeOfOrder = dbItem.BottleFeeAtTimeOfOrder,
+                                    IsBackordered = dbItem.IsBackordered,
+                                    IsResolved = dbItem.IsResolved,
+                                    Order = null, // Break parent cycle
+                                    
+                                    // Flat LiquorItem
+                                    LiquorItem = dbItem.LiquorItem == null ? null : new LiquorItem
+                                    {
+                                        Id = dbItem.LiquorItem.Id,
+                                        Name = dbItem.LiquorItem.Name,
+                                        Description = dbItem.LiquorItem.Description,
+                                        UpcCode = dbItem.LiquorItem.UpcCode,
+                                        BottleSize = dbItem.LiquorItem.BottleSize,
+                                        Category = dbItem.LiquorItem.Category,
+                                        ImageUrl = dbItem.LiquorItem.ImageUrl,
+                                        VendorId = dbItem.LiquorItem.VendorId,
+                                        CurrentPrice = dbItem.LiquorItem.CurrentPrice,
+                                        CurrentStock = dbItem.LiquorItem.CurrentStock,
+                                        MinStockLimit = dbItem.LiquorItem.MinStockLimit,
+                                        MinimumOrderQuantity = dbItem.LiquorItem.MinimumOrderQuantity,
+                                        PackSize = dbItem.LiquorItem.PackSize,
+                                        RetailPrice = dbItem.LiquorItem.RetailPrice,
+                                        PourSize = dbItem.LiquorItem.PourSize,
+                                        IsUnitBased = dbItem.LiquorItem.IsUnitBased,
+                                        IsActive = dbItem.LiquorItem.IsActive,
+                                        IsBeer = dbItem.LiquorItem.IsBeer,
+                                        ShowInPos = dbItem.LiquorItem.ShowInPos,
+                                        DisplayOrder = dbItem.LiquorItem.DisplayOrder,
+                                        CreatedAt = dbItem.LiquorItem.CreatedAt,
+                                        OrderHistory = new List<LiquorOrderItem>(),
+                                        Vendor = null // Break cycle
+                                    }
+                                };
+                                cleanOrder.OrderItems.Add(cleanItem);
+                            }
+                        }
+                        
+                        pendingOrders.Add(cleanOrder);
+                    }
+                }
+                return Ok(pendingOrders);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching pending liquor orders for POS");
+                return StatusCode(500, $"Internal server error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        [HttpPost("orders/{orderId}/receive")]
+        public async Task<IActionResult> ReceiveOrder(int orderId, [FromBody] LiquorOrderReceiptDto receipt)
+        {
+            try
+            {
+                if (receipt == null) return BadRequest("Receipt data is required");
+                if (string.IsNullOrWhiteSpace(receipt.InvoiceNumber)) return BadRequest("Invoice number is required");
+                if (receipt.TotalDue <= 0) return BadRequest("Invoice total must be greater than zero");
+
+                var order = await _liquorService.GetOrderByIdAsync(orderId);
+                if (order == null) return NotFound($"Order with ID {orderId} not found");
+                if (order.Status == "Received") return Ok(new { success = true, message = "Order already received" });
+
+                // 1. Update order backordered items
+                await _liquorService.UpdateOrderItemsBackorderAsync(orderId, receipt.BackorderedOrderItemIds);
+
+                // Calculate discrepancy (Tax + Fees) on RECEIVED items only
+                var receivedItemsTotal = 0m;
+                foreach (var item in order.OrderItems)
+                {
+                    if (!receipt.BackorderedOrderItemIds.Contains(item.Id))
+                    {
+                        receivedItemsTotal += item.UnitPriceAtTimeOfOrder * item.Quantity;
+                    }
+                }
+                var additionalCosts = receipt.TotalDue - receivedItemsTotal;
+
+                // 2. Update order meta
+                await _liquorService.UpdateOrderStatusAsync(orderId, "Received", receipt.InvoiceNumber, 0, additionalCosts);
+
+                // 3. Process stock arrival
+                await _liquorService.ReceiveOrderAsync(orderId, receipt.UserId);
+
+                return Ok(new { success = true, message = "Order received successfully" });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error processing liquor order receipt for Order {OrderId}", orderId);
+                return BadRequest(ex.Message);
+            }
+        }
     }
 
     public class InventoryPullRequest

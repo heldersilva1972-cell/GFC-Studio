@@ -57,6 +57,7 @@ namespace GFC.Core.Models
         public bool IsActive { get; set; } = true;
         public bool IsBeer { get; set; } = false;
         public bool ShowInPos { get; set; } = false;
+        public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace GFC.Core.Models
 {
@@ -29,7 +30,9 @@ namespace GFC.Core.Models
         [StringLength(500)]
         public string? Website { get; set; }
 
+        [JsonIgnore]
         public virtual ICollection<LiquorItem> Items { get; set; } = new List<LiquorItem>();
+        [JsonIgnore]
         public virtual ICollection<LiquorOrder> Orders { get; set; } = new List<LiquorOrder>();
     }
 }

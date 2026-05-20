@@ -10,7 +10,7 @@
 
 param (
     [Parameter(Mandatory=$false)]
-    [ValidateSet("Mobile", "POS")]
+    [ValidateSet("Mobile", "POS", "WebApp")]
     [string]$Project = "Mobile",
 
     [string]$Version,
@@ -56,6 +56,10 @@ try {
         if (-not (Test-Path $mobileVersionJson)) { throw "Missing $mobileVersionJson" }
         $vJson = Get-Content $mobileVersionJson | ConvertFrom-Json
         $currentVersion = $vJson.version
+    } elseif ($Project -eq "WebApp") {
+        if (-not (Test-Path $webappSettings)) { throw "Missing $webappSettings" }
+        $s = Get-Content $webappSettings | ConvertFrom-Json
+        $currentVersion = $s.ApplicationVersion.Revision
     } else {
         if (-not (Test-Path $posProps)) { throw "Missing $posProps" }
         $content = Get-Content $posProps -Raw
@@ -139,6 +143,17 @@ try {
             if ($DryRun) { Write-DryRun "Would update $mobileIndex" } else { Set-Content $mobileIndex $nc }
         }
     } 
+    elseif ($Project -eq "WebApp") {
+        Write-Step "Updating appsettings.json (WebApp Revision)..."
+        if (Test-Path $webappSettings) {
+            if ($DryRun) { Write-DryRun "Would set server revision to $targetVersion" }
+            else {
+                $s = Get-Content $webappSettings | ConvertFrom-Json
+                $s.ApplicationVersion.Revision = $targetVersion
+                $s | ConvertTo-Json -Depth 20 | Set-Content $webappSettings
+            }
+        }
+    }
     else { # POS PROJECT
         # PosVersionService.cs
         Write-Step "Updating PosVersionService.cs..."

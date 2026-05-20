@@ -116,8 +116,18 @@ namespace GFC.BlazorServer.Services
                 bool vendorChanged = existing.VendorId != item.VendorId;
                 bool nameChanged = existing.Name != item.Name;
                 bool sizeChanged = existing.BottleSize != item.BottleSize;
+                bool looseChanged = existing.AllowLooseReconciliation != item.AllowLooseReconciliation;
+                bool unitChanged = existing.IsUnitBased != item.IsUnitBased;
+                bool activeChanged = existing.IsActive != item.IsActive;
+                bool beerChanged = existing.IsBeer != item.IsBeer;
+                bool posChanged = existing.ShowInPos != item.ShowInPos;
+                bool packChanged = existing.PackSize != item.PackSize;
+                bool pourChanged = existing.PourSize != item.PourSize;
+                bool minOrderChanged = existing.MinimumOrderQuantity != item.MinimumOrderQuantity;
 
-                if (!costChanged && !priceChanged && !minStockChanged && !vendorChanged && !nameChanged && !sizeChanged) continue;
+                if (!costChanged && !priceChanged && !minStockChanged && !vendorChanged && !nameChanged && !sizeChanged &&
+                    !looseChanged && !unitChanged && !activeChanged && !beerChanged && !posChanged && !packChanged &&
+                    !pourChanged && !minOrderChanged) continue;
 
                 try
                 {
@@ -131,6 +141,11 @@ namespace GFC.BlazorServer.Services
                         if (minStockChanged) auditNotes.Add($"Min: {existing.MinStockLimit} -> {item.MinStockLimit}");
                         if (vendorChanged) auditNotes.Add("Vendor Updated");
                         if (nameChanged) auditNotes.Add($"Name: {existing.Name} -> {item.Name}");
+                        if (looseChanged) auditNotes.Add($"Loose Audit: {existing.AllowLooseReconciliation} -> {item.AllowLooseReconciliation}");
+                        if (unitChanged) auditNotes.Add($"Unit Based: {existing.IsUnitBased} -> {item.IsUnitBased}");
+                        if (activeChanged) auditNotes.Add($"Active: {existing.IsActive} -> {item.IsActive}");
+                        if (beerChanged) auditNotes.Add($"Beer: {existing.IsBeer} -> {item.IsBeer}");
+                        if (posChanged) auditNotes.Add($"Show in POS: {existing.ShowInPos} -> {item.ShowInPos}");
 
                         if (auditNotes.Any())
                         {
