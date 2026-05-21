@@ -18,6 +18,8 @@ namespace GFC.Core.Models
         public decimal ProgressiveJackpotAmount { get; set; }
         public decimal ProgressiveConsolationAmount { get; set; }
         public DateTime? DateLastProgressed { get; set; }
+        public decimal? LotteryPercentage { get; set; }
+        public decimal? ClubPercentage { get; set; }
         public virtual BingoSheetDefinition Sheet { get; set; } = null!;
     }
 }
