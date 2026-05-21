@@ -1,4 +1,4 @@
-// GFC POS Revision: 2.43.46
+// GFC POS Revision: 2.43.48
 // In development, always fetch from the network and do not enable caching.
 // This is appropriate during development as it avoids complex issues when changing static assets.
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
@@ -12,6 +12,10 @@ self.addEventListener('fetch', event => {
     }
     event.respondWith(fetch(event.request));
 });
+
+
+
+
 
 
 
