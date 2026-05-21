@@ -6,6 +6,7 @@
 @inject IDuesYearSettingsRepository SettingsRepository
 @inject IDuesRepository DuesRepository
 @inject IBoardRepository BoardRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 @inject IJSRuntime JSRuntime
 
 <div class="draw-print-content">
@@ -175,7 +176,19 @@
             var graceEndDate = duesSettings?.GraceEndDate?.Date;
             var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
             
+            var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(_currentYear));
+            var boardMemberIds = boardAssignments
+                .Select(a => a.MemberID)
+                .Where(id => id != 0)
+                .ToHashSet();
+
+            var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForYear(_currentYear));
+            var waivedMemberIds = waivers
+                .Select(w => w.MemberId)
+                .ToHashSet();
+
             HashSet<int> prevPaidIds = new();
+            HashSet<int> prevWaivedIds = new();
             if (isGracePeriodActive)
             {
                 var prevDues = await Task.Run(() => DuesRepository.GetDuesForYear(_currentYear - 1));
@@ -183,13 +196,12 @@
                     .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
                     .Select(d => d.MemberID)
                     .ToHashSet();
-            }
 
-            var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(_currentYear));
-            var boardMemberIds = boardAssignments
-                .Select(a => a.MemberID)
-                .Where(id => id != 0)
-                .ToHashSet();
+                var prevWaivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForYear(_currentYear - 1));
+                prevWaivedIds = prevWaivers
+                    .Select(w => w.MemberId)
+                    .ToHashSet();
+            }
 
             _members = allMembers
                 .Where(member => {
@@ -197,10 +209,12 @@
                     if (normalizedStatus is "INACTIVE" or "DECEASED") return false;
                     
                     bool paidCurrent = paidMemberIds.Contains(member.MemberID);
+                    bool waivedCurrent = waivedMemberIds.Contains(member.MemberID);
                     bool paidPrev = prevPaidIds.Contains(member.MemberID);
+                    bool waivedPrev = prevWaivedIds.Contains(member.MemberID);
                     bool isOnBoard = boardMemberIds.Contains(member.MemberID);
                     
-                    return normalizedStatus is "LIFE" || isOnBoard || paidCurrent || (isGracePeriodActive && paidPrev);
+                    return normalizedStatus is "LIFE" || isOnBoard || paidCurrent || waivedCurrent || (isGracePeriodActive && (paidPrev || waivedPrev));
                 })
                 .OrderBy(m => m.MemberID)
                 .ToList();

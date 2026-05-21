@@ -39,7 +39,7 @@ public class DuesYearSettingsRepository : IDuesYearSettingsRepository
                     Year = (int)reader["Year"],
                     StandardDues = (decimal)reader["StandardDues"],
                     GraceEndApplied = reader["GraceEndApplied"] is DBNull ? false : (bool)reader["GraceEndApplied"],
-                    GraceEndDate = reader["GraceEndDate"] is DBNull ? new DateTime(year, 2, 1) : (DateTime?)reader["GraceEndDate"]
+                    GraceEndDate = reader["GraceEndDate"] is DBNull ? GetDefaultGraceEndDate(year) : (DateTime?)reader["GraceEndDate"]
                 };
             }
         }
@@ -51,10 +51,71 @@ public class DuesYearSettingsRepository : IDuesYearSettingsRepository
         return new DuesYearSettings
         {
             Year = year,
-            StandardDues = 250m,
+            StandardDues = GetDefaultStandardDues(year),
             GraceEndApplied = true,
-            GraceEndDate = new DateTime(year, 2, 1)
+            GraceEndDate = GetDefaultGraceEndDate(year)
         };
+    }
+
+    private DateTime GetDefaultGraceEndDate(int year)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT TOP 1 GraceEndDate
+                FROM dbo.DuesYearSettings
+                WHERE GraceEndDate IS NOT NULL
+                  AND [Year] < @CurrentYear
+                ORDER BY [Year] DESC";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@CurrentYear", year);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read() && reader["GraceEndDate"] is DateTime prevDate)
+            {
+                return new DateTime(year, prevDate.Month, prevDate.Day);
+            }
+        }
+        catch
+        {
+            // Fall back if query fails or table doesn't exist
+        }
+
+        return new DateTime(year, 4, 1); // Sensible default (April 1st)
+    }
+
+    private decimal GetDefaultStandardDues(int year)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT TOP 1 StandardDues
+                FROM dbo.DuesYearSettings
+                WHERE [Year] < @CurrentYear
+                ORDER BY [Year] DESC";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@CurrentYear", year);
+
+            var result = command.ExecuteScalar();
+            if (result != null && result != DBNull.Value)
+            {
+                return Convert.ToDecimal(result);
+            }
+        }
+        catch
+        {
+            // Fall back
+        }
+
+        return 150m; // Default dues fallback
     }
 
     /// <summary>
