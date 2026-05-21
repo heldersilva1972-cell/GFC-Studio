@@ -25,6 +25,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private const string AuthorizedUsersKey = "gfc_pos_authorized_users";
     private const string VaultPrefixLiquorReceipt = "gfc_pos_vault_liquor_receipt_";
     private const string CachedLiquorOrdersKey = "gfc_pos_cached_liquor_orders";
+    private const string CachedLiquorInventoryKey = "gfc_pos_cached_liquor_inventory";
     private const int MaxAttempts           = 5;
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -1316,6 +1317,45 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         return new List<LiquorOrder>();
     }
 
+    public async Task<List<LiquorItem>> GetLiquorInventoryAsync(bool force = false)
+    {
+        bool isOnline = await CheckConnectivityAsync();
+        if (isOnline)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var items = await _http.GetFromJsonAsync<List<LiquorItem>>("api/liquor/items", cts.Token);
+                if (items != null)
+                {
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", CachedLiquorInventoryKey, items);
+                    return items;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LIQUOR INVENTORY] Failed to fetch from server: {ex.Message}. Falling back to cache.");
+            }
+        }
+
+        // Offline / Fallback — read from IndexedDB cache
+        try
+        {
+            var cachedJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedLiquorInventoryKey);
+            if (!string.IsNullOrEmpty(cachedJson) && cachedJson != "null")
+            {
+                var cached = JsonSerializer.Deserialize<List<LiquorItem>>(cachedJson, _jsonOptions);
+                if (cached != null) return cached;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LIQUOR INVENTORY] Failed to read cached inventory: {ex.Message}");
+        }
+
+        return new List<LiquorItem>();
+    }
+
     public async Task ReceiveLiquorOrderAsync(LiquorOrderReceiptDto receipt)
     {
         var key = $"{VaultPrefixLiquorReceipt}{receipt.OrderId}_{DateTime.UtcNow.Ticks}";
@@ -1353,6 +1393,118 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             PendingZCount = z;
             return TotalPendingCount;
         } catch { return 0; }
+    }
+
+    public async Task<MemberDrawPoolDto?> GetMemberDrawPoolAsync()
+    {
+        try
+        {
+            if (await CheckConnectivityAsync())
+            {
+                var pool = await _http.GetFromJsonAsync<MemberDrawPoolDto>("api/pos/members/draw-pool");
+                if (pool != null)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _js.InvokeVoidAsync("window.gfcSetAsync", "gfc_member_draw_pool_cache", pool);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[POS] Failed to cache member draw pool: {ex.Message}");
+                        }
+                    });
+                }
+                return pool;
+            }
+            else
+            {
+                Console.WriteLine("[POS] Offline: retrieving member draw pool from local cache.");
+                var json = await _js.InvokeAsync<string>("window.gfcGetAsync", "gfc_member_draw_pool_cache");
+                if (!string.IsNullOrEmpty(json) && json != "null")
+                {
+                    return JsonSerializer.Deserialize<MemberDrawPoolDto>(json, _jsonOptions);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error fetching/retrieving member draw pool: {ex.Message}");
+        }
+        return null;
+    }
+
+    public async Task<MemberDrawStatusDto?> GetMemberDrawStatusAsync(int memberId)
+    {
+        try
+        {
+            if (await CheckConnectivityAsync())
+            {
+                var status = await _http.GetFromJsonAsync<MemberDrawStatusDto>($"api/pos/members/{memberId}/draw-status");
+                if (status != null)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _js.InvokeVoidAsync("window.gfcSetAsync", $"gfc_member_draw_status_{memberId}", status);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[POS] Failed to cache member draw status for {memberId}: {ex.Message}");
+                        }
+                    });
+                }
+                return status;
+            }
+            else
+            {
+                Console.WriteLine($"[POS] Offline: retrieving member draw status for {memberId} from local cache.");
+                var json = await _js.InvokeAsync<string>("window.gfcGetAsync", $"gfc_member_draw_status_{memberId}");
+                if (!string.IsNullOrEmpty(json) && json != "null")
+                {
+                    return JsonSerializer.Deserialize<MemberDrawStatusDto>(json, _jsonOptions);
+                }
+
+                return new MemberDrawStatusDto
+                {
+                    MemberId = memberId,
+                    FirstName = "OFFLINE",
+                    LastName = "RECORD",
+                    Status = "Offline Cache Missing",
+                    IsActive = false,
+                    DuesPaid = false,
+                    IsWaived = false,
+                    IsEligible = false
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error fetching/retrieving member draw status for {memberId}: {ex.Message}");
+            try
+            {
+                var json = await _js.InvokeAsync<string>("window.gfcGetAsync", $"gfc_member_draw_status_{memberId}");
+                if (!string.IsNullOrEmpty(json) && json != "null")
+                {
+                    return JsonSerializer.Deserialize<MemberDrawStatusDto>(json, _jsonOptions);
+                }
+            }
+            catch { }
+
+            return new MemberDrawStatusDto
+            {
+                MemberId = memberId,
+                FirstName = "OFFLINE",
+                LastName = "RECORD",
+                Status = "Error Lookup (Offline)",
+                IsActive = false,
+                DuesPaid = false,
+                IsWaived = false,
+                IsEligible = false
+            };
+        }
     }
 
     public void Dispose()

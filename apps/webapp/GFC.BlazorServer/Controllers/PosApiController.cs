@@ -708,4 +708,117 @@ public class PosApiController : ControllerBase
             return StatusCode(500, "Internal Server Error");
         }
     }
+
+    [HttpGet("members/draw-pool")]
+    public async Task<IActionResult> GetMemberDrawPool()
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var memberIds = await db.Members
+                .AsNoTracking()
+                .Select(m => m.MemberID)
+                .ToListAsync();
+
+            var maxId = memberIds.Any() ? memberIds.Max() : 0;
+
+            return Ok(new
+            {
+                MemberIds = memberIds,
+                MaxMemberId = maxId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[POS API] Error fetching member draw pool");
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
+
+    [HttpGet("members/{id}/draw-status")]
+    public async Task<IActionResult> GetMemberDrawStatus(int id)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var member = await db.Members
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.MemberID == id);
+
+            if (member == null)
+            {
+                return NotFound($"Member with ID {id} not found");
+            }
+
+            var currentYear = DateTime.Now.Year;
+
+            // 1. Is the member active?
+            var isActive = (member.Status == "REGULAR" || member.Status == "REGULAR-NP" || member.Status == "LIFE" || member.Status == "GUEST")
+                && member.Status != "INACTIVE"
+                && member.Status != "DECEASED"
+                && member.Status != "REJECTED";
+
+            // 2. Is the member waived automatically (LIFE or Board Director)?
+            var isLife = member.Status == "LIFE";
+            var isBoardMember = await db.BoardAssignments
+                .AsNoTracking()
+                .AnyAsync(ba => ba.MemberID == member.MemberID && ba.TermYear == currentYear);
+
+            var isAutoWaived = isLife || isBoardMember;
+            var waiverReason = isLife ? "Life Member Waiver" : (isBoardMember ? "Board Director Waiver" : "");
+
+            // 3. Does the member have direct dues paid/waived record for this year?
+            var dues = await db.DuesPayments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(dp => dp.MemberId == member.MemberID && dp.Year == currentYear);
+
+            var isDuesPaidRecord = dues != null && dues.PaidDate.HasValue;
+            var isExplicitWaivedRecord = dues != null && dues.PaymentType != null && dues.PaymentType.Equals("WAIVED", StringComparison.OrdinalIgnoreCase);
+
+            // 4. Does the member have a multi-year waiver covering the current year?
+            var hasMultiYearWaiver = false;
+            if (!isAutoWaived && !isExplicitWaivedRecord)
+            {
+                var multiWaiver = await db.DuesWaiverPeriods
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(dwp => dwp.MemberId == member.MemberID && dwp.StartYear <= currentYear && dwp.EndYear >= currentYear);
+                
+                if (multiWaiver != null)
+                {
+                    hasMultiYearWaiver = true;
+                    waiverReason = $"Waiver Period: {multiWaiver.Reason}";
+                }
+            }
+
+            var isDuesPaid = isDuesPaidRecord;
+            var isWaived = isAutoWaived || isExplicitWaivedRecord || hasMultiYearWaiver;
+
+            if (isExplicitWaivedRecord && string.IsNullOrEmpty(waiverReason))
+            {
+                waiverReason = dues?.Notes ?? "Explicit Dues Waiver";
+            }
+
+            var isEligible = isActive && (isDuesPaid || isWaived);
+
+            var dto = new MemberDrawStatusDto
+            {
+                MemberId = member.MemberID,
+                FirstName = member.FirstName,
+                LastName = member.LastName,
+                Status = member.Status,
+                IsActive = isActive,
+                DuesPaid = isDuesPaid,
+                IsWaived = isWaived,
+                WaiverReason = waiverReason,
+                IsEligible = isEligible
+            };
+
+            return Ok(dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[POS API] Error looking up member draw status for ID {MemberId}", id);
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
 }

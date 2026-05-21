@@ -36,6 +36,9 @@ public interface IPosTerminalService
     Task<string> GetServerVersionAsync();
     Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId);
     Task<List<PosSaleDto>> GetUnsyncedSalesAsync();
+    Task<MemberDrawPoolDto?> GetMemberDrawPoolAsync();
+    Task<MemberDrawStatusDto?> GetMemberDrawStatusAsync(int memberId);
+    Task<List<LiquorItem>> GetLiquorInventoryAsync(bool force = false);
 }
 
 public class ShiftAuditDto
