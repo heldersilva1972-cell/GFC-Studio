@@ -156,7 +156,7 @@
                                 <ul class="mb-0 text-muted small ps-3">
                                     <li class="mb-1"><strong>1. Create & Color-Code:</strong> Create tokens (e.g. <em>"Beer Token"</em>) and assign colors to match physical tickets.</li>
                                     <li class="mb-1"><strong>2. Link Beverage Items:</strong> Select the menu items this token is authorized to pay for.</li>
-                                    <li class="mb-0"><strong>3. Smart Upgrades (Partial Credit):</strong> Toggle <em>"Enable Credit Upgrades"</em> to let the token act as partial cash credit (e.g., $5.00 credit) toward more expensive items.</li>
+                                    <li class="mb-0"><strong>3. Smart Upgrades (Partial Credit):</strong> Toggle <em>"Enable Credit Upgrades"</em> to let the token act as partial cash credit (e.g., $5.00 credit) toward more expensive items. (This keeps the regular token option active and adds a dedicated "Upgrade" button in the POS terminal!)</li>
                                 </ul>
                             </div>
                         </div>
@@ -181,11 +181,36 @@
                                 <div class="col">
                                     <div class="card h-100 border-2 rounded-4 p-3 @(token.IsActive ? "" : "opacity-50")" style="border-left: 8px solid @token.ColorHex;">
                                         <div class="d-flex justify-content-between align-items-start">
-                                            <div>
-                                                <h5 class="fw-bold mb-1">@token.Name</h5>
-                                                <div class="badge bg-light text-dark border px-3 py-2 rounded-pill mb-2">
-                                                    Sale Price: @token.SalePrice.ToString("C")
+                                            <div class="w-100">
+                                                <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                                                    <h5 class="fw-bold mb-0">@token.Name</h5>
+                                                    @if (token.AllowCreditUpgrade.GetValueOrDefault())
+                                                    {
+                                                        <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-20 px-2 py-1 rounded-pill" style="font-size: 0.65rem; font-weight: 800; letter-spacing: 0.5px;">UPGRADE</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-20 px-2 py-1 rounded-pill" style="font-size: 0.65rem; font-weight: 800; letter-spacing: 0.5px;">STANDARD</span>
+                                                    }
                                                 </div>
+                                                <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                                                    <div class="badge bg-light text-dark border px-3 py-2 rounded-pill">
+                                                        Sale Price: @token.SalePrice.ToString("C")
+                                                    </div>
+                                                    @if (token.AllowCreditUpgrade.GetValueOrDefault() && token.CreditValue.HasValue)
+                                                    {
+                                                        <div class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-20 px-3 py-2 rounded-pill">
+                                                            Credit: @token.CreditValue.Value.ToString("C")
+                                                        </div>
+                                                    }
+                                                </div>
+                                                @if (token.AllowCreditUpgrade.GetValueOrDefault() && token.UpgradesFromTokenId.HasValue)
+                                                {
+                                                    var parentToken = tokens.FirstOrDefault(t => t.Id == token.UpgradesFromTokenId.Value);
+                                                    <div class="small text-warning fw-bold mb-2" style="font-size: 0.8rem;">
+                                                        <i class="bi bi-arrow-up-right-circle me-1"></i> Upgrades From: <span class="text-dark bg-light px-2 py-1 rounded border">@(parentToken?.Name ?? $"Token #{token.UpgradesFromTokenId}")</span>
+                                                    </div>
+                                                }
                                                 <p class="small text-muted mb-0">
                                                     @(string.IsNullOrEmpty(token.EligibleItemIds) ? "No drinks linked" : $"{token.EligibleItemIds.Split(',').Length} drinks linked")
                                                 </p>
@@ -920,7 +945,7 @@
                         
                         @if (editingToken.AllowCreditUpgrade.GetValueOrDefault())
                         {
-                            <div class="row animate__animated animate__fadeIn">
+                            <div class="row animate__animated animate__fadeIn g-3">
                                 <div class="col-md-4">
                                     <div class="mb-3">
                                         <label class="form-label small fw-bold text-muted text-uppercase">Credit Value</label>
@@ -931,7 +956,23 @@
                                         <div class="extra-small text-muted mt-1 italic">Leave blank to use Sale Price</div>
                                     </div>
                                 </div>
-                                <div class="col-md-8">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-muted text-uppercase">Upgrades From Token</label>
+                                        <select class="form-select border-2" @bind="editingToken.UpgradesFromTokenId">
+                                            <option value="">-- Select Base Token --</option>
+                                            @if (tokens != null)
+                                            {
+                                                @foreach (var tok in tokens.Where(t => t.IsActive && t.AllowCreditUpgrade != true && t.Id != editingToken.Id))
+                                                {
+                                                    <option value="@tok.Id">@tok.Name (@tok.SalePrice.ToString("C"))</option>
+                                                }
+                                            }
+                                        </select>
+                                        <div class="extra-small text-muted mt-1 italic">Base token whose approved drinks are eligible for this upgrade</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-12">
                                     <label class="form-label small fw-bold text-muted text-uppercase d-block mb-2">Eligible Categories for Credit</label>
                                     <div class="d-flex flex-wrap gap-2">
                                         @if (categories != null)
@@ -1987,7 +2028,8 @@
             EligibleItemIds = token.EligibleItemIds,
             AllowCreditUpgrade = token.AllowCreditUpgrade.GetValueOrDefault(),
             CreditValue = token.CreditValue,
-            CreditEligibleCategories = token.CreditEligibleCategories
+            CreditEligibleCategories = token.CreditEligibleCategories,
+            UpgradesFromTokenId = token.UpgradesFromTokenId
         };
     }
 
@@ -2043,6 +2085,11 @@
         if (editingToken == null) return;
         try
         {
+            if (!editingToken.AllowCreditUpgrade.GetValueOrDefault())
+            {
+                editingToken.UpgradesFromTokenId = null;
+            }
+
             using var db = await DbFactory.CreateDbContextAsync();
             if (editingToken.Id == 0)
             {
@@ -2061,6 +2108,7 @@
                     original.AllowCreditUpgrade = editingToken.AllowCreditUpgrade;
                     original.CreditValue = editingToken.CreditValue;
                     original.CreditEligibleCategories = editingToken.CreditEligibleCategories;
+                    original.UpgradesFromTokenId = editingToken.UpgradesFromTokenId;
                 }
             }
             await db.SaveChangesAsync();

@@ -23,5 +23,18 @@ public class MemberDrawPoolDto
 {
     public List<int> MemberIds { get; set; } = new();
     public int MaxMemberId { get; set; }
+    public List<MemberDrawPoolItemDto> Members { get; set; } = new();
 }
+
+/// <summary>
+/// DTO representing an individual member's essential drawing identity and eligibility inside the offline pool cache.
+/// </summary>
+public class MemberDrawPoolItemDto
+{
+    public int MemberId { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public bool IsEligible { get; set; }
+}
+
 

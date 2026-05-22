@@ -30,6 +30,7 @@ namespace GFC.Core.Models
         public bool? AllowCreditUpgrade { get; set; } = false;
         public decimal? CreditValue { get; set; }
         public string? CreditEligibleCategories { get; set; } = string.Empty;
+        public int? UpgradesFromTokenId { get; set; }
         
         // Helper to ensure we always have a clean bool for UI binding
         public bool IsUpgradeEnabled => AllowCreditUpgrade ?? false;

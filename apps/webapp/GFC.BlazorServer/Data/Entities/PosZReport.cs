@@ -23,8 +23,7 @@ namespace GFC.BlazorServer.Data.Entities
         [Required]
         public decimal TotalGrossSales { get; set; }
         
-        [Required]
-        public decimal TokenCredits { get; set; }
+        public decimal? TokenCredits { get; set; } = 0;
 
         public string? InventoryPullsJson { get; set; } = "[]";
 

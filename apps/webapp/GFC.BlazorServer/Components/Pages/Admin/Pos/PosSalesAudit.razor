@@ -165,13 +165,13 @@
                                                 <span class="name">GROSS SALES</span>
                                                 <span class="price">@SelectedZReport.TotalGrossSales.ToString("C")</span>
                                             </div>
-                                            @if (SelectedZReport.TokenCredits > 0)
-                                            {
-                                                <div class="receipt-item" style="color: #991b1b;">
-                                                    <span class="name">TOKEN CREDITS</span>
-                                                    <span class="price">- @SelectedZReport.TokenCredits.ToString("C")</span>
-                                                </div>
-                                            }
+                                             @if (SelectedZReport.TokenCredits.GetValueOrDefault() > 0)
+                                             {
+                                                 <div class="receipt-item" style="color: #991b1b;">
+                                                     <span class="name">TOKEN CREDITS</span>
+                                                     <span class="price">- @SelectedZReport.TokenCredits.GetValueOrDefault().ToString("C")</span>
+                                                 </div>
+                                             }
                                             <div class="receipt-item" style="border-top: 1px solid #000; margin-top:4px; font-weight:bold;">
                                                 <span class="name">CASH IN DRAWER</span>
                                                 <span class="price">@SelectedZReport.CashTotal.ToString("C")</span>
@@ -1070,17 +1070,31 @@
 
     protected override async Task OnInitializedAsync()
     {
-        using var db = DbFactory.CreateDbContext();
-        
-        // Load master price list for Z-Report lookups
-        var items = await db.LiquorItems.AsNoTracking().ToListAsync();
-        DbItems = items.Select(i => new PosTerminal.ProductItem { 
-            Name = i.Name, 
-            Price = i.RetailPrice 
-        }).ToList();
+        try {
+            using var db = DbFactory.CreateDbContext();
+            
+            // Load master price list for Z-Report lookups
+            List<LiquorItem> items;
+            try {
+                items = await db.LiquorItems.AsNoTracking().ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error loading LiquorItems in OnInitializedAsync: " + ex.Message, ex);
+            }
+            DbItems = items.Select(i => new PosTerminal.ProductItem { 
+                Name = i.Name, 
+                Price = i.RetailPrice 
+            }).ToList();
 
-        await CalculateLifetimeTokens(db);
-        await LoadSales();
+            try {
+                await CalculateLifetimeTokens(db);
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in CalculateLifetimeTokens: " + ex.Message, ex);
+            }
+            await LoadSales();
+        } catch (global::System.Exception ex) {
+            global::System.IO.File.WriteAllText(@"C:\Users\hnsil\Desktop\PosAuditError.txt", ex.ToString());
+            throw;
+        }
     }
 
     private void GoBack()
@@ -1091,47 +1105,72 @@
     private async Task LoadSales()
     {
         try {
-        using var db = DbFactory.CreateDbContext();
-        
-        var st = StartDate.Date;
-        var en = EndDate.Date.AddDays(1);
+            using var db = DbFactory.CreateDbContext();
+            
+            var st = StartDate.Date;
+            var en = EndDate.Date.AddDays(1);
 
-        // Load Sales
-        var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
-        if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
-        Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
+            // Load Sales
+            try {
+                var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
+                if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
+                Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
+            }
 
-        // Load Z-Reports
-        var zQuery = db.PosZReports.AsNoTracking().Where(r => r.Timestamp >= st && r.Timestamp < en);
-        if (!string.IsNullOrEmpty(FilterTerminal)) zQuery = zQuery.Where(r => r.TerminalName == FilterTerminal);
-        ZReports = await zQuery.OrderByDescending(r => r.Timestamp).Take(500).ToListAsync();
+            // Load Z-Reports
+            try {
+                var zQuery = db.PosZReports.AsNoTracking().Where(r => r.Timestamp >= st && r.Timestamp < en);
+                if (!string.IsNullOrEmpty(FilterTerminal)) zQuery = zQuery.Where(r => r.TerminalName == FilterTerminal);
+                ZReports = await zQuery.OrderByDescending(r => r.Timestamp).Take(500).ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in loading ZReports query: " + ex.Message, ex);
+            }
 
-        // Calculate Totals
-        TodayTotal = Sales.Sum(s => s.TotalAmount);
-        StationTotals = Sales.GroupBy(s => s.TerminalName ?? "UNKNOWN STATION")
-                            .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+            // Calculate Totals
+            TodayTotal = Sales.Sum(s => s.TotalAmount);
+            StationTotals = Sales.GroupBy(s => s.TerminalName ?? "UNKNOWN STATION")
+                                .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
 
-        // Get unique terminal names
-        TerminalList = await db.PosSales.AsNoTracking().Select(s => s.TerminalName).Distinct().ToListAsync();
+            // Get unique terminal names
+            try {
+                TerminalList = await db.PosSales.AsNoTracking().Select(s => s.TerminalName).Distinct().ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in loading TerminalList query 1: " + ex.Message, ex);
+            }
 
-        // Default Selections
-        SelectedSale = Sales.FirstOrDefault();
-        SelectedZReport = ZReports.FirstOrDefault();
+            // Default Selections
+            SelectedSale = Sales.FirstOrDefault();
+            SelectedZReport = ZReports.FirstOrDefault();
 
-        // Token Tracking (Daily)
-        var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
-        TotalTokensSold = allItems.Where(i => i != null && i.Category == "TOKENS").Sum(i => i.Quantity);
-        TotalTokensRedeemed = allItems.Where(i => i != null && (i.Name ?? "").Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
+            // Token Tracking (Daily)
+            var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
+            TotalTokensSold = allItems.Where(i => i != null && i.Category == "TOKENS").Sum(i => i.Quantity);
+            TotalTokensRedeemed = allItems.Where(i => i != null && (i.Name ?? "").Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
 
-        // 1. Calculate Reconciliation Data
-        await CalculateReconciliation(db);
-        await CalculateTokenAnalysis(db);
+            // 1. Calculate Reconciliation Data
+            try {
+                await CalculateReconciliation(db);
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in CalculateReconciliation: " + ex.Message, ex);
+            }
+            
+            try {
+                await CalculateTokenAnalysis(db);
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in CalculateTokenAnalysis: " + ex.Message, ex);
+            }
 
-        // Get unique terminal names for the dropdown
-        TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
+            // Get unique terminal names for the dropdown
+            try {
+                TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in loading TerminalList query 2: " + ex.Message, ex);
+            }
 
-        // Select the first one by default from the new results, or clear if empty
-        SelectedSale = Sales.FirstOrDefault();
+            // Select the first one by default from the new results, or clear if empty
+            SelectedSale = Sales.FirstOrDefault();
         } catch (global::System.Exception ex) {
             global::System.IO.File.WriteAllText(@"C:\Users\hnsil\Desktop\PosAuditError.txt", ex.ToString());
             throw;
@@ -1208,10 +1247,19 @@
     private async Task CalculateLifetimeTokens(GfcDbContext db)
     {
         // Use the same stats-based approach as the main analysis for consistency
-        var tokens = await db.PosTokens.AsNoTracking().ToListAsync();
-        var stats = tokens.ToDictionary(t => t.Name, t => new { Sold = 0, Used = 0 });
+        List<PosToken> tokens;
+        try {
+            tokens = await db.PosTokens.AsNoTracking().ToListAsync();
+        } catch (global::System.Exception ex) {
+            throw new global::System.Exception("Error in PosTokens query in CalculateLifetimeTokens: " + ex.Message, ex);
+        }
         
-        var allSales = await db.PosSales.AsNoTracking().ToListAsync();
+        List<PosSale> allSales;
+        try {
+            allSales = await db.PosSales.AsNoTracking().ToListAsync();
+        } catch (global::System.Exception ex) {
+            throw new global::System.Exception("Error in PosSales query in CalculateLifetimeTokens: " + ex.Message, ex);
+        }
         
         int beerSold = 0, beerUsed = 0;
         int mixedSold = 0, mixedUsed = 0;
@@ -1256,7 +1304,9 @@
         // For now, let's do LIFETIME for everything as per user's requirement to "see if they are losing money".
         var allSales = await db.PosSales.AsNoTracking().ToListAsync();
         
-        var stats = MasterTokens.Where(t => t.Name != null).ToDictionary(t => t.Name, t => new TokenYieldEntry { Token = t });
+        var stats = MasterTokens.Where(t => t.Name != null)
+                                .GroupBy(t => t.Name)
+                                .ToDictionary(g => g.Key, g => new TokenYieldEntry { Token = g.First() });
 
         foreach (var sale in allSales)
         {

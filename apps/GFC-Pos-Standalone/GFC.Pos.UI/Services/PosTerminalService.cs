@@ -1467,6 +1467,38 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     return JsonSerializer.Deserialize<MemberDrawStatusDto>(json, _jsonOptions);
                 }
 
+                // Fallback: Check the cached member draw pool which has the full names and eligibility
+                try
+                {
+                    var poolJson = await _js.InvokeAsync<string>("window.gfcGetAsync", "gfc_member_draw_pool_cache");
+                    if (!string.IsNullOrEmpty(poolJson) && poolJson != "null")
+                    {
+                        var pool = JsonSerializer.Deserialize<MemberDrawPoolDto>(poolJson, _jsonOptions);
+                        if (pool != null && pool.Members != null)
+                        {
+                            var match = pool.Members.FirstOrDefault(m => m.MemberId == memberId);
+                            if (match != null)
+                            {
+                                return new MemberDrawStatusDto
+                                {
+                                    MemberId = memberId,
+                                    FirstName = match.FirstName,
+                                    LastName = match.LastName,
+                                    Status = "Offline Pool Cache",
+                                    IsActive = true,
+                                    DuesPaid = match.IsEligible,
+                                    IsWaived = false,
+                                    IsEligible = match.IsEligible
+                                };
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Failed to query offline pool cache fallback: {ex.Message}");
+                }
+
                 return new MemberDrawStatusDto
                 {
                     MemberId = memberId,
@@ -1489,6 +1521,31 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 if (!string.IsNullOrEmpty(json) && json != "null")
                 {
                     return JsonSerializer.Deserialize<MemberDrawStatusDto>(json, _jsonOptions);
+                }
+
+                // Fallback: Check the cached member draw pool which has the full names and eligibility
+                var poolJson = await _js.InvokeAsync<string>("window.gfcGetAsync", "gfc_member_draw_pool_cache");
+                if (!string.IsNullOrEmpty(poolJson) && poolJson != "null")
+                {
+                    var pool = JsonSerializer.Deserialize<MemberDrawPoolDto>(poolJson, _jsonOptions);
+                    if (pool != null && pool.Members != null)
+                    {
+                        var match = pool.Members.FirstOrDefault(m => m.MemberId == memberId);
+                        if (match != null)
+                        {
+                            return new MemberDrawStatusDto
+                            {
+                                MemberId = memberId,
+                                FirstName = match.FirstName,
+                                LastName = match.LastName,
+                                Status = "Offline Pool Cache",
+                                IsActive = true,
+                                DuesPaid = match.IsEligible,
+                                IsWaived = false,
+                                IsEligible = match.IsEligible
+                            };
+                        }
+                    }
                 }
             }
             catch { }

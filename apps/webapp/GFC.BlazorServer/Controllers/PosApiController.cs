@@ -715,17 +715,87 @@ public class PosApiController : ControllerBase
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var memberIds = await db.Members
+            var members = await db.Members
                 .AsNoTracking()
-                .Select(m => m.MemberID)
                 .ToListAsync();
+
+            var currentYear = DateTime.Now.Year;
+
+            // Pre-fetch collections to do fast in-memory sets/lookups rather than N+1 queries
+            var boardMemberIds = await db.BoardAssignments
+                .AsNoTracking()
+                .Where(ba => ba.TermYear == currentYear)
+                .Select(ba => ba.MemberID)
+                .ToListAsync();
+
+            var duesPayments = await db.DuesPayments
+                .AsNoTracking()
+                .Where(dp => dp.Year == currentYear)
+                .ToListAsync();
+
+            var waiverPeriods = await db.DuesWaiverPeriods
+                .AsNoTracking()
+                .Where(dwp => dwp.StartYear <= currentYear && dwp.EndYear >= currentYear)
+                .ToListAsync();
+
+            var boardMemberSet = new HashSet<int>(boardMemberIds);
+            
+            // A member has their dues paid if they have a payment with a PaidDate
+            var duesPaidSet = new HashSet<int>(
+                duesPayments
+                    .Where(dp => dp.PaidDate.HasValue)
+                    .Select(dp => dp.MemberId)
+            );
+
+            // A member is explicitly waived if their payment type is "WAIVED"
+            var duesExplicitWaivedSet = new HashSet<int>(
+                duesPayments
+                    .Where(dp => dp.PaymentType != null && dp.PaymentType.Equals("WAIVED", StringComparison.OrdinalIgnoreCase))
+                    .Select(dp => dp.MemberId)
+            );
+
+            var multiYearWaiverSet = new HashSet<int>(
+                waiverPeriods
+                    .Select(dwp => dwp.MemberId)
+            );
+
+            var poolItems = new List<MemberDrawPoolItemDto>();
+            var memberIds = new List<int>();
+
+            foreach (var m in members)
+            {
+                var isActive = (m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE" || m.Status == "GUEST")
+                    && m.Status != "INACTIVE"
+                    && m.Status != "DECEASED"
+                    && m.Status != "REJECTED";
+
+                var isLife = m.Status == "LIFE";
+                var isBoard = boardMemberSet.Contains(m.MemberID);
+                var isAutoWaived = isLife || isBoard;
+                var isDuesPaid = duesPaidSet.Contains(m.MemberID);
+                var isExplicitWaived = duesExplicitWaivedSet.Contains(m.MemberID);
+                var hasMultiYearWaiver = multiYearWaiverSet.Contains(m.MemberID);
+
+                var isWaived = isAutoWaived || isExplicitWaived || hasMultiYearWaiver;
+                var isEligible = isActive && (isDuesPaid || isWaived);
+
+                memberIds.Add(m.MemberID);
+                poolItems.Add(new MemberDrawPoolItemDto
+                {
+                    MemberId = m.MemberID,
+                    FirstName = m.FirstName ?? string.Empty,
+                    LastName = m.LastName ?? string.Empty,
+                    IsEligible = isEligible
+                });
+            }
 
             var maxId = memberIds.Any() ? memberIds.Max() : 0;
 
-            return Ok(new
+            return Ok(new MemberDrawPoolDto
             {
                 MemberIds = memberIds,
-                MaxMemberId = maxId
+                MaxMemberId = maxId,
+                Members = poolItems
             });
         }
         catch (Exception ex)
