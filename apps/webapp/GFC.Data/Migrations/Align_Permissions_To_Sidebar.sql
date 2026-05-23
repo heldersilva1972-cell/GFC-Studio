@@ -2,6 +2,10 @@
 UPDATE AppPages SET Category = 'MEMBERSHIP' WHERE Category IN ('Members', 'Membership', 'Membership Section', 'MEMBERS');
 UPDATE AppPages SET Category = 'CONTROLLERS' WHERE Category IN ('Controllers');
 UPDATE AppPages SET Category = 'FINANCE' WHERE Category IN ('Finance', 'Finance & Ops');
+UPDATE AppPages SET Category = 'BINGO' WHERE Category IN ('Bingo', 'BINGO');
+UPDATE AppPages SET Category = 'POS SYSTEM' WHERE Category IN ('Pos System', 'POS SYSTEM', 'PosSystem');
+UPDATE AppPages SET Category = 'BARTENDERS' WHERE Category IN ('Bartenders', 'BARTENDERS');
+UPDATE AppPages SET Category = 'MOBILE APPS' WHERE Category IN ('Mobile Apps', 'MOBILE APPS', 'MobileApps');
 UPDATE AppPages SET Category = 'ADMINISTRATION' WHERE Category IN ('Administration', 'Admin');
 UPDATE AppPages SET Category = 'WEBSITE' WHERE Category IN ('Website');
 UPDATE AppPages SET Category = 'HALL RENTALS' WHERE Category IN ('Hall Rentals', 'HallRentals');
@@ -27,7 +31,7 @@ UPDATE AppPages SET PageName = 'Visual Editor' WHERE PageRoute = '/studio';
 
 -- 3. Deactivate simulation and any pages that don't match the standard sidebar list
 UPDATE AppPages SET IsActive = 0 WHERE Category = 'Simulation' OR Category = 'DASHBOARD';
-UPDATE AppPages SET IsActive = 1 WHERE Category IN ('MEMBERSHIP', 'CONTROLLERS', 'FINANCE', 'ADMINISTRATION', 'WEBSITE', 'HALL RENTALS', 'SYSTEM', 'CAMERA SYSTEM', 'GFC STUDIO');
+UPDATE AppPages SET IsActive = 1 WHERE Category IN ('MEMBERSHIP', 'CONTROLLERS', 'FINANCE', 'BINGO', 'ADMINISTRATION', 'WEBSITE', 'HALL RENTALS', 'SYSTEM', 'CAMERA SYSTEM', 'GFC STUDIO', 'POS SYSTEM', 'BARTENDERS', 'MOBILE APPS');
 
 -- 4. Move "Life Eligibility" to MEMBERSHIP if it wandered off
 UPDATE AppPages SET Category = 'MEMBERSHIP' WHERE PageName = 'Life Eligibility';

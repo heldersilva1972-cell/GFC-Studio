@@ -379,6 +379,13 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<IFinanceService, FinanceService>();
         builder.Services.AddScoped<IUserUsageService, UserUsageService>();
         
+        // Simulated POS Terminal Mock Services (in-memory, no SQL writes)
+        builder.Services.AddScoped<GFC.Pos.UI.Services.IPosTerminalService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPosTerminalService>();
+        builder.Services.AddScoped<GFC.Pos.UI.Services.ConnectivityService>();
+        builder.Services.AddScoped<GFC.Pos.UI.Services.IStationSettingsService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockStationSettingsService>();
+        builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterService>();
+        builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterConfigService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterConfigService>();
+        
         // Controller Client Wiring
         // Register the endpoint resolver that uses AgentApiOptions
         builder.Services.AddSingleton<GFC.BlazorServer.Connectors.Mengqi.Abstractions.IControllerEndpointResolver, GFC.BlazorServer.Services.Controllers.BlazorControllerEndpointResolver>();

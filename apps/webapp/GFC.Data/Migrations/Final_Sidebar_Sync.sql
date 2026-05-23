@@ -16,7 +16,7 @@ DECLARE @Pages TABLE (
 
 INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 -- DASHBOARD
-('Dashboard', '/', 'DASHBOARD', 'Main overview', 0, 1),
+('Dashboard', '/', 'GENERAL', 'Main overview', 0, 1),
 
 -- MEMBERSHIP
 ('Members Info', '/members', 'MEMBERSHIP', 'Member directory', 0, 10),
@@ -30,22 +30,25 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 
 -- CONTROLLERS
 ('Access Controllers', '/controllers', 'CONTROLLERS', 'Hardware status', 1, 20),
-('Search Controller', '/controllers/discovery', 'CONTROLLERS', 'Discovery tools', 1, 21),
-('Access Holidays', '/controllers/schedules/holidays', 'CONTROLLERS', 'Holiday overrides', 1, 22),
+('Access Holidays', '/controllers/holidays', 'CONTROLLERS', 'Holiday overrides', 1, 21),
+('Search Controller', '/controllers/discovery', 'CONTROLLERS', 'Discovery tools', 1, 22),
 
 -- FINANCE
-('Financial Insights', '/finance/insights', 'FINANCE', 'Analytics', 1, 30),
-('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal', 0, 31),
-('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Auditing', 1, 32),
-('Lottery Sales', '/lottery', 'FINANCE', 'Lottery data', 0, 33),
-('Lottery Analytics', '/finance/lottery-analytics', 'FINANCE', 'Performance trends', 1, 34),
-('Lottery Summaries', '/finance/lottery-summaries', 'FINANCE', 'Daily reports', 1, 35),
-('Lottery Reconcile', '/finance/lottery-reconcile', 'FINANCE', 'Audit matching', 1, 36),
-('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 37),
-('Bar Sales', '/finance/bar-sales', 'FINANCE', 'Shift-based reports', 1, 38),
-('Bar/Lottery Entries', '/finance/bar-lottery-sales', 'FINANCE', 'Sales records', 1, 39),
-('Club Events Financials', '/finance/club-events', 'FINANCE', 'Event profit/loss', 1, 40),
-('Employee Hours Worked', '/finance/employee-hours', 'FINANCE', 'Staff hours audit', 1, 41),
+('Financial Overview', '/finance/overview', 'FINANCE', 'Financial Overview Dashboard', 1, 30),
+('Financial Insights', '/finance/insights', 'FINANCE', 'Analytics', 1, 31),
+('Bills & Invoices', '/finance/bills', 'FINANCE', 'Manage Bills & Invoices', 1, 32),
+('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal', 0, 33),
+('Lottery Sales', '/lottery', 'FINANCE', 'Lottery data', 0, 34),
+('Lottery Analytics', '/finance/lottery-analytics', 'FINANCE', 'Performance trends', 1, 35),
+('Lottery Summaries', '/finance/lottery-summaries', 'FINANCE', 'Daily reports', 1, 36),
+('Lottery Reconcile', '/finance/lottery-reconcile', 'FINANCE', 'Audit matching', 1, 37),
+('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Auditing', 1, 38),
+('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 39),
+('Bar Sales', '/finance/bar-sales', 'FINANCE', 'Shift-based reports', 1, 40),
+('Bar/Lottery Entries', '/finance/bar-lottery-sales', 'FINANCE', 'Sales records', 1, 41),
+('Club Events Financials', '/finance/club-events', 'FINANCE', 'Event profit/loss', 1, 42),
+('Employee Hours Worked', '/finance/employee-hours', 'FINANCE', 'Staff hours audit', 1, 43),
+('Payroll Center', '/finance/payroll-center', 'FINANCE', 'Club Payroll Center', 1, 44),
 
 -- ADMINISTRATION
 ('Manage Users', '/users', 'ADMINISTRATION', 'User accounts', 1, 50),
@@ -101,7 +104,20 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 ('Submit Reimbursement', '/mobile/reimbursements', 'MOBILE APPS', 'Expense submission', 0, 130),
 ('Reimbursement Hub', '/mobile/reimbursements/manager', 'MOBILE APPS', 'Payout hub', 0, 131),
 ('System Vitals', '/mobile/system/stats', 'MOBILE APPS', 'Server stats', 0, 132),
-('Sales Alert Widget', 'widgets/shift-sales-alert', 'MOBILE APPS', 'Shift alerts', 0, 133);
+('Sales Alert Widget', 'widgets/shift-sales-alert', 'MOBILE APPS', 'Shift alerts', 0, 133),
+
+-- BINGO
+('Bingo Reports', '/admin/bingo', 'BINGO', 'Financial reports', 0, 140),
+('Bingo Expenses', '/admin/bingo/expenses', 'BINGO', 'Expense tracking', 0, 141),
+('Bingo Setup', '/admin/bingo/setup', 'BINGO', 'Configure games', 0, 142),
+('Progressive Ball Counts', '/admin/bingo/progressive', 'BINGO', 'Progressive tracking', 0, 143),
+
+-- POS SYSTEM
+('POS Terminal', '/admin/pos-terminal', 'POS SYSTEM', 'POS Terminal interface', 1, 150),
+('Sales Audit', '/admin/pos-audit', 'POS SYSTEM', 'Audit POS sales', 1, 151),
+('Sales Analysis', '/admin/pos-analysis', 'POS SYSTEM', 'Analyze sales performance', 1, 152),
+('POS Menu Manager', '/admin/pos-menu', 'POS SYSTEM', 'Manage POS menu items', 1, 153),
+('Liquor Hub', '/liquor/hub', 'POS SYSTEM', 'Liquor database management', 1, 154);
 
 -- 3. Perform the Merge
 MERGE AppPages AS target

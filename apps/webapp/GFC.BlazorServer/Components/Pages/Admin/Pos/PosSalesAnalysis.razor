@@ -400,7 +400,7 @@
         if (int.TryParse(e.Value?.ToString(), out int m))
         {
             SelectedMonth = m;
-            ActivePreset = "Monthly";
+            ActivePreset = "MonthMode";
             UpdateRangeFromMonthYear();
             await LoadAnalytics();
         }
@@ -411,7 +411,10 @@
         if (int.TryParse(e.Value?.ToString(), out int y))
         {
             SelectedYear = y;
-            ActivePreset = "Monthly";
+            if (ActivePreset != "MonthMode" && ActivePreset != "YearMode")
+            {
+                ActivePreset = "MonthMode";
+            }
             UpdateRangeFromMonthYear();
             await LoadAnalytics();
         }
@@ -419,9 +422,8 @@
 
     private void UpdateRangeFromMonthYear()
     {
-        if (SelectedMonth == 0)
+        if (ActivePreset == "YearMode")
         {
-            // Full Year Logic
             StartDate = new DateTime(SelectedYear, 1, 1);
             EndDate = new DateTime(SelectedYear, 12, 31);
         }
@@ -471,6 +473,19 @@
         _ = LoadAnalytics();
     }
 
+    private string CleanProductName(string rawName)
+    {
+        if (string.IsNullOrEmpty(rawName)) return "";
+        var name = rawName.Trim();
+        if (name.StartsWith("> ")) name = name.Substring(2).Trim();
+        int parenIndex = name.IndexOf('(');
+        if (parenIndex != -1)
+        {
+            name = name.Substring(0, parenIndex).Trim();
+        }
+        return name;
+    }
+
     private async Task LoadAnalytics()
     {
         IsLoading = true;
@@ -482,37 +497,88 @@
             .Where(s => s.Timestamp.Date >= StartDate.Date && s.Timestamp.Date <= EndDate.Date)
             .ToListAsync();
 
-        TotalTransactions = sales.Count;
-        TotalRevenue = sales.Sum(s => s.TotalAmount);
-        AvgSaleValue = TotalTransactions > 0 ? TotalRevenue / TotalTransactions : 0;
-
-        MostActiveTerminal = sales.GroupBy(s => s.TerminalName)
-            .OrderByDescending(g => g.Count())
-            .Select(g => g.Key)
-            .FirstOrDefault() ?? "N/A";
-
         ProductStats = new();
         CategoryRevenue = new();
+        TerminalRevenue = new();
         
+        int validSalesCount = 0;
+        decimal calculatedRevenue = 0;
+
         foreach (var sale in sales)
         {
             var items = DeserializeItems(sale.ItemsJson);
+            bool hasValidItem = false;
+
             foreach (var item in items)
             {
-                if (!ProductStats.ContainsKey(item.Name)) 
-                    ProductStats[item.Name] = new ProductMetric();
-                
-                ProductStats[item.Name].Quantity += item.Quantity;
-                ProductStats[item.Name].Revenue += (item.Price * item.Quantity);
+                var cleanName = CleanProductName(item.Name);
+                if (string.IsNullOrEmpty(cleanName)) continue;
+
+                // Filter out non-item entries like deposits, corrections, credits, payouts, tokens
+                if (cleanName.Contains("DEPOSIT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("CORRECTION", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("NO SALE", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("CREDIT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("PAYOUT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("TOKEN", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
                 var catName = string.IsNullOrEmpty(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
+                if (catName == "TOKEN_CREDIT" || catName == "PAYOUT" || catName == "PAYOUTS" || catName == "TOKENS")
+                {
+                    continue;
+                }
+
+                hasValidItem = true;
+
+                // Aggregate Product Stats
+                if (!ProductStats.ContainsKey(cleanName)) 
+                    ProductStats[cleanName] = new ProductMetric();
+                
+                ProductStats[cleanName].Quantity += item.Quantity;
+                ProductStats[cleanName].Revenue += (item.Price * item.Quantity);
+                calculatedRevenue += (item.Price * item.Quantity);
+
+                // Aggregate Category Stats
                 if (!CategoryRevenue.ContainsKey(catName)) CategoryRevenue[catName] = 0;
                 CategoryRevenue[catName] += (item.Price * item.Quantity);
+
+                // Aggregate Terminal Stats
+                if (!TerminalRevenue.ContainsKey(sale.TerminalName))
+                    TerminalRevenue[sale.TerminalName] = 0;
+                TerminalRevenue[sale.TerminalName] += (item.Price * item.Quantity);
+            }
+
+            if (hasValidItem)
+            {
+                validSalesCount++;
             }
         }
 
-        TerminalRevenue = sales.GroupBy(s => s.TerminalName)
-            .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+        TotalTransactions = validSalesCount;
+        TotalRevenue = calculatedRevenue;
+        AvgSaleValue = TotalTransactions > 0 ? TotalRevenue / TotalTransactions : 0;
+
+        MostActiveTerminal = sales
+            .Where(s => DeserializeItems(s.ItemsJson).Any(item => {
+                var cleanName = CleanProductName(item.Name);
+                if (string.IsNullOrEmpty(cleanName)) return false;
+                if (cleanName.Contains("DEPOSIT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("CORRECTION", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("NO SALE", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("CREDIT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("PAYOUT", StringComparison.OrdinalIgnoreCase) ||
+                    cleanName.Contains("TOKEN", StringComparison.OrdinalIgnoreCase)) return false;
+                var catName = string.IsNullOrEmpty(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
+                if (catName == "TOKEN_CREDIT" || catName == "PAYOUT" || catName == "PAYOUTS" || catName == "TOKENS") return false;
+                return true;
+            }))
+            .GroupBy(s => s.TerminalName)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault() ?? "N/A";
 
         IsLoading = false;
         StateHasChanged();

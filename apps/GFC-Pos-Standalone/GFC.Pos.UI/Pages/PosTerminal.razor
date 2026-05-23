@@ -1501,7 +1501,7 @@
                         </div>
                         <div>
                             <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">RECEIVE ORDERS</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Reconcile and stock supplier deliveries</div>
+                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Receive and stock supplier deliveries</div>
                         </div>
                     </button>
 
@@ -3629,7 +3629,7 @@
     </div>
 }
 
-@if (showLiquorOrdersModal)
+@if (showLiquorOrdersModal && !string.IsNullOrEmpty(CurrentUserName))
 {
     <div class="shift-overlay" style="z-index: 10000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
         <div class="liquor-receive-card animate__animated animate__zoomIn bg-white shadow-lg border p-4 rounded-4" style="width: 1000px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
@@ -3641,7 +3641,7 @@
                         <i class="bi bi-truck fs-4"></i>
                     </span>
                     <div>
-                        <h3 class="fw-black m-0" style="letter-spacing: -0.5px;">RECONCILE SUPPLIER DELIVERY</h3>
+                        <h3 class="fw-black m-0" style="letter-spacing: -0.5px;">RECEIVE SUPPLIER DELIVERIES</h3>
                         <p class="text-muted m-0 small">Mark incoming Liquor Hub shipments as received and update local stocks</p>
                     </div>
                 </div>
@@ -3661,7 +3661,7 @@
 
             <!-- Modal Content -->
             <div class="row g-4 flex-grow-1 overflow-hidden" style="min-height: 0;">
-                <!-- LEFT COLUMN: Shipments list OR Order item reconciliation -->
+                <!-- LEFT COLUMN: Shipments list OR Order item receiving -->
                 <div class="col-7 d-flex flex-column h-100 overflow-hidden">
                     @if (_isFetchingLiquorOrders)
                     {
@@ -3677,7 +3677,7 @@
                         {
                             <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 bg-light rounded-4 border border-dashed p-5 text-center">
                                 <i class="bi bi-check-circle-fill text-success fs-1 mb-3"></i>
-                                <h5 class="fw-bold m-0">All Deliveries Reconciled</h5>
+                                <h5 class="fw-bold m-0">All Deliveries Received</h5>
                                 <p class="text-muted small m-0 mt-1">There are no outstanding Liquor Hub orders to receive at this time.</p>
                             </div>
                         }
@@ -3723,7 +3723,7 @@
                                 <span class="fw-black text-dark fs-5">@(_selectedLiquorOrder.Vendor?.Name ?? "Supplier") Order #@_selectedLiquorOrder.Id</span>
                             </div>
                             <div class="text-muted small">
-                                Reconciling @(_selectedLiquorOrder.OrderItems?.Count ?? 0) item@(_selectedLiquorOrder.OrderItems?.Count == 1 ? "" : "s")
+                                Receiving @(_selectedLiquorOrder.OrderItems?.Count ?? 0) item@(_selectedLiquorOrder.OrderItems?.Count == 1 ? "" : "s")
                             </div>
                         </div>
 
@@ -3779,7 +3779,7 @@
                             <div class="rounded-circle bg-light d-flex align-items-center justify-content-center mb-4" style="width: 120px; height: 120px;">
                                 <i class="bi bi-receipt-cutoff text-muted" style="font-size: 3.5rem;"></i>
                             </div>
-                            <h4 class="fw-black text-dark">Supplier Reconciliation</h4>
+                            <h4 class="fw-black text-dark">Supplier Receiving</h4>
                             <p class="text-muted px-4" style="max-width: 320px;">Select a pending delivery from the list on the left to verify item counts, invoice numbers, and finalize stock receiving.</p>
                         </div>
                     }
@@ -3887,7 +3887,7 @@
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
     
-    // ─── LIQUOR HUB DELIVERY RECONCILIATION STATE ───
+    // ─── LIQUOR HUB DELIVERY RECEIVING STATE ───
     private bool showLiquorOrdersModal = false;
     private List<LiquorOrder> _pendingLiquorOrders = new();
     private LiquorOrder? _selectedLiquorOrder = null;
@@ -4741,6 +4741,9 @@
     private async void LockTerminal()
     {
         if (string.IsNullOrEmpty(CurrentUserName)) return;
+
+        // Safely close the supplier delivery overlay on lock/logout
+        CloseLiquorOrdersWorkflow();
 
         // [AUTO-UPDATE] Check for newer POS version before locking
         try
@@ -6826,7 +6829,7 @@
     private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
     private void GoBack() => Navigation.NavigateTo("/");
 
-    // ─── LIQUOR HUB RECONCILIATION METHODS ───
+    // ─── LIQUOR HUB RECEIVING METHODS ───
     private async Task OpenLiquorOrdersWorkflow()
     {
         try
@@ -6989,10 +6992,10 @@
 
             Console.WriteLine($"[POS] Submitting liquor order receive for Order #{receipt.OrderId}. Invoice: {receipt.InvoiceNumber}, Total: {receipt.TotalDue}");
             
-            // Reconcile and cache / queue transaction in the background outbox
+            // Receive and cache / queue transaction in the background outbox
             await PosService.ReceiveLiquorOrderAsync(receipt);
 
-            Toast.ShowSuccess("Delivery reconciled successfully! Local inventory stocks updated.");
+            Toast.ShowSuccess("Delivery received successfully! Local inventory stocks updated.");
             
             // Refresh list and close / reset
             _selectedLiquorOrder = null;
@@ -7001,7 +7004,7 @@
         catch (Exception ex)
         {
             Console.WriteLine($"[POS] ConfirmReceiveLiquorOrder Error: {ex.Message}");
-            Toast.ShowError($"Failed to reconcile delivery: {ex.Message}");
+            Toast.ShowError($"Failed to receive delivery: {ex.Message}");
         }
     }
 
