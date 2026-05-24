@@ -716,7 +716,7 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task ResolveBackorderAsync(int orderItemId, int userId)
+        public async Task ResolveBackorderAsync(int orderItemId, int userId, bool adjustStock = false)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var orderItem = await db.LiquorOrderItems
@@ -726,22 +726,25 @@ namespace GFC.BlazorServer.Services
 
             if (orderItem == null || orderItem.IsResolved) return;
 
-            var liquor = await db.LiquorItems.FindAsync(orderItem.LiquorItemId);
-            if (liquor != null)
+            if (adjustStock)
             {
-                liquor.CurrentStock += orderItem.Quantity;
-                
-                // Log transaction
-                var transaction = new LiquorTransaction
+                var liquor = await db.LiquorItems.FindAsync(orderItem.LiquorItemId);
+                if (liquor != null)
                 {
-                    ItemId = liquor.Id,
-                    UserId = userId,
-                    ChangeAmount = orderItem.Quantity,
-                    TransactionType = "Restock",
-                    Notes = $"Backorder from Order #{orderItem.OrderId} Received",
-                    Timestamp = DateTime.UtcNow
-                };
-                db.LiquorTransactions.Add(transaction);
+                    liquor.CurrentStock += orderItem.Quantity;
+                    
+                    // Log transaction
+                    var transaction = new LiquorTransaction
+                    {
+                        ItemId = liquor.Id,
+                        UserId = userId,
+                        ChangeAmount = orderItem.Quantity,
+                        TransactionType = "Restock",
+                        Notes = $"Backorder from Order #{orderItem.OrderId} Received",
+                        Timestamp = DateTime.UtcNow
+                    };
+                    db.LiquorTransactions.Add(transaction);
+                }
             }
 
             orderItem.IsResolved = true;

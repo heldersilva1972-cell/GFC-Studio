@@ -39,7 +39,7 @@ namespace GFC.Core.Interfaces
         Task ReceiveOrderAsync(int orderId, int userId);
         Task UpdateOrderItemsBackorderAsync(int orderId, List<int> backorderedOrderItemIds);
         Task<IEnumerable<LiquorOrderItem>> GetPendingBackordersAsync();
-        Task ResolveBackorderAsync(int orderItemId, int userId);
+        Task ResolveBackorderAsync(int orderItemId, int userId, bool adjustStock = false);
 
         // Notification Rules
         Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId);
