@@ -701,8 +701,8 @@ namespace GFCDevOpsUtility
             // chkRevDryRun
             // 
             this.chkRevDryRun.AutoSize = true;
-            this.chkRevDryRun.Checked = true;
-            this.chkRevDryRun.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkRevDryRun.Checked = false;
+            this.chkRevDryRun.CheckState = System.Windows.Forms.CheckState.Unchecked;
             this.chkRevDryRun.Location = new System.Drawing.Point(20, 185);
             this.chkRevDryRun.Name = "chkRevDryRun";
             this.chkRevDryRun.Size = new System.Drawing.Size(232, 23);

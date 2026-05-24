@@ -651,8 +651,23 @@ public class UserManagementService : IUserManagementService
         if (routes.Contains(normalized))
             return true;
 
-        // 6. Sub-route allowance (if they have access to 'members', allow 'members/114')
-        return routes.Any(r => normalized.StartsWith(r + "/"));
+        // 6. Strict Explicit Check
+        // If the requested route matches any explicitly registered page in the system,
+        // it MUST have its own explicit permission and cannot inherit from a parent.
+        var allPages = GetAllPages();
+        bool isExplicitPage = allPages.Any(p => (p.PageRoute ?? "").TrimStart('/').ToLowerInvariant() == normalized);
+        if (isExplicitPage)
+        {
+            return false;
+        }
+
+        // 7. Sub-route inheritance fallback (only for dynamic parameters / details pages)
+        return routes.Any(r => {
+            if (!normalized.StartsWith(r + "/")) return false;
+            
+            // Only allow inheritance if the child sub-route is NOT explicitly registered as a separate page
+            return !allPages.Any(p => (p.PageRoute ?? "").TrimStart('/').ToLowerInvariant() == normalized);
+        });
     }
 
     public void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy)

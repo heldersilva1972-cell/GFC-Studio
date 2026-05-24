@@ -85,9 +85,9 @@ namespace GFCDevOpsUtility
             chkAutoConfigWebConfig.Checked = _config.AutoConfigureWebConfig;
             chkPurgeFiles.Checked = _config.PurgeFiles;
 
-            cmbPublishApp.SelectedIndex = 0;
-            cmbDeployApp.SelectedIndex = 0;
-            cmbRevAppSelect.SelectedIndex = 0;
+            cmbPublishApp.SelectedIndex = -1;
+            cmbDeployApp.SelectedIndex = -1;
+            cmbRevAppSelect.SelectedIndex = -1;
 
             RestoreDeployPaths();
             InitializeRevisionsTable();
@@ -117,20 +117,30 @@ namespace GFCDevOpsUtility
         }
 
         #region Navigation Tabs
+        private void ResetAllSelections()
+        {
+            cmbPublishApp.SelectedIndex = -1;
+            cmbDeployApp.SelectedIndex = -1;
+            cmbRevAppSelect.SelectedIndex = -1;
+        }
+
         private void BtnTabPublish_Click(object sender, EventArgs e)
         {
+            ResetAllSelections();
             ShowPanel(pnlPublish);
             SetActiveTabButton(btnTabPublish);
         }
 
         private void BtnTabDeploy_Click(object sender, EventArgs e)
         {
+            ResetAllSelections();
             ShowPanel(pnlDeploy);
             SetActiveTabButton(btnTabDeploy);
         }
 
         private void BtnTabRevisions_Click(object sender, EventArgs e)
         {
+            ResetAllSelections();
             ShowPanel(pnlRevisions);
             SetActiveTabButton(btnTabRevisions);
             RefreshVersionDashboard();
@@ -407,6 +417,7 @@ namespace GFCDevOpsUtility
             if (_config == null) return;
 
             int idx = cmbDeployApp.SelectedIndex;
+            if (idx < 0) return; // No selection yet
             if (idx == 0) // Mobile
             {
                 txtDepLive.Text = _config.MobileLivePath;
@@ -454,6 +465,7 @@ namespace GFCDevOpsUtility
             if (_config == null) return;
 
             int idx = cmbDeployApp.SelectedIndex;
+            if (idx < 0) return; // No selection yet
             if (idx == 0) // Mobile
             {
                 _config.MobileLivePath = txtDepLive.Text.Trim();
@@ -541,6 +553,11 @@ namespace GFCDevOpsUtility
             rtbTerminal.Clear();
 
             int selection = cmbPublishApp.SelectedIndex;
+            if (selection < 0)
+            {
+                MessageBox.Show("Please select an application to publish.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             bool success = false;
 
             try
@@ -824,6 +841,11 @@ namespace GFCDevOpsUtility
             }
 
             int selection = cmbDeployApp.SelectedIndex;
+            if (selection < 0)
+            {
+                MessageBox.Show("Please select an application to deploy.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             SaveDeployPaths();
 
             SetBusy(true, "Deploying package...");
@@ -1236,7 +1258,12 @@ namespace GFCDevOpsUtility
                 return;
             }
 
-            string project = cmbRevAppSelect.SelectedItem?.ToString() ?? "Mobile";
+            string project = cmbRevAppSelect.SelectedItem?.ToString() ?? "";
+            if (string.IsNullOrEmpty(project))
+            {
+                MessageBox.Show("Please select a target project before running the revision sync.", "No Project Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             
             // Build parameters
             string args = $"-Project \"{project}\"";

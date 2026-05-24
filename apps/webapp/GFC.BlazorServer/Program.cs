@@ -232,6 +232,7 @@ public class Program
         builder.Services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         builder.Services.AddScoped<IAuditLogger, AuditLogger>();
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+        builder.Services.AddScoped<PermissionStateService>(); // Reactive sidebar refresh on permission save
         builder.Services.AddSingleton<IMfaChallengeService, MfaChallengeService>();
 
         // Shared services
