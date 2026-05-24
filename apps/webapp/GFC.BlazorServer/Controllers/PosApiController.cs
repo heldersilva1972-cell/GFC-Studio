@@ -328,6 +328,26 @@ public class PosApiController : ControllerBase
             // Handle inventory if not in training mode
             if (!saleDto.TerminalName.Contains("(TRAINING)"))
             {
+                // Resolve user ID dynamically using BartenderName, falling back to 1
+                int userId = 1;
+                if (!string.IsNullOrEmpty(saleDto.BartenderName))
+                {
+                    var userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == saleDto.BartenderName);
+                    if (userObj != null)
+                    {
+                        userId = userObj.UserId;
+                    }
+                    else
+                    {
+                        // Case-insensitive fallback
+                        var userObjCI = await db.AppUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == saleDto.BartenderName.ToLower());
+                        if (userObjCI != null)
+                        {
+                            userId = userObjCI.UserId;
+                        }
+                    }
+                }
+
                 var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(saleDto.ItemsJson);
                 if (items != null)
                 {
@@ -336,8 +356,7 @@ public class PosApiController : ControllerBase
                         if (parent.Id > 0)
                         {
                             try {
-                                // Note: Using a default system user ID (1) for POS adjustments
-                                await _liquorService.AdjustStockAsync(parent.Id, 1, -parent.Quantity, $"POS Sale: {parent.Name}");
+                                await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
                             } catch (Exception invEx) {
                                 _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
                             }
@@ -350,7 +369,7 @@ public class PosApiController : ControllerBase
                                 try {
                                     // Total deduction is parent quantity * modifier quantity
                                     int totalModQty = parent.Quantity * mod.Quantity;
-                                    await _liquorService.AdjustStockAsync(mod.Id, 1, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                    await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
                                 } catch (Exception invEx) {
                                     _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
                                 }
