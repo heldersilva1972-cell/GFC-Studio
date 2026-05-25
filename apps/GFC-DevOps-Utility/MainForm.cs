@@ -16,6 +16,8 @@ namespace GFCDevOpsUtility
         private AppConfig _config = null!;
         private DataTable _dtRevisions = null!;
         private bool _isBusy = false;
+        private bool _isUpdatingUi = false;
+        private bool _isSyncingChecks = false;
 
         // Custom theme colors (Light Mode)
         private static readonly Color ColorBg = Color.FromArgb(248, 250, 252);        // Slate 50
@@ -84,15 +86,63 @@ namespace GFCDevOpsUtility
             
             chkAutoConfigWebConfig.Checked = _config.AutoConfigureWebConfig;
             chkPurgeFiles.Checked = _config.PurgeFiles;
-            chkPublishMobileApk.Checked = _config.PosPublishMobileApk;
 
-            cmbPublishApp.SelectedIndex = -1;
-            cmbDeployApp.SelectedIndex = -1;
+            _isUpdatingUi = true;
+
+            // Bind APK checkbox states and wire events (force defaults to false as requested)
+            foreach (var app in _config.AppPipelines)
+            {
+                app.PublishMobileApk = false;
+            }
+            _config.PosPublishMobileApk = false;
+            _config.Save();
+
+            chkApkMobile.Checked = false;
+            chkApkPos.Checked = false;
+            chkApkWebApp.Checked = false;
+
+            _isUpdatingUi = false;
+
+            chkApkMobile.CheckedChanged += ChkApkMobile_CheckedChanged;
+            chkApkPos.CheckedChanged += ChkApkPos_CheckedChanged;
+            chkApkWebApp.CheckedChanged += ChkApkWebApp_CheckedChanged;
+
+            // Hide legacy comboboxes visually
+            cmbPublishApp.Visible = false;
+            cmbPublishApp.Enabled = false;
+            cmbDeployApp.Visible = false;
+            cmbDeployApp.Enabled = false;
             cmbRevAppSelect.SelectedIndex = -1;
 
-            RestoreDeployPaths();
             InitializeRevisionsTable();
             RefreshVersionDashboard();
+
+            // Initialize CheckedListBox controls
+            _isUpdatingUi = true;
+            clbPublishApps.Items.Clear();
+            clbDeployApps.Items.Clear();
+            foreach (var app in _config.AppPipelines)
+            {
+                clbPublishApps.Items.Add(app.AppName);
+                clbDeployApps.Items.Add(app.AppName);
+            }
+
+            // None checked by default as requested
+
+            // Highlight first item
+            if (clbPublishApps.Items.Count > 0) clbPublishApps.SelectedIndex = 0;
+            if (clbDeployApps.Items.Count > 0) clbDeployApps.SelectedIndex = 0;
+
+            // Wire text changes programmatically for detail updating
+            txtPubOutput.TextChanged += TxtPubOutput_TextChanged;
+            txtDepIisSite.TextChanged += TxtDepIisSite_TextChanged;
+            txtDepIisAppPool.TextChanged += TxtDepIisAppPool_TextChanged;
+
+            _isUpdatingUi = false;
+
+            // Trigger manual master-detail updates
+            ClbPublishApps_SelectedIndexChanged(clbPublishApps, EventArgs.Empty);
+            ClbDeployApps_SelectedIndexChanged(clbDeployApps, EventArgs.Empty);
 
             Log(">>> GFC DevOps Utility loaded successfully.", false, ColorPrimary);
             CheckAdministratorPrivileges();
@@ -120,8 +170,6 @@ namespace GFCDevOpsUtility
         #region Navigation Tabs
         private void ResetAllSelections()
         {
-            cmbPublishApp.SelectedIndex = -1;
-            cmbDeployApp.SelectedIndex = -1;
             cmbRevAppSelect.SelectedIndex = -1;
         }
 
@@ -381,11 +429,6 @@ namespace GFCDevOpsUtility
             UpdateProposedVersions();
         }
 
-        private void CmbPublishApp_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            chkPublishMobileApk.Visible = cmbPublishApp.SelectedIndex == 1;
-        }
-
         private void RadRevOption_CheckedChanged(object sender, EventArgs e)
         {
             txtRevCustomValue.Enabled = radRevCustom.Checked;
@@ -425,6 +468,17 @@ namespace GFCDevOpsUtility
                 {
                     txtPubOutput.Text = fbd.SelectedPath;
                     _config.PublishOutputPath = fbd.SelectedPath;
+                    
+                    // Update active highlighted app config too
+                    if (clbPublishApps.SelectedIndex >= 0)
+                    {
+                        var selectedAppName = clbPublishApps.SelectedItem?.ToString();
+                        var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+                        if (appConfig != null)
+                        {
+                            appConfig.SourceZipFolder = fbd.SelectedPath;
+                        }
+                    }
                     _config.Save();
                 }
             }
@@ -440,6 +494,17 @@ namespace GFCDevOpsUtility
                 {
                     txtDepZip.Text = fbd.SelectedPath;
                     _config.ZipInputPath = fbd.SelectedPath;
+
+                    // Update active highlighted app config too
+                    if (clbDeployApps.SelectedIndex >= 0)
+                    {
+                        var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+                        var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+                        if (appConfig != null)
+                        {
+                            appConfig.SourceZipFolder = fbd.SelectedPath;
+                        }
+                    }
                     _config.Save();
                 }
             }
@@ -447,12 +512,12 @@ namespace GFCDevOpsUtility
 
         private void BtnDepStagingBrowse_Click(object sender, EventArgs e)
         {
+            // Staging folder is hidden/unused, but preserved for reference compatibility
             using (var fbd = new FolderBrowserDialog())
             {
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     txtDepStaging.Text = fbd.SelectedPath;
-                    SaveDeployPaths();
                 }
             }
         }
@@ -461,10 +526,20 @@ namespace GFCDevOpsUtility
         {
             using (var fbd = new FolderBrowserDialog())
             {
+                fbd.SelectedPath = txtDepLive.Text;
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     txtDepLive.Text = fbd.SelectedPath;
-                    SaveDeployPaths();
+                    if (clbDeployApps.SelectedIndex >= 0)
+                    {
+                        var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+                        var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+                        if (appConfig != null)
+                        {
+                            appConfig.LiveTargetFolder = fbd.SelectedPath;
+                            _config.Save();
+                        }
+                    }
                 }
             }
         }
@@ -473,123 +548,29 @@ namespace GFCDevOpsUtility
         {
             using (var fbd = new FolderBrowserDialog())
             {
+                fbd.SelectedPath = txtDepBackup.Text;
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     txtDepBackup.Text = fbd.SelectedPath;
-                    SaveDeployPaths();
+                    if (clbDeployApps.SelectedIndex >= 0)
+                    {
+                        var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+                        var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+                        if (appConfig != null)
+                        {
+                            appConfig.ArchiveFolder = fbd.SelectedPath;
+                            _config.Save();
+                        }
+                    }
                 }
             }
-        }
-
-        private void CmbDeployApp_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            RestoreDeployPaths();
-        }
-
-        private void RestoreDeployPaths()
-        {
-            if (_config == null) return;
-
-            int idx = cmbDeployApp.SelectedIndex;
-            if (idx < 0) return; // No selection yet
-            if (idx == 0) // Mobile
-            {
-                txtDepLive.Text = _config.MobileLivePath;
-                txtDepStaging.Text = _config.MobileStagingPath;
-                txtDepBackup.Text = _config.MobileBackupPath;
-                txtDepIisSite.Text = _config.MobileIisSite;
-                txtDepIisAppPool.Text = _config.MobileIisAppPool;
-                txtDepLive.Enabled = txtDepStaging.Enabled = txtDepBackup.Enabled = txtDepIisSite.Enabled = txtDepIisAppPool.Enabled = true;
-                btnDepLiveBrowse.Enabled = btnDepStagingBrowse.Enabled = btnDepBackupBrowse.Enabled = true;
-                
-                chkDepMobileApk.Visible = lblDepApkDist.Visible = txtDepApkDist.Visible = btnDepApkDistBrowse.Visible = false;
-            }
-            else if (idx == 1) // POS
-            {
-                txtDepLive.Text = _config.PosLivePath;
-                txtDepStaging.Text = _config.PosStagingPath;
-                txtDepBackup.Text = _config.PosBackupPath;
-                txtDepIisSite.Text = _config.PosIisSite;
-                txtDepIisAppPool.Text = _config.PosIisAppPool;
-                
-                chkDepMobileApk.Checked = _config.PosDeployMobileApk;
-                txtDepApkDist.Text = _config.PosApkDistFolder;
-                
-                txtDepLive.Enabled = txtDepStaging.Enabled = txtDepBackup.Enabled = txtDepIisSite.Enabled = txtDepIisAppPool.Enabled = true;
-                btnDepLiveBrowse.Enabled = btnDepStagingBrowse.Enabled = btnDepBackupBrowse.Enabled = true;
-                
-                chkDepMobileApk.Visible = lblDepApkDist.Visible = txtDepApkDist.Visible = btnDepApkDistBrowse.Visible = true;
-                txtDepApkDist.Enabled = btnDepApkDistBrowse.Enabled = chkDepMobileApk.Checked;
-            }
-            else if (idx == 2) // WebApp
-            {
-                txtDepLive.Text = _config.WebAppLivePath;
-                txtDepStaging.Text = _config.WebAppStagingPath;
-                txtDepBackup.Text = _config.WebAppBackupPath;
-                txtDepIisSite.Text = _config.WebAppIisSite;
-                txtDepIisAppPool.Text = _config.WebAppIisAppPool;
-                txtDepLive.Enabled = txtDepStaging.Enabled = txtDepBackup.Enabled = txtDepIisSite.Enabled = txtDepIisAppPool.Enabled = true;
-                btnDepLiveBrowse.Enabled = btnDepStagingBrowse.Enabled = btnDepBackupBrowse.Enabled = true;
-                
-                chkDepMobileApk.Visible = lblDepApkDist.Visible = txtDepApkDist.Visible = btnDepApkDistBrowse.Visible = false;
-            }
-            else // Full Suite
-            {
-                txtDepLive.Text = "Configured in full deployment suite settings";
-                txtDepStaging.Text = @"C:\inetpub\PublishFullSuiteStaging";
-                txtDepBackup.Text = "Managed individually in backup directories";
-                txtDepIisSite.Text = "Managed individually";
-                txtDepIisAppPool.Text = "Managed individually";
-                txtDepLive.Enabled = txtDepBackup.Enabled = txtDepIisSite.Enabled = txtDepIisAppPool.Enabled = false;
-                btnDepLiveBrowse.Enabled = btnDepBackupBrowse.Enabled = false;
-                
-                chkDepMobileApk.Visible = lblDepApkDist.Visible = txtDepApkDist.Visible = btnDepApkDistBrowse.Visible = false;
-            }
-        }
-
-        private void SaveDeployPaths()
-        {
-            if (_config == null) return;
-
-            int idx = cmbDeployApp.SelectedIndex;
-            if (idx < 0) return; // No selection yet
-            if (idx == 0) // Mobile
-            {
-                _config.MobileLivePath = txtDepLive.Text.Trim();
-                _config.MobileStagingPath = txtDepStaging.Text.Trim();
-                _config.MobileBackupPath = txtDepBackup.Text.Trim();
-                _config.MobileIisSite = txtDepIisSite.Text.Trim();
-                _config.MobileIisAppPool = txtDepIisAppPool.Text.Trim();
-            }
-            else if (idx == 1) // POS
-            {
-                _config.PosLivePath = txtDepLive.Text.Trim();
-                _config.PosStagingPath = txtDepStaging.Text.Trim();
-                _config.PosBackupPath = txtDepBackup.Text.Trim();
-                _config.PosIisSite = txtDepIisSite.Text.Trim();
-                _config.PosIisAppPool = txtDepIisAppPool.Text.Trim();
-                
-                _config.PosDeployMobileApk = chkDepMobileApk.Checked;
-                _config.PosApkDistFolder = txtDepApkDist.Text.Trim();
-            }
-            else if (idx == 2) // WebApp
-            {
-                _config.WebAppLivePath = txtDepLive.Text.Trim();
-                _config.WebAppStagingPath = txtDepStaging.Text.Trim();
-                _config.WebAppBackupPath = txtDepBackup.Text.Trim();
-                _config.WebAppIisSite = txtDepIisSite.Text.Trim();
-                _config.WebAppIisAppPool = txtDepIisAppPool.Text.Trim();
-            }
-
-            _config.AutoConfigureWebConfig = chkAutoConfigWebConfig.Checked;
-            _config.PurgeFiles = chkPurgeFiles.Checked;
-            _config.Save();
         }
 
         private void ChkDepMobileApk_CheckedChanged(object sender, EventArgs e)
         {
             txtDepApkDist.Enabled = btnDepApkDistBrowse.Enabled = chkDepMobileApk.Checked;
-            SaveDeployPaths();
+            _config.PosDeployMobileApk = chkDepMobileApk.Checked;
+            _config.Save();
         }
 
         private void BtnDepApkDistBrowse_Click(object sender, EventArgs e)
@@ -601,8 +582,182 @@ namespace GFCDevOpsUtility
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     txtDepApkDist.Text = fbd.SelectedPath;
-                    SaveDeployPaths();
+                    _config.PosApkDistFolder = fbd.SelectedPath;
+                    _config.Save();
                 }
+            }
+        }
+
+        private void RestoreDeployPaths() { }
+        private void SaveDeployPaths() { }
+        #endregion
+
+        #region CheckedListBox Master-Detail & Tabs Sync
+        private void ClbPublishApps_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbPublishApps.SelectedIndex < 0) return;
+
+            var selectedAppName = clbPublishApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                _isUpdatingUi = true;
+                txtPubOutput.Text = appConfig.SourceZipFolder;
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void ClbDeployApps_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                _isUpdatingUi = true;
+                txtDepZip.Text = appConfig.SourceZipFolder;
+                txtDepLive.Text = appConfig.LiveTargetFolder;
+                txtDepBackup.Text = appConfig.ArchiveFolder;
+                txtDepIisSite.Text = appConfig.IisSiteName;
+                txtDepIisAppPool.Text = appConfig.IisAppPool;
+
+                bool isPos = appConfig.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase);
+                chkDepMobileApk.Visible = isPos;
+                lblDepApkDist.Visible = isPos;
+                txtDepApkDist.Visible = isPos;
+                btnDepApkDistBrowse.Visible = isPos;
+
+                if (isPos)
+                {
+                    chkDepMobileApk.Checked = _config.PosDeployMobileApk;
+                    txtDepApkDist.Text = _config.PosApkDistFolder;
+                    txtDepApkDist.Enabled = btnDepApkDistBrowse.Enabled = chkDepMobileApk.Checked;
+                }
+                _isUpdatingUi = false;
+            }
+        }
+
+        private void ClbPublishApps_ItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            if (_isSyncingChecks) return;
+            _isSyncingChecks = true;
+            clbDeployApps.SetItemChecked(e.Index, e.NewValue == CheckState.Checked);
+            _isSyncingChecks = false;
+        }
+
+        private void ClbDeployApps_ItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            if (_isSyncingChecks) return;
+            _isSyncingChecks = true;
+            clbPublishApps.SetItemChecked(e.Index, e.NewValue == CheckState.Checked);
+            _isSyncingChecks = false;
+        }
+
+
+
+        private void ChkApkMobile_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi) return;
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == "Mobile");
+            if (appConfig != null)
+            {
+                appConfig.PublishMobileApk = chkApkMobile.Checked;
+                _config.Save();
+            }
+        }
+
+        private void ChkApkPos_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi) return;
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == "POS");
+            if (appConfig != null)
+            {
+                appConfig.PublishMobileApk = chkApkPos.Checked;
+                _config.Save();
+            }
+        }
+
+        private void ChkApkWebApp_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi) return;
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == "WebApp");
+            if (appConfig != null)
+            {
+                appConfig.PublishMobileApk = chkApkWebApp.Checked;
+                _config.Save();
+            }
+        }
+
+        private void TxtPubOutput_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbPublishApps.SelectedIndex < 0) return;
+            var selectedAppName = clbPublishApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.SourceZipFolder = txtPubOutput.Text.Trim();
+                _config.Save();
+            }
+        }
+
+        private void TxtDepZip_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.SourceZipFolder = txtDepZip.Text.Trim();
+                _config.Save();
+            }
+        }
+
+        private void TxtDepLive_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.LiveTargetFolder = txtDepLive.Text.Trim();
+                _config.Save();
+            }
+        }
+
+        private void TxtDepBackup_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.ArchiveFolder = txtDepBackup.Text.Trim();
+                _config.Save();
+            }
+        }
+
+        private void TxtDepIisSite_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.IisSiteName = txtDepIisSite.Text.Trim();
+                _config.Save();
+            }
+        }
+
+        private void TxtDepIisAppPool_TextChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUi || clbDeployApps.SelectedIndex < 0) return;
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
+            if (appConfig != null)
+            {
+                appConfig.IisAppPool = txtDepIisAppPool.Text.Trim();
+                _config.Save();
             }
         }
         #endregion
@@ -635,89 +790,182 @@ namespace GFCDevOpsUtility
         #endregion
 
         #region Core Publish Operations (In-App Compression & Silent CLI)
+        private string GetAppRevision(string appName, string workspace)
+        {
+            string version = "1.0.0";
+            if (appName.Equals("Mobile", StringComparison.OrdinalIgnoreCase))
+            {
+                version = VersionScanner.GetMobileVersion(workspace);
+            }
+            else if (appName.Equals("POS", StringComparison.OrdinalIgnoreCase))
+            {
+                version = VersionScanner.GetPosVersion(workspace);
+            }
+            else if (appName.Equals("WebApp", StringComparison.OrdinalIgnoreCase))
+            {
+                version = VersionScanner.GetWebAppVersion(workspace);
+            }
+            
+            if (string.IsNullOrEmpty(version) || version.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                version = "1.0.0";
+            }
+            
+            if (!version.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                version = "v" + version;
+            }
+            
+            return version;
+        }
+
         private async void BtnRunPublish_Click(object sender, EventArgs e)
         {
             if (_isBusy) return;
 
-            int selection = cmbPublishApp.SelectedIndex;
-            if (selection < 0)
+            var checkedApps = new List<AppPipelineConfig>();
+            foreach (var item in clbPublishApps.CheckedItems)
             {
-                MessageBox.Show("Please select an application to publish.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var app = _config.AppPipelines.Find(a => a.AppName == item.ToString());
+                if (app != null) checkedApps.Add(app);
+            }
+
+            if (checkedApps.Count == 0)
+            {
+                MessageBox.Show("Please check at least one application to publish.", "No App Checked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             string workspace = txtPubWorkspace.Text.Trim();
-            string outputDir = txtPubOutput.Text.Trim();
-
             if (string.IsNullOrEmpty(workspace) || !Directory.Exists(workspace))
             {
                 MessageBox.Show("Please select a valid GFC-Studio workspace path.", "Missing Workspace", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            if (string.IsNullOrEmpty(outputDir) || !Directory.Exists(outputDir))
-            {
-                MessageBox.Show("Please select a valid ZIP output directory.", "Missing Output Path", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
             // Save settings
             _config.WorkspacePath = workspace;
-            _config.PublishOutputPath = outputDir;
-            _config.PosPublishMobileApk = chkPublishMobileApk.Checked;
             _config.Save();
 
-            SetBusy(true, "Publishing project...");
+            SetBusy(true, "Publishing projects...");
             rtbTerminal.Clear();
             rtbBuildOutput.Clear();
+            LogPublish($">>> STARTING BATCH PUBLISH FOR {checkedApps.Count} TARGET(S)...", false, ColorWait);
 
-            bool success = false;
-
-            try
+            // Initialize progress status indicators
+            foreach (var appConfig in _config.AppPipelines)
             {
-                if (selection == 0) // Mobile
+                bool isSelected = checkedApps.Exists(a => a.AppName == appConfig.AppName);
+                if (isSelected)
                 {
-                    success = await PublishMobileAppAsync(workspace, outputDir);
-                }
-                else if (selection == 1) // POS
-                {
-                    success = await PublishPosAppAsync(workspace, outputDir);
-                }
-                else if (selection == 2) // WebApp
-                {
-                    success = await PublishWebAppAsync(workspace, outputDir);
-                }
-                else // Full Suite
-                {
-                    success = await PublishFullSuiteAsync(workspace, outputDir);
-                }
-
-                if (success)
-                {
-                    LogPublish(">>> PUBLISH OPERATION COMPLETED SUCCESSFULLY!", false, ColorSuccess);
-                    LogPublish("Selected application has been successfully published and archived!", false, ColorSuccess);
-                    SetBusy(false, "Ready");
+                    UpdateVisualStatus(appConfig.AppName, false, "Queued ⏳", Color.Orange);
+                    if (appConfig.PublishMobileApk)
+                    {
+                        UpdateVisualStatus(appConfig.AppName, true, "Queued ⏳", Color.Orange);
+                    }
+                    else
+                    {
+                        UpdateVisualStatus(appConfig.AppName, true, "APK: -", Color.Gray);
+                    }
                 }
                 else
                 {
-                    LogPublish("!!! PUBLISH PIPELINE ENCOUNTERED AN ERROR", true);
-                    LogPublish("The build process encountered an error and failed (Exit Code != 0). Please check the build logs above for details.", true);
-                    SetBusy(false, "Error: Build Failed!");
+                    UpdateVisualStatus(appConfig.AppName, false, "Skipped ➔", Color.LightGray);
+                    UpdateVisualStatus(appConfig.AppName, true, "APK: -", Color.Gray);
                 }
             }
-            catch (Exception ex)
+
+            var successes = new List<string>();
+            var failures = new Dictionary<string, string>();
+
+            foreach (var app in checkedApps)
             {
-                Log($"CRITICAL PIPELINE EXCEPTION: {ex.Message}", true);
-                SetBusy(false, "Exception Failure");
-                MessageBox.Show($"Pipeline execution failed: {ex.Message}", "Critical Exception", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (app.PublishMobileApk)
+                {
+                    UpdateVisualStatus(app.AppName, false, "APK Only", Color.Gray);
+                    UpdateVisualStatus(app.AppName, true, "Waiting ⏳", Color.Orange);
+                }
+                else
+                {
+                    UpdateVisualStatus(app.AppName, false, "Compiling... ⚙️", Color.DeepSkyBlue);
+                }
+                try
+                {
+                    LogPublish($"\n=======================================================", false, ColorPrimary);
+                    LogPublish($">>> STARTING PUBLISH PIPELINE FOR: {app.AppName}", false, ColorPrimary);
+                    LogPublish($"=======================================================", false, ColorPrimary);
+
+                    string revision = GetAppRevision(app.AppName, workspace);
+                    bool appSuccess = false;
+
+                    if (app.PublishMobileApk)
+                    {
+                        appSuccess = await PublishApkHelperAsync(workspace, app, revision);
+                    }
+                    else
+                    {
+                        if (app.AppName.Equals("Mobile", StringComparison.OrdinalIgnoreCase))
+                        {
+                            appSuccess = await PublishMobileAppAsync(workspace, app, revision);
+                        }
+                        else if (app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase))
+                        {
+                            appSuccess = await PublishPosAppAsync(workspace, app, revision);
+                        }
+                        else if (app.AppName.Equals("WebApp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            appSuccess = await PublishWebAppAsync(workspace, app, revision);
+                        }
+                    }
+
+                    if (appSuccess)
+                    {
+                        successes.Add(app.AppName);
+                        LogPublish($">>> [OK] Publish pipeline SUCCEEDED for: {app.AppName}", false, ColorSuccess);
+                        if (!app.PublishMobileApk)
+                        {
+                            UpdateVisualStatus(app.AppName, false, "Success ✅", Color.Green);
+                        }
+                    }
+                    else
+                    {
+                        failures.Add(app.AppName, "dotnet publish exited with compilation errors.");
+                        LogPublish($"!!! [FAIL] Publish pipeline FAILED for: {app.AppName}", true);
+                        UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
+                        if (app.PublishMobileApk)
+                        {
+                            UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(app.AppName, ex.Message);
+                    LogPublish($"!!! [EXCEPTION] Publish pipeline failed for {app.AppName}: {ex.Message}", true);
+                    UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
+                    if (app.PublishMobileApk)
+                    {
+                        UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                    }
+                }
             }
+
+            SetBusy(false, failures.Count == 0 ? "Ready" : "Error: Build Failed!");
+
+            string summaryMsg = $"Batch Publish Operation Completed.\n\n" +
+                                $"Successful ({successes.Count}):\n" +
+                                (successes.Count > 0 ? string.Join("\n", successes.ConvertAll(s => $" - {s}")) : " None") + "\n\n" +
+                                $"Failed ({failures.Count}):\n" +
+                                (failures.Count > 0 ? string.Join("\n", new List<string>(failures.Keys).ConvertAll(k => $" - {k}: {failures[k]}")) : " None");
+
+            MessageBox.Show(summaryMsg, "Publish Batch Summary", MessageBoxButtons.OK, 
+                            failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
 
-        private async Task<bool> PublishMobileAppAsync(string workspace, string outputDir)
+        private async Task<bool> PublishMobileAppAsync(string workspace, AppPipelineConfig app, string revision)
         {
-            LogPublish(">>> [WAIT] Starting Mobile App Publish Pipeline...", false, ColorWait);
+            LogPublish($">>> [WAIT] Starting Mobile App Publish Pipeline for revision {revision}...", false, ColorWait);
             
-            // Stop process if active
             LogPublish(">>> Stopping GFC.Mobile process if running...", false, ColorWait);
             await KillProcessAsync("GFC.Mobile");
 
@@ -738,20 +986,31 @@ namespace GFCDevOpsUtility
                 return false;
             }
 
-            // In-app ZIP
-            string zipPath = Path.Combine(outputDir, "GFC_Mobile_Standalone.zip");
+            // In-app ZIP of wwwroot (or entire temp if no wwwroot exists)
+            string zipSrc = tempOut;
+            if (Directory.Exists(Path.Combine(tempOut, "wwwroot")))
+            {
+                zipSrc = Path.Combine(tempOut, "wwwroot");
+            }
+
+            if (!Directory.Exists(app.SourceZipFolder))
+            {
+                Directory.CreateDirectory(app.SourceZipFolder);
+            }
+            string zipPath = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.zip");
             LogPublish($">>> Compressing output files directly to: {zipPath}", false, ColorWait);
             
-            await CreateZipFromDirectoryAsync(tempOut, zipPath);
+            await CreateZipFromDirectoryAsync(zipSrc, zipPath);
             
             Directory.Delete(tempOut, true);
             LogPublish($">>> [OK] Mobile package successfully compressed.", false, ColorSuccess);
+
             return true;
         }
 
-        private async Task<bool> PublishPosAppAsync(string workspace, string outputDir)
+        private async Task<bool> PublishPosAppAsync(string workspace, AppPipelineConfig app, string revision)
         {
-            LogPublish(">>> [WAIT] Starting POS App Publish Pipeline...", false, ColorWait);
+            LogPublish($">>> [WAIT] Starting POS App Publish Pipeline for revision {revision}...", false, ColorWait);
 
             // Sync POS versions automatically from Props before build
             LogPublish(">>> Reading PosVersion.props to sync versions...", false, ColorWait);
@@ -803,10 +1062,14 @@ namespace GFCDevOpsUtility
             {
                 // Write version.txt
                 string wwwrootPath = Path.Combine(tempOut, "wwwroot");
+                if (!Directory.Exists(wwwrootPath)) Directory.CreateDirectory(wwwrootPath);
                 File.WriteAllText(Path.Combine(wwwrootPath, "version.txt"), version);
 
-                // In-app ZIP (zips wwwroot files)
-                string zipPath = Path.Combine(outputDir, "GFC_POS_Standalone.zip");
+                if (!Directory.Exists(app.SourceZipFolder))
+                {
+                    Directory.CreateDirectory(app.SourceZipFolder);
+                }
+                string zipPath = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.zip");
                 LogPublish($">>> Compressing output wwwroot directly to: {zipPath}", false, ColorWait);
 
                 await CreateZipFromDirectoryAsync(wwwrootPath, zipPath);
@@ -823,71 +1086,12 @@ namespace GFCDevOpsUtility
             }
 
             // STEP 2: Native Android Mobile Build
-            if (chkPublishMobileApk.Checked)
-            {
-                LogPublish("\n=======================================================", false, ColorPrimary);
-                LogPublish(">>> STEP 2/2: Publishing POS Native Android Mobile", false, ColorPrimary);
-                LogPublish("=======================================================", false, ColorPrimary);
-
-                string mobileProjectPath = Path.Combine("apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "GFC.Pos.Mobile.csproj");
-                string mobileTempOut = Path.Combine(workspace, "publish_pos_mobile_temp");
-
-                if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
-
-                LogPublish(">>> Executing dotnet publish for Native Android project...", false, ColorWait);
-                var mobileRunner = new ProcessRunner((line, err) => LogPublish(line, err));
-                int mobileExit = await mobileRunner.RunAsync("dotnet", $"publish \"{mobileProjectPath}\" -f net10.0-android -c Release -o \"{mobileTempOut}\" /p:TreatWarningsAsErrors=false", workspace);
-
-                if (mobileExit == 0)
-                {
-                    LogPublish(">>> Locating generated APK installer file...", false, ColorWait);
-                    string foundApk = null;
-                    if (Directory.Exists(mobileTempOut))
-                    {
-                        var apks = Directory.GetFiles(mobileTempOut, "*.apk");
-                        if (apks.Length > 0) foundApk = apks[0];
-                    }
-                    
-                    // Fallback to bin folder
-                    if (foundApk == null)
-                    {
-                        string fallbackDir = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "bin", "Release", "net10.0-android");
-                        if (Directory.Exists(fallbackDir))
-                        {
-                            var apks = Directory.GetFiles(fallbackDir, "*.apk");
-                            if (apks.Length > 0) foundApk = apks[0];
-                        }
-                    }
-
-                    if (foundApk != null)
-                    {
-                        string destApk = Path.Combine(outputDir, "GFC_POS_Mobile.apk");
-                        LogPublish($">>> Copying APK to output directory: {destApk}", false, ColorWait);
-                        File.Copy(foundApk, destApk, true);
-                        LogPublish(">>> [OK] Native Android Mobile build and package completed successfully.", false, ColorSuccess);
-                        mobileBuildSuccess = true;
-                    }
-                    else
-                    {
-                        LogPublish("!!! Failed to locate the generated .apk installer file in the output directories.", true);
-                        mobileBuildSuccess = false;
-                    }
-                }
-                else
-                {
-                    LogPublish($"!!! dotnet publish failed for POS Mobile with code {mobileExit}", true);
-                    mobileBuildSuccess = false;
-                }
-
-                if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
-            }
-
-            return webBuildSuccess && mobileBuildSuccess;
+            return webBuildSuccess;
         }
 
-        private async Task<bool> PublishWebAppAsync(string workspace, string outputDir)
+        private async Task<bool> PublishWebAppAsync(string workspace, AppPipelineConfig app, string revision)
         {
-            LogPublish(">>> [WAIT] Starting Web App Publish Pipeline...", false, ColorWait);
+            LogPublish($">>> [WAIT] Starting Web App Publish Pipeline for revision {revision}...", false, ColorWait);
 
             LogPublish(">>> Stopping GFC.BlazorServer process if running...", false, ColorWait);
             await KillProcessAsync("GFC.BlazorServer");
@@ -908,52 +1112,18 @@ namespace GFCDevOpsUtility
                 return false;
             }
 
-            // In-app ZIP
-            string zipPath = Path.Combine(outputDir, "PublishGFCWebApp.zip");
+            if (!Directory.Exists(app.SourceZipFolder))
+            {
+                Directory.CreateDirectory(app.SourceZipFolder);
+            }
+            string zipPath = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.zip");
             LogPublish($">>> Compressing output files directly to: {zipPath}", false, ColorWait);
 
             await CreateZipFromDirectoryAsync(tempOut, zipPath);
 
             Directory.Delete(tempOut, true);
             LogPublish($">>> [OK] Web App package successfully compressed.", false, ColorSuccess);
-            return true;
-        }
 
-        private async Task<bool> PublishFullSuiteAsync(string workspace, string outputDir)
-        {
-            LogPublish(">>> [WAIT] STARTING FULL SUITE INTEGRATED PUBLISH...", false, ColorWait);
-
-            string tempOut = Path.Combine(workspace, "publish_suite_temp");
-            if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
-            Directory.CreateDirectory(tempOut);
-
-            // 1. WebApp
-            string webOut = Path.Combine(tempOut, "webapp");
-            LogPublish(">>> [1/3] Compiling Web App...", false, ColorWait);
-            var runner = new ProcessRunner((line, err) => LogPublish(line, err));
-            int exit1 = await runner.RunAsync("dotnet", $"publish \"apps\\webapp\\GFC.BlazorServer\\GFC.BlazorServer.csproj\" -c Release -o \"{webOut}\" /p:TreatWarningsAsErrors=false", workspace);
-            if (exit1 != 0) { LogPublish("!!! Web App compile failed.", true); return false; }
-
-            // 2. Mobile
-            string mobOut = Path.Combine(tempOut, "mobile");
-            LogPublish(">>> [2/3] Compiling Mobile App...", false, ColorWait);
-            int exit2 = await runner.RunAsync("dotnet", $"publish \"apps\\GFC-Mobile-Standalone\\GFC.Mobile\\GFC.Mobile.csproj\" -c Release -o \"{mobOut}\" /p:TreatWarningsAsErrors=false", workspace);
-            if (exit2 != 0) { LogPublish("!!! Mobile App compile failed.", true); return false; }
-
-            // 3. POS
-            string posOut = Path.Combine(tempOut, "pos");
-            LogPublish(">>> [3/3] Compiling POS App...", false, ColorWait);
-            int exit3 = await runner.RunAsync("dotnet", $"publish \"apps\\GFC-Pos-Standalone\\GFC.Pos.Terminal\\GFC.Pos.Terminal.csproj\" -c Release -o \"{posOut}\" /p:TreatWarningsAsErrors=false", workspace);
-            if (exit3 != 0) { LogPublish("!!! POS App compile failed.", true); return false; }
-
-            // Zip Suite
-            string zipPath = Path.Combine(outputDir, "GFC_Full_Suite_Update.zip");
-            LogPublish($">>> Compressing combined suite directly to: {zipPath}", false, ColorWait);
-
-            await CreateZipFromDirectoryAsync(tempOut, zipPath);
-
-            Directory.Delete(tempOut, true);
-            LogPublish($">>> [OK] Full DevOps suite package successfully compressed.", false, ColorSuccess);
             return true;
         }
 
@@ -1010,183 +1180,192 @@ namespace GFCDevOpsUtility
                 }
             });
         }
-        #endregion
 
-        #region Core Deployment Operations (Recursive Copy & IIS Control)
-        private async void BtnRunDeploy_Click(object sender, EventArgs e)
+        private async Task<bool> PublishApkHelperAsync(string workspace, AppPipelineConfig app, string revision)
         {
-            if (_isBusy) return;
+            UpdateVisualStatus(app.AppName, true, "Compiling APK... ⚙️", Color.DeepSkyBlue);
+            LogPublish("\n=======================================================", false, ColorPrimary);
+            LogPublish($">>> STEP: Publishing Native Android Mobile APK for {app.AppName}", false, ColorPrimary);
+            LogPublish("=======================================================", false, ColorPrimary);
 
-            string zipInputPath = txtDepZip.Text.Trim();
-            if (string.IsNullOrEmpty(zipInputPath) || !Directory.Exists(zipInputPath))
+            string mobileProjectPath = Path.Combine("apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "GFC.Pos.Mobile.csproj");
+            string mobileTempOut = Path.Combine(workspace, "publish_pos_mobile_temp");
+
+            if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
+
+            LogPublish(">>> Executing dotnet publish for Native Android project...", false, ColorWait);
+            var mobileRunner = new ProcessRunner((line, err) => LogPublish(line, err));
+            int mobileExit = await mobileRunner.RunAsync("dotnet", $"publish \"{mobileProjectPath}\" -f net10.0-android -c Release -o \"{mobileTempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+
+            bool success = false;
+            if (mobileExit == 0)
             {
-                MessageBox.Show("Please select a valid directory containing deployment ZIPs.", "Invalid ZIP Directory", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            int selection = cmbDeployApp.SelectedIndex;
-            if (selection < 0)
-            {
-                MessageBox.Show("Please select an application to deploy.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            SaveDeployPaths();
-
-            SetBusy(true, "Deploying package...");
-            rtbTerminal.Clear();
-
-            try
-            {
-                bool success = false;
-                if (selection == 0) // Mobile
+                LogPublish(">>> Locating generated APK installer file...", false, ColorWait);
+                string foundApk = null;
+                if (Directory.Exists(mobileTempOut))
                 {
-                    success = await DeploySingleAppAsync(
-                        "GFC_Mobile_Standalone.zip",
-                        txtDepStaging.Text,
-                        txtDepLive.Text,
-                        txtDepBackup.Text,
-                        txtDepIisSite.Text,
-                        txtDepIisAppPool.Text,
-                        true, // isWasm SPA routing
-                        "wwwroot" // nested path inside staging
-                    );
+                    var apks = Directory.GetFiles(mobileTempOut, "*.apk");
+                    if (apks.Length > 0) foundApk = apks[0];
                 }
-                else if (selection == 1) // POS
+                
+                if (foundApk == null)
                 {
-                    success = await DeploySingleAppAsync(
-                        "GFC_POS_Standalone.zip",
-                        txtDepStaging.Text,
-                        txtDepLive.Text,
-                        txtDepBackup.Text,
-                        txtDepIisSite.Text,
-                        txtDepIisAppPool.Text,
-                        true, // isWasm SPA routing
-                        "", // direct extract to root
-                        chkDepMobileApk.Checked,
-                        txtDepApkDist.Text
-                    );
-                }
-                else if (selection == 2) // WebApp
-                {
-                    success = await DeploySingleAppAsync(
-                        "PublishGFCWebApp.zip",
-                        txtDepStaging.Text,
-                        txtDepLive.Text,
-                        txtDepBackup.Text,
-                        txtDepIisSite.Text,
-                        txtDepIisAppPool.Text,
-                        false, // IIS standard .NET Core executable
-                        "" // direct extract
-                    );
-                }
-                else // Full Suite
-                {
-                    success = await DeployFullSuiteAsync(zipInputPath);
+                    string fallbackDir = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "bin", "Release", "net10.0-android");
+                    if (Directory.Exists(fallbackDir))
+                    {
+                        var apks = Directory.GetFiles(fallbackDir, "*.apk");
+                        if (apks.Length > 0) foundApk = apks[0];
+                    }
                 }
 
-                if (success)
+                if (foundApk != null)
                 {
-                    Log(">>> DEPLOYMENT PIPELINE SUCCESSFUL!", false, ColorSuccess);
-                    SetBusy(false, "Ready");
-                    MessageBox.Show("Deployment has completed successfully! IIS services are online.", "Deployment Successful", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (!Directory.Exists(app.SourceZipFolder))
+                    {
+                        Directory.CreateDirectory(app.SourceZipFolder);
+                    }
+                    string destApk = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.apk");
+                    LogPublish($">>> Copying APK to output directory: {destApk}", false, ColorWait);
+                    File.Copy(foundApk, destApk, true);
+                    LogPublish(">>> [OK] Native Android Mobile build and package completed successfully.", false, ColorSuccess);
+                    success = true;
                 }
                 else
                 {
-                    Log("!!! DEPLOYMENT PIPELINE ENCOUNTERED ERRORS", true);
-                    SetBusy(false, "Error: Deploy Failed!");
-                    MessageBox.Show("Deployment failed. Review the terminal logs and ensure you are running as Administrator.", "Deployment Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    LogPublish("!!! Failed to locate the generated .apk installer file in the output directories.", true);
                 }
             }
-            catch (Exception ex)
+
+            if (mobileExit == 0 && success)
             {
-                Log($"CRITICAL DEPLOY EXCEPTION: {ex.Message}", true);
-                SetBusy(false, "Exception Failure");
-                MessageBox.Show($"Pipeline execution failed: {ex.Message}", "Critical Exception", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                UpdateVisualStatus(app.AppName, true, "Success ✅", Color.Green);
+            }
+            else
+            {
+                UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+            }
+
+            if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
+            return success;
+        }
+
+        private void UpdateVisualStatus(string appName, bool isApk, string status, Color color)
+        {
+            if (this.IsDisposed || !this.IsHandleCreated) return;
+            try
+            {
+                this.Invoke(new Action(() =>
+                {
+                    Label targetLabel = null;
+                    if (appName.Equals("Mobile", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = isApk ? lblStatusMobileApk : lblStatusMobilePublish;
+                    }
+                    else if (appName.Equals("POS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = isApk ? lblStatusPosApk : lblStatusPosPublish;
+                    }
+                    else if (appName.Equals("WebApp", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = isApk ? lblStatusWebAppApk : lblStatusWebAppPublish;
+                    }
+
+                    if (targetLabel != null)
+                    {
+                        targetLabel.Text = status;
+                        targetLabel.ForeColor = color;
+                        targetLabel.Refresh();
+                    }
+                }));
+            }
+            catch
+            {
+                // ignore thread/handle exceptions on close
             }
         }
 
-        private async Task<bool> DeploySingleAppAsync(
-            string zipName, 
-            string staging, 
-            string live, 
-            string backup, 
-            string siteName, 
-            string appPool, 
-            bool isWasm, 
-            string nestedStagingPath,
-            bool deployApk = false,
-            string apkDistFolder = "")
+        private void UpdateDeployVisualStatus(string appName, string status, Color color)
         {
-            Log($">>> [WAIT] Starting Deployment for: {zipName}...", false, ColorWait);
-
-            // Locate zip file
-            string zipPath = Path.Combine(txtDepZip.Text.Trim(), zipName);
-            if (!File.Exists(zipPath))
-            {
-                Log($"!!! ZIP file not found at: {zipPath}", true);
-                return false;
-            }
-
-            // Stop IIS Pool & Site
-            Log($">>> Stopping IIS site and application pool for '{siteName}'...", false, ColorWait);
-            await ToggleIisAsync(siteName, appPool, false);
-
+            if (this.IsDisposed || !this.IsHandleCreated) return;
             try
             {
-                // Unzip Staging
-                Log(">>> Preparing Staging...", false, ColorWait);
-                if (Directory.Exists(staging)) Directory.Delete(staging, true);
-                Directory.CreateDirectory(staging);
-
-                Log($">>> Unzipping {zipName} directly into staging...", false, ColorWait);
-                await ExtractZipAsync(zipPath, staging);
-
-                // Site Backup
-                Log(">>> Preparing site backup...", false, ColorWait);
-                if (!Directory.Exists(backup)) Directory.CreateDirectory(backup);
-                string ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string backupFolder = Path.Combine(backup, "Backup_" + ts);
-                
-                if (Directory.Exists(live))
+                this.Invoke(new Action(() =>
                 {
-                    Log($">>> Copying live files to backup: {backupFolder}", false, ColorWait);
-                    await CopyDirectoryAsync(live, backupFolder, false, null); // don't filter backup
+                    Label targetLabel = null;
+                    if (appName.Equals("Mobile", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = lblStatusDeployMobileState;
+                    }
+                    else if (appName.Equals("POS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = lblStatusDeployPosState;
+                    }
+                    else if (appName.Equals("WebApp", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = lblStatusDeployWebAppState;
+                    }
+
+                    if (targetLabel != null)
+                    {
+                        targetLabel.Text = status;
+                        targetLabel.ForeColor = color;
+                        targetLabel.Refresh();
+                    }
+                }));
+            }
+            catch
+            {
+                // ignore thread/handle exceptions on close
+            }
+        }
+        #endregion
+
+        #region Core Deployment Operations (Recursive Copy & IIS Control)
+        private async Task<bool> DeploySingleAppGenericAsync(AppPipelineConfig app, string workspace)
+        {
+            Log($"\n=======================================================", false, ColorPrimary);
+            Log($">>> STARTING DEPLOYMENT PIPELINE FOR: {app.AppName}", false, ColorPrimary);
+            Log($"=======================================================", false, ColorPrimary);
+
+            // Locate zip file dynamically: Scan Source ZIP Folder for files matching pattern AppName_v*.zip or AppName_*.zip
+            string zipPath = string.Empty;
+            string zipName = string.Empty;
+
+            if (Directory.Exists(app.SourceZipFolder))
+            {
+                var matchedFiles = new List<string>(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_v*.zip"));
+                if (matchedFiles.Count == 0)
+                {
+                    matchedFiles.AddRange(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_*.zip"));
                 }
 
-                // Deploy files staging -> live
-                Log($">>> Deploying new staging files to live: {live}...", false, ColorWait);
-                string sourceCopy = string.IsNullOrEmpty(nestedStagingPath) ? staging : Path.Combine(staging, nestedStagingPath);
-
-                if (!Directory.Exists(live)) Directory.CreateDirectory(live);
-
-                // Exclude Production appsettings or web.config from purge if checked
-                var exclusions = new string[] { "appsettings.Production.json", "web.config" };
-                await CopyDirectoryAsync(sourceCopy, live, chkPurgeFiles.Checked, exclusions);
-
-                // Config web.config
-                if (isWasm && chkAutoConfigWebConfig.Checked)
+                if (matchedFiles.Count > 0)
                 {
-                    Log(">>> Writing flat optimized web.config for Blazor WASM SPA...", false, ColorWait);
-                    WriteWasmWebConfig(live, deployApk);
+                    matchedFiles.Sort((a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                    zipPath = matchedFiles[0];
+                    zipName = Path.GetFileName(zipPath);
+                    Log($">>> Dynamically resolved latest package: {zipName}", false, ColorSuccess);
                 }
+            }
 
-                // Deploy APK if dual-track is active
-                if (deployApk && !string.IsNullOrEmpty(apkDistFolder))
+            if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath))
+            {
+                if (app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase) && _config.PosDeployMobileApk)
                 {
-                    Log(">>> [WAIT] Deploying Native Mobile APK...", false, ColorWait);
+                    Log(">>> No ZIP package found, but APK deployment is active. Attempting APK-Only deployment...", false, ColorWarning);
+                    
                     string foundApkPath = null;
                     string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                     
-                    // Search in desktop and deployment ZIP folder
-                    string[] searchFiles = new string[]
+                    string[] searchApkFiles = new string[]
                     {
-                        Path.Combine(txtDepZip.Text.Trim(), "GFC_POS_Mobile.apk"),
+                        Path.Combine(app.SourceZipFolder, "GFC_POS_Mobile.apk"),
                         Path.Combine(desktop, "GFC_POS_Mobile.apk"),
-                        Path.Combine(txtDepZip.Text.Trim(), "com.gfc.pos.mobile-Signed.apk"),
+                        Path.Combine(app.SourceZipFolder, "com.gfc.pos.mobile-Signed.apk"),
                         Path.Combine(desktop, "com.gfc.pos.mobile-Signed.apk")
                     };
 
-                    foreach (var path in searchFiles)
+                    foreach (var path in searchApkFiles)
                     {
                         if (File.Exists(path))
                         {
@@ -1195,12 +1374,11 @@ namespace GFCDevOpsUtility
                         }
                     }
 
-                    // Fallback to searching for any *.apk file in the directories
                     if (foundApkPath == null)
                     {
-                        if (Directory.Exists(txtDepZip.Text.Trim()))
+                        if (Directory.Exists(app.SourceZipFolder))
                         {
-                            var apks = Directory.GetFiles(txtDepZip.Text.Trim(), "*.apk");
+                            var apks = Directory.GetFiles(app.SourceZipFolder, "*.apk");
                             if (apks.Length > 0) foundApkPath = apks[0];
                         }
                         if (foundApkPath == null && Directory.Exists(desktop))
@@ -1212,119 +1390,306 @@ namespace GFCDevOpsUtility
 
                     if (foundApkPath != null)
                     {
-                        Log($">>> Found APK installer at: {foundApkPath}", false, ColorWait);
-                        if (!Directory.Exists(apkDistFolder))
+                        Log($">>> Located APK installer for APK-Only deployment: {foundApkPath}", false, ColorWait);
+                        if (!Directory.Exists(_config.PosApkDistFolder))
                         {
-                            Directory.CreateDirectory(apkDistFolder);
+                            Directory.CreateDirectory(_config.PosApkDistFolder);
                         }
-                        string destApk = Path.Combine(apkDistFolder, "GFC_POS_Mobile.apk");
+                        string destApk = Path.Combine(_config.PosApkDistFolder, "GFC_POS_Mobile.apk");
                         Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
                         File.Copy(foundApkPath, destApk, true);
-                        Log($">>> [OK] APK successfully copied to server.", false, ColorSuccess);
+                        Log($">>> [OK] APK successfully copied to server (APK-Only).", false, ColorSuccess);
 
-                        // Safe source cleanup matching dynamic scripting behavior
-                        try 
-                        { 
-                            File.Delete(foundApkPath); 
-                            Log($">>> Cleanup: Source APK '{Path.GetFileName(foundApkPath)}' deleted.", false, ColorTextMuted); 
-                        } 
-                        catch 
-                        { 
+                        try
+                        {
+                            File.Delete(foundApkPath);
+                            Log($">>> Cleanup: Source APK deleted.", false, ColorTextMuted);
                         }
-                    }
-                    else
-                    {
-                        Log("!!! Warning: Dual-track APK deployment was selected, but no .apk installer file was found in search paths or on Desktop.", true);
+                        catch
+                        {
+                            // ignore
+                        }
+
+                        Log($">>> SUCCESS: APK-Only deployment completed successfully for POS.", false, ColorSuccess);
+                        return true;
                     }
                 }
 
-                // Delete ZIP if completed
+                Log($"!!! Error: No build package found matching pattern '{app.AppName}_v*.zip' in Source ZIP Folder: {app.SourceZipFolder}", true);
+                return false;
+            }
+
+            // Stop IIS Pool & Site
+            Log($">>> Stopping IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
+            await ToggleIisAsync(app.IisSiteName, app.IisAppPool, false);
+
+            try
+            {
+                // Step A: Archive
+                Log($"[Step A] Archiving ZIP package '{zipName}'...", false, ColorWait);
+                if (!Directory.Exists(app.ArchiveFolder))
+                {
+                    Directory.CreateDirectory(app.ArchiveFolder);
+                }
+                string archiveDest = Path.Combine(app.ArchiveFolder, zipName);
+                File.Copy(zipPath, archiveDest, true);
+                Log($"[Step A] [OK] Package archived successfully: {archiveDest}", false, ColorSuccess);
+
+                // Step B: Deploy
+                Log($"[Step B] Clearing production folder: {app.LiveTargetFolder}...", false, ColorWait);
+                if (!Directory.Exists(app.LiveTargetFolder))
+                {
+                    Directory.CreateDirectory(app.LiveTargetFolder);
+                }
+                await ClearDirectoryContentsAsync(app.LiveTargetFolder, chkPurgeFiles.Checked);
+
+                Log($"[Step B] Extracting new flat ZIP contents directly to live folder...", false, ColorWait);
+                await ExtractZipAsync(zipPath, app.LiveTargetFolder);
+                Log($"[Step B] [OK] Extraction completed flat.", false, ColorSuccess);
+
+                // Config web.config
+                bool isWasm = app.AppName.Equals("Mobile", StringComparison.OrdinalIgnoreCase) || 
+                              app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase);
+                if (isWasm && chkAutoConfigWebConfig.Checked)
+                {
+                    Log(">>> [Step B] Writing optimized web.config for Blazor WASM SPA SPA...", false, ColorWait);
+                    WriteWasmWebConfig(app.LiveTargetFolder, app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase) && _config.PosDeployMobileApk);
+                }
+
+                // Deploy APK if active
+                if (app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase) && _config.PosDeployMobileApk)
+                {
+                    Log(">>> [Step B] Deploying dual-track Native Mobile APK...", false, ColorWait);
+                    await DeployPosApkHelperAsync(app.SourceZipFolder);
+                }
+
+                // Start IIS
+                Log($">>> Starting IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
+                await ToggleIisAsync(app.IisSiteName, app.IisAppPool, true);
+
+                // Step C: Cleanup
+                Log($"[Step C] Cleaning up source package from source folder...", false, ColorWait);
                 if (File.Exists(zipPath))
                 {
                     File.Delete(zipPath);
-                    Log($">>> Cleanup: Source ZIP '{zipName}' purged from directory.", false, ColorTextMuted);
+                    Log($"[Step C] [OK] Source package '{zipName}' deleted successfully.", false, ColorSuccess);
                 }
 
-                Log($">>> Starting IIS site and application pool for '{siteName}'...", false, ColorWait);
-                await ToggleIisAsync(siteName, appPool, true);
-
-                // Clean staging
-                if (Directory.Exists(staging)) Directory.Delete(staging, true);
-
-                Log($">>> [OK] Deployment for {zipName} finished successfully.", false, ColorSuccess);
+                Log($">>> SUCCESS: Deployment completed for {app.AppName}.", false, ColorSuccess);
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"!!! Deployment of {zipName} failed: {ex.Message}", true);
+                Log($"!!! Deployment of {app.AppName} failed: {ex.Message}", true);
                 
-                // Attempt restore toggle
+                // Fallback restore
                 Log(">>> Attempting to restart IIS on fallback...", false, ColorWarning);
-                await ToggleIisAsync(siteName, appPool, true);
+                await ToggleIisAsync(app.IisSiteName, app.IisAppPool, true);
                 return false;
             }
         }
 
-        private async Task<bool> DeployFullSuiteAsync(string zipDir)
+        private async Task DeployPosApkHelperAsync(string sourceZipFolder)
         {
-            Log(">>> [WAIT] STARTING FULL SUITE INTEGRATED DEPLOYMENT...", false, ColorWait);
-
-            string zipName = "GFC_Full_Suite_Update.zip";
-            string zipPath = Path.Combine(zipDir, zipName);
-            if (!File.Exists(zipPath))
+            string foundApkPath = null;
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            
+            string[] searchFiles = new string[]
             {
-                Log($"!!! Combined Full Suite Zip not found at: {zipPath}", true);
-                return false;
+                Path.Combine(sourceZipFolder, "GFC_POS_Mobile.apk"),
+                Path.Combine(desktop, "GFC_POS_Mobile.apk"),
+                Path.Combine(sourceZipFolder, "com.gfc.pos.mobile-Signed.apk"),
+                Path.Combine(desktop, "com.gfc.pos.mobile-Signed.apk")
+            };
+
+            foreach (var path in searchFiles)
+            {
+                if (File.Exists(path))
+                {
+                    foundApkPath = path;
+                    break;
+                }
             }
 
-            string staging = @"C:\inetpub\PublishFullSuiteStaging";
-            Log(">>> Preparing Suite Staging...", false, ColorWait);
-            if (Directory.Exists(staging)) Directory.Delete(staging, true);
-            Directory.CreateDirectory(staging);
+            if (foundApkPath == null)
+            {
+                if (Directory.Exists(sourceZipFolder))
+                {
+                    var apks = Directory.GetFiles(sourceZipFolder, "*.apk");
+                    if (apks.Length > 0) foundApkPath = apks[0];
+                }
+                if (foundApkPath == null && Directory.Exists(desktop))
+                {
+                    var apks = Directory.GetFiles(desktop, "*.apk");
+                    if (apks.Length > 0) foundApkPath = apks[0];
+                }
+            }
 
-            Log(">>> Extracting full suite ZIP package...", false, ColorWait);
-            await ExtractZipAsync(zipPath, staging);
+            if (foundApkPath != null)
+            {
+                Log($">>> Located APK installer at: {foundApkPath}", false, ColorWait);
+                if (!Directory.Exists(_config.PosApkDistFolder))
+                {
+                    Directory.CreateDirectory(_config.PosApkDistFolder);
+                }
+                string destApk = Path.Combine(_config.PosApkDistFolder, "GFC_POS_Mobile.apk");
+                Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
+                File.Copy(foundApkPath, destApk, true);
+                Log($">>> [OK] APK successfully copied to server.", false, ColorSuccess);
 
-            // Deploy individuals
-            bool ok1 = await DeploySingleAppAsync(
-                "PublishGFCWebApp.zip",
-                _config.WebAppStagingPath,
-                _config.WebAppLivePath,
-                _config.WebAppBackupPath,
-                _config.WebAppIisSite,
-                _config.WebAppIisAppPool,
-                false,
-                ""
-            );
+                try
+                {
+                    File.Delete(foundApkPath);
+                    Log($">>> Cleanup: Source APK deleted.", false, ColorTextMuted);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+            else
+            {
+                Log("!!! Warning: Dual-track APK deployment was selected, but no .apk installer file was found in search paths.", true);
+            }
+        }
 
-            bool ok2 = await DeploySingleAppAsync(
-                "GFC_Mobile_Standalone.zip",
-                _config.MobileStagingPath,
-                _config.MobileLivePath,
-                _config.MobileBackupPath,
-                _config.MobileIisSite,
-                _config.MobileIisAppPool,
-                true,
-                "wwwroot"
-            );
+        private async Task ClearDirectoryContentsAsync(string path, bool preserveExclusions = true)
+        {
+            await Task.Run(() =>
+            {
+                if (!Directory.Exists(path)) return;
 
-            bool ok3 = await DeploySingleAppAsync(
-                "GFC_POS_Standalone.zip",
-                _config.PosStagingPath,
-                _config.PosLivePath,
-                _config.PosBackupPath,
-                _config.PosIisSite,
-                _config.PosIisAppPool,
-                true,
-                ""
-            );
+                var exclusions = new string[] { "appsettings.Production.json", "web.config" };
+                
+                // Delete files
+                foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    if (preserveExclusions)
+                    {
+                        bool isExcluded = false;
+                        foreach (var exc in exclusions)
+                        {
+                            if (Path.GetFileName(file).Equals(exc, StringComparison.OrdinalIgnoreCase))
+                            {
+                                isExcluded = true;
+                                break;
+                            }
+                        }
+                        if (isExcluded) continue;
+                    }
 
-            // Clean combined staging
-            if (Directory.Exists(staging)) Directory.Delete(staging, true);
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch
+                    {
+                        // ignore locked files
+                    }
+                }
 
-            if (File.Exists(zipPath)) File.Delete(zipPath);
+                // Delete empty directories
+                DeleteEmptySubdirectories(path);
+            });
+        }
 
-            return ok1 && ok2 && ok3;
+        private void DeleteEmptySubdirectories(string path)
+        {
+            foreach (var directory in Directory.GetDirectories(path))
+            {
+                DeleteEmptySubdirectories(directory);
+                try
+                {
+                    if (Directory.GetFiles(directory).Length == 0 && Directory.GetDirectories(directory).Length == 0)
+                    {
+                        Directory.Delete(directory, false);
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+
+        private async void BtnRunDeploy_Click(object sender, EventArgs e)
+        {
+            if (_isBusy) return;
+
+            var checkedApps = new List<AppPipelineConfig>();
+            foreach (var item in clbDeployApps.CheckedItems)
+            {
+                var app = _config.AppPipelines.Find(a => a.AppName == item.ToString());
+                if (app != null) checkedApps.Add(app);
+            }
+
+            if (checkedApps.Count == 0)
+            {
+                MessageBox.Show("Please check at least one application to deploy.", "No App Checked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            SetBusy(true, "Deploying packages...");
+            rtbTerminal.Clear();
+            Log($">>> STARTING BATCH DEPLOYMENT FOR {checkedApps.Count} TARGET(S)...", false, ColorWait);
+
+            // Initialize progress status indicators
+            foreach (var appConfig in _config.AppPipelines)
+            {
+                bool isSelected = checkedApps.Exists(a => a.AppName == appConfig.AppName);
+                if (isSelected)
+                {
+                    UpdateDeployVisualStatus(appConfig.AppName, "Queued ⏳", Color.Orange);
+                }
+                else
+                {
+                    UpdateDeployVisualStatus(appConfig.AppName, "Skipped ➔", Color.LightGray);
+                }
+            }
+
+            var successes = new List<string>();
+            var failures = new Dictionary<string, string>();
+
+            string workspace = txtPubWorkspace.Text.Trim();
+
+            foreach (var app in checkedApps)
+            {
+                UpdateDeployVisualStatus(app.AppName, "Deploying... ⚙️", Color.DeepSkyBlue);
+                try
+                {
+                    bool appSuccess = await DeploySingleAppGenericAsync(app, workspace);
+
+                    if (appSuccess)
+                    {
+                        successes.Add(app.AppName);
+                        Log($"[OK] Deployment SUCCEEDED for: {app.AppName}", false, ColorSuccess);
+                        UpdateDeployVisualStatus(app.AppName, "Success ✅", Color.Green);
+                    }
+                    else
+                    {
+                        failures.Add(app.AppName, "Pipeline step failed. Check terminal logs above.");
+                        Log($"[FAIL] Deployment FAILED for: {app.AppName}", true);
+                        UpdateDeployVisualStatus(app.AppName, "Failed ❌", Color.Red);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(app.AppName, ex.Message);
+                    Log($"[EXCEPTION] Deployment failed for {app.AppName}: {ex.Message}", true);
+                    UpdateDeployVisualStatus(app.AppName, "Failed ❌", Color.Red);
+                }
+            }
+
+            SetBusy(false, failures.Count == 0 ? "Ready" : "Error: Deploy Failed!");
+
+            string summaryMsg = $"Batch Deployment Operation Completed.\n\n" +
+                                $"Successful ({successes.Count}):\n" +
+                                (successes.Count > 0 ? string.Join("\n", successes.ConvertAll(s => $" - {s}")) : " None") + "\n\n" +
+                                $"Failed ({failures.Count}):\n" +
+                                (failures.Count > 0 ? string.Join("\n", new List<string>(failures.Keys).ConvertAll(k => $" - {k}: {failures[k]}")) : " None");
+
+            MessageBox.Show(summaryMsg, "Deployment Batch Summary", MessageBoxButtons.OK, 
+                            failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
 
         private async Task ToggleIisAsync(string site, string pool, bool start)

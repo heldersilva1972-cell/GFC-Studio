@@ -1,9 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
 namespace GFCDevOpsUtility
 {
+    public class AppPipelineConfig
+    {
+        public string AppName { get; set; } = string.Empty;
+        public string SourceZipFolder { get; set; } = string.Empty;
+        public string ArchiveFolder { get; set; } = string.Empty;
+        public string LiveTargetFolder { get; set; } = string.Empty;
+        public string IisSiteName { get; set; } = string.Empty;
+        public string IisAppPool { get; set; } = string.Empty;
+        public bool PublishMobileApk { get; set; } = false;
+    }
+
     public class AppConfig
     {
         public string WorkspacePath { get; set; } = string.Empty;
@@ -35,11 +47,59 @@ namespace GFCDevOpsUtility
         public bool AutoConfigureWebConfig { get; set; } = true;
         public bool PurgeFiles { get; set; } = true;
 
+        // Master-Detail configurations list
+        public List<AppPipelineConfig> AppPipelines { get; set; } = new List<AppPipelineConfig>();
+
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), 
             "GFC-DevOps-Utility", 
             "config.json"
         );
+
+        public void InitializeDefaultPipelines()
+        {
+            if (AppPipelines == null)
+            {
+                AppPipelines = new List<AppPipelineConfig>();
+            }
+
+            if (AppPipelines.Count == 0)
+            {
+                string defaultSrc = string.IsNullOrEmpty(PublishOutputPath) 
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop) 
+                    : PublishOutputPath;
+
+                AppPipelines.Add(new AppPipelineConfig
+                {
+                    AppName = "Mobile",
+                    SourceZipFolder = defaultSrc,
+                    ArchiveFolder = MobileBackupPath,
+                    LiveTargetFolder = MobileLivePath,
+                    IisSiteName = MobileIisSite,
+                    IisAppPool = MobileIisAppPool
+                });
+
+                AppPipelines.Add(new AppPipelineConfig
+                {
+                    AppName = "POS",
+                    SourceZipFolder = defaultSrc,
+                    ArchiveFolder = PosBackupPath,
+                    LiveTargetFolder = PosLivePath,
+                    IisSiteName = PosIisSite,
+                    IisAppPool = PosIisAppPool
+                });
+
+                AppPipelines.Add(new AppPipelineConfig
+                {
+                    AppName = "WebApp",
+                    SourceZipFolder = defaultSrc,
+                    ArchiveFolder = WebAppBackupPath,
+                    LiveTargetFolder = WebAppLivePath,
+                    IisSiteName = WebAppIisSite,
+                    IisAppPool = WebAppIisAppPool
+                });
+            }
+        }
 
         public static AppConfig Load()
         {
@@ -49,7 +109,11 @@ namespace GFCDevOpsUtility
                 {
                     string json = File.ReadAllText(ConfigPath);
                     var config = JsonSerializer.Deserialize<AppConfig>(json);
-                    if (config != null) return config;
+                    if (config != null)
+                    {
+                        config.InitializeDefaultPipelines();
+                        return config;
+                    }
                 }
             }
             catch
@@ -61,6 +125,7 @@ namespace GFCDevOpsUtility
             defaultConfig.WorkspacePath = FindDefaultWorkspace();
             defaultConfig.PublishOutputPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             defaultConfig.ZipInputPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            defaultConfig.InitializeDefaultPipelines();
             return defaultConfig;
         }
 
