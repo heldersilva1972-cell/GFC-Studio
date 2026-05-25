@@ -115,7 +115,7 @@ public class AndroidPrinterService : IPrinterService
             for (int j = 0; j < iface.EndpointCount; j++)
             {
                 var ep = iface.GetEndpoint(j);
-                if (ep.Type == UsbEndpointType.Bulk && ep.Direction == UsbAddressing.Out)
+                if (ep.Type == UsbAddressing.XferBulk && ep.Direction == UsbAddressing.Out)
                 {
                     usbInterface = iface;
                     endpoint = ep;

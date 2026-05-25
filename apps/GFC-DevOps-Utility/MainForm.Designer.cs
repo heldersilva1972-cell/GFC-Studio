@@ -35,7 +35,11 @@ namespace GFCDevOpsUtility
             this.lblPubOutput = new System.Windows.Forms.Label();
             this.txtPubOutput = new System.Windows.Forms.TextBox();
             this.btnPubOutputBrowse = new System.Windows.Forms.Button();
+            this.chkPublishMobileApk = new System.Windows.Forms.CheckBox();
             this.btnRunPublish = new System.Windows.Forms.Button();
+            this.txtBuildLogs = new System.Windows.Forms.RichTextBox();
+            this.rtbBuildOutput = this.txtBuildLogs;
+            this.btnCopyLog = new System.Windows.Forms.Button();
 
             // Deploy Panel controls
             this.pnlDeploy = new System.Windows.Forms.Panel();
@@ -62,6 +66,10 @@ namespace GFCDevOpsUtility
             this.chkPurgeFiles = new System.Windows.Forms.CheckBox();
             this.lblAutoConfigDesc = new System.Windows.Forms.Label();
             this.lblPurgeDesc = new System.Windows.Forms.Label();
+            this.chkDepMobileApk = new System.Windows.Forms.CheckBox();
+            this.lblDepApkDist = new System.Windows.Forms.Label();
+            this.txtDepApkDist = new System.Windows.Forms.TextBox();
+            this.btnDepApkDistBrowse = new System.Windows.Forms.Button();
             this.btnRunDeploy = new System.Windows.Forms.Button();
 
             // Revisions Panel controls
@@ -188,6 +196,8 @@ namespace GFCDevOpsUtility
             // 
             this.pnlPublish.Controls.Add(this.grpPublishOptions);
             this.pnlPublish.Controls.Add(this.btnRunPublish);
+            this.pnlPublish.Controls.Add(this.rtbBuildOutput);
+            this.pnlPublish.Controls.Add(this.btnCopyLog);
             this.pnlPublish.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pnlPublish.Location = new System.Drawing.Point(15, 15);
             this.pnlPublish.Name = "pnlPublish";
@@ -205,12 +215,13 @@ namespace GFCDevOpsUtility
             this.grpPublishOptions.Controls.Add(this.lblPubOutput);
             this.grpPublishOptions.Controls.Add(this.txtPubOutput);
             this.grpPublishOptions.Controls.Add(this.btnPubOutputBrowse);
+            this.grpPublishOptions.Controls.Add(this.chkPublishMobileApk);
             this.grpPublishOptions.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.grpPublishOptions.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpPublishOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpPublishOptions.Location = new System.Drawing.Point(5, 5);
             this.grpPublishOptions.Name = "grpPublishOptions";
-            this.grpPublishOptions.Size = new System.Drawing.Size(915, 260);
+            this.grpPublishOptions.Size = new System.Drawing.Size(915, 145);
             this.grpPublishOptions.TabIndex = 0;
             this.grpPublishOptions.TabStop = false;
             this.grpPublishOptions.Text = "Publish Project Parameters";
@@ -218,7 +229,7 @@ namespace GFCDevOpsUtility
             // lblPubApp
             // 
             this.lblPubApp.AutoSize = true;
-            this.lblPubApp.Location = new System.Drawing.Point(20, 35);
+            this.lblPubApp.Location = new System.Drawing.Point(20, 25);
             this.lblPubApp.Name = "lblPubApp";
             this.lblPubApp.Size = new System.Drawing.Size(126, 19);
             this.lblPubApp.TabIndex = 0;
@@ -234,15 +245,16 @@ namespace GFCDevOpsUtility
             "🖥️ POS App (Web Terminal)",
             "🌐 Web App (Blazor Server)",
             "📦 Full Suite (All Applications)"});
-            this.cmbPublishApp.Location = new System.Drawing.Point(200, 32);
+            this.cmbPublishApp.Location = new System.Drawing.Point(200, 22);
             this.cmbPublishApp.Name = "cmbPublishApp";
             this.cmbPublishApp.Size = new System.Drawing.Size(350, 25);
             this.cmbPublishApp.TabIndex = 1;
+            this.cmbPublishApp.SelectedIndexChanged += new System.EventHandler(this.CmbPublishApp_SelectedIndexChanged);
             // 
             // lblPubWorkspace
             // 
             this.lblPubWorkspace.AutoSize = true;
-            this.lblPubWorkspace.Location = new System.Drawing.Point(20, 95);
+            this.lblPubWorkspace.Location = new System.Drawing.Point(20, 55);
             this.lblPubWorkspace.Name = "lblPubWorkspace";
             this.lblPubWorkspace.Size = new System.Drawing.Size(161, 19);
             this.lblPubWorkspace.TabIndex = 2;
@@ -251,7 +263,7 @@ namespace GFCDevOpsUtility
             // txtPubWorkspace
             // 
             this.txtPubWorkspace.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.txtPubWorkspace.Location = new System.Drawing.Point(200, 92);
+            this.txtPubWorkspace.Location = new System.Drawing.Point(200, 52);
             this.txtPubWorkspace.Name = "txtPubWorkspace";
             this.txtPubWorkspace.Size = new System.Drawing.Size(580, 25);
             this.txtPubWorkspace.TabIndex = 3;
@@ -260,7 +272,7 @@ namespace GFCDevOpsUtility
             // 
             this.btnPubWorkspaceBrowse.FlatStyle = System.Windows.Forms.FlatStyle.System;
             this.btnPubWorkspaceBrowse.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.btnPubWorkspaceBrowse.Location = new System.Drawing.Point(795, 91);
+            this.btnPubWorkspaceBrowse.Location = new System.Drawing.Point(795, 51);
             this.btnPubWorkspaceBrowse.Name = "btnPubWorkspaceBrowse";
             this.btnPubWorkspaceBrowse.Size = new System.Drawing.Size(100, 28);
             this.btnPubWorkspaceBrowse.TabIndex = 4;
@@ -271,7 +283,7 @@ namespace GFCDevOpsUtility
             // lblPubOutput
             // 
             this.lblPubOutput.AutoSize = true;
-            this.lblPubOutput.Location = new System.Drawing.Point(20, 155);
+            this.lblPubOutput.Location = new System.Drawing.Point(20, 85);
             this.lblPubOutput.Name = "lblPubOutput";
             this.lblPubOutput.Size = new System.Drawing.Size(147, 19);
             this.lblPubOutput.TabIndex = 5;
@@ -280,7 +292,7 @@ namespace GFCDevOpsUtility
             // txtPubOutput
             // 
             this.txtPubOutput.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.txtPubOutput.Location = new System.Drawing.Point(200, 152);
+            this.txtPubOutput.Location = new System.Drawing.Point(200, 82);
             this.txtPubOutput.Name = "txtPubOutput";
             this.txtPubOutput.Size = new System.Drawing.Size(580, 25);
             this.txtPubOutput.TabIndex = 6;
@@ -289,13 +301,53 @@ namespace GFCDevOpsUtility
             // 
             this.btnPubOutputBrowse.FlatStyle = System.Windows.Forms.FlatStyle.System;
             this.btnPubOutputBrowse.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.btnPubOutputBrowse.Location = new System.Drawing.Point(795, 151);
+            this.btnPubOutputBrowse.Location = new System.Drawing.Point(795, 81);
             this.btnPubOutputBrowse.Name = "btnPubOutputBrowse";
             this.btnPubOutputBrowse.Size = new System.Drawing.Size(100, 28);
             this.btnPubOutputBrowse.TabIndex = 7;
             this.btnPubOutputBrowse.Text = "Browse...";
             this.btnPubOutputBrowse.UseVisualStyleBackColor = true;
             this.btnPubOutputBrowse.Click += new System.EventHandler(this.BtnPubOutputBrowse_Click);
+            // 
+            // chkPublishMobileApk
+            // 
+            this.chkPublishMobileApk.AutoSize = true;
+            this.chkPublishMobileApk.Location = new System.Drawing.Point(200, 115);
+            this.chkPublishMobileApk.Name = "chkPublishMobileApk";
+            this.chkPublishMobileApk.Size = new System.Drawing.Size(260, 21);
+            this.chkPublishMobileApk.TabIndex = 8;
+            this.chkPublishMobileApk.Text = "Include Native Android (.apk) Build";
+            this.chkPublishMobileApk.UseVisualStyleBackColor = true;
+            this.chkPublishMobileApk.Visible = false;
+            // 
+            // rtbBuildOutput
+            // 
+            this.rtbBuildOutput.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
+            this.rtbBuildOutput.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.rtbBuildOutput.Font = new System.Drawing.Font("Consolas", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.rtbBuildOutput.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.rtbBuildOutput.Location = new System.Drawing.Point(5, 155);
+            this.rtbBuildOutput.Multiline = true;
+            this.rtbBuildOutput.Name = "rtbBuildOutput";
+            this.rtbBuildOutput.ReadOnly = true;
+            this.rtbBuildOutput.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
+            this.rtbBuildOutput.Size = new System.Drawing.Size(915, 160);
+            this.rtbBuildOutput.TabIndex = 9;
+            this.rtbBuildOutput.Text = "";
+            // 
+            // btnCopyLog
+            // 
+            this.btnCopyLog.BackColor = System.Drawing.Color.White;
+            this.btnCopyLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnCopyLog.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.btnCopyLog.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
+            this.btnCopyLog.Location = new System.Drawing.Point(265, 323);
+            this.btnCopyLog.Name = "btnCopyLog";
+            this.btnCopyLog.Size = new System.Drawing.Size(220, 32);
+            this.btnCopyLog.TabIndex = 11;
+            this.btnCopyLog.Text = "📋 Copy Log to Clipboard";
+            this.btnCopyLog.UseVisualStyleBackColor = true;
+            this.btnCopyLog.Click += new System.EventHandler(this.BtnCopyLog_Click);
             // 
             // btnRunPublish
             // 
@@ -304,9 +356,9 @@ namespace GFCDevOpsUtility
             this.btnRunPublish.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnRunPublish.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.btnRunPublish.ForeColor = System.Drawing.Color.White;
-            this.btnRunPublish.Location = new System.Drawing.Point(5, 285);
+            this.btnRunPublish.Location = new System.Drawing.Point(5, 323);
             this.btnRunPublish.Name = "btnRunPublish";
-            this.btnRunPublish.Size = new System.Drawing.Size(250, 45);
+            this.btnRunPublish.Size = new System.Drawing.Size(250, 32);
             this.btnRunPublish.TabIndex = 1;
             this.btnRunPublish.Text = "📤 Start Application Publish";
             this.btnRunPublish.UseVisualStyleBackColor = false;
@@ -348,6 +400,10 @@ namespace GFCDevOpsUtility
             this.grpDeployOptions.Controls.Add(this.lblAutoConfigDesc);
             this.grpDeployOptions.Controls.Add(this.chkPurgeFiles);
             this.grpDeployOptions.Controls.Add(this.lblPurgeDesc);
+            this.grpDeployOptions.Controls.Add(this.chkDepMobileApk);
+            this.grpDeployOptions.Controls.Add(this.lblDepApkDist);
+            this.grpDeployOptions.Controls.Add(this.txtDepApkDist);
+            this.grpDeployOptions.Controls.Add(this.btnDepApkDistBrowse);
             this.grpDeployOptions.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpDeployOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpDeployOptions.Location = new System.Drawing.Point(5, 5);
@@ -563,6 +619,47 @@ namespace GFCDevOpsUtility
             this.lblPurgeDesc.Size = new System.Drawing.Size(380, 32);
             this.lblPurgeDesc.TabIndex = 21;
             this.lblPurgeDesc.Text = "Removes old files in live folder first during deployments, keeping your production appsettings configurations safe.";
+            // 
+            // chkDepMobileApk
+            // 
+            this.chkDepMobileApk.AutoSize = true;
+            this.chkDepMobileApk.Location = new System.Drawing.Point(470, 215);
+            this.chkDepMobileApk.Name = "chkDepMobileApk";
+            this.chkDepMobileApk.Size = new System.Drawing.Size(180, 21);
+            this.chkDepMobileApk.TabIndex = 22;
+            this.chkDepMobileApk.Text = "Deploy Native Mobile (.apk)";
+            this.chkDepMobileApk.UseVisualStyleBackColor = true;
+            this.chkDepMobileApk.CheckedChanged += new System.EventHandler(this.ChkDepMobileApk_CheckedChanged);
+            this.chkDepMobileApk.Visible = false;
+            // 
+            // lblDepApkDist
+            // 
+            this.lblDepApkDist.AutoSize = true;
+            this.lblDepApkDist.Location = new System.Drawing.Point(15, 218);
+            this.lblDepApkDist.Name = "lblDepApkDist";
+            this.lblDepApkDist.Size = new System.Drawing.Size(110, 17);
+            this.lblDepApkDist.TabIndex = 23;
+            this.lblDepApkDist.Text = "APK Dist Folder:";
+            this.lblDepApkDist.Visible = false;
+            // 
+            // txtDepApkDist
+            // 
+            this.txtDepApkDist.Location = new System.Drawing.Point(150, 215);
+            this.txtDepApkDist.Name = "txtDepApkDist";
+            this.txtDepApkDist.Size = new System.Drawing.Size(250, 24);
+            this.txtDepApkDist.TabIndex = 24;
+            this.txtDepApkDist.Visible = false;
+            // 
+            // btnDepApkDistBrowse
+            // 
+            this.btnDepApkDistBrowse.Location = new System.Drawing.Point(408, 213);
+            this.btnDepApkDistBrowse.Name = "btnDepApkDistBrowse";
+            this.btnDepApkDistBrowse.Size = new System.Drawing.Size(35, 28);
+            this.btnDepApkDistBrowse.TabIndex = 25;
+            this.btnDepApkDistBrowse.Text = "...";
+            this.btnDepApkDistBrowse.UseVisualStyleBackColor = true;
+            this.btnDepApkDistBrowse.Click += new System.EventHandler(this.BtnDepApkDistBrowse_Click);
+            this.btnDepApkDistBrowse.Visible = false;
             // 
             // btnRunDeploy
             // 
@@ -868,7 +965,11 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Label lblPubOutput;
         private System.Windows.Forms.TextBox txtPubOutput;
         private System.Windows.Forms.Button btnPubOutputBrowse;
+        private System.Windows.Forms.CheckBox chkPublishMobileApk;
         private System.Windows.Forms.Button btnRunPublish;
+        private System.Windows.Forms.RichTextBox rtbBuildOutput;
+        private System.Windows.Forms.RichTextBox txtBuildLogs; // Keep declaration to avoid design-time metadata breaks but use rtbBuildOutput
+        private System.Windows.Forms.Button btnCopyLog;
 
         // Deploy Tab Panel
         private System.Windows.Forms.Panel pnlDeploy;
@@ -918,5 +1019,10 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.ProgressBar pbProgress;
         private System.Windows.Forms.Label lblAutoConfigDesc;
         private System.Windows.Forms.Label lblPurgeDesc;
+        private System.Windows.Forms.CheckBox chkDepMobileApk;
+        private System.Windows.Forms.Label lblDepApkDist;
+        private System.Windows.Forms.TextBox txtDepApkDist;
+        private System.Windows.Forms.Button btnDepApkDistBrowse;
+        private System.Windows.Forms.CheckBox chkPubMobileApk;
     }
 }

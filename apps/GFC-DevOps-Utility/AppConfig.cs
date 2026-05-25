@@ -22,6 +22,9 @@ namespace GFCDevOpsUtility
         public string PosBackupPath { get; set; } = @"C:\inetpub\history_pos";
         public string PosIisSite { get; set; } = "Default Web Site";
         public string PosIisAppPool { get; set; } = "DefaultAppPool";
+        public bool PosDeployMobileApk { get; set; } = false;
+        public bool PosPublishMobileApk { get; set; } = false;
+        public string PosApkDistFolder { get; set; } = @"C:\inetpub\wwwroot\GFCPOS\downloads";
 
         public string WebAppLivePath { get; set; } = @"C:\inetpub\GFCWebApp";
         public string WebAppStagingPath { get; set; } = @"C:\inetpub\PublishGFCWebApp";

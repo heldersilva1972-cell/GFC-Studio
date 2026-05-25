@@ -166,7 +166,9 @@ try {
         if (Test-Path $posProps) {
             Write-Step "Updating PosVersion.props..."
             $c = Get-Content $posProps -Raw
+            $appVer = $targetVersion.Replace(".", "")
             $nc = $c -replace '(<PosVersion>)[^<]+(</PosVersion>)', ('${1}' + $targetVersion + '${2}')
+            $nc = $nc -replace '(<PosBuild>)[^<]+(</PosBuild>)', ('${1}' + $appVer + '${2}')
             if ($DryRun) { Write-DryRun "Would update $posProps" } else { Set-Content $posProps $nc }
         }
 
@@ -219,9 +221,10 @@ try {
         Write-Step "Updating appsettings.json (PosRevision)..."
         if (Test-Path $webappSettings) {
             $s = Get-Content $webappSettings | ConvertFrom-Json
-            if ($DryRun) { Write-DryRun "Would update server: PosRevision=$targetVersion" }
+            if ($DryRun) { Write-DryRun "Would update server: PosRevision=$targetVersion, PosBuildNumber=$appVer" }
             else {
                 $s.ApplicationVersion.PosRevision = $targetVersion
+                $s.ApplicationVersion.PosBuildNumber = $appVer
                 $s | ConvertTo-Json -Depth 20 | Set-Content $webappSettings
             }
         }
