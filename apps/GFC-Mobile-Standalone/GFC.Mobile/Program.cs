@@ -64,6 +64,9 @@ builder.Services.AddScoped<MobileAnalyticsService>();
 builder.Services.AddScoped<MobileKeyCardService>();
 builder.Services.AddScoped<MobileDuesService>();
 builder.Services.AddScoped<MobileDiagnosticsService>();
+builder.Services.AddScoped<ISystemSettingsService, MobileSystemSettingsService>();
+builder.Services.AddScoped<ILiquorService, MobileLiquorService>();
+builder.Services.AddScoped<IMediaAssetService, MobileMediaAssetService>();
 
 // Auth Setup
 builder.Services.AddAuthorizationCore();

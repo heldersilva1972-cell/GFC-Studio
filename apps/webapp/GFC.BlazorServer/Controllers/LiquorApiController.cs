@@ -25,13 +25,135 @@ namespace GFC.BlazorServer.Controllers
         {
             try
             {
-                var items = await _liquorService.GetAllItemsAsync();
-                return Ok(items);
+                var dbItems = await _liquorService.GetAllItemsAsync();
+                var cleanItems = new List<LiquorItem>();
+                foreach (var item in dbItems)
+                {
+                    cleanItems.Add(new LiquorItem
+                    {
+                        Id = item.Id,
+                        Name = item.Name,
+                        Description = item.Description,
+                        UpcCode = item.UpcCode,
+                        BottleSize = item.BottleSize,
+                        Category = item.Category,
+                        ImageUrl = item.ImageUrl,
+                        VendorId = item.VendorId,
+                        CurrentPrice = item.CurrentPrice,
+                        CurrentStock = item.CurrentStock,
+                        MinStockLimit = item.MinStockLimit,
+                        MinimumOrderQuantity = item.MinimumOrderQuantity,
+                        PackSize = item.PackSize,
+                        RetailPrice = item.RetailPrice,
+                        PourSize = item.PourSize,
+                        IsUnitBased = item.IsUnitBased,
+                        IsActive = item.IsActive,
+                        IsBeer = item.IsBeer,
+                        ShowInPos = item.ShowInPos,
+                        AllowLooseReconciliation = item.AllowLooseReconciliation,
+                        DisplayOrder = item.DisplayOrder,
+                        CreatedAt = item.CreatedAt,
+                        Vendor = null, // Break EF circular reference cycle
+                        OrderHistory = new List<LiquorOrderItem>() // Break cycle
+                    });
+                }
+                return Ok(cleanItems);
             }
             catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Error fetching liquor items for POS");
-                return StatusCode(500, "Internal server error");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        [HttpGet("vendors")]
+        public async Task<IActionResult> GetVendors()
+        {
+            try
+            {
+                var dbVendors = await _liquorService.GetAllVendorsAsync();
+                var cleanVendors = new List<LiquorVendor>();
+                foreach (var v in dbVendors)
+                {
+                    cleanVendors.Add(new LiquorVendor
+                    {
+                        Id = v.Id,
+                        Name = v.Name,
+                        ContactName = v.ContactName,
+                        MinimumOrderAmount = v.MinimumOrderAmount,
+                        PhoneNumber = v.PhoneNumber,
+                        Email = v.Email,
+                        Website = v.Website,
+                        Items = new List<LiquorItem>(),
+                        Orders = new List<LiquorOrder>()
+                    });
+                }
+                return Ok(cleanVendors);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching liquor vendors");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        [HttpPost("vendors")]
+        public async Task<IActionResult> CreateVendor([FromBody] LiquorVendor vendor)
+        {
+            try
+            {
+                if (vendor == null) return BadRequest("Vendor data is required");
+                var dbVendor = await _liquorService.CreateVendorAsync(vendor);
+                var cleanVendor = new LiquorVendor
+                {
+                    Id = dbVendor.Id,
+                    Name = dbVendor.Name,
+                    ContactName = dbVendor.ContactName,
+                    MinimumOrderAmount = dbVendor.MinimumOrderAmount,
+                    PhoneNumber = dbVendor.PhoneNumber,
+                    Email = dbVendor.Email,
+                    Website = dbVendor.Website,
+                    Items = new List<LiquorItem>(),
+                    Orders = new List<LiquorOrder>()
+                };
+                return Ok(cleanVendor);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error creating liquor vendor");
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPut("vendors/{id}")]
+        public async Task<IActionResult> UpdateVendor(int id, [FromBody] LiquorVendor vendor)
+        {
+            try
+            {
+                if (vendor == null) return BadRequest("Vendor data is required");
+                vendor.Id = id;
+                await _liquorService.UpdateVendorAsync(vendor);
+                return Ok(new { success = true });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error updating liquor vendor");
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpDelete("vendors/{id}")]
+        public async Task<IActionResult> DeleteVendor(int id)
+        {
+            try
+            {
+                await _liquorService.DeleteVendorAsync(id);
+                return Ok(new { success = true });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting liquor vendor");
+                return BadRequest(ex.Message);
             }
         }
 

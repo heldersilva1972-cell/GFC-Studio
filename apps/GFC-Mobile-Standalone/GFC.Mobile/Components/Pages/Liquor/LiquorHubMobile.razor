@@ -9,7 +9,7 @@
 @inject IUserManagementService UserService
 @inject IJSRuntime JS
 @inject GFC.Core.Interfaces.IMediaAssetService MediaService
-@inject IBlazorSystemSettingsService SystemSettingsService
+@inject ISystemSettingsService SystemSettingsService
 @using SixLabors.ImageSharp
 @using SixLabors.ImageSharp.Processing
 @using SixLabors.ImageSharp.Formats.Jpeg
@@ -27,7 +27,7 @@
 }
 
 <div class="mobile-hub-container">
-<MobileHubHeader IsConnected="@_isCircutAlive" StatusText="@_syncStatus" LastSynced="@_lastSyncedAt" />
+<MobileHubHeader IsConnected="@_isCircutAlive" Username="@(_currentUser?.Username ?? "Staff")" />
 
 
 
@@ -210,10 +210,10 @@
                                     var currentVal = isAdjusted ? _stockCounts[item.Id] : item.CurrentStock;
                                     var diff = isAdjusted ? (currentVal - item.CurrentStock) : 0;
 
-                                    <div class='d-flex align-items-stretch border-bottom @(isAdjusted ? "selected-for-audit" : "")' style="min-height: 80px;">
-                                        <div class='p-2 px-3 d-flex align-items-center gap-3 flex-grow-1 @(isAdjusted ? "bg-transparent" : "bg-white")'>
+                                    <div class='count-item-card d-flex align-items-stretch border-bottom @(isAdjusted ? "selected-for-audit" : "")' style="min-height: 80px;">
+                                        <div class='count-item-info p-2 px-3 d-flex align-items-center gap-3 flex-grow-1 @(isAdjusted ? "bg-transparent" : "bg-white")'>
                                                                                      <div class="stock-pill @(item.CurrentStock <= 0 ? "empty" : item.CurrentStock <= item.MinStockLimit ? "low" : "ok")" style="min-width: 65px; padding: 4px 8px;">
-                                                                                        <div class="d-flex align-items-center justify-content-center gap-1">
+                                                                                         <div class="d-flex align-items-center justify-content-center gap-1">
                                                                                             @if (item.PackSize > 1)
                                                                                             {
                                                                                                 <div class="stock-unit-group" title="Full Cases">
@@ -231,37 +231,41 @@
                                                                                                 <span class="stock-value">@item.CurrentStock</span>
                                                                                                 <span class="stock-icon-small"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
                                                                                             }
-                                                                                        </div>
-                                                                                    </div>
+                                                                                         </div>
+                                                                                     </div>
                                             <div class="flex-grow-1">
                                                 <div class="fw-black text-uppercase mb-0 fs-6 lh-sm">@item.Name</div>
                                                 <div class="extra-small text-muted fw-bold" style="font-size: 0.55rem;">SIZE: @item.BottleSize | LIMIT: @item.MinStockLimit</div>
                                             </div>
                                         </div>
 
-                                        <div class="d-flex align-items-center border-start px-4 bg-white" style="min-width: 320px;">
+                                        <div class="count-item-controls d-flex align-items-center border-start px-4 bg-white" style="min-width: 320px;">
                                             <div class="stock-chip w-100">
                                                 @if (item.PackSize > 1)
                                                 {
-                                                    <!-- CASE CONTROL -->
-                                                    <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, -item.PackSize)"><i class="bi bi-dash"></i></button>
-                                                    <div class="audit-control-block">
-                                                        <span class="audit-control-label">Cases</span>
-                                                        <span class="audit-control-value @(isAdjusted ? "is-changed" : "")">@(currentVal / item.PackSize)</span>
+                                                    <div class="stock-unit-control-group d-flex align-items-center gap-2">
+                                                        <!-- CASE CONTROL -->
+                                                        <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, -item.PackSize)"><i class="bi bi-dash"></i></button>
+                                                        <div class="audit-control-block">
+                                                            <span class="audit-control-label">Cases</span>
+                                                            <span class="audit-control-value @(isAdjusted ? "is-changed" : "")">@(currentVal / item.PackSize)</span>
+                                                        </div>
+                                                        <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, item.PackSize)"><i class="bi bi-plus"></i></button>
                                                     </div>
-                                                    <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, item.PackSize)"><i class="bi bi-plus"></i></button>
 
                                                     @if (item.AllowLooseReconciliation)
                                                     {
                                                         <div class="stock-chip-divider"></div>
 
-                                                        <!-- BOTTLE CONTROL -->
-                                                        <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, -1)"><i class="bi bi-dash"></i></button>
-                                                        <div class="audit-control-block">
-                                                            <span class="audit-control-label">Bottles</span>
-                                                            <span class="audit-control-value @(isAdjusted ? "is-changed" : "")">@(currentVal % item.PackSize)</span>
+                                                        <div class="stock-unit-control-group d-flex align-items-center gap-2">
+                                                            <!-- BOTTLE CONTROL -->
+                                                            <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, -1)"><i class="bi bi-dash"></i></button>
+                                                            <div class="audit-control-block">
+                                                                <span class="audit-control-label">Bottles</span>
+                                                                <span class="audit-control-value @(isAdjusted ? "is-changed" : "")">@(currentVal % item.PackSize)</span>
+                                                            </div>
+                                                            <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, 1)"><i class="bi bi-plus"></i></button>
                                                         </div>
-                                                        <button class="btn-audit" @onclick="() => AdjustSessionCount(item.Id, 1)"><i class="bi bi-plus"></i></button>
                                                     }
                                                 }
                                                 else
@@ -278,7 +282,7 @@
                                             </div>
                                         </div>
 
-                                        <div class="d-flex align-items-center justify-content-center border-start bg-light" style="min-width: 90px;">
+                                        <div class="count-item-adjustment d-flex align-items-center justify-content-center border-start bg-light" style="min-width: 90px;">
                                             <div class="text-center">
                                                 <div class="extra-small text-muted fw-bold text-uppercase mb-0" style="font-size: 0.5rem; opacity: 0.6;">Adjustment</div>
                                                 <div class="fw-900 mb-0 @(diff < 0 ? "text-danger" : diff > 0 ? "text-success" : "text-muted")" style="font-size: 1.25rem;">
@@ -324,10 +328,10 @@
                                     <div class="row g-3">
                                         @foreach (var item in _items.Where(i => (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)) && (!_filterBeerOnly || i.IsBeer)).OrderBy(i => i.Name))
                                         {
-                                            <div class="col-md-6">
-                                                <div class="card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                            <div class="col-md-6 col-lg-4">
+                                                <div class="order-item-card card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
                                                     <div class="p-3 d-flex align-items-center justify-content-between">
-                                                        <div class="d-flex align-items-center gap-3 flex-grow-1">
+                                                        <div class="order-item-info d-flex align-items-center gap-3 flex-grow-1">
                                                             <div class="flex-grow-1">
                                                                 <h5 class="fw-black mb-0">@item.Name</h5>
                                                                 <div class="extra-small text-muted">@item.BottleSize | @item.CurrentPrice.ToString("C")</div>
@@ -352,9 +356,9 @@
                                                                                     <span class="stock-icon-small"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
                                                                                 }
                                                                             </div>
-                                                                        </div>
+                                                                         </div>
                                                         </div>
-                                                        <div class="d-flex align-items-center gap-2 ms-3">
+                                                        <div class="order-item-controls d-flex align-items-center gap-2 ms-3">
                                                             <button class="btn btn-icon-round bg-light border-0" @onclick='() => AddToCart(item.Id, -1)'>-</button>
                                                             <div class="fw-black px-3 fs-5">@(GetCartQuantity(item.Id))</div>
                                                             <button class="btn btn-primary btn-icon-round border-0 text-white shadow-sm" @onclick='() => AddToCart(item.Id, 1)'>+</button>
@@ -380,10 +384,10 @@
                                                 <div class="row g-3">
                                                     @foreach (var item in vendorItems.OrderBy(i => i.Name))
                                                     {
-                                                        <div class="col-md-6">
-                                                            <div class="card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                                        <div class="col-md-6 col-lg-4">
+                                                            <div class="order-item-card card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
                                                                 <div class="p-3 d-flex align-items-center justify-content-between">
-                                                                    <div class="d-flex align-items-center gap-3 flex-grow-1">
+                                                                    <div class="order-item-info d-flex align-items-center gap-3 flex-grow-1">
                                                                         <div class="flex-grow-1">
                                                                             <h5 class="fw-black mb-0">@item.Name</h5>
                                                                             <div class="extra-small text-muted">@item.BottleSize | @item.CurrentPrice.ToString("C")</div>
@@ -410,7 +414,7 @@
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div class="d-flex align-items-center gap-2 ms-3">
+                                                                    <div class="order-item-controls d-flex align-items-center gap-2 ms-3">
                                                                         <button class="btn btn-icon-round bg-light border-0" @onclick='() => AddToCart(item.Id, -1)'>-</button>
                                                                         <div class="fw-black px-3 fs-5">@(GetCartQuantity(item.Id))</div>
                                                                         <button class="btn btn-primary btn-icon-round border-0 text-white shadow-sm" @onclick='() => AddToCart(item.Id, 1)'>+</button>
@@ -430,42 +434,72 @@
                             <div class="card rounded-4 border-0 shadow-sm bg-white p-4">
                                 <h5 class="fw-black text-uppercase mb-4">Quick Cart</h5>
                                 
-                                <div class="scroll-y-hub mb-4" style="max-height: 40vh; overflow-y: auto;">
-                                    @foreach (var vendor in _vendors.OrderBy(v => v.Name))
+                                <div class="scroll-y-hub mb-4" style="max-height: 48vh; overflow-y: auto;">
+                                    @{
+                                        var cartItems = _cart.Where(e => e.Value > 0)
+                                            .Select(e => new { Item = _items.FirstOrDefault(i => i.Id == e.Key), Qty = e.Value })
+                                            .Where(x => x.Item != null)
+                                            .ToList();
+                                    }
+                                    
+                                    @if (!cartItems.Any())
                                     {
-                                        var vendorCart = _items.Where(i => i.VendorId == vendor.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0).ToList();
-                                        if (vendorCart.Any())
+                                        <div class="text-center p-5 opacity-25">
+                                            <i class="bi bi-cart-x display-1 mb-3"></i>
+                                            <p class="small mb-0">Current order is empty</p>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var vGroup in cartItems.GroupBy(x => x.Item!.VendorId))
                                         {
-                                            decimal vTotal = vendorCart.Sum(i => i.CurrentPrice * _cart[i.Id]);
+                                            var vendorId = vGroup.Key;
+                                            var vendor = _vendors.FirstOrDefault(v => v.Id == vendorId);
+                                            var vendorName = vendor?.Name ?? "Unassigned Vendor";
+                                            decimal vTotal = vGroup.Sum(x => x.Item!.CurrentPrice * x.Qty);
                                             decimal min = GetVendorMin(vendor);
+                                            
                                             <div class="vendor-cart-card p-3 rounded-4 bg-light mb-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <span class="fw-black text-uppercase extra-small text-primary">@vendor.Name</span>
-                                                    @if (vTotal < min)
+                                                    <span class="fw-black text-uppercase extra-small text-primary">@vendorName</span>
+                                                    @if (vendor != null)
                                                     {
-                                                        <span class="badge bg-danger pulse-animation" style="font-size: 0.55rem;">
-                                                            WAIT! NEED @((min - vTotal).ToString("C")) MORE
-                                                        </span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="badge bg-success" style="font-size: 0.55rem;">MIN MET</span>
+                                                        @if (vTotal < min)
+                                                        {
+                                                            <span class="badge bg-danger pulse-animation" style="font-size: 0.55rem;">
+                                                                WAIT! NEED @((min - vTotal).ToString("C")) MORE
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-success" style="font-size: 0.55rem;">MIN MET</span>
+                                                        }
                                                     }
                                                 </div>
                                                 <div class="mb-3">
-                                                    @foreach (var item in vendorCart)
+                                                    @foreach (var cartEntry in vGroup)
                                                     {
+                                                        var item = cartEntry.Item!;
                                                         <div class="d-flex justify-content-between extra-small mb-1">
-                                                            <span class="text-muted">@_cart[item.Id] &times; @item.Name</span>
-                                                            <span class="fw-bold">@((item.CurrentPrice * _cart[item.Id]).ToString("C"))</span>
+                                                            <span class="text-muted">@cartEntry.Qty &times; @item.Name</span>
+                                                            <span class="fw-bold">@((item.CurrentPrice * cartEntry.Qty).ToString("C"))</span>
                                                         </div>
                                                     }
                                                 </div>
                                                 <div class="mb-2 pt-2 border-top border-light d-flex justify-content-between align-items-center opacity-75">
-                                                    <span class="extra-small fw-bold text-uppercase">@vendor.Name TOTAL</span>
+                                                    <span class="extra-small fw-bold text-uppercase">@vendorName TOTAL</span>
                                                     <span class="small fw-black">@vTotal.ToString("C")</span>
                                                 </div>
-                                                <button class="btn btn-emerald-hub w-100 rounded-pill fw-black btn-sm shadow-sm text-white mb-2" @onclick="() => ShowOrderConfirmation(vendor.Id)" disabled="@(vTotal < min)">PLACE @vendor.Name.ToUpper() ORDER (@vTotal.ToString("C"))</button>
+                                                @if (vendor != null)
+                                                {
+                                                    <button class="btn btn-emerald-hub w-100 rounded-pill fw-black btn-sm shadow-sm text-white mb-2" @onclick="() => ShowOrderConfirmation(vendor.Id)" disabled="@(vTotal < min)">PLACE @vendorName.ToUpper() ORDER (@vTotal.ToString("C"))</button>
+                                                }
+                                                else
+                                                {
+                                                    <div class="alert alert-warning p-2 rounded-3 extra-small mb-0 text-center fw-bold text-dark">
+                                                        Assign vendor in setup to order
+                                                    </div>
+                                                }
                                             </div>
                                         }
                                     }
@@ -473,8 +507,11 @@
 
                                 @if (_cart.Any(v => v.Value > 0))
                                 {
-                                    var canOrderAll = _vendors.Where(v => _items.Any(i => i.VendorId == v.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0))
-                                                              .All(v => _items.Where(i => i.VendorId == v.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0).Sum(i => i.CurrentPrice * _cart[i.Id]) >= GetVendorMin(v));
+                                    var canOrderAll = cartItems.GroupBy(x => x.Item!.VendorId)
+                                                              .All(g => {
+                                                                  var v = _vendors.FirstOrDefault(vd => vd.Id == g.Key);
+                                                                  return g.Sum(x => x.Item!.CurrentPrice * x.Qty) >= GetVendorMin(v);
+                                                              });
 
                                     <div class="border-top pt-4">
                                         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -488,13 +525,6 @@
                                                 <i class="bi bi-info-circle"></i> Some vendors haven't met their minimum order.
                                             </div>
                                         }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="text-center p-5 opacity-25">
-                                        <i class="bi bi-cart-x display-1 mb-3"></i>
-                                        <p class="small mb-0">Current order is empty</p>
                                     </div>
                                 }
                             </div>
@@ -2003,6 +2033,20 @@
         gap: 1.25rem;
     }
 
+    @@media (min-width: 768px) {
+        .mobile-app-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 1.5rem !important;
+        }
+    }
+
+    @@media (min-width: 1024px) {
+        .mobile-app-grid {
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 1.5rem !important;
+        }
+    }
+
     /* Landscape Tablet Optimization */
     @@media (orientation: landscape) and (max-height: 700px) {
         .mobile-app-grid {
@@ -2273,8 +2317,8 @@
         -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M9 1h-2v3.13a2.5 2.5 0 0 0-.5 1.37V15a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V5.5c0-.52-.18-1-.5-1.37V1zm-1 4.5c.28 0 .5.22.5.5v8c0 .28-.22.5-.5.5s-.5-.22-.5-.5V6c0-.28.22-.5.5-.5z'/%3E%3C/svg%3E") no-repeat center; 
     }
 
-    /* TABLET RESPONSIVE REFLOW FOR STOCK COUNT / INVENTORY CHECK */
-    @media (min-width: 768px) {
+    /* TABLET & DESKTOP RESPONSIVE REFLOW FOR STOCK COUNT / INVENTORY CHECK */
+    @@media (min-width: 600px) {
         .count-view .scroll-y-hub {
             display: grid !important;
             grid-template-columns: repeat(2, 1fr) !important;
@@ -2282,42 +2326,65 @@
             padding: 16px !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom {
+        .count-view .scroll-y-hub .count-item-card {
             flex-direction: column !important;
             background: white !important;
-            border-radius: 20px !important;
+            border-radius: 24px !important;
             border: 1px solid rgba(0,0,0,0.08) !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
-            min-height: auto !important;
+            min-height: 290px !important; /* Spacious height to prevent CSS Grid collapsing when nested flex grows are present */
+            height: auto !important;
             overflow: hidden !important;
-            transition: all 0.2s ease-in-out !important;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
+        .count-view .scroll-y-hub .count-item-card:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 12px 24px rgba(0,0,0,0.08) !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom .p-2.px-3.d-flex.align-items-center.gap-3.flex-grow-1 {
+        .count-view .scroll-y-hub .count-item-card .count-item-info {
             flex-direction: column !important;
             text-align: center !important;
-            padding: 20px !important;
+            padding: 24px 20px 16px 20px !important;
             border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+            flex-grow: 0 !important;
+            width: 100% !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom .stock-pill {
+        .count-view .scroll-y-hub .count-item-card .stock-pill {
             margin: 0 auto 12px auto !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom .d-flex.align-items-center.border-start.px-4 {
+        .count-view .scroll-y-hub .count-item-card .count-item-controls {
             border-left: none !important;
             padding: 16px !important;
             width: 100% !important;
             min-width: auto !important;
             justify-content: center !important;
+            flex-grow: 1 !important;
+            background-color: #fafbfc !important;
         }
 
-        .count-view .scroll-y-hub .d-flex.align-items-stretch.border-bottom .border-start.bg-light {
+        /* Responsive inner controls wrapping for narrow card sizes */
+        .count-view .scroll-y-hub .count-item-card .stock-chip {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            align-items: center !important;
+            gap: 12px !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+        }
+
+        .count-view .scroll-y-hub .count-item-card .stock-chip-divider {
+            display: none !important;
+        }
+
+        .count-view .scroll-y-hub .count-item-card .count-item-adjustment {
             border-left: none !important;
             border-top: 1px solid rgba(0,0,0,0.05) !important;
             padding: 12px !important;
@@ -2325,12 +2392,75 @@
             min-width: auto !important;
             display: flex !important;
             justify-content: center !important;
+            background-color: #f1f5f9 !important;
+            flex-grow: 0 !important;
         }
     }
 
-    @media (min-width: 1024px) {
+    @@media (min-width: 900px) {
         .count-view .scroll-y-hub {
             grid-template-columns: repeat(3, 1fr) !important;
+            gap: 20px !important;
+            padding: 20px !important;
+        }
+    }
+
+    @@media (min-width: 1300px) {
+        .count-view .scroll-y-hub {
+            grid-template-columns: repeat(4, 1fr) !important;
+        }
+    }
+
+    @@media (min-width: 1650px) {
+        .count-view .scroll-y-hub {
+            grid-template-columns: repeat(5, 1fr) !important;
+        }
+    }
+
+    /* TABLET & DESKTOP RESPONSIVE REFLOW FOR ORDERING TAB */
+    @@media (min-width: 900px) {
+        .ordering-view .scroll-y-hub .row {
+            --bs-gutter-x: 16px !important;
+            --bs-gutter-y: 16px !important;
+        }
+
+        .ordering-view .scroll-y-hub .order-item-card {
+            flex-direction: column !important;
+            text-align: center !important;
+            background: white !important;
+            border-radius: 24px !important;
+            border: 1px solid rgba(0,0,0,0.08) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+            padding: 20px !important;
+            min-height: 190px !important;
+            height: auto !important;
+            justify-content: space-between !important;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .ordering-view .scroll-y-hub .order-item-card:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.06) !important;
+        }
+
+        .ordering-view .scroll-y-hub .order-item-card .order-item-info {
+            flex-direction: column !important;
+            align-items: center !important;
+            width: 100% !important;
+            gap: 12px !important;
+        }
+
+        .ordering-view .scroll-y-hub .order-item-card .order-item-info .stock-pill {
+            margin: 0 auto !important;
+        }
+
+        .ordering-view .scroll-y-hub .order-item-card .order-item-controls {
+            margin-left: 0 !important;
+            margin-top: 16px !important;
+            width: 100% !important;
+            justify-content: center !important;
+            border-top: 1px solid rgba(0,0,0,0.05) !important;
+            padding-top: 12px !important;
         }
     }
 </style>
@@ -2439,7 +2569,7 @@
                          _currentUser.IsAdmin = dbUser.IsAdmin;
                      }
                      var permissions = UserService.GetUserPagePermissions(_currentUser.UserId);
-                     _userRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+                     _userRoutes = permissions.Select(p => p.PageRoute?.ToLower() ?? "").ToHashSet();
                  }
             }
             _settings = await SystemSettingsService.GetAsync();

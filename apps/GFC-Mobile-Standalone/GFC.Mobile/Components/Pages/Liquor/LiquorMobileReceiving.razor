@@ -1,0 +1,209 @@
+@page "/mobile/liquor/receiving"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject NavigationManager Navigation
+@inject ILiquorService LiquorService
+@attribute [Authorize]
+
+<PageTitle>Receive Order | Mobile</PageTitle>
+
+<div class="mobile-receiving-container">
+    <!-- HEADER -->
+    <header class="fixed-header bg-white shadow-sm px-4 py-3">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-icon-round bg-light border-0" @onclick='() => Navigation.NavigateTo("/mobile/liquor/hub")'>
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <div>
+                <h5 class="mb-0 fw-black text-uppercase">RECEIVE ORDER</h5>
+                <div class="extra-small text-muted fw-bold">Scan Delivery into stock</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="hub-scroll-area p-4" style="margin-top: 80px; padding-bottom: 120px;">
+        @if (_placedOrders == null)
+        {
+            <div class="p-5 text-center"><div class="spinner-border text-success"></div></div>
+        }
+        else if (!_placedOrders.Any())
+        {
+            <div class="empty-state p-5 text-center">
+                <i class="bi bi-truck-flatbed display-4 text-primary opacity-25"></i>
+                <h6 class="mt-3 fw-bold text-muted">No pending shipments</h6>
+                <p class="small text-muted">All active orders have been received.</p>
+            </div>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var order in _placedOrders)
+                {
+                    <div class="col-12">
+                        <div class="receive-card animate-entrance shadow-sm p-4 rounded-4 @(order.Status == "Placed" ? "border-primary" : "border-warning")">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="badge @(order.Status == "Placed" ? "bg-primary" : "bg-warning") text-white fw-bold">@order.Status</span>
+                                <span class="extra-small fw-bold text-muted">@order.OrderDate.ToString("MMM dd")</span>
+                            </div>
+                            <h5 class="fw-black mb-1">@order.Vendor?.Name</h5>
+                            <div class="extra-small text-muted mb-3">@order.OrderItems.Count items ordered</div>
+                            
+                            <div class="price-strip p-3 bg-light rounded-3 mb-3 d-flex justify-content-between align-items-center">
+                                <span class="text-muted small fw-bold">ESTIMATED COST:</span>
+                                <span class="h5 fw-black text-dark mb-0">@order.TotalCost.ToString("C")</span>
+                            </div>
+
+                            <button class="btn btn-success btn-lg w-100 fw-black rounded-pill shadow-sm py-3" 
+                                    @onclick="() => OpenReceive(order)">
+                                <i class="bi bi-check2-circle-fill me-2"></i> CONFIRM RECEIPT
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </main>
+
+    <!-- RECEIVING BOTTOM SHEET -->
+    @if (_orderToReceive != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="() => _orderToReceive = null"></div>
+        <div class="bottom-sheet">
+            <div class="sheet-handle"></div>
+            <div class="p-4">
+                <h5 class="fw-black text-success text-uppercase mb-1">Mark as Received</h5>
+                <div class="small text-muted mb-4">Vendor: @_orderToReceive.Vendor?.Name</div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                         <label class="extra-small fw-bold text-muted mb-1 text-uppercase">Invoice #</label>
+                         <input type="text" class="form-control form-control-lg fw-bold" @bind="_invoiceNumber" placeholder="Required" />
+                    </div>
+                    <div class="col-6">
+                         <label class="extra-small fw-bold text-muted mb-1 text-uppercase">Invoice Total</label>
+                         <div class="input-group input-group-lg">
+                             <span class="input-group-text bg-white border-0 fw-bold">$</span>
+                             <input type="number" class="form-control fw-bold text-center border-0 bg-light" onfocus="this.select();" @bind="_totalDue" step="0.01" />
+                         </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-light rounded-4 text-center mb-4">
+                    <div class="extra-small text-muted text-uppercase fw-bold mb-1">Expected Cost</div>
+                    <div class="h3 fw-black text-dark">@_orderToReceive.TotalCost.ToString("C")</div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg fw-black py-3 rounded-pill shadow" 
+                            @onclick="ConfirmReceipt" 
+                            disabled="@(string.IsNullOrWhiteSpace(_invoiceNumber) || _totalDue <= 0)">
+                        VERIFY DELIVERY & ADD TO STOCK
+                    </button>
+                    <button class="btn btn-light btn-lg fw-bold rounded-pill" @onclick="() => _orderToReceive = null">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .mobile-receiving-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: #fdfdfd;
+        overflow-y: auto;
+    }
+
+    .fixed-header {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 80px;
+        z-index: 1000;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+
+    .receive-card {
+        background: white;
+        border: 1px solid rgba(0,0,0,0.05);
+        border-top-width: 5px;
+    }
+
+    /* MODAL */
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 2000;
+        backdrop-filter: blur(2px);
+    }
+    .bottom-sheet {
+        position: fixed;
+        left: 10px; right: 10px; bottom: 10px;
+        background: white;
+        border-radius: 2rem;
+        z-index: 2001;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -20px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .sheet-handle {
+        width: 40px; height: 5px; background: #eee;
+        border-radius: 5px; margin: 15px auto;
+    }
+
+    @@keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+    
+    .animate-entrance {
+        animation: entrance 0.4s ease-out forwards;
+        opacity: 0;
+    }
+    @@keyframes entrance {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+@code {
+    private List<LiquorOrder>? _placedOrders;
+    private LiquorOrder? _orderToReceive;
+    private string _invoiceNumber = "";
+    private decimal _totalDue = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        var all = await LiquorService.GetAllOrdersAsync();
+        _placedOrders = all.Where(o => o.Status == "Placed" || o.Status == "Sent").ToList();
+    }
+
+    private void OpenReceive(LiquorOrder order)
+    {
+        _orderToReceive = order;
+        _invoiceNumber = "";
+        _totalDue = order.TotalCost;
+    }
+
+    private async Task ConfirmReceipt()
+    {
+        if (_orderToReceive == null) return;
+        
+        // Use default admin user ID 1 for mobile for now
+        await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", _invoiceNumber, 0, 0);
+        await LiquorService.ReceiveOrderAsync(_orderToReceive.Id, 1);
+        
+        _orderToReceive = null;
+        await LoadData();
+        Navigation.NavigateTo("/mobile/liquor/hub");
+    }
+}

@@ -118,4 +118,20 @@ public class MobileReportingController : ControllerBase
     {
         return await _reportingService.GetLotteryRateAsync(year);
     }
+
+    [HttpGet("settings")]
+    public async Task<ActionResult<SystemSettings>> GetSettings()
+    {
+        var settings = await _settingsService.GetAsync();
+        if (settings == null) return NotFound("System Settings not found");
+        return Ok(settings);
+    }
+
+    [HttpPost("settings")]
+    public async Task<IActionResult> UpdateSettings([FromBody] SystemSettings settings)
+    {
+        if (settings == null) return BadRequest("Settings data is required");
+        await _settingsService.UpdateAsync(settings);
+        return Ok();
+    }
 }
