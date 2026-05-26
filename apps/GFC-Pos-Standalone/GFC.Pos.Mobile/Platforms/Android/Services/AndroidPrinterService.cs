@@ -22,9 +22,8 @@ public class AndroidPrinterService : IPrinterService
 
     public async Task<bool> PrintReceiptAsync(string content)
     {
-        // For a real app, we'd use ESCPOS_NET here to build the byte array.
-        // For now, we use simple ASCII.
-        return await PrintRawDataAsync(Encoding.ASCII.GetBytes(content));
+        var plainText = HtmlToPlainTextConverter.Convert(content);
+        return await PrintRawDataAsync(Encoding.ASCII.GetBytes(plainText));
     }
 
     public async Task<bool> PrintRawDataAsync(byte[] data)

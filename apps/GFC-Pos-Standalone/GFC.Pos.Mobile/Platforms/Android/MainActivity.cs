@@ -5,7 +5,11 @@ using Android.Views;
 
 namespace GFC.Pos.Mobile;
 
-[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+[Activity(
+    Name = "com.gfc.pos.mobile.MainActivity",
+    Theme = "@style/Maui.SplashTheme", 
+    MainLauncher = false, 
+    ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 [IntentFilter(new[] { "android.hardware.usb.action.USB_DEVICE_ATTACHED" })]
 [MetaData("android.hardware.usb.action.USB_DEVICE_ATTACHED", Resource = "@xml/device_filter")]
 public class MainActivity : MauiAppCompatActivity
@@ -14,8 +18,16 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         
-        // Initial call
-        SetWindowLayout();
+        // Asynchronous delay to prevent race conditions during cold boot phase of OS/drivers
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(5000);
+            
+            Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() =>
+            {
+                SetWindowLayout();
+            });
+        });
     }
 
     public override void OnWindowFocusChanged(bool hasFocus)

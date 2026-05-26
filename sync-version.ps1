@@ -41,7 +41,8 @@ $posSWFiles = @(
 $posProps = Join-Path $basePath "apps/GFC-Pos-Standalone/PosVersion.props"
 $posVersionTxtFiles = @(
     (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/version.txt"),
-    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/version.txt")
+    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/version.txt"),
+    (Join-Path $basePath "apps/webapp/GFC.BlazorServer/wwwroot/version.txt")
 )
 
 function Write-Step ([string]$msg) { Write-Host "[WAIT] $msg" -ForegroundColor Cyan }
@@ -202,7 +203,8 @@ try {
 
         # version.txt (Primary Update Authority)
         foreach ($f in $posVersionTxtFiles) {
-            if (Test-Path $f) {
+            $parentDir = Split-Path $f -Parent
+            if (Test-Path $parentDir) {
                 Write-Step "Updating $(Split-Path $f -Parent | Split-Path -Leaf)/$(Split-Path $f -Leaf)..."
                 if ($DryRun) { Write-DryRun "Would set $f to $targetVersion" } 
                 else { Set-Content $f $targetVersion }

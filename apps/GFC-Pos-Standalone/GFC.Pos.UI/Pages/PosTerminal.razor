@@ -12,6 +12,7 @@
 @inject Blazored.Toast.Services.IToastService Toast
 @inject ConnectivityService Connectivity
 @inject IVersionService VersionService
+@inject IUpdateService UpdateService
 @inject IStationSettingsService StationSettings
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
@@ -1034,6 +1035,27 @@
             </div>
             <h1 class="display-1 fw-black text-uppercase letter-spacing-5 mb-0">WELCOME</h1>
             <h2 class="display-4 fw-bold opacity-50 text-uppercase">@_splashUserName</h2>
+        </div>
+    </div>
+}
+
+@if (_isDownloadingUpdate)
+{
+    <div class="login-splash-overlay animate__animated animate__fadeIn" style="z-index: 99999; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px);">
+        <div class="text-center text-white" style="max-width: 500px; padding: 2rem; margin: auto;">
+            <div class="mb-4">
+                <i class="bi bi-cloud-download-fill text-warning animate-bounce" style="font-size: 5rem; display: inline-block;"></i>
+            </div>
+            <h1 class="fw-black text-uppercase letter-spacing-2 mb-2" style="font-size: 2rem;">DOWNLOADING UPDATE</h1>
+            <p class="text-muted mb-4">Downloading GFC POS Standalone Revision v@_serverVersionFound. Please do not turn off the terminal.</p>
+            
+            <div class="progress rounded-pill mb-3" style="height: 1.5rem; background: rgba(255,255,255,0.1); overflow: hidden;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" 
+                     style="width: @((int)(_downloadProgress * 100))%; font-weight: bold; font-size: 1rem; line-height: 1.5rem; transition: width 0.1s ease;">
+                    @((int)(_downloadProgress * 100))%
+                </div>
+            </div>
+            <span class="text-muted fs-7">Preparing native system installer...</span>
         </div>
     </div>
 }
@@ -4352,6 +4374,8 @@
 
     private bool _showLoginSplash = false;
     private string _splashUserName = "";
+    private double _downloadProgress = -1;
+    private bool _isDownloadingUpdate = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -4554,23 +4578,23 @@
     {
         try
         {
-            var serverVersion = await PosService.GetServerVersionAsync();
-            _serverVersionFound = serverVersion;
+            var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
+            _serverVersionFound = UpdateService.ServerVersion;
             
-            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            if (isUpdateAvailable)
             {
                 // [LOOP-PROTECTION] Verify if we just tried to update to this specific version
                 var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
                 var lastAttemptTimeStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_time");
                 
-                if (lastAttemptVersion == serverVersion && !string.IsNullOrEmpty(lastAttemptTimeStr))
+                if (lastAttemptVersion == _serverVersionFound && !string.IsNullOrEmpty(lastAttemptTimeStr))
                 {
                     if (long.TryParse(lastAttemptTimeStr, out long lastTime))
                     {
                         var diffSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lastTime;
                         if (diffSeconds < 120) // 2 minute cooling period for the same version
                         {
-                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {serverVersion} was {diffSeconds}s ago.");
+                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {_serverVersionFound} was {diffSeconds}s ago.");
                             return;
                         }
                     }
@@ -4579,13 +4603,13 @@
                 if (string.IsNullOrEmpty(CurrentUserName))
                 {
                     // SAFE TO AUTO-UPDATE: No user is logged in
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Forcing cache-clear reload...");
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Forcing reload/installer...");
                     await TriggerNuclearReload();
                 }
                 else if (!_showUpdateBanner)
                 {
                     // USER IS ACTIVE: Show banner instead of reloading
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Showing update pill.");
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Showing update pill.");
                     _showUpdateBanner = true;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -4748,10 +4772,10 @@
         // [AUTO-UPDATE] Check for newer POS version before locking
         try
         {
-            var serverVersion = await PosService.GetServerVersionAsync();
-            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
+            if (isUpdateAvailable)
             {
-                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing cache-clear reload...");
+                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing reload/installer...");
                 await TriggerNuclearReload();
                 return;
             }
@@ -4774,6 +4798,29 @@
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_update_time", unixTime);
         }
         catch { }
+
+        if (UpdateService.IsAndroidPlatform)
+        {
+            _isDownloadingUpdate = true;
+            _downloadProgress = 0;
+            _showUpdateBanner = false;
+            await InvokeAsync(StateHasChanged);
+
+            bool success = await UpdateService.DownloadAndInstallUpdateAsync(async progress =>
+            {
+                _downloadProgress = progress;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            if (!success)
+            {
+                _isDownloadingUpdate = false;
+                _downloadProgress = -1;
+                Toast.ShowError("Android Native Update Installation Failed. Please try again.");
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
 
         await JSRuntime.InvokeVoidAsync("eval", @"
             const wipe = async () => {

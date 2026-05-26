@@ -422,14 +422,31 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         {
             var timestamp = DateTime.UtcNow.Ticks;
             
-            // [ROBUST-UPDATE] Fetch version.txt from the POS PWA static hosting origin rather than the API BaseAddress
-            string origin = "https://localhost:7157";
+            string origin = "https://gfc.lovanow.com";
             try
             {
                 var currentOrigin = await _js.InvokeAsync<string>("eval", "window.location.origin");
-                if (!string.IsNullOrEmpty(currentOrigin))
+                if (!string.IsNullOrEmpty(currentOrigin) && 
+                    !currentOrigin.Contains("localhost") && 
+                    !currentOrigin.Contains("0.0.0.0") && 
+                    !currentOrigin.StartsWith("app://"))
                 {
                     origin = currentOrigin;
+                }
+                else if (_http.BaseAddress != null)
+                {
+                    origin = _http.BaseAddress.ToString();
+                }
+            }
+            catch { }
+
+            // Try the live API first so we fetch instantly from the database (prevents needing to redeploy WebApp every time)
+            try
+            {
+                var apiResponse = await _http.GetStringAsync($"api/mobile-reporting/pos-version?t={timestamp}");
+                if (!string.IsNullOrEmpty(apiResponse))
+                {
+                    return apiResponse.Trim();
                 }
             }
             catch { }
@@ -447,9 +464,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 var content = await resp.Content.ReadAsStringAsync();
                 return content?.Trim() ?? "Offline";
             }
-            
-            // [BRIDGE-FALLBACK] If version.json is missing, check the old API
-            return await _http.GetStringAsync($"api/mobile-reporting/pos-version?t={timestamp}");
+            return "Offline";
         }
         catch { return "Offline"; }
     }
@@ -1562,6 +1577,37 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 IsEligible = false
             };
         }
+    }
+
+    public bool IsTransactionInProgress { get; set; } = false;
+
+    public async Task<VersionCheckResult?> CheckForUpdatesApiAsync()
+    {
+        try
+        {
+            if (IsTransactionInProgress)
+            {
+                Console.WriteLine("[UPDATE] Update check deferred: transaction in progress.");
+                return null;
+            }
+
+            if (!await _connectivity.GateAsync("VersionCheck"))
+            {
+                return null;
+            }
+
+            var timestamp = DateTime.UtcNow.Ticks;
+            var response = await _http.GetAsync($"api/update/version-check?t={timestamp}");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<VersionCheckResult>(_jsonOptions);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[UPDATE] Version check failed: {ex.Message}");
+        }
+        return null;
     }
 
     public void Dispose()

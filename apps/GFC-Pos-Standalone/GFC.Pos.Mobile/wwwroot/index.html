@@ -88,6 +88,47 @@
         window.gfcRemoveAsync = (key) => {
             gfcWorker.postMessage({ action: 'remove', key });
         };
+
+        window.gfcScrollToBottom = (id) => {
+            const el = document.getElementById(id);
+            if (el) el.scrollTop = el.scrollHeight;
+        };
+
+        // [CARD-SCANNER] Global High-Performance Listener
+        let cardBuffer = "";
+        let lastKeyTime = 0;
+        window.GfcCardScanner = {
+            initialize: (dotnetObj) => {
+                window.addEventListener('keydown', (e) => {
+                    const now = Date.now();
+                    if (cardBuffer.length > 0 && (now - lastKeyTime) > 250) {
+                        cardBuffer = ""; 
+                    }
+                    lastKeyTime = now;
+
+                    if (e.key === 'Enter') {
+                        if (cardBuffer.length >= 5) { 
+                            e.preventDefault();
+                            console.log("[SCANNER] Card Detected:", cardBuffer.length, "digits");
+                            dotnetObj.invokeMethodAsync('OnCardScanned', cardBuffer);
+                        }
+                        cardBuffer = "";
+                    } else if (e.key.length === 1 && /[0-9]/.test(e.key)) {
+                        cardBuffer += e.key;
+                    }
+                }, { passive: false });
+            }
+        };
+
+        // [IDLE-TRACKER] Global Activity Listener
+        window.GfcIdleTracker = {
+            initialize: (dotnetObj) => {
+                const reset = () => dotnetObj.invokeMethodAsync('ResetIdleTimer');
+                ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => 
+                    window.addEventListener(evt, reset, { passive: true })
+                );
+            }
+        };
     </script>
 
 </body>

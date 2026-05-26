@@ -37,8 +37,8 @@
         <ApplicationId>com.gfc.pos.mobile</ApplicationId>
 
         <!-- Versions -->
-        <ApplicationDisplayVersion>2.43.56</ApplicationDisplayVersion>
-        <ApplicationVersion>24356</ApplicationVersion>
+        <ApplicationDisplayVersion>2.43.75</ApplicationDisplayVersion>
+        <ApplicationVersion>24375</ApplicationVersion>
 
         <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
         <WindowsPackageType>None</WindowsPackageType>
@@ -48,6 +48,11 @@
         <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
         <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
         <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+
+        <!-- Disable Linker Trimming and AOT Compilation to prevent stripping native hardware-bridge assemblies -->
+        <PublishTrimmed>false</PublishTrimmed>
+        <AndroidEnableAot>false</AndroidEnableAot>
+        <RunAOTCompilation>false</RunAOTCompilation>
     </PropertyGroup>
 
     <ItemGroup>
@@ -79,5 +84,47 @@
       <ProjectReference Include="..\GFC.Pos.UI\GFC.Pos.UI.csproj" />
       <ProjectReference Include="..\..\webapp\GFC.Core\GFC.Core.csproj" />
     </ItemGroup>
+
+  <!-- Force Copy UI Assets with extreme cache-bypassing mechanisms -->
+  <Target Name="ForceCopySharedUiAssets" BeforeTargets="BeforeBuild;AssignMauiAssets">
+    <PropertyGroup>
+      <SourceUiRoot>$(MSBuildThisFileDirectory)..\GFC.Pos.UI\wwwroot</SourceUiRoot>
+      <TargetRawRoot>$(MSBuildThisFileDirectory)Resources\Raw\wwwroot</TargetRawRoot>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <SharedUiFiles Include="$(SourceUiRoot)\**\*.*" />
+    </ItemGroup>
+
+    <!-- 1. Ensure target directory exists -->
+    <MakeDir Directories="$(TargetRawRoot)" />
+    
+    <!-- 2. Execute Copy bypassing any intermediate cache -->
+    <Copy SourceFiles="@(SharedUiFiles)" 
+          DestinationFiles="@(SharedUiFiles->'$(TargetRawRoot)\%(RecursiveDir)%(Filename)%(Extension)')" 
+          SkipUnchangedFiles="false" 
+          OverwriteReadOnlyFiles="true"
+          UseHardlinksIfPossible="false" />
+          
+    <Message Importance="High" Text=">>> [GFC BUILD] Force sync of @(SharedUiFiles->Count()) files from $(SourceUiRoot) to $(TargetRawRoot) completed successfully." />
+  </Target>
+
+  <!-- 3. Diagnostic pipeline logging for real-time Visual Studio Output window audits -->
+  <Target Name="DiagnosticAssetPipeline" AfterTargets="ForceCopySharedUiAssets">
+    <ItemGroup>
+      <CopiedAssets Include="$(MSBuildThisFileDirectory)Resources\Raw\wwwroot\**\*.*" />
+    </ItemGroup>
+    <Message Importance="High" Text=">>> [GFC PIPELINE DIAGNOSTIC] SOURCE: $(MSBuildThisFileDirectory)..\GFC.Pos.UI\wwwroot\%(RecursiveDir)%(Filename)%(Extension) ===> DEST: %(CopiedAssets.Identity) [Timestamp: %(CopiedAssets.ModifiedTime)]" />
+  </Target>
+
+  <!-- 4. Inject Dynamic Timestamp Cache Buster into index.html to force Android WebView cache refresh -->
+  <Target Name="InjectCacheBusterIntoIndexHtml" AfterTargets="ForceCopySharedUiAssets">
+    <PropertyGroup>
+      <IndexHtmlPath>$(MSBuildThisFileDirectory)Resources\Raw\wwwroot\index.html</IndexHtmlPath>
+      <CurrentTimestamp>$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</CurrentTimestamp>
+    </PropertyGroup>
+    <Message Importance="High" Text=">>> [GFC BUILD] Injecting Cache Buster Version (?v=$(CurrentTimestamp)) into index.html..." />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)inject-cache-buster.ps1&quot; -indexHtmlPath &quot;$(IndexHtmlPath)&quot; -version &quot;$(CurrentTimestamp)&quot;" />
+  </Target>
 
 </Project>

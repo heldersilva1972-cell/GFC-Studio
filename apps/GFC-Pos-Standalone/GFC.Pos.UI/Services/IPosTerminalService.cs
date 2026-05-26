@@ -39,6 +39,16 @@ public interface IPosTerminalService
     Task<MemberDrawPoolDto?> GetMemberDrawPoolAsync();
     Task<MemberDrawStatusDto?> GetMemberDrawStatusAsync(int memberId);
     Task<List<LiquorItem>> GetLiquorInventoryAsync(bool force = false);
+    bool IsTransactionInProgress { get; set; }
+    Task<VersionCheckResult?> CheckForUpdatesApiAsync();
+}
+
+public class VersionCheckResult
+{
+    public string LatestVersion { get; set; } = string.Empty;
+    public bool IsMandatory { get; set; }
+    public string Sha256Hash { get; set; } = string.Empty;
+    public string DownloadUrl { get; set; } = string.Empty;
 }
 
 public class ShiftAuditDto

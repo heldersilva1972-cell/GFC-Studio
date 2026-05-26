@@ -491,7 +491,13 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
             Console.WriteLine($">>> [WARNING] Mobile Hub folder not found. Virtual path /mobile will not be served.");
         }
 
-        app.UseStaticFiles(); // Keep the default for other requests
+        // Register .apk mapping so ASP.NET Core middleware doesn't return 404 for updates
+        provider.Mappings[".apk"] = "application/vnd.android.package-archive";
+
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            ContentTypeProvider = provider
+        }); // Keep the default for other requests with updated provider mappings
         app.UseBlazorFrameworkFiles();
         app.UseRouting();
         

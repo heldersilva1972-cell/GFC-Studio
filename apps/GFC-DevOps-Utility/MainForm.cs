@@ -1193,6 +1193,30 @@ namespace GFCDevOpsUtility
 
             if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
 
+            // Bulletproof cache clearing to resolve shadowing/stale asset issues
+            LogPublish(">>> Cleaning up intermediate build caches (bin/obj) to prevent asset shadowing...", false, ColorWait);
+            try
+            {
+                string mobileDir = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile");
+                string uiDir = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.UI");
+                
+                foreach (var dir in new[] { mobileDir, uiDir })
+                {
+                    if (Directory.Exists(dir))
+                    {
+                        var binPath = Path.Combine(dir, "bin");
+                        var objPath = Path.Combine(dir, "obj");
+                        if (Directory.Exists(binPath)) Directory.Delete(binPath, true);
+                        if (Directory.Exists(objPath)) Directory.Delete(objPath, true);
+                        LogPublish($">>> Cleaned: {Path.GetFileName(dir)} bin/obj", false, ColorSuccess);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogPublish($">>> [Warning] Failed to clear intermediate build directories: {ex.Message}", false, ColorWarning);
+            }
+
             LogPublish(">>> Executing dotnet publish for Native Android project...", false, ColorWait);
             var mobileRunner = new ProcessRunner((line, err) => LogPublish(line, err));
             int mobileExit = await mobileRunner.RunAsync("dotnet", $"publish \"{mobileProjectPath}\" -f net10.0-android -c Release -o \"{mobileTempOut}\" /p:TreatWarningsAsErrors=false", workspace);
@@ -1200,6 +1224,24 @@ namespace GFCDevOpsUtility
             bool success = false;
             if (mobileExit == 0)
             {
+                // Inspect and print LastWriteTime of intermediate assets directly to log panel
+                string intermediateAssets = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "obj", "Release", "net10.0-android", "assets", "wwwroot");
+                if (Directory.Exists(intermediateAssets))
+                {
+                    LogPublish("\n>>> [GFC ASSETS INSPECTION] Listing intermediate assets build times:", false, ColorSuccess);
+                    foreach (var file in Directory.GetFiles(intermediateAssets, "*.*", SearchOption.AllDirectories))
+                    {
+                        var relativePath = file.Substring(intermediateAssets.Length).TrimStart('\\', '/');
+                        var writeTime = File.GetLastWriteTime(file);
+                        LogPublish($"  - {relativePath} | LastWriteTime: {writeTime:yyyy-MM-dd HH:mm:ss}", false, ColorTextMuted);
+                    }
+                    LogPublish(">>> [GFC ASSETS INSPECTION] Inspection complete.\n", false, ColorSuccess);
+                }
+                else
+                {
+                    LogPublish($"\n!!! Warning: Intermediate assets folder not found at: {intermediateAssets}\n", true);
+                }
+
                 LogPublish(">>> Locating generated APK installer file...", false, ColorWait);
                 string foundApk = null;
                 if (Directory.Exists(mobileTempOut))

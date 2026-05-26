@@ -7,26 +7,33 @@ namespace GFC.Pos.Mobile.Services;
 
 public class MauiPrinterService : IPrinterService
 {
-    private readonly IPrinterService _implementation;
+    private readonly IPrinterConfigService _configService;
+    private IPrinterService? _ethernetPrinter;
+    private IPrinterService? _localPrinter;
 
     public MauiPrinterService(IPrinterConfigService configService)
     {
-        if (configService.CurrentPrinterType == PrinterType.Ethernet)
+        _configService = configService;
+    }
+
+    private IPrinterService GetImplementation()
+    {
+        if (_configService.CurrentPrinterType == PrinterType.Ethernet)
         {
-            _implementation = new EthernetPrinterService(configService);
+            return _ethernetPrinter ??= new EthernetPrinterService(_configService);
         }
         else
         {
 #if ANDROID
-            _implementation = new AndroidPrinterService(configService);
+            return _localPrinter ??= new AndroidPrinterService(_configService);
 #else
-            _implementation = new DummyPrinterService();
+            return _localPrinter ??= new DummyPrinterService();
 #endif
         }
     }
 
-    public Task<bool> PrintReceiptAsync(string content) => _implementation.PrintReceiptAsync(content);
-    public Task<bool> PrintRawDataAsync(byte[] data) => _implementation.PrintRawDataAsync(data);
-    public Task<bool> KickDrawerAsync() => _implementation.KickDrawerAsync();
-    public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync() => _implementation.GetConnectedDevicesAsync();
+    public Task<bool> PrintReceiptAsync(string content) => GetImplementation().PrintReceiptAsync(content);
+    public Task<bool> PrintRawDataAsync(byte[] data) => GetImplementation().PrintRawDataAsync(data);
+    public Task<bool> KickDrawerAsync() => GetImplementation().KickDrawerAsync();
+    public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync() => GetImplementation().GetConnectedDevicesAsync();
 }

@@ -15,7 +15,8 @@ public class EthernetPrinterService : IPrinterService
 
     public async Task<bool> PrintReceiptAsync(string content)
     {
-        return await PrintRawDataAsync(Encoding.ASCII.GetBytes(content));
+        var plainText = HtmlToPlainTextConverter.Convert(content);
+        return await PrintRawDataAsync(Encoding.ASCII.GetBytes(plainText));
     }
 
     public async Task<bool> PrintRawDataAsync(byte[] data)

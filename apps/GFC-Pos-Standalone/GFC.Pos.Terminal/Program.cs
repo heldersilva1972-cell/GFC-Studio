@@ -51,5 +51,6 @@ builder.Services.AddSingleton<IVersionService, PosVersionService>();
 builder.Services.AddScoped<IStationSettingsService, WebStationSettingsService>();
 builder.Services.AddScoped<IPrinterConfigService, WebPrinterConfigService>();
 builder.Services.AddScoped<IPrinterService, WebPrinterService>();
+builder.Services.AddScoped<IUpdateService, FallbackUpdateService>();
 
 await builder.Build().RunAsync();

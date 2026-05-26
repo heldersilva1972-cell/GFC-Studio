@@ -29,7 +29,11 @@ namespace GFC.BlazorServer.Middleware
             "/pwa-icons",
             "/animationhub",
             "/studiopreviewhub",
-            "/videoaccesshub"
+            "/videoaccesshub",
+            "/version.txt",
+            "/version.json",
+            "/Download/GFC_POS_Mobile.apk",
+            "/Download/com.gfc.pos.mobile-Signed.apk"
         };
 
         public DeviceGuardMiddleware(RequestDelegate next)

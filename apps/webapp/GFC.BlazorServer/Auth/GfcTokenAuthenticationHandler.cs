@@ -4,6 +4,7 @@ using GFC.BlazorServer.Auth;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -17,14 +18,17 @@ namespace GFC.BlazorServer.Auth;
 public class GfcTokenAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     private readonly GFC.Core.Interfaces.IAuthenticationService _authenticationService;
+    private readonly IMemoryCache _cache;
 
     public GfcTokenAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        GFC.Core.Interfaces.IAuthenticationService authenticationService) : base(options, logger, encoder)
+        GFC.Core.Interfaces.IAuthenticationService authenticationService,
+        IMemoryCache cache) : base(options, logger, encoder)
     {
         _authenticationService = authenticationService;
+        _cache = cache;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -47,10 +51,18 @@ public class GfcTokenAuthenticationHandler : AuthenticationHandler<Authenticatio
 
         try 
         {
-            // 2. Validate token via the core authentication service
-            var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
+            // 2. Validate token via the core authentication service (with cache-aside)
+            var cacheKey = $"device_token_validation:{token}";
+            if (!_cache.TryGetValue(cacheKey, out GfcLoginResult result))
+            {
+                result = await _authenticationService.LoginWithDeviceTokenAsync(token);
+                if (result != null && result.Success && result.User != null)
+                {
+                    _cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
+                }
+            }
 
-            if (result.Success && result.User != null)
+            if (result != null && result.Success && result.User != null)
             {
                 // 3. Build claims identical to CustomAuthenticationStateProvider.BuildPrincipal
                 var claims = new List<Claim>
@@ -89,3 +101,4 @@ public class GfcTokenAuthenticationHandler : AuthenticationHandler<Authenticatio
         return AuthenticateResult.Fail("Invalid or expired token");
     }
 }
+

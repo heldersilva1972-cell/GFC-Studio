@@ -2,6 +2,13 @@ using Microsoft.JSInterop;
 
 namespace GFC.Pos.UI.Services;
 
+public enum CircuitState
+{
+    Closed,      // Normal operational state
+    Open,        // Network is broken, short-circuit immediately
+    HalfOpen     // Testing the link
+}
+
 /// <summary>
 /// Detects real-time online/offline state via browser events.
 /// Register as Singleton so all components share one instance.
@@ -17,9 +24,14 @@ public class ConnectivityService : IAsyncDisposable
     private bool _isHardwareOnline = true;
     private bool _isServerReachable = true;
 
+    private CircuitState _circuitState = CircuitState.Closed;
+    private DateTime _lastStateChange = DateTime.MinValue;
+    private readonly TimeSpan _openCooldown = TimeSpan.FromSeconds(30);
+
     public bool IsOnline => _isOnline;
     public bool IsHardwareOnline => _isHardwareOnline;
     public bool IsServerReachable => _isServerReachable;
+    public CircuitState CurrentCircuitState => _circuitState;
 
     public string EnvironmentName => _http.BaseAddress?.ToString().Contains("localhost") == true ? "LOCAL HOST" : "PRODUCTION";
 
@@ -79,20 +91,46 @@ public class ConnectivityService : IAsyncDisposable
 
     public async Task<bool> CheckServerReachableAsync()
     {
+        // 1. If Circuit is Open, check if the cool-down has expired to transition to Half-Open
+        if (_circuitState == CircuitState.Open)
+        {
+            if ((DateTime.Now - _lastStateChange) > _openCooldown)
+            {
+                Console.WriteLine("[CIRCUIT] Open cooldown expired. Transitioning to Half-Open state.");
+                _circuitState = CircuitState.HalfOpen;
+                _lastStateChange = DateTime.Now;
+            }
+            else
+            {
+                // Circuit is Open: Immediately return false locally without network query
+                _isServerReachable = false;
+                _isOnline = false;
+                return false;
+            }
+        }
+
         try
         {
-            // 1. Instant Hardware Check
+            // 2. Instant Hardware Check
             _isHardwareOnline = await _js.InvokeAsync<bool>("GfcConnectivity.isOnline");
             if (!_isHardwareOnline)
             {
                 _isServerReachable = false;
                 _isOnline = false;
                 _consecutiveFailures = MaxConsecutiveFailures; // Trigger offline immediately if hardware is cut
+                
+                // Immediately trip to Open state if hardware is cut
+                if (_circuitState != CircuitState.Open)
+                {
+                    Console.WriteLine("[CIRCUIT] Hardware connection cut! Tripping Circuit to Open.");
+                    _circuitState = CircuitState.Open;
+                    _lastStateChange = DateTime.Now;
+                }
                 return false;
             }
 
-            // 2. Real API Heartbeat (with Relaxed Timeout)
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            // 3. Real API Heartbeat (with Relaxed Timeout)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var timestamp = DateTime.Now.Ticks;
             var response = await _http.GetAsync($"api/Health?t={timestamp}", cts.Token);
             
@@ -101,27 +139,42 @@ public class ConnectivityService : IAsyncDisposable
                 _consecutiveFailures = 0;
                 _isServerReachable = true;
                 _isOnline = true;
+
+                // If it was Open or HalfOpen, close the circuit
+                if (_circuitState != CircuitState.Closed)
+                {
+                    Console.WriteLine("[CIRCUIT] Server reachable. Closing circuit.");
+                    _circuitState = CircuitState.Closed;
+                    _lastStateChange = DateTime.Now;
+                }
             }
             else
             {
-                _consecutiveFailures++;
-                if (_consecutiveFailures >= MaxConsecutiveFailures)
-                {
-                    _isServerReachable = false;
-                    _isOnline = false;
-                }
+                HandleFailure();
             }
             return _isOnline;
         }
         catch
         {
-            _consecutiveFailures++;
-            if (_consecutiveFailures >= MaxConsecutiveFailures)
-            {
-                _isServerReachable = false;
-                _isOnline = false;
-            }
+            HandleFailure();
             return false;
+        }
+    }
+
+    private void HandleFailure()
+    {
+        _consecutiveFailures++;
+        if (_consecutiveFailures >= MaxConsecutiveFailures)
+        {
+            _isServerReachable = false;
+            _isOnline = false;
+            
+            if (_circuitState != CircuitState.Open)
+            {
+                Console.WriteLine($"[CIRCUIT] Server unreachable after {_consecutiveFailures} consecutive failures. Tripping Circuit to Open.");
+                _circuitState = CircuitState.Open;
+                _lastStateChange = DateTime.Now;
+            }
         }
     }
 
