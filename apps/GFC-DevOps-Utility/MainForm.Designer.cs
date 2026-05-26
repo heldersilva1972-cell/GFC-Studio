@@ -19,6 +19,7 @@ namespace GFCDevOpsUtility
         {
             this.clbPublishApps = new System.Windows.Forms.CheckedListBox();
             this.clbDeployApps = new System.Windows.Forms.CheckedListBox();
+            this.lblAppDesc = new System.Windows.Forms.Label();
             this.pnlNavBar = new System.Windows.Forms.Panel();
             this.lblTitle = new System.Windows.Forms.Label();
             this.btnTabPublish = new System.Windows.Forms.Button();
@@ -233,6 +234,7 @@ namespace GFCDevOpsUtility
             this.grpPublishOptions.Controls.Add(this.lblPubApp);
             this.grpPublishOptions.Controls.Add(this.cmbPublishApp);
             this.grpPublishOptions.Controls.Add(this.clbPublishApps);
+            this.grpPublishOptions.Controls.Add(this.lblAppDesc);
             this.grpPublishOptions.Controls.Add(this.lblPubWorkspace);
             this.grpPublishOptions.Controls.Add(this.txtPubWorkspace);
             this.grpPublishOptions.Controls.Add(this.btnPubWorkspaceBrowse);
@@ -269,7 +271,7 @@ namespace GFCDevOpsUtility
             this.grpPipelineStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpPipelineStatus.Location = new System.Drawing.Point(935, 5);
             this.grpPipelineStatus.Name = "grpPipelineStatus";
-            this.grpPipelineStatus.Size = new System.Drawing.Size(280, 160);
+            this.grpPipelineStatus.Size = new System.Drawing.Size(340, 160);
             this.grpPipelineStatus.TabIndex = 12;
             this.grpPipelineStatus.TabStop = false;
             this.grpPipelineStatus.Text = "Publish Progress Indicators";
@@ -374,6 +376,7 @@ namespace GFCDevOpsUtility
             // 
             // clbPublishApps
             // 
+            this.clbPublishApps.CheckOnClick = true;
             this.clbPublishApps.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.clbPublishApps.FormattingEnabled = true;
             this.clbPublishApps.Location = new System.Drawing.Point(20, 50);
@@ -382,6 +385,15 @@ namespace GFCDevOpsUtility
             this.clbPublishApps.TabIndex = 1;
             this.clbPublishApps.SelectedIndexChanged += new System.EventHandler(this.ClbPublishApps_SelectedIndexChanged);
             this.clbPublishApps.ItemCheck += new System.Windows.Forms.ItemCheckEventHandler(this.ClbPublishApps_ItemCheck);
+            // 
+            // lblAppDesc
+            // 
+            this.lblAppDesc.Font = new System.Drawing.Font("Segoe UI Italic", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblAppDesc.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
+            this.lblAppDesc.Location = new System.Drawing.Point(20, 125);
+            this.lblAppDesc.Name = "lblAppDesc";
+            this.lblAppDesc.Size = new System.Drawing.Size(260, 30);
+            this.lblAppDesc.Text = "Click/hover an item to see its purpose.";
             // 
             // chkApkMobile
             // 
@@ -489,7 +501,7 @@ namespace GFCDevOpsUtility
             this.rtbBuildOutput.Name = "rtbBuildOutput";
             this.rtbBuildOutput.ReadOnly = true;
             this.rtbBuildOutput.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.rtbBuildOutput.Size = new System.Drawing.Size(1240, 145);
+            this.rtbBuildOutput.Size = new System.Drawing.Size(1300, 145);
             this.rtbBuildOutput.TabIndex = 9;
             this.rtbBuildOutput.Text = "";
             // 
@@ -587,7 +599,7 @@ namespace GFCDevOpsUtility
             this.grpDeployStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpDeployStatus.Location = new System.Drawing.Point(935, 5);
             this.grpDeployStatus.Name = "grpDeployStatus";
-            this.grpDeployStatus.Size = new System.Drawing.Size(280, 260);
+            this.grpDeployStatus.Size = new System.Drawing.Size(340, 260);
             this.grpDeployStatus.TabIndex = 13;
             this.grpDeployStatus.TabStop = false;
             this.grpDeployStatus.Text = "Deployment Progress Indicators";
@@ -661,6 +673,7 @@ namespace GFCDevOpsUtility
             // 
             // clbDeployApps
             // 
+            this.clbDeployApps.CheckOnClick = true;
             this.clbDeployApps.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.clbDeployApps.FormattingEnabled = true;
             this.clbDeployApps.Location = new System.Drawing.Point(150, 22);
@@ -1151,12 +1164,12 @@ namespace GFCDevOpsUtility
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
-            this.ClientSize = new System.Drawing.Size(1260, 700);
+            this.ClientSize = new System.Drawing.Size(1320, 700);
             this.Controls.Add(this.pnlMainContainer);
             this.Controls.Add(this.pnlLogs);
             this.Controls.Add(this.pnlStatusStrip);
             this.Controls.Add(this.pnlNavBar);
-            this.MinimumSize = new System.Drawing.Size(1275, 740);
+            this.MinimumSize = new System.Drawing.Size(1335, 740);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "GFC Studio DevOps Utility";
@@ -1264,6 +1277,7 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Label lblDepApkDist;
         private System.Windows.Forms.TextBox txtDepApkDist;
         private System.Windows.Forms.Button btnDepApkDistBrowse;
+        private System.Windows.Forms.Label lblAppDesc;
         private System.Windows.Forms.CheckBox chkPubMobileApk;
         private System.Windows.Forms.CheckBox chkApkMobile;
         private System.Windows.Forms.CheckBox chkApkPos;

@@ -26,4 +26,8 @@ public class ActiveEvent : BaseEntity
     public decimal CurrentBalance { get; set; }
 
     public EventTabStatus Status { get; set; } = EventTabStatus.Open;
+
+    public string? BeerTalliesJson { get; set; }
+
+    public bool EnableBeerTally { get; set; }
 }

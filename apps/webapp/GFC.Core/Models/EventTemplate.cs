@@ -15,4 +15,6 @@ public class EventTemplate : BaseEntity
     public EventTabType DefaultType { get; set; } = EventTabType.RunningTab;
 
     public string? ItemsOverrideJson { get; set; }
+
+    public bool EnableBeerTally { get; set; }
 }

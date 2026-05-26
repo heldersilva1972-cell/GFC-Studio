@@ -386,6 +386,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<GFC.Pos.UI.Services.IStationSettingsService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockStationSettingsService>();
         builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterService>();
         builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterConfigService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterConfigService>();
+        builder.Services.AddScoped<GFC.Pos.UI.Services.IUpdateService, GFC.Pos.UI.Services.UpdateServiceMock>();
         
         // Controller Client Wiring
         // Register the endpoint resolver that uses AgentApiOptions

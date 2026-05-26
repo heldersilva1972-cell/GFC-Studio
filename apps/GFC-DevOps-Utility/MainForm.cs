@@ -129,9 +129,9 @@ namespace GFCDevOpsUtility
 
             // None checked by default as requested
 
-            // Highlight first item
-            if (clbPublishApps.Items.Count > 0) clbPublishApps.SelectedIndex = 0;
-            if (clbDeployApps.Items.Count > 0) clbDeployApps.SelectedIndex = 0;
+            // No default highlighting on load
+            if (clbPublishApps.Items.Count > 0) clbPublishApps.SelectedIndex = -1;
+            if (clbDeployApps.Items.Count > 0) clbDeployApps.SelectedIndex = -1;
 
             // Wire text changes programmatically for detail updating
             txtPubOutput.TextChanged += TxtPubOutput_TextChanged;
@@ -595,9 +595,32 @@ namespace GFCDevOpsUtility
         #region CheckedListBox Master-Detail & Tabs Sync
         private void ClbPublishApps_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (_isUpdatingUi || clbPublishApps.SelectedIndex < 0) return;
+            if (_isUpdatingUi) return;
+
+            if (clbPublishApps.SelectedIndex < 0)
+            {
+                lblAppDesc.Text = "Click/hover an item to see its purpose.";
+                return;
+            }
 
             var selectedAppName = clbPublishApps.SelectedItem?.ToString();
+            if (selectedAppName == "Mobile")
+            {
+                lblAppDesc.Text = "Mobile: Publishes the Android / handheld client application package.";
+            }
+            else if (selectedAppName == "POS")
+            {
+                lblAppDesc.Text = "POS: Publishes the raw TCP-capable Point of Sale terminal.";
+            }
+            else if (selectedAppName == "WebApp")
+            {
+                lblAppDesc.Text = "WebApp: Publishes the Blazor Server administration web portal.";
+            }
+            else
+            {
+                lblAppDesc.Text = "Click/hover an item to see its purpose.";
+            }
+
             var appConfig = _config.AppPipelines.Find(a => a.AppName == selectedAppName);
             if (appConfig != null)
             {
@@ -949,6 +972,18 @@ namespace GFCDevOpsUtility
                     }
                 }
             }
+
+            // Clear checked items and selection on completion
+            _isSyncingChecks = true;
+            for (int i = 0; i < clbPublishApps.Items.Count; i++)
+            {
+                clbPublishApps.SetItemChecked(i, false);
+                clbDeployApps.SetItemChecked(i, false);
+            }
+            clbPublishApps.SelectedIndex = -1;
+            clbDeployApps.SelectedIndex = -1;
+            if (lblAppDesc != null) lblAppDesc.Text = "Click/hover an item to see its purpose.";
+            _isSyncingChecks = false;
 
             SetBusy(false, failures.Count == 0 ? "Ready" : "Error: Build Failed!");
 

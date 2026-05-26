@@ -266,6 +266,35 @@ public class PosApiController : ControllerBase
         }
     }
 
+    [HttpPost("events/update-tally")]
+    public async Task<IActionResult> UpdateEventTally([FromBody] UpdateEventTallyRequest? request)
+    {
+        if (request == null) return BadRequest("Missing request body");
+
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var ev = await db.ActiveEvents.FindAsync(request.Id);
+            if (ev == null) return NotFound($"Event with ID {request.Id} not found");
+
+            ev.BeerTalliesJson = request.BeerTalliesJson;
+            ev.InitialAmount = request.InitialAmount;
+            ev.CurrentBalance = request.CurrentBalance;
+            if (request.CloseEvent)
+            {
+                ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+            }
+
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update tally for event {Id}", request?.Id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("events/close/{id}")]
     public async Task<IActionResult> CloseEvent(int id)
     {

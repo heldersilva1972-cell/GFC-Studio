@@ -14,6 +14,7 @@
 @inject IToastService Toast
 @inject ConnectivityService Connectivity
 @inject IVersionService VersionService
+@inject IUpdateService UpdateService
 @inject IStationSettingsService StationSettings
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
@@ -21,29 +22,26 @@
 @inject HttpClient Http
 @implements IDisposable
 @attribute [Authorize]
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900;1000&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/pos-terminal.css" />
-<link rel="stylesheet" href="css/pos-terminal-print.css" />
 <style>
-    /* Constrain the administrative simulator to exactly the 15" x 8" (15:8 = 1.875) physical aspect ratio */
+    /* Sleek physical slate bezel layout for the administrator simulator */
     .pos-container {
-        width: 100vw !important;
-        height: 53.33vw !important; /* 8 / 15 = 53.33% aspect ratio */
-        max-height: 100vh !important;
-        max-width: 187.5vh !important; /* 15 / 8 = 1.875 aspect ratio */
-        position: fixed !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        background: #0f172a !important;
-        color: #f8fafc !important;
-        display: flex !important;
-        flex-direction: column !important;
-        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65) !important;
-        overflow: hidden !important;
-        border: 4px solid #1e293b !important;
-        border-radius: 8px !important;
+        width: 100vw;
+        height: 53.33vw; /* 8 / 15 = 53.33% aspect ratio */
+        max-height: 100vh;
+        max-width: 187.5vh; /* 15 / 8 = 1.875 ratio */
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #0f172a;
+        color: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
+        overflow: hidden;
+        border: 12px solid #1e293b;
+        border-radius: 16px;
     }
     /* DARTS CLUB ROUND SIDEBAR STYLE REVISIONS */
     .pos-cart.darts-mode-active {
@@ -1063,6 +1061,27 @@
     </div>
 }
 
+@if (_isDownloadingUpdate)
+{
+    <div class="login-splash-overlay animate__animated animate__fadeIn" style="z-index: 99999; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px);">
+        <div class="text-center text-white" style="max-width: 500px; padding: 2rem; margin: auto;">
+            <div class="mb-4">
+                <i class="bi bi-cloud-download-fill text-warning animate-bounce" style="font-size: 5rem; display: inline-block;"></i>
+            </div>
+            <h1 class="fw-black text-uppercase letter-spacing-2 mb-2" style="font-size: 2rem;">DOWNLOADING UPDATE</h1>
+            <p class="text-muted mb-4">Downloading GFC POS Standalone Revision v@_serverVersionFound. Please do not turn off the terminal.</p>
+            
+            <div class="progress rounded-pill mb-3" style="height: 1.5rem; background: rgba(255,255,255,0.1); overflow: hidden;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" 
+                     style="width: @((int)(_downloadProgress * 100))%; font-weight: bold; font-size: 1rem; line-height: 1.5rem; transition: width 0.1s ease;">
+                    @((int)(_downloadProgress * 100))%
+                </div>
+            </div>
+            <span class="text-muted fs-7">Preparing native system installer...</span>
+        </div>
+    </div>
+}
+
 
 
 @if (!string.IsNullOrEmpty(CurrentUserName))
@@ -1178,12 +1197,6 @@
                     <i class="bi bi-pencil-square ms-2 opacity-75"></i>
                 </div>
             }
-            <button class="btn btn-danger rounded-pill fw-bold shadow-sm d-flex align-items-center gap-2 me-2" 
-                    style="background: #dc2626 !important; color: white !important; border: none !important; transition: all 0.2s !important; height: 38px !important; padding-left: 12px !important; padding-right: 12px !important; font-size: 0.7rem !important;" 
-                    @onclick='() => Navigation.NavigateTo("/")' 
-                    title="Exit POS Simulator">
-                <i class="bi bi-box-arrow-left"></i> EXIT
-            </button>
             <button class="btn btn-options rounded-pill fw-bold shadow-sm d-flex align-items-center gap-2 me-2" @onclick="() => showOptionsMenu = true">
                 <i class="bi bi-ui-checks-grid"></i> OPTIONS
             </button>
@@ -1259,10 +1272,42 @@
                     overflow-y: auto;
                     padding: 1.75rem 2rem;
                 }
-                .options-grid-full {
+                .options-sections-container {
                     display: grid;
                     grid-template-columns: repeat(3, 1fr);
-                    gap: 18px;
+                    gap: 24px;
+                    height: 100%;
+                }
+                .options-section {
+                    background: white;
+                    border-radius: 24px;
+                    padding: 1.5rem;
+                    box-shadow: 0 6px 24px rgba(15, 23, 42, 0.04);
+                    border: 1px solid #e2e8f0;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .options-section-header {
+                    font-size: 0.85rem;
+                    font-weight: 900;
+                    letter-spacing: 1.5px;
+                    color: #475569;
+                    margin-bottom: 1.25rem;
+                    text-transform: uppercase;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    border-bottom: 2px solid #f1f5f9;
+                    padding-bottom: 0.85rem;
+                }
+                .options-section-header i {
+                    font-size: 1.25rem;
+                }
+                .options-section-grid {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    flex: 1;
                 }
 
                 .option-tile-large {
@@ -1301,15 +1346,15 @@
                 }
 
                 .option-tile-medium {
-                    border-radius: 20px;
-                    padding: 1.25rem;
+                    border-radius: 16px;
+                    padding: 1rem 1.25rem;
                     text-align: left;
                     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
                     border: 1px solid transparent;
                     display: flex;
                     flex-direction: column;
                     justify-content: space-between;
-                    min-height: 140px;
+                    min-height: 100px;
                     box-shadow: 0 4px 10px rgba(0,0,0,0.02);
                 }
                 .option-tile-medium:hover {
@@ -1462,176 +1507,179 @@
                     <h2 class="fw-black mb-0 text-dark" style="letter-spacing: -1px; font-size: 1.5rem;">POS OPTIONS</h2>
                     <div class="text-muted small fw-bold mt-1">Select an administrative task or tool below</div>
                 </div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-outline-danger rounded-pill fw-bold px-4 py-2 d-flex align-items-center gap-2" @onclick='() => Navigation.NavigateTo("/")'>
-                        <i class="bi bi-box-arrow-left"></i> EXIT SIMULATION
-                    </button>
-                    <button class="btn btn-outline-secondary rounded-pill fw-bold px-4 py-2 d-flex align-items-center gap-2" @onclick="() => showOptionsMenu = false">
-                        <i class="bi bi-x-lg"></i> CLOSE
-                    </button>
-                </div>
+                <button class="btn btn-outline-secondary rounded-pill fw-bold px-4 py-2 d-flex align-items-center gap-2" @onclick="() => showOptionsMenu = false">
+                    <i class="bi bi-x-lg"></i> CLOSE
+                </button>
             </div>
 
             <!-- Scrollable tile grid body -->
             <div class="pos-options-body">
-                <div class="options-grid-full">
-                    <!-- OPERATIONS: MANAGE EVENTS -->
-                    <button class="option-tile-medium tile-events border" @onclick="OpenManageBanquets">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-calendar-event"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">MANAGE EVENTS</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Start, fund, or close event tabs</div>
-                        </div>
-                    </button>
-
-                    <!-- Medium tiles in a 2x2 grid -->
+                <div class="options-sections-container">
                     
-                    <!-- OPERATIONS: DRAWER PAYOUT -->
-                    <button class="option-tile-medium tile-payout border" @onclick="OpenPayoutWorkflow">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-wallet2"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                    <!-- COLUMN 1: CASH & SHIFT CONTROLS -->
+                    <div class="options-section">
+                        <div class="options-section-header">
+                            <i class="bi bi-cash-coin text-warning"></i> CASH &amp; SHIFT CONTROLS
                         </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">DRAWER PAYOUT</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Record cash removal (Pizza, Supplies)</div>
-                        </div>
-                    </button>
+                        <div class="options-section-grid">
+                            <!-- OPERATIONS: DRAWER PAYOUT -->
+                            <button class="option-tile-medium tile-payout border" @onclick="OpenPayoutWorkflow">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-wallet2"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">DRAWER PAYOUT</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Record cash removal (Pizza, Supplies)</div>
+                                </div>
+                            </button>
 
-                    <!-- REPORTS: PRINT X-REPORT -->
-                    <button class="option-tile-medium tile-xreport border" @onclick="PrintXReport">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-file-earmark-bar-graph-fill"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">PRINT X-REPORT</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print mid-day shift totals (No closeout)</div>
-                        </div>
-                    </button>
+                            <!-- REPORTS: PRINT X-REPORT -->
+                            <button class="option-tile-medium tile-xreport border" @onclick="PrintXReport">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-file-earmark-bar-graph-fill"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">PRINT X-REPORT</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print mid-day shift totals (No closeout)</div>
+                                </div>
+                            </button>
 
-                    <!-- REPORTS: REPRINT Z-REPORT -->
-                    <button class="option-tile-medium tile-zreport border" @onclick="ReprintLastZReport">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-printer-fill"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                            <!-- REPORTS: REPRINT Z-REPORT -->
+                            <button class="option-tile-medium tile-zreport border" @onclick="ReprintLastZReport">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-printer-fill"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT Z-REPORT</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Reprint the most recent closeout</div>
+                                </div>
+                            </button>
                         </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT Z-REPORT</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Reprint the most recent closeout</div>
-                        </div>
-                    </button>
+                    </div>
 
-                    <!-- REPORTS: REPRINT EVENT RECEIPT -->
-                    <button class="option-tile-medium tile-eventreceipt border" @onclick="ReprintLastEventReceipt">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-receipt-cutoff"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                    <!-- COLUMN 2: EVENTS & MEMBERS -->
+                    <div class="options-section">
+                        <div class="options-section-header">
+                            <i class="bi bi-people-fill text-primary"></i> EVENTS &amp; MEMBERS
                         </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT EVENT REPORT</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print receipt for the last active event</div>
-                        </div>
-                    </button>
+                        <div class="options-section-grid">
+                            <!-- OPERATIONS: MANAGE EVENTS -->
+                            <button class="option-tile-medium tile-events border" @onclick="OpenManageBanquets">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-calendar-event"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">MANAGE EVENTS</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Start, fund, or close event tabs</div>
+                                </div>
+                            </button>
 
-                    <!-- SUPPLIER ORDERS: RECEIVE ORDERS -->
-                    <button class="option-tile-medium tile-liquorreceive border" @onclick="OpenLiquorOrdersWorkflow">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-truck"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">RECEIVE ORDERS</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Reconcile and stock supplier deliveries</div>
-                        </div>
-                    </button>
+                            <!-- REPORTS: REPRINT EVENT RECEIPT -->
+                            <button class="option-tile-medium tile-eventreceipt border" @onclick="ReprintLastEventReceipt">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-receipt-cutoff"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">REPRINT EVENT REPORT</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print receipt for the last active event</div>
+                                </div>
+                            </button>
 
-                    <!-- MEMBER SIGN-IN DRAW -->
-                    <button class="option-tile-medium tile-draw border" @onclick="OpenDrawPortal">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-trophy"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">SIGN-IN DRAW</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Verify member dues or run member drawing</div>
-                        </div>
-                    </button>
+                            <!-- MEMBER SIGN-IN DRAW -->
+                            <button class="option-tile-medium tile-draw border" @onclick="OpenDrawPortal">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-trophy"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">SIGN-IN DRAW</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Verify member dues or run member drawing</div>
+                                </div>
+                            </button>
 
-                    <!-- INVENTORY: PRINT LIQUOR INVENTORY -->
-                    <button class="option-tile-medium tile-liquorinventory border" @onclick="PrintLiquorInventory">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-clipboard2-data-fill"></i>
-                            </div>
-                            <i class="bi bi-printer-fill fs-4 opacity-50"></i>
+                            <!-- DARTS CLUB OVERRIDE -->
+                            <button class="option-tile-medium tile-darts border" @onclick="ToggleDartsNightQuick">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-bullseye"></i>
+                                    </div>
+                                    <span class="badge rounded-pill @(IsDartsPillVisible ? "bg-success" : "bg-secondary")" style="font-size: 0.65rem; padding: 4px 8px;">
+                                        @(IsDartsPillVisible ? "ENABLED" : "DISABLED")
+                                    </span>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">DARTS NIGHT</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">
+                                        @if (IsDartsPillVisible)
+                                        {
+                                            <span class="text-success fw-bold">Active Today</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Click to enable Darts round</span>
+                                        }
+                                    </div>
+                                </div>
+                            </button>
                         </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">PRINT INVENTORY</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print full liquor &amp; beer stock list</div>
-                        </div>
-                    </button>
+                    </div>
 
-                    <!-- DARTS CLUB OVERRIDE -->
-                    <button class="option-tile-medium tile-darts border" @onclick="ToggleDartsNightQuick">
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm">
-                                <i class="bi bi-bullseye"></i>
+                    <!-- COLUMN 3: INVENTORY & LOGISTICS -->
+                    <div class="options-section">
+                        <div class="options-section-header">
+                            <i class="bi bi-box-seam-fill text-success"></i> INVENTORY &amp; LOGISTICS
+                        </div>
+                        <div class="options-section-grid">
+                            <!-- SUPPLIER ORDERS: RECEIVE ORDERS -->
+                            <button class="option-tile-medium tile-liquorreceive border" @onclick="OpenLiquorOrdersWorkflow">
+                                <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                    <div class="tile-icon-box shadow-sm">
+                                        <i class="bi bi-truck"></i>
+                                    </div>
+                                    <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">RECEIVE ORDERS</h5>
+                                    <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Receive and stock supplier deliveries</div>
+                                </div>
+                            </button>
+
+                                <!-- INVENTORY: PRINT LIQUOR INVENTORY -->
+                                <button class="option-tile-medium tile-liquorinventory border" @onclick="PrintLiquorInventory">
+                                    <div class="d-flex justify-content-between align-items-start w-100 mb-3">
+                                        <div class="tile-icon-box shadow-sm">
+                                            <i class="bi bi-clipboard2-data-fill"></i>
+                                        </div>
+                                        <i class="bi bi-printer-fill fs-4 opacity-50"></i>
+                                    </div>
+                                    <div>
+                                        <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">PRINT INVENTORY</h5>
+                                        <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Print full liquor &amp; beer stock list</div>
+                                    </div>
+                                </button>
                             </div>
-                            <span class="badge rounded-pill @(IsDartsPillVisible ? "bg-success" : "bg-secondary")" style="font-size: 0.65rem; padding: 4px 8px;">
-                                @(IsDartsPillVisible ? "ENABLED" : "DISABLED")
-                            </span>
                         </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">DARTS NIGHT</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">
-                                @if (IsDartsPillVisible)
-                                {
-                                    <span class="text-success fw-bold">Active Today</span>
-                                }
-                                else
-                                {
-                                    <span>Click to enable Darts round</span>
-                                }
-                            </div>
-                        </div>
-                    </button>
-                    
-                    <!-- EXIT SIMULATION TILE -->
-                    <button class="option-tile-medium border" 
-                            style="background: #fee2e2; border-color: #fecaca; color: #991b1b !important;" 
-                            @onclick='() => Navigation.NavigateTo("/")'>
-                        <div class="d-flex justify-content-between align-items-start w-100 mb-3">
-                            <div class="tile-icon-box shadow-sm" style="background: #dc2626; color: white;">
-                                <i class="bi bi-box-arrow-left"></i>
-                            </div>
-                            <i class="bi bi-arrow-right-short fs-4 opacity-50"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-black mb-1" style="font-size: 1rem; letter-spacing: -0.3px;">EXIT SIMULATION</h5>
-                            <div class="small opacity-80 fw-normal" style="font-size: 0.75rem; line-height: 1.3;">Return to GFC Admin Dashboard</div>
-                        </div>
-                    </button>
+
+                    </div>
                 </div>
             </div>
-        </div>
     }
 
     @if (showPayoutModal)
@@ -2934,17 +2982,17 @@
             }
             else if (DbActiveEvents != null && DbActiveEvents.Any())
             {
-                <div class="active-event-banner d-flex align-items-center justify-content-between p-3 mb-4 rounded-4 shadow-sm border border-warning" style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border-width: 2px !important; border-color: #f59e0b !important;">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="d-flex align-items-center justify-content-center bg-warning text-dark rounded-circle" style="width: 48px; height: 48px; min-width: 48px;">
-                            <i class="bi bi-calendar-check-fill fs-4 text-dark"></i>
-                        </div>
-                        <div>
-                            @{
-                                var ev = DbActiveEvents.First();
-                                var isBanquetPrePaid = ev.Type == GFC.Core.Enums.EventTabType.PrePaid;
-                                var isSelected = _selectedActiveEvent?.Id == ev.Id;
-                                
+                var ev = DbActiveEvents.First();
+                var isBanquetPrePaid = ev.Type == GFC.Core.Enums.EventTabType.PrePaid;
+                var isSelected = _selectedActiveEvent?.Id == ev.Id;
+                
+                <div class="active-event-banner d-flex flex-column p-3 mb-4 rounded-4 shadow-sm border border-warning animate__animated animate__fadeIn" style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border-width: 2px !important; border-color: #f59e0b !important;">
+                    <div class="d-flex justify-content-between align-items-center w-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="d-flex align-items-center justify-content-center bg-warning text-dark rounded-circle" style="width: 48px; height: 48px; min-width: 48px;">
+                                <i class="bi bi-calendar-check-fill fs-4 text-dark"></i>
+                            </div>
+                            <div>
                                 <h5 class="fw-black m-0 text-dark" style="letter-spacing: -0.5px; font-size: 1.1rem;">EVENT: @GetEventDisplayName(ev.Name).ToUpper()</h5>
                                 <div class="d-flex align-items-center gap-3 mt-1">
                                     <p class="small text-muted fw-bold mb-0">@(isBanquetPrePaid ? "PREPAID" : "RUNNING TAB")</p>
@@ -2965,56 +3013,115 @@
                                         </span>
                                     }
                                 </div>
-                            }
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div class="d-flex align-items-center gap-2">
-                        @{
-                            var ev2 = DbActiveEvents.First();
-                            var isSelected2 = _selectedActiveEvent?.Id == ev2.Id;
-                            var isBanquetPrePaid2 = ev2.Type == GFC.Core.Enums.EventTabType.PrePaid;
-                            
-                            @if (isBanquetPrePaid2)
+                        
+                        <div class="d-flex align-items-center gap-2">
+                            @if (ev.EnableBeerTally)
                             {
-                                <button type="button" class="btn btn-success rounded-pill fw-black transition-all me-1"
+                                <button type="button" class="btn btn-primary rounded-pill fw-black transition-all"
+                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                               background: #2563eb !important; color: white !important; border: 2px solid #2563eb !important;
+                                               box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;"
+                                        @onclick='() => StartInlineTallyEdit(ev, "remove")'>
+                                    <i class="bi bi-plus-circle me-1"></i> REMOVE BEERS
+                                </button>
+                                <button type="button" class="btn btn-warning rounded-pill fw-black text-dark transition-all ms-1"
+                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                               background: #d97706 !important; border: 2px solid #d97706 !important;
+                                               box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2) !important;"
+                                        @onclick='() => StartInlineTallyEdit(ev, "return")' disabled="@(!HasRemovedBeers(ev))">
+                                    <i class="bi bi-arrow-left-right me-1"></i> RETURN BEERS
+                                </button>
+                                <button type="button" class="btn btn-success rounded-pill fw-black transition-all ms-1"
                                         style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
                                                background: #16a34a !important; color: white !important; border: 2px solid #16a34a !important;
                                                box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2) !important;"
-                                        @onclick="() => OpenAddFunds(ev2)">
-                                    <i class="bi bi-cash-coin me-1"></i> ADD FUNDS
+                                        @onclick='() => StartInlineTallyEdit(ev, "settle")'>
+                                    <i class="bi bi-cash-stack me-1"></i> SETTLE BALANCE
                                 </button>
                             }
-
-                            @if (!IsEventDirect(ev2))
+                            else
                             {
-                                <button type="button" class="btn rounded-pill fw-black transition-all"
-                                    style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
-                                           background: @(isSelected2 ? "#10b981" : "white") !important;
-                                           color: @(isSelected2 ? "white" : "#334155") !important;
-                                           border: 2px solid @(isSelected2 ? "#10b981" : "#94a3b8") !important;
-                                           box-shadow: @(isSelected2 ? "0 4px 12px rgba(16, 185, 129, 0.2)" : "none") !important;"
-                                      @onclick="async () => await SetOrderMode(isSelected2 ? null : ev2)">
-                                    @if (isSelected2)
+                                @if (isBanquetPrePaid)
+                                {
+                                    <button type="button" class="btn btn-success rounded-pill fw-black transition-all me-1"
+                                            style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                                   background: #16a34a !important; color: white !important; border: 2px solid #16a34a !important;
+                                                   box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2) !important;"
+                                            @onclick="() => OpenAddFunds(ev)">
+                                        <i class="bi bi-cash-coin me-1"></i> ADD FUNDS
+                                    </button>
+                                }
+
+                                @if (!IsEventDirect(ev))
+                                {
+                                    <button type="button" class="btn rounded-pill fw-black transition-all"
+                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                               background: @(isSelected ? "#10b981" : "white") !important;
+                                               color: @(isSelected ? "white" : "#334155") !important;
+                                               border: 2px solid @(isSelected ? "#10b981" : "#94a3b8") !important;
+                                               box-shadow: @(isSelected ? "0 4px 12px rgba(16, 185, 129, 0.2)" : "none") !important;"
+                                          @onclick="async () => await SetOrderMode(isSelected ? null : ev)">
+                                        @if (isSelected)
+                                        {
+                                            <i class="bi bi-check-circle-fill me-1"></i> @("BANQUET SALES ACTIVE")
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
+                                        }
+                                    </button>
+                                }
+                                
+                                <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-2"
+                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                               background: #ef4444 !important; color: white !important; border: 2px solid #ef4444 !important;
+                                               box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2) !important;"
+                                        @onclick="() => CloseBanquet(ev)">
+                                    <i class="bi bi-x-circle-fill me-1"></i> CLOSE EVENT
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (ev.EnableBeerTally)
+                    {
+                        <!-- Inline Beer Display on POS Banner -->
+                        <div class="mt-2 pt-2 border-top border-warning border-opacity-25 w-100">
+                            <div class="row align-items-center">
+                                <div class="col-8">
+                                    @{
+                                        var tallies = GetActiveEventTallies(ev);
+                                    }
+                                    @if (!tallies.Any(t => t.QuantityTaken > 0))
                                     {
-                                        <i class="bi bi-check-circle-fill me-1"></i> @("BANQUET SALES ACTIVE")
+                                        <span class="small text-muted"><i class="bi bi-info-circle me-1"></i> No beers removed yet. Tap "REMOVE BEERS" to register taken stock.</span>
                                     }
                                     else
                                     {
-                                        <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @foreach (var t in tallies.Where(t => t.QuantityTaken > 0))
+                                            {
+                                                <span class="badge bg-white text-dark border px-2 py-1.5 rounded-pill shadow-sm" style="font-size: 0.8rem;">
+                                                    <span class="fw-bold text-primary me-1">@t.QuantityTaken x</span>
+                                                    <span class="fw-bold">@t.Name</span>
+                                                    @if (t.QuantityReturned > 0)
+                                                    {
+                                                        <span class="text-success ms-1">(@t.QuantityReturned returned)</span>
+                                                    }
+                                                </span>
+                                            }
+                                        </div>
                                     }
-                                </button>
-                            }
-                            
-                            <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-2"
-                                    style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
-                                           background: #ef4444 !important; color: white !important; border: 2px solid #ef4444 !important;
-                                           box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2) !important;"
-                                    @onclick="() => CloseBanquet(ev2)">
-                                <i class="bi bi-x-circle-fill me-1"></i> CLOSE EVENT
-                            </button>
-                        }
-                    </div>
+                                </div>
+                                <div class="col-4 text-end">
+                                    <span class="small text-muted fw-bold me-2">REMOVED: <span class="fw-black text-dark">@CalculateRemovedValue(ev).ToString("C")</span></span>
+                                    <span class="small text-muted fw-bold">CONSUMED: <span class="fw-black text-primary">@CalculateConsumedValue(ev).ToString("C")</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
             }
 
@@ -3721,7 +3828,7 @@
     </div>
 }
 
-@if (showLiquorOrdersModal)
+@if (showLiquorOrdersModal && !string.IsNullOrEmpty(CurrentUserName))
 {
     <div class="shift-overlay" style="z-index: 10000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
         <div class="liquor-receive-card animate__animated animate__zoomIn bg-white shadow-lg border p-4 rounded-4" style="width: 1000px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
@@ -3733,7 +3840,7 @@
                         <i class="bi bi-truck fs-4"></i>
                     </span>
                     <div>
-                        <h3 class="fw-black m-0" style="letter-spacing: -0.5px;">RECONCILE SUPPLIER DELIVERY</h3>
+                        <h3 class="fw-black m-0" style="letter-spacing: -0.5px;">RECEIVE SUPPLIER DELIVERIES</h3>
                         <p class="text-muted m-0 small">Mark incoming Liquor Hub shipments as received and update local stocks</p>
                     </div>
                 </div>
@@ -3753,7 +3860,7 @@
 
             <!-- Modal Content -->
             <div class="row g-4 flex-grow-1 overflow-hidden" style="min-height: 0;">
-                <!-- LEFT COLUMN: Shipments list OR Order item reconciliation -->
+                <!-- LEFT COLUMN: Shipments list OR Order item receiving -->
                 <div class="col-7 d-flex flex-column h-100 overflow-hidden">
                     @if (_isFetchingLiquorOrders)
                     {
@@ -3769,7 +3876,7 @@
                         {
                             <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 bg-light rounded-4 border border-dashed p-5 text-center">
                                 <i class="bi bi-check-circle-fill text-success fs-1 mb-3"></i>
-                                <h5 class="fw-bold m-0">All Deliveries Reconciled</h5>
+                                <h5 class="fw-bold m-0">All Deliveries Received</h5>
                                 <p class="text-muted small m-0 mt-1">There are no outstanding Liquor Hub orders to receive at this time.</p>
                             </div>
                         }
@@ -3815,7 +3922,7 @@
                                 <span class="fw-black text-dark fs-5">@(_selectedLiquorOrder.Vendor?.Name ?? "Supplier") Order #@_selectedLiquorOrder.Id</span>
                             </div>
                             <div class="text-muted small">
-                                Reconciling @(_selectedLiquorOrder.OrderItems?.Count ?? 0) item@(_selectedLiquorOrder.OrderItems?.Count == 1 ? "" : "s")
+                                Receiving @(_selectedLiquorOrder.OrderItems?.Count ?? 0) item@(_selectedLiquorOrder.OrderItems?.Count == 1 ? "" : "s")
                             </div>
                         </div>
 
@@ -3871,7 +3978,7 @@
                             <div class="rounded-circle bg-light d-flex align-items-center justify-content-center mb-4" style="width: 120px; height: 120px;">
                                 <i class="bi bi-receipt-cutoff text-muted" style="font-size: 3.5rem;"></i>
                             </div>
-                            <h4 class="fw-black text-dark">Supplier Reconciliation</h4>
+                            <h4 class="fw-black text-dark">Supplier Receiving</h4>
                             <p class="text-muted px-4" style="max-width: 320px;">Select a pending delivery from the list on the left to verify item counts, invoice numbers, and finalize stock receiving.</p>
                         </div>
                     }
@@ -3972,14 +4079,508 @@
     </div>
 }
 
-@* OFFLINE PRINT ZONE REMOVED (Now using C# Generator) *@
+@if (inlineTallyEvent != null)
+
+{
+    <div class="shift-overlay" style="z-index: 999999;">
+        <div class="settings-card shadow-lg" style="max-width: 1120px !important; width: 98% !important; background: #ffffff; border-radius: 24px; padding: 1.5rem 2rem; border: 1px solid #e2e8f0;">
+
+            
+            @if (inlineTallyMode == "remove")
+            {
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+                    <h3 class="fw-black mb-0 text-primary text-uppercase" style="color: #1d4ed8 !important;"><i class="bi bi-plus-circle me-2"></i>Remove Beers (Send to Event)</h3>
+                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" @onclick="CloseInlineTallyModal">CANCEL</button>
+                </div>
+                
+                <div class="mb-4">
+                    <div class="alert alert-info rounded-3 small py-2 mb-3" style="background-color: #eff6ff; border-color: #bfdbfe; color: #1e3a8a;">
+                        Select the quantity of each beer taken out for the event. The price can be overridden for this event.
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white rounded-4 border overflow-hidden" style="max-height: 70vh; overflow-y: auto;">
+                        <table class="table align-middle mb-0">
+                            <thead class="table-light" style="background-color: #f8fafc;">
+                                <tr>
+                                    <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Beer Type</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 120px;">Event Price ($)</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 180px;">Qty Removed (Taken Out)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!currentTallies.Any())
+                                {
+                                    <tr>
+                                        <td colspan="3" class="text-center py-5 text-muted">
+                                            <i class="bi bi-inboxes fs-3 mb-2 d-block opacity-50"></i>
+                                            No beers configured for this event.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var t in currentTallies)
+                                    {
+                                        <tr>
+                                            <td class="py-3 px-4 fw-bold text-dark">
+                                                <span class="fs-5">@t.Name</span>
+                                            </td>
+                                            <td class="py-3 px-3 text-center">
+                                                <input type="number" step="0.01" class="form-control text-center fw-bold rounded border-2 py-2" @bind="t.Price" style="max-width: 120px; margin: 0 auto; border-color: #cbd5e1;" />
+                                            </td>
+                                            <td class="py-3 px-3">
+                                                <div class="d-flex align-items-center justify-content-center" style="max-width: 160px; margin: 0 auto;">
+                                                    <button class="btn btn-outline-secondary border-2 px-3" type="button" style="border-radius: 50px 0 0 50px; height: 46px; border-color: #cbd5e1;" @onclick="() => t.QuantityTaken = Math.Max(0, t.QuantityTaken - 1)">
+                                                        <i class="bi bi-dash-lg"></i>
+                                                    </button>
+                                                    <input type="number" class="form-control text-center fw-bold border-2" style="height: 46px; border-left: 0; border-right: 0; border-radius: 0; min-width: 60px; border-color: #cbd5e1;" @bind="t.QuantityTaken" min="0" />
+                                                    <button class="btn btn-outline-secondary border-2 px-3" type="button" style="border-radius: 0 50px 50px 0; height: 46px; border-color: #cbd5e1;" @onclick="() => t.QuantityTaken++">
+                                                        <i class="bi bi-plus-lg"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <button type="button" class="settings-footer-btn btn-close-out-yes w-100 shadow-sm mt-3" style="background-color: #2563eb; color: white;" @onclick="() => SaveInlineTally(false)">
+                    <i class="bi bi-check-circle-fill me-2"></i> SAVE REMOVED BEERS
+                </button>
+            }
+
+            @if (inlineTallyMode == "return")
+            {
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+                    <h3 class="fw-black mb-0 text-warning text-uppercase" style="color: #d97706 !important;"><i class="bi bi-arrow-left-right me-2"></i>Return Unsold Beers</h3>
+                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" @onclick="CloseInlineTallyModal">CANCEL</button>
+                </div>
+                
+                <div class="mb-4">
+                    <div class="alert alert-warning rounded-3 small py-2 mb-3" style="background-color: #fffbeb; border-color: #fde68a; color: #78350f;">
+                        Select how many unsold beers were returned. Returned beers are excluded from the final sales calculation.
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white rounded-4 border overflow-hidden" style="max-height: 70vh; overflow-y: auto;">
+                        <table class="table align-middle mb-0">
+                            <thead class="table-light" style="background-color: #f8fafc;">
+                                <tr>
+                                    <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Beer Type</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 120px;">Qty Removed</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 180px;">Qty Returned</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Consumed</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var t in currentTallies.Where(t => t.QuantityTaken > 0))
+                                {
+                                    <tr>
+                                        <td class="py-3 px-4 fw-bold text-dark fs-5">@t.Name</td>
+                                        <td class="py-3 px-3 text-center fw-bold fs-5">@t.QuantityTaken</td>
+                                        <td class="py-3 px-3">
+                                            <div class="d-flex align-items-center justify-content-center" style="max-width: 160px; margin: 0 auto;">
+                                                <button class="btn btn-outline-secondary border-2 px-3" type="button" style="border-radius: 50px 0 0 50px; height: 46px; border-color: #cbd5e1;" @onclick="() => t.QuantityReturned = Math.Max(0, t.QuantityReturned - 1)">
+                                                    <i class="bi bi-dash-lg"></i>
+                                                </button>
+                                                <input type="number" class="form-control text-center fw-bold border-2 @(t.QuantityReturned > t.QuantityTaken ? "border-danger text-danger" : "")" style="height: 46px; border-left: 0; border-right: 0; border-radius: 0; min-width: 60px; border-color: #cbd5e1;" @bind="t.QuantityReturned" min="0" />
+                                                <button class="btn btn-outline-secondary border-2 px-3" type="button" style="border-radius: 0 50px 50px 0; height: 46px; border-color: #cbd5e1;" @onclick="() => t.QuantityReturned = Math.Min(t.QuantityTaken, t.QuantityReturned + 1)">
+                                                    <i class="bi bi-plus-lg"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 text-center">
+                                            <span class="badge @(t.Consumed > 0 ? "bg-success" : "bg-light text-muted") rounded-pill px-3 py-2 fw-bold fs-6" style="background-color: @(t.Consumed > 0 ? "#10b981" : "#f1f5f9") !important; color: @(t.Consumed > 0 ? "white" : "#475569") !important;">
+                                                @t.Consumed
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <button type="button" class="settings-footer-btn btn-close-out-yes w-100 shadow-sm mt-3" style="background-color: #d97706; color: white;" @onclick="() => SaveInlineTally(false)">
+                    <i class="bi bi-check-circle-fill me-2"></i> SAVE RETURNED BEERS
+                </button>
+            }
+
+            @if (inlineTallyMode == "settle")
+            {
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+                    <h3 class="fw-black mb-0 text-success text-uppercase" style="color: #16a34a !important;"><i class="bi bi-cash-stack me-2"></i>Settle Event Cash Drawer Balance</h3>
+                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" @onclick="CloseInlineTallyModal">CANCEL</button>
+                </div>
+                
+                <div class="mb-4" style="max-height: 75vh; overflow-y: auto;">
+                    
+                    <!-- Preloaded Cash Input -->
+                    <div class="bg-white p-3 rounded-4 border mb-4" style="border-color: #cbd5e1 !important; background-color: #f8fafc !important;">
+                        <div class="row align-items-center">
+                            <div class="col-7">
+                                <h6 class="fw-bold mb-1 text-dark" style="font-size: 1.05rem;"><i class="bi bi-cash-coin me-2 text-success" style="color: #16a34a !important;"></i>Preloaded Drawer Cash</h6>
+                                <p class="text-muted small mb-0">Specify preloaded cash deposited/placed in the drawer for this event.</p>
+                            </div>
+                            <div class="col-5">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-2" style="border-color: #cbd5e1; font-weight: bold; color: #475569;">$</span>
+                                    <input type="number" step="0.01" class="form-control form-control-lg fw-bold border-2 py-2" @bind="inlineTallyEvent.InitialAmount" placeholder="0.00" style="border-color: #cbd5e1; font-size: 1.3rem;" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Consumed Beers Summary -->
+                    <div class="bg-white rounded-4 border overflow-hidden mb-4" style="border-color: #cbd5e1 !important;">
+                        <div class="card-header border-0 py-3 px-4" style="background-color: #f1f5f9; border-bottom: 1.5px solid #e2e8f0 !important;">
+                            <h6 class="fw-black text-dark mb-0" style="font-size: 1rem;"><i class="bi bi-calculator me-1"></i> Sales Calculator</h6>
+                        </div>
+                        <table class="table align-middle mb-0">
+                            <thead class="table-light" style="background-color: #f8fafc;">
+                                <tr>
+                                    <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Beer Type</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 100px;">Price</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Removed</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Returned</th>
+                                    <th class="py-3 px-3 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Consumed</th>
+                                    <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-end" style="width: 130px;">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var t in currentTallies.Where(t => t.QuantityTaken > 0))
+                                {
+                                    <tr>
+                                        <td class="py-3 px-4 fw-bold text-dark fs-5">@t.Name</td>
+                                        <td class="py-3 px-3 text-center fs-5">@t.Price.ToString("C")</td>
+                                        <td class="py-3 px-3 text-center fs-5">@t.QuantityTaken</td>
+                                        <td class="py-3 px-3 text-center fs-5">@t.QuantityReturned</td>
+                                        <td class="py-3 px-3 text-center">
+                                            <span class="badge @(t.Consumed > 0 ? "bg-success" : "bg-light text-muted") rounded-pill px-3 py-2 fw-bold fs-6" style="background-color: @(t.Consumed > 0 ? "#10b981" : "#f1f5f9") !important; color: @(t.Consumed > 0 ? "white" : "#475569") !important;">
+                                                @t.Consumed
+                                            </span>
+                                        </td>
+                                        <td class="py-3 px-4 text-end fw-black text-dark fs-5">@t.Subtotal.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Calculations summary -->
+                    <div class="bg-white rounded-4 border p-4 shadow-sm mb-3" style="border-color: #cbd5e1 !important;">
+                        <h6 class="fw-bold mb-3 text-uppercase text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">Drawer Settlement Summary</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="p-3 border rounded-4 h-100" style="background-color: #f8fafc; border-color: #cbd5e1 !important;">
+                                    <div class="small text-muted mb-1 fw-bold">Total Beers Consumed</div>
+                                    <h4 class="fw-black text-dark mb-1">@currentTallies.Sum(t => t.Consumed) units</h4>
+                                    <div class="fs-4 fw-black text-primary">@currentTallies.Sum(t => t.Subtotal).ToString("C")</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 border rounded-4 h-100" style="background-color: #f8fafc; border-color: #cbd5e1 !important;">
+                                    <div class="small text-muted mb-1 fw-bold">Preloaded Drawer Cash</div>
+                                    <h3 class="fw-black text-dark mb-0" style="margin-top: 8px;">@inlineTallyEvent.InitialAmount.ToString("C")</h3>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                @{
+                                    decimal consumedSum = currentTallies.Sum(t => t.Subtotal);
+                                    decimal netOwed = consumedSum - inlineTallyEvent.InitialAmount;
+                                }
+                                <div class="p-3 border rounded-4 h-100 @(netOwed < 0 ? "border-success" : "border-warning")" style="background-color: @(netOwed < 0 ? "#f0fdf4" : "#fffbeb"); border-width: 2px !important;">
+                                    <div class="small fw-bold mb-1" style="color: @(netOwed < 0 ? "#166534" : "#9a3412") !important;">
+                                        @(netOwed < 0 ? "Refund Due" : "Extra Cash Owed")
+                                    </div>
+                                    <h3 class="fw-black mb-1" style="color: @(netOwed < 0 ? "#15803d" : "#b45309") !important;">
+                                        @Math.Abs(netOwed).ToString("C")
+                                    </h3>
+                                    <span class="small" style="font-size: 0.8rem; color: @(netOwed < 0 ? "#166534" : "#9a3412") !important;">
+                                        @(netOwed < 0 ? "Return excess cash from drawer" : "Collect extra cash to drawer")
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div class="d-flex gap-3 mt-3">
+                    <button type="button" class="btn btn-outline-primary rounded-pill py-3 fw-black flex-grow-1" @onclick="() => SaveInlineTally(false)" style="border-color: #2563eb; color: #2563eb; font-weight: 800;">
+                        <i class="bi bi-save me-1"></i> SAVE PROGRESS
+                    </button>
+                    <button type="button" class="settings-footer-btn btn-close-out-yes flex-grow-2" style="background-color: #16a34a; margin: 0; color: white;" @onclick="() => SaveInlineTally(true)">
+                        <i class="bi bi-check-circle-fill me-2"></i> SETTLE & CLOSE EVENT
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+
 
 @code {
-    private string CurrentUserName = "SIM-OPERATOR";
+    // ─── EVENT BEER INVENTORY TALLY DASHBOARD STATE ───
+    private ActiveEvent? inlineTallyEvent;
+    private string? inlineTallyMode;
+    private List<BeerTallyItem> currentTallies = new();
+    private int selectedBeerIdToAdd;
+
+    public class BeerTallyItem
+    {
+        public int ItemId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public decimal Price { get; set; }
+        public int QuantityTaken { get; set; }
+        public int QuantityReturned { get; set; }
+        public int Consumed => Math.Max(0, QuantityTaken - QuantityReturned);
+        public decimal Subtotal => Consumed * Price;
+    }
+
+    private List<BeerTallyItem> GetActiveEventTallies(ActiveEvent ae)
+    {
+        if (string.IsNullOrEmpty(ae.BeerTalliesJson)) return new List<BeerTallyItem>();
+        try
+        {
+            return global::System.Text.Json.JsonSerializer.Deserialize<List<BeerTallyItem>>(
+                ae.BeerTalliesJson,
+                new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+            ) ?? new();
+        }
+        catch
+        {
+            return new List<BeerTallyItem>();
+        }
+    }
+
+    private bool HasRemovedBeers(ActiveEvent ae)
+    {
+        var tallies = GetActiveEventTallies(ae);
+        return tallies.Any(t => t.QuantityTaken > 0);
+    }
+
+    private decimal CalculateRemovedValue(ActiveEvent ae)
+    {
+        var tallies = GetActiveEventTallies(ae);
+        return tallies.Sum(t => t.QuantityTaken * t.Price);
+    }
+
+    private decimal CalculateConsumedValue(ActiveEvent ae)
+    {
+        var tallies = GetActiveEventTallies(ae);
+        return tallies.Sum(t => t.Consumed * t.Price);
+    }
+
+    private void StartInlineTallyEdit(ActiveEvent ae, string mode)
+    {
+        inlineTallyEvent = ae;
+        inlineTallyMode = mode;
+        currentTallies = new List<BeerTallyItem>();
+        selectedBeerIdToAdd = 0;
+
+        // Load existing tallies if any
+        if (!string.IsNullOrEmpty(ae.BeerTalliesJson))
+        {
+            try
+            {
+                currentTallies = global::System.Text.Json.JsonSerializer.Deserialize<List<BeerTallyItem>>(
+                    ae.BeerTalliesJson, 
+                    new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                ) ?? new();
+            }
+            catch (Exception)
+            {
+                currentTallies = new();
+            }
+        }
+
+        // Always ensure ALL active beer items from DB are included
+        if (DbItems != null)
+        {
+            var templateOverrides = new List<BanquetOverrideDto>();
+            if (ae.Template != null && !string.IsNullOrEmpty(ae.Template.ItemsOverrideJson))
+            {
+                try
+                {
+                    templateOverrides = global::System.Text.Json.JsonSerializer.Deserialize<List<BanquetOverrideDto>>(
+                        ae.Template.ItemsOverrideJson,
+                        new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                    ) ?? new();
+                }
+                catch (Exception) { }
+            }
+
+            foreach (var item in DbItems.Where(i => i.Category.Trim().ToUpper() == "BEER"))
+            {
+                var existing = currentTallies.FirstOrDefault(t => t.ItemId == item.Id);
+                if (existing == null)
+                {
+                    var ov = templateOverrides.FirstOrDefault(o => o.ItemId == item.Id && o.IsVisible);
+                    decimal price = ov != null ? ov.OverridePrice : item.Price;
+
+                    currentTallies.Add(new BeerTallyItem
+                    {
+                        ItemId = item.Id,
+                        Name = item.Name,
+                        Price = price,
+                        QuantityTaken = 0,
+                        QuantityReturned = 0
+                    });
+                }
+                else
+                {
+                    // Update price in case template overrides changed
+                    var ov = templateOverrides.FirstOrDefault(o => o.ItemId == item.Id && o.IsVisible);
+                    if (ov != null)
+                    {
+                        existing.Price = ov.OverridePrice;
+                    }
+                }
+            }
+        }
+    }
+
+    private void CloseInlineTallyModal()
+    {
+        inlineTallyEvent = null;
+        inlineTallyMode = null;
+        currentTallies = new List<BeerTallyItem>();
+    }
+
+    private void AddBeerToTallySheet()
+    {
+        if (selectedBeerIdToAdd == 0 || DbItems == null) return;
+
+        var liquorItem = DbItems.FirstOrDefault(i => i.Id == selectedBeerIdToAdd);
+        if (liquorItem != null)
+        {
+            if (!currentTallies.Any(t => t.ItemId == liquorItem.Id))
+            {
+                currentTallies.Add(new BeerTallyItem
+                {
+                    ItemId = liquorItem.Id,
+                    Name = liquorItem.Name,
+                    Price = liquorItem.Price,
+                    QuantityTaken = 0,
+                    QuantityReturned = 0
+                });
+            }
+        }
+        selectedBeerIdToAdd = 0; // reset
+    }
+
+    private void RemoveBeerFromTallySheet(BeerTallyItem t)
+    {
+        currentTallies.Remove(t);
+    }
+
+    private async Task SaveInlineTally(bool closeEvent)
+    {
+        if (inlineTallyEvent == null) return;
+
+        // Perform sanity check: Returned cannot exceed Taken
+        foreach (var t in currentTallies)
+        {
+            if (t.QuantityReturned > t.QuantityTaken)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"For {t.Name}, quantity returned ({t.QuantityReturned}) cannot exceed quantity taken ({t.QuantityTaken}).");
+                return;
+            }
+        }
+
+        try
+        {
+            var evId = inlineTallyEvent.Id;
+            var localEvent = DbActiveEvents.FirstOrDefault(e => e.Id == evId);
+            
+            var talliesJson = global::System.Text.Json.JsonSerializer.Serialize(currentTallies);
+            decimal totalConsumedCost = currentTallies.Sum(t => t.Subtotal);
+            decimal newBalance = 0;
+            
+            if (inlineTallyEvent.Type == GFC.Core.Enums.EventTabType.PrePaid)
+            {
+                newBalance = inlineTallyEvent.InitialAmount - totalConsumedCost;
+            }
+            else
+            {
+                newBalance = -totalConsumedCost;
+            }
+
+            if (localEvent != null)
+            {
+                localEvent.BeerTalliesJson = talliesJson;
+                localEvent.InitialAmount = inlineTallyEvent.InitialAmount;
+                localEvent.CurrentBalance = newBalance;
+                
+                if (closeEvent)
+                {
+                    localEvent.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                    DbActiveEvents.Remove(localEvent);
+                }
+            }
+
+            // Sync menu to vault
+            if (_cachedMenu != null)
+            {
+                _cachedMenu.ActiveEvents = DbActiveEvents;
+                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+            }
+
+            // Prepare HTTP Request
+            var request = new UpdateEventTallyRequest
+            {
+                Id = evId,
+                BeerTalliesJson = talliesJson,
+                InitialAmount = inlineTallyEvent.InitialAmount,
+                CurrentBalance = newBalance,
+                CloseEvent = closeEvent
+            };
+
+            // Queue in IndexedDB outbox for offline sync (similar to add-funds)
+            var syncKey = $"gfc_pos_vault_event_tally_{Guid.NewGuid()}";
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", syncKey, request);
+            }
+            catch {}
+
+            try
+            {
+                // Send background update
+                _ = Http.PostAsJsonAsync("api/pos/events/update-tally", request);
+            }
+            catch {}
+
+            CloseInlineTallyModal();
+            StateHasChanged();
+            
+            if (closeEvent)
+            {
+                Toast.ShowSuccess("Event settled and closed successfully!");
+            }
+            else
+            {
+                Toast.ShowSuccess("Beer tallies saved successfully!");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error saving event tally: {ex.Message}");
+            Toast.ShowError("Failed to save beer tallies.");
+        }
+    }
+
+    private string CurrentUserName = string.Empty;
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
     
-    // ─── LIQUOR HUB DELIVERY RECONCILIATION STATE ───
+    // ─── LIQUOR HUB DELIVERY RECEIVING STATE ───
     private bool showLiquorOrdersModal = false;
     private List<LiquorOrder> _pendingLiquorOrders = new();
     private LiquorOrder? _selectedLiquorOrder = null;
@@ -4444,152 +5045,109 @@
 
     private bool _showLoginSplash = false;
     private string _splashUserName = "";
+    private double _downloadProgress = -1;
+    private bool _isDownloadingUpdate = false;
 
     protected override async Task OnInitializedAsync()
     {
         _isInitialLoading = true;
         
+        // 1. [HYDRATE-FIRST] Load from local device immediately
+        // Do not wait for connectivity checks or terminal names
+        await RefreshData(cacheOnly: true);
+
+        // 2. [BACKGROUND-INIT] Now handle connectivity and network sync
+        _ = Task.Run(async () => {
+            await Connectivity.InitializeAsync();
+            await LoadTerminalName();
+            await RefreshData(cacheOnly: false);
+        });
+        
+        _isInitialLoading = false;
+        
+        // [AUTO-SYNC] Load from vault instantly, then background refresh from server
+        _ = SyncUsers();
+        // [INVENTORY WARM-UP] Pre-cache liquor inventory in background so it's available offline
+        _ = Task.Run(async () => {
+            try { await PosService.GetLiquorInventoryAsync(force: false); }
+            catch { }
+        });
+        
+        var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
+        if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
+        
+        var voucherStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_payout_voucher");
+        if (!string.IsNullOrEmpty(voucherStored)) _printPayoutVoucher = bool.Parse(voucherStored);
+
+        // HARDENED LOAD: The source of truth is now the Database (Shift Log)
+        await UpdateAuditAsync();
+        
+        var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
+        if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
+
+        // Load Payout Categories
+        try
+        {
+            var payoutCatsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_payout_categories");
+            if (!string.IsNullOrEmpty(payoutCatsStored))
+            {
+                _payoutCategories = JsonSerializer.Deserialize<List<string>>(payoutCatsStored) ?? new();
+            }
+            if (_payoutCategories == null || !_payoutCategories.Any())
+            {
+                _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_payout_categories", JsonSerializer.Serialize(_payoutCategories));
+            }
+        }
+        catch
+        {
+            _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+        }
+
+
+
         Connectivity.ConnectivityChanged += OnConnectivityChanged;
         PosService.OutboxChanged += OnOutboxChanged;
         PosService.MenuRefreshed += OnMenuRefreshed;
         
-        await Task.CompletedTask;
-    }
+        await PosService.GetTotalPendingAsync();
+        
+        // Load Idle Settings
+        var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
+        if (int.TryParse(idleStored, out var mins)) _idleTimeoutMinutes = mins;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            // 1. [HYDRATE-FIRST] Load from local device immediately
-            // Do not wait for connectivity checks or terminal names
-            await RefreshData(cacheOnly: true);
+        // Load Last Sale Bar Setting
+        var lastBarStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_show_last_sale_bar");
+        if (!string.IsNullOrEmpty(lastBarStored)) _showLastSaleBar = bool.Parse(lastBarStored);
 
-            // 2. [BACKGROUND-INIT] Now handle connectivity and network sync
-            _ = Task.Run(async () => {
-                await Connectivity.InitializeAsync();
-                await LoadTerminalName();
-                await RefreshData(cacheOnly: false);
-            });
-            
-            // [AUTO-SYNC] Load from vault instantly, then background refresh from server
-            _ = SyncUsers();
-            
-            // [INVENTORY WARM-UP] Pre-cache liquor inventory in background so it's available offline
-            _ = Task.Run(async () => {
-                try { await PosService.GetLiquorInventoryAsync(force: false); }
-                catch { }
-            });
-            
-            try
-            {
-                var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
-                if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
-            }
-            catch {}
-            
-            try
-            {
-                var voucherStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_payout_voucher");
-                if (!string.IsNullOrEmpty(voucherStored)) _printPayoutVoucher = bool.Parse(voucherStored);
-            }
-            catch {}
+        // [AUTO-REFRESH] Background poll for new users and security checks
+        _ = StartAuthPolling();
 
-            // HARDENED LOAD: The source of truth is now the Database (Shift Log)
-            await UpdateAuditAsync();
-            
-            try
-            {
-                var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
-                if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
-            }
-            catch {}
+        // Populate Last Sale from Audit
+        var audit = await PosService.GetShiftAuditAsync();
+        _lastSale = audit.LatestSale;
 
-            // Load Payout Categories
-            try
-            {
-                var payoutCatsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_payout_categories");
-                if (!string.IsNullOrEmpty(payoutCatsStored))
-                {
-                    _payoutCategories = JsonSerializer.Deserialize<List<string>>(payoutCatsStored) ?? new();
-                }
-                if (_payoutCategories == null || !_payoutCategories.Any())
-                {
-                    _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
-                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_payout_categories", JsonSerializer.Serialize(_payoutCategories));
-                }
-            }
-            catch
-            {
-                _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
-            }
+        // Initialize Activity Tracker
+        await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
 
-            try
-            {
-                await PosService.GetTotalPendingAsync();
-            }
-            catch {}
-            
-            try
-            {
-                // Load Idle Settings
-                var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
-                if (int.TryParse(idleStored, out var mins)) _idleTimeoutMinutes = mins;
-            }
-            catch {}
+        // Initialize Card Scanner
+        await JSRuntime.InvokeVoidAsync("GfcCardScanner.initialize", DotNetObjectReference.Create(this));
 
-            try
-            {
-                // Load Last Sale Bar Setting
-                var lastBarStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_show_last_sale_bar");
-                if (!string.IsNullOrEmpty(lastBarStored)) _showLastSaleBar = bool.Parse(lastBarStored);
-            }
-            catch {}
+        // [INSTANT-UPDATE] Check for update immediately on startup
+        _ = Task.Run(async () => {
+            await Task.Delay(2000); 
+            await CheckForUpdatesAsync();
+        });
 
-            // [AUTO-REFRESH] Background poll for new users and security checks
-            _ = StartAuthPolling();
+        // Initialize Popular Items for current business day
+        _lastResetCheck = DateTime.Now;
+        var dayStart = GetBusinessDayStart();
+        var allSales = await PosService.GetShiftAuditAsync(); 
+        // For now, we initialize fresh or rely on the shift-persistence.
+        UpdateSpeedBar();
 
-            try
-            {
-                // Populate Last Sale from Audit
-                var audit = await PosService.GetShiftAuditAsync();
-                _lastSale = audit.LatestSale;
-            }
-            catch {}
-
-            try
-            {
-                // Initialize Activity Tracker
-                await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
-            }
-            catch {}
-
-            try
-            {
-                // Initialize Card Scanner
-                await JSRuntime.InvokeVoidAsync("GfcCardScanner.initialize", DotNetObjectReference.Create(this));
-            }
-            catch {}
-
-            // [INSTANT-UPDATE] Check for update immediately on startup
-            _ = Task.Run(async () => {
-                await Task.Delay(2000); 
-                await CheckForUpdatesAsync();
-            });
-
-            // Initialize Popular Items for current business day
-            _lastResetCheck = DateTime.Now;
-            UpdateSpeedBar();
-
-            try
-            {
-                // Initialize draw audio system early so window.gfcDrawAudio is ready for user gestures
-                await InitializeDrawAudio();
-            }
-            catch {}
-
-            _isInitialLoading = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        // Initialize draw audio system early so window.gfcDrawAudio is ready for user gestures
+        await InitializeDrawAudio();
     }
     
     [JSInvokable]
@@ -4691,23 +5249,23 @@
     {
         try
         {
-            var serverVersion = await PosService.GetServerVersionAsync();
-            _serverVersionFound = serverVersion;
+            var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
+            _serverVersionFound = UpdateService.ServerVersion;
             
-            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            if (isUpdateAvailable)
             {
                 // [LOOP-PROTECTION] Verify if we just tried to update to this specific version
                 var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
                 var lastAttemptTimeStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_time");
                 
-                if (lastAttemptVersion == serverVersion && !string.IsNullOrEmpty(lastAttemptTimeStr))
+                if (lastAttemptVersion == _serverVersionFound && !string.IsNullOrEmpty(lastAttemptTimeStr))
                 {
                     if (long.TryParse(lastAttemptTimeStr, out long lastTime))
                     {
                         var diffSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lastTime;
                         if (diffSeconds < 120) // 2 minute cooling period for the same version
                         {
-                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {serverVersion} was {diffSeconds}s ago.");
+                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {_serverVersionFound} was {diffSeconds}s ago.");
                             return;
                         }
                     }
@@ -4716,13 +5274,13 @@
                 if (string.IsNullOrEmpty(CurrentUserName))
                 {
                     // SAFE TO AUTO-UPDATE: No user is logged in
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Forcing cache-clear reload...");
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Forcing reload/installer...");
                     await TriggerNuclearReload();
                 }
                 else if (!_showUpdateBanner)
                 {
                     // USER IS ACTIVE: Show banner instead of reloading
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({serverVersion}). Showing update pill.");
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Showing update pill.");
                     _showUpdateBanner = true;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -4879,13 +5437,16 @@
     {
         if (string.IsNullOrEmpty(CurrentUserName)) return;
 
+        // Safely close the supplier delivery overlay on lock/logout
+        CloseLiquorOrdersWorkflow();
+
         // [AUTO-UPDATE] Check for newer POS version before locking
         try
         {
-            var serverVersion = await PosService.GetServerVersionAsync();
-            if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
+            var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
+            if (isUpdateAvailable)
             {
-                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing cache-clear reload...");
+                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing reload/installer...");
                 await TriggerNuclearReload();
                 return;
             }
@@ -4908,6 +5469,29 @@
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_update_time", unixTime);
         }
         catch { }
+
+        if (UpdateService.IsAndroidPlatform)
+        {
+            _isDownloadingUpdate = true;
+            _downloadProgress = 0;
+            _showUpdateBanner = false;
+            await InvokeAsync(StateHasChanged);
+
+            bool success = await UpdateService.DownloadAndInstallUpdateAsync(async progress =>
+            {
+                _downloadProgress = progress;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            if (!success)
+            {
+                _isDownloadingUpdate = false;
+                _downloadProgress = -1;
+                Toast.ShowError("Android Native Update Installation Failed. Please try again.");
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
 
         await JSRuntime.InvokeVoidAsync("eval", @"
             const wipe = async () => {
@@ -6963,7 +7547,7 @@
     private void OnNoticeConfirm() { _showNoticeModal = false; _onConfirm?.Invoke(); }
     private void GoBack() => Navigation.NavigateTo("/");
 
-    // ─── LIQUOR HUB RECONCILIATION METHODS ───
+    // ─── LIQUOR HUB RECEIVING METHODS ───
     private async Task OpenLiquorOrdersWorkflow()
     {
         try
@@ -7126,10 +7710,10 @@
 
             Console.WriteLine($"[POS] Submitting liquor order receive for Order #{receipt.OrderId}. Invoice: {receipt.InvoiceNumber}, Total: {receipt.TotalDue}");
             
-            // Reconcile and cache / queue transaction in the background outbox
+            // Receive and cache / queue transaction in the background outbox
             await PosService.ReceiveLiquorOrderAsync(receipt);
 
-            Toast.ShowSuccess("Delivery reconciled successfully! Local inventory stocks updated.");
+            Toast.ShowSuccess("Delivery received successfully! Local inventory stocks updated.");
             
             // Refresh list and close / reset
             _selectedLiquorOrder = null;
@@ -7138,7 +7722,7 @@
         catch (Exception ex)
         {
             Console.WriteLine($"[POS] ConfirmReceiveLiquorOrder Error: {ex.Message}");
-            Toast.ShowError($"Failed to reconcile delivery: {ex.Message}");
+            Toast.ShowError($"Failed to receive delivery: {ex.Message}");
         }
     }
 
@@ -7155,13 +7739,6 @@
             {
                 Console.WriteLine($"[POS] SyncUsers: Found {users.Count} authorized operators.");
                 AuthorizedUsers = users;
-                
-                // Add SIM-OPERATOR to the list of authorized users so it passes security checks
-                if (!AuthorizedUsers.Any(u => u.Username.Equals("SIM-OPERATOR", StringComparison.OrdinalIgnoreCase)))
-                {
-                    AuthorizedUsers.Add(new UserListItemDto(9999, "SIM-OPERATOR", true, true, null, null, null, "Simulated Administrator", null, false, null));
-                }
-                
                 await InvokeAsync(StateHasChanged);
             }
             else
@@ -7471,6 +8048,7 @@
                 CurrentBalance = _newBanquetAmount,
                 Status = GFC.Core.Enums.EventTabStatus.Open,
                 InitialAmount = _newBanquetAmount,
+                EnableBeerTally = template.EnableBeerTally,
                 CreatedAt = DateTime.UtcNow
             };
             

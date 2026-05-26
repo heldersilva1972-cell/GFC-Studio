@@ -34,6 +34,7 @@ $headers = @"
 @inject IToastService Toast
 @inject ConnectivityService Connectivity
 @inject IVersionService VersionService
+@inject IUpdateService UpdateService
 @inject IStationSettingsService StationSettings
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
