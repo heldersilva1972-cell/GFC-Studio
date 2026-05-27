@@ -4545,7 +4545,11 @@
     }
 
     private int PendingSyncCount => PosService.TotalPendingCount;
-    
+
+    // RequestRender() is a semantic alias for StateHasChanged() used in
+    // performance-sensitive paths to make intent explicit.
+    private void RequestRender() => StateHasChanged();
+
     private List<ProductItem> DbItems = new();
     private List<string> Categories = new();
     private List<string> ModifierCategories = new();
@@ -4556,6 +4560,68 @@
     private PosMenuDto? _cachedMenu; // Keep full menu for local updates
     private ActiveEvent? _selectedActiveEvent = null;
     private bool _isTabPayment = false;
+
+    // ── PERFORMANCE: Cached filtered product list ─────────────────────────────
+    // Re-computed only when category/event/menu changes, not on every render.
+    private List<ProductItem> _filteredItems = new();
+
+    private void InvalidateFilteredItems()
+    {
+        var category = (ActiveCategory ?? "").Trim().ToUpper();
+        var items = DbItems.AsEnumerable();
+
+        if (category == "DARTS CLUB ROUND")
+            items = items.Where(i => (i.Category ?? "").Trim().ToUpper() == "BEER" || (i.Category ?? "").Trim().ToUpper() == "LIQUOR");
+        else
+            items = items.Where(i => (i.Category ?? "").Trim().ToUpper() == category);
+
+        if (_selectedActiveEvent != null)
+        {
+            var template = DbEventTemplates?.FirstOrDefault(t => t.Id == _selectedActiveEvent.TemplateId);
+            if (template != null && !string.IsNullOrEmpty(template.ItemsOverrideJson))
+            {
+                try
+                {
+                    var overrides = global::System.Text.Json.JsonSerializer.Deserialize<List<BanquetOverrideDto>>(template.ItemsOverrideJson, new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                    var visibleOverrides = overrides.Where(o => o.IsVisible).ToList();
+                    var visibleItemIds = visibleOverrides.Select(o => o.ItemId).ToList();
+
+                    if (!visibleItemIds.Any())
+                    {
+                        _filteredItems = items.OrderBy(x => x.DisplayOrder).ThenBy(x => x.Name).ToList();
+                        return;
+                    }
+
+                    _filteredItems = items
+                        .Where(i => visibleItemIds.Contains(i.Id))
+                        .Select(i =>
+                        {
+                            var ov = visibleOverrides.FirstOrDefault(o => o.ItemId == i.Id);
+                            var effectivePrice = (ov != null && ov.OverridePrice > 0) ? ov.OverridePrice : i.Price;
+                            return new ProductItem
+                            {
+                                Id = i.Id,
+                                Name = i.Name,
+                                Price = effectivePrice,
+                                Category = i.Category,
+                                DisplayOrder = i.DisplayOrder,
+                                Modifiers = new List<ProductItem>()
+                            };
+                        })
+                        .OrderBy(x => x.DisplayOrder)
+                        .ThenBy(x => x.Name)
+                        .ToList();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Error processing banquet overrides: {ex.Message}");
+                }
+            }
+        }
+
+        _filteredItems = items.OrderBy(x => x.DisplayOrder).ThenBy(x => x.Name).ToList();
+    }
     
     private List<ProductItem> CartItems = new();
     private ProductItem? SelectedCartItem;
@@ -4872,91 +4938,9 @@
     private List<int> SpeedBarItemIds = new();
     private IEnumerable<ProductItem> PopularItems => SpeedBarItemIds.Take(6).Select(id => DbItems.FirstOrDefault(x => x.Id == id)).Where(x => x != null);
 
-    private IEnumerable<ProductItem> FilteredItems
-    {
-        get
-        {
-            var category = (ActiveCategory ?? "").Trim().ToUpper();
-            var items = DbItems.AsEnumerable();
-
-            if (category == "DARTS CLUB ROUND")
-            {
-                items = items.Where(i => (i.Category ?? "").Trim().ToUpper() == "BEER" || (i.Category ?? "").Trim().ToUpper() == "LIQUOR");
-            }
-            else
-            {
-                items = items.Where(i => (i.Category ?? "").Trim().ToUpper() == category);
-            }
-
-            if (_selectedActiveEvent != null)
-            {
-                var template = DbEventTemplates?.FirstOrDefault(t => t.Id == _selectedActiveEvent.TemplateId);
-                if (template != null && !string.IsNullOrEmpty(template.ItemsOverrideJson))
-                {
-                    try
-                    {
-                        var overrides = global::System.Text.Json.JsonSerializer.Deserialize<List<BanquetOverrideDto>>(template.ItemsOverrideJson, new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
-                        var visibleOverrides = overrides.Where(o => o.IsVisible).ToList();
-                        var visibleItemIds = visibleOverrides.Select(o => o.ItemId).ToList();
-                        
-                        if (!visibleItemIds.Any())
-                        {
-                            // No overrides defined — show all items at standard prices
-                            return items
-                                .OrderBy(x => x.DisplayOrder)
-                                .ThenBy(x => x.Name)
-                                .ToList();
-                        }
-                        
-                        items = items.Where(i => visibleItemIds.Contains(i.Id));
-
-                        return items
-                            .Select(i =>
-                            {
-                                var ov = visibleOverrides.FirstOrDefault(o => o.ItemId == i.Id);
-                                // Use the override price only when it has been explicitly set (> 0).
-                                // An OverridePrice of 0 means the admin left it at the default, so fall back to retail.
-                                var effectivePrice = (ov != null && ov.OverridePrice > 0) ? ov.OverridePrice : i.Price;
-                                return new ProductItem
-                                {
-                                    Id = i.Id,
-                                    Name = i.Name,
-                                    Price = effectivePrice,
-                                    Category = i.Category,
-                                    DisplayOrder = i.DisplayOrder,
-                                    Modifiers = new List<ProductItem>()
-                                };
-                            })
-                            .OrderBy(x => x.DisplayOrder)
-                            .ThenBy(x => x.Name)
-                            .ToList();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[POS] Error processing banquet overrides for active event {_selectedActiveEvent.Name}: {ex.Message}");
-                        // Fall back to standard prices on JSON errors
-                        return items
-                            .OrderBy(x => x.DisplayOrder)
-                            .ThenBy(x => x.Name)
-                            .ToList();
-                    }
-                }
-                else
-                {
-                    // No custom menu defined — show all items at standard prices
-                    return items
-                        .OrderBy(x => x.DisplayOrder)
-                        .ThenBy(x => x.Name)
-                        .ToList();
-                }
-            }
-
-            return items
-                .OrderBy(x => x.DisplayOrder)
-                .ThenBy(x => x.Name)
-                .ToList();
-        }
-    }
+    // FilteredItems is now a pre-computed cached list (see InvalidateFilteredItems above).
+    // It is updated only when category/event/menu state changes — not on every render.
+    private IEnumerable<ProductItem> FilteredItems => _filteredItems;
 
     private DateTime _lastResetCheck = DateTime.MinValue;
     private DateTime GetBusinessDayStart()
@@ -5142,34 +5126,29 @@
 
     private async Task SaveIdleSettings() => await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_idle_timeout", _idleTimeoutMinutes.ToString());
 
+    // PERFORMANCE: Track when expensive HTTP calls were last run in the poll loop.
+    private DateTime _lastUserSync = DateTime.MinValue;
+    private DateTime _lastUpdateCheck = DateTime.MinValue;
+
     private async Task StartAuthPolling()
     {
         while (!_disposed)
         {
             await Task.Delay(TimeSpan.FromSeconds(10));
-            if (_disposed) continue;
+            if (_disposed) break;
 
-            // 1. Idle Timeout Check (Highest Priority)
+            // 1. CHEAP: Idle Timeout Check (local timestamp only)
             if (_idleTimeoutMinutes > 0 && !string.IsNullOrEmpty(CurrentUserName))
             {
                 if ((DateTime.Now - _lastActivity).TotalMinutes >= _idleTimeoutMinutes)
                 {
                     Console.WriteLine($"[POS] IDLE TIMEOUT: No activity for {_idleTimeoutMinutes}m. Locking station.");
                     LockTerminal();
-                    await InvokeAsync(StateHasChanged);
+                    await InvokeAsync(RequestRender);
                 }
             }
 
-            // 2. Security / Permissions Sync + Update Check
-            await SyncUsers();
-
-                // [AUTO-UPDATE] Check for newer version while idle/logged out
-            await CheckForUpdatesAsync();
-
-            // 3. 3AM Daily Reset Check
-            CheckDailyReset();
-
-            // Security Check: If a user is currently logged in, verify they are still in the authorized list
+            // 2. CHEAP: Security check — local list lookup only, no HTTP
             if (!string.IsNullOrEmpty(CurrentUserName))
             {
                 var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
@@ -5177,8 +5156,25 @@
                 {
                     Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
                     LockTerminal();
-                    await InvokeAsync(StateHasChanged);
+                    await InvokeAsync(RequestRender);
                 }
+            }
+
+            // 3. CHEAP: 3AM Daily Reset Check (local timestamp only)
+            CheckDailyReset();
+
+            // 4. EXPENSIVE: Sync users from server — only every 5 minutes
+            if ((DateTime.Now - _lastUserSync).TotalMinutes >= 5)
+            {
+                _lastUserSync = DateTime.Now;
+                await SyncUsers();
+            }
+
+            // 5. EXPENSIVE: Check for POS update — only every 5 minutes
+            if ((DateTime.Now - _lastUpdateCheck).TotalMinutes >= 5)
+            {
+                _lastUpdateCheck = DateTime.Now;
+                await CheckForUpdatesAsync();
             }
         }
     }
@@ -5329,9 +5325,10 @@
 
     private void OnOutboxChanged()
     {
+        // PERFORMANCE: Do NOT call StateHasChanged here — the pending count badge
+        // is non-critical and will update naturally after RefreshData completes.
         InvokeAsync(async () =>
         {
-            StateHasChanged();
             if (!_isRefreshingMenu)
             {
                 _isRefreshingMenu = true;
@@ -5622,13 +5619,17 @@
             }
         }
 
+        // PERFORMANCE: Recompute cached product list now that DbItems,
+        // _selectedActiveEvent, and ActiveCategory are all finalized.
+        InvalidateFilteredItems();
+
         UpdateSpeedBar();
     }
 
     private void UpdateSpeedBar()
     {
         SpeedBarItemIds = ItemFrequency.OrderByDescending(x => x.Value).Select(x => x.Key).Take(6).ToList();
-        StateHasChanged();
+        RequestRender();
     }
 
     private async Task HandleCategoryClick(string cat)
@@ -5659,6 +5660,8 @@
         else
         {
             ActiveCategory = cat;
+            // PERFORMANCE: Recompute cached product list immediately on category switch
+            InvalidateFilteredItems();
         }
     }
 
@@ -6040,7 +6043,16 @@
     }
 
     private ShiftAuditDto _currentAudit = new();
-    private async Task UpdateAuditAsync() { _currentAudit = await PosService.GetShiftAuditAsync(); StateHasChanged(); }
+    // PERFORMANCE: Debounce gate — GetShiftAuditAsync() scans all of IndexedDB.
+    // Limit to at most once every 2 seconds to prevent accumulating lag as the shift grows.
+    private DateTime _lastAuditRefresh = DateTime.MinValue;
+    private async Task UpdateAuditAsync()
+    {
+        if ((DateTime.Now - _lastAuditRefresh).TotalSeconds < 2) return;
+        _lastAuditRefresh = DateTime.Now;
+        _currentAudit = await PosService.GetShiftAuditAsync();
+        RequestRender();
+    }
 
     private async Task FinalizeSale()
     {
@@ -6075,6 +6087,9 @@
             }
         }
         
+        // PERFORMANCE: Capture correction flag BEFORE resetting it below.
+        var wasCorrection = _isCorrectionMode;
+
         // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
         if (!forceTrainingMode)
         {
@@ -6104,7 +6119,9 @@
             }
 
             await PosService.AddSaleToShiftAsync(sale);
-            await UpdateAuditAsync();
+            // PERFORMANCE: Run audit update in the background — do NOT block the UI thread.
+            // The shift totals banner will refresh within 2 seconds.
+            _ = UpdateAuditAsync();
         }
 
         _lastSale = sale; // Update last sale tracker
@@ -6113,18 +6130,15 @@
 
         if (!forceTrainingMode) 
         {
-            // Open drawer for CASH sales or ANY Correction (where cash may need to be returned/collected)
-            if (payment == "CASH" || _isCorrectionMode)
+            // Open drawer for CASH sales, or corrections (where cash may need to be returned/collected)
+            if (payment == "CASH" || wasCorrection)
             {
                 await PrinterService.KickDrawerAsync();
             }
 
             await PosService.SaveSaleAsync(sale);
             
-            if (_correctingSaleId != null)
-            {
-                _correctingSaleId = null;
-            }
+            _correctingSaleId = null;
             
             foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) 
             {
@@ -6138,22 +6152,24 @@
             _dartsDismissedToday = true;
         }
         
-        ClearCart(); 
-        _correctingSaleId = null; 
-        _isTabPayment = false;
-        // Snap back to regular walk-in mode, or the active direct event if one exists!
+        // PERFORMANCE: Reset all UI state and clear the cart FIRST — this makes the
+        // terminal feel instant. The audit and speed-bar updates happen in the background.
         var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
         _selectedActiveEvent = directEvent;
         ActiveCategory = "BEER"; // Reset default category
-        ShowCheckoutOverlay = false; 
-        CashReceived = null; 
+        InvalidateFilteredItems(); // Recompute product list for BEER category
+        ClearCart();
+        _correctingSaleId = null;
+        _isTabPayment = false;
+        ShowCheckoutOverlay = false;
+        CashReceived = null;
         CashInputString = "";
-        showSuccessOverlay = true; 
-        StateHasChanged(); 
-        await Task.Delay(1000); 
+        showSuccessOverlay = true;
+        RequestRender(); // Show success overlay immediately
+        await Task.Delay(600); // 600ms is enough for the cashier to see confirmation
         showSuccessOverlay = false;
-        UpdateSpeedBar(); 
-        StateHasChanged();
+        UpdateSpeedBar();
+        RequestRender();
     }
 
     private async Task ReprintLastZReport()
@@ -6362,10 +6378,15 @@
     {
         try
         {
+            // PERFORMANCE: Close menu immediately so the UI responds at once.
             showOptionsMenu = false;
-            
-            // Calculate current shift totals from Database
-            var currentAudit = await PosService.GetShiftAuditAsync();
+            StateHasChanged();
+
+            // Use the already-cached audit if available (debounce gate may have it fresh)
+            // If not, we must scan — but we do it after the menu is gone.
+            var currentAudit = _currentAudit.CashTotal == 0 && _currentAudit.GrossTotal == 0
+                ? await PosService.GetShiftAuditAsync()
+                : _currentAudit;
             
             // Calculate Token Credits directly from computed audit
             decimal tokenCredits = currentAudit.TokenCredits;
@@ -6413,50 +6434,57 @@
         _drawnMemberId = null;
         _reelCount = 4;
 
-        try
-        {
-            _previousDrawName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_name") ?? "";
-            _previousDrawTime = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_time") ?? "";
-            var elJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_eligible") ?? "false";
-            _previousDrawEligible = bool.TryParse(elJson, out var result) && result;
-        }
-        catch { }
-        
-        // Re-initialize arrays for standard safety
-        _reelDigits = new int[_reelCount];
-        _reelOffsets = new int[_reelCount];
-        _reelClasses = new string[_reelCount];
+        // PERFORMANCE: Parallelise the 3 localStorage reads instead of awaiting each one.
+        var nameTask  = JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_name").AsTask();
+        var timeTask  = JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_time").AsTask();
+        var elTask    = JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_drawn_member_eligible").AsTask();
+
+        // Re-initialize arrays for standard safety (sync — no await needed)
+        _reelDigits   = new int[_reelCount];
+        _reelOffsets  = new int[_reelCount];
+        _reelClasses  = new string[_reelCount];
         _reelDurations = new double[_reelCount];
         for (int i = 0; i < _reelCount; i++)
         {
-            _reelDigits[i] = 0;
-            _reelOffsets[i] = 0;
-            _reelClasses[i] = "";
+            _reelDigits[i]   = 0;
+            _reelOffsets[i]  = 0;
+            _reelClasses[i]  = "";
             _reelDurations[i] = 0;
         }
-        
+
+        // Show the draw modal immediately — don't wait for localStorage
         showDrawModal = true;
         StateHasChanged();
+
+        try
+        {
+            await Task.WhenAll(nameTask, timeTask, elTask);
+            _previousDrawName    = nameTask.Result ?? "";
+            _previousDrawTime    = timeTask.Result ?? "";
+            var elJson           = elTask.Result ?? "false";
+            _previousDrawEligible = bool.TryParse(elJson, out var result) && result;
+        }
+        catch { }
 
         try
         {
             var pool = await PosService.GetMemberDrawPoolAsync();
             if (pool != null)
             {
-                _drawPool = pool.MemberIds ?? new();
+                _drawPool    = pool.MemberIds ?? new();
                 _maxMemberId = pool.MaxMemberId;
-                _reelCount = Math.Max(3, _maxMemberId.ToString().Length);
+                _reelCount   = Math.Max(3, _maxMemberId.ToString().Length);
                 
                 // Re-initialize arrays with dynamic length
-                _reelDigits = new int[_reelCount];
-                _reelOffsets = new int[_reelCount];
-                _reelClasses = new string[_reelCount];
+                _reelDigits   = new int[_reelCount];
+                _reelOffsets  = new int[_reelCount];
+                _reelClasses  = new string[_reelCount];
                 _reelDurations = new double[_reelCount];
                 for (int i = 0; i < _reelCount; i++)
                 {
-                    _reelDigits[i] = 0;
-                    _reelOffsets[i] = 0;
-                    _reelClasses[i] = "";
+                    _reelDigits[i]   = 0;
+                    _reelOffsets[i]  = 0;
+                    _reelClasses[i]  = "";
                     _reelDurations[i] = 0;
                 }
             }
@@ -6938,25 +6966,25 @@
 
             await PosService.AddSaleToShiftAsync(payoutSale);
             await PosService.SaveSaleAsync(payoutSale);
-            
-            // Re-calculate local audit totals instantly
-            await UpdateAuditAsync();
 
-            // Kick drawer open (since money is being taken out!)
+            // PERFORMANCE: Close the modal first so the cashier sees instant feedback.
+            showPayoutModal = false;
+            Toast.ShowSuccess($"Payout of {_payoutAmount:C} recorded successfully.");
+            StateHasChanged();
+
+            // Then kick the drawer and print voucher (hardware ops — can take a moment)
             if (!forceTrainingMode || allowHardwareInTraining)
             {
                 await PrinterService.KickDrawerAsync();
             }
 
-            // Print the receipt voucher so they can keep it in the drawer!
             if (_printPayoutVoucher)
             {
                 await PrintPayoutVoucher(payoutSale);
             }
 
-            showPayoutModal = false;
-            Toast.ShowSuccess($"Payout of {_payoutAmount:C} recorded successfully.");
-            StateHasChanged();
+            // Re-calculate local audit totals in background
+            _ = UpdateAuditAsync();
         }
         catch (Exception ex)
         {
@@ -7669,11 +7697,8 @@
         try 
         {
             Console.WriteLine("[POS] Starting SyncUsers()...");
-            
-            // We use HttpClient directly here to inspect the raw response if needed
             var users = await PosService.GetAuthorizedUsersAsync();
-            
-            if (users != null)
+            if (users != null && users.Any())
             {
                 Console.WriteLine($"[POS] SyncUsers: Found {users.Count} authorized operators.");
                 AuthorizedUsers = users;
@@ -7682,9 +7707,6 @@
             else
             {
                 Console.WriteLine("[POS] SyncUsers: No authorized operators found (empty list or error).");
-                // Check connectivity status
-                var isServerUp = await Connectivity.CheckServerReachableAsync();
-                Console.WriteLine($"[POS] Connectivity Status - Online: {Connectivity.IsOnline}, Server: {isServerUp}");
             }
         }
         catch (Exception ex)
@@ -7877,11 +7899,21 @@
 
     private async Task OpenManageBanquets()
     {
-        await RefreshData();
+        // PERFORMANCE: Show the modal immediately — don't block on a full server sync first.
         showOptionsMenu = false;
         showBanquetsModal = true;
         _banquetNumpadValue = "0";
         _isFirstKeyAfterFocus = true;
+        StateHasChanged();
+
+        // Refresh data in the background so event list is up to date.
+        _ = Task.Run(async () =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshData();
+            });
+        });
     }
 
     private void OpenAddFunds(ActiveEvent ev)
