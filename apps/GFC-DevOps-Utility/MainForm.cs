@@ -18,6 +18,8 @@ namespace GFCDevOpsUtility
         private bool _isBusy = false;
         private bool _isUpdatingUi = false;
         private bool _isSyncingChecks = false;
+        private bool _isPublishAborted = false;
+        private ProcessRunner? _activePublishRunner = null;
 
         // Custom theme colors (Light Mode)
         private static readonly Color ColorBg = Color.FromArgb(248, 250, 252);        // Slate 50
@@ -231,16 +233,25 @@ namespace GFCDevOpsUtility
             }
             else
             {
-                // Auto-detect status keywords
-                if (message.Contains("[OK]") || message.Contains("SUCCESS") || message.Contains("Successful"))
+                // Auto-detect status keywords (case-insensitive)
+                string lowerMsg = message.ToLowerInvariant();
+                if (lowerMsg.Contains("error"))
+                {
+                    logColor = Color.FromArgb(220, 38, 38); // Premium Red
+                }
+                else if (lowerMsg.Contains("warning"))
+                {
+                    logColor = Color.FromArgb(217, 119, 6); // Dark Yellow / Amber
+                }
+                else if (lowerMsg.Contains("[ok]") || lowerMsg.Contains("success") || lowerMsg.Contains("successful"))
                 {
                     logColor = ColorSuccess;
                 }
-                else if (message.Contains("[DRY]") || message.Contains("WARNING") || message.Contains("Would "))
+                else if (lowerMsg.Contains("[dry]") || lowerMsg.Contains("would "))
                 {
                     logColor = ColorWarning;
                 }
-                else if (message.Contains("[WAIT]") || message.Contains(">>>") || message.Contains("Stopping") || message.Contains("Starting"))
+                else if (lowerMsg.Contains("[wait]") || lowerMsg.Contains(">>>") || lowerMsg.Contains("stopping") || lowerMsg.Contains("starting"))
                 {
                     logColor = ColorWait;
                 }
@@ -250,7 +261,7 @@ namespace GFCDevOpsUtility
             rtbTerminal.SelectionLength = 0;
             rtbTerminal.SelectionColor = logColor;
             
-            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!"))
+            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!") || message.ToLowerInvariant().Contains("error"))
             {
                 rtbTerminal.SelectionFont = new Font(rtbTerminal.Font, FontStyle.Bold);
             }
@@ -268,6 +279,58 @@ namespace GFCDevOpsUtility
         {
             rtbTerminal.Clear();
             rtbBuildOutput.Clear();
+            _fullPublishLog.Clear();
+        }
+
+        private readonly List<LogLine> _fullPublishLog = new List<LogLine>();
+
+        public class LogLine
+        {
+            public string Message { get; set; } = "";
+            public bool IsError { get; set; }
+            public Color? CustomColor { get; set; }
+        }
+
+        private bool ShouldFilterLine(string message, bool isError)
+        {
+            bool showErrorsOnly = chkShowErrors.Checked;
+            bool showWarningsOnly = chkShowWarnings.Checked;
+
+            if (!showErrorsOnly && !showWarningsOnly)
+            {
+                return false;
+            }
+
+            string lower = message.ToLowerInvariant();
+            bool isErrLine = isError || lower.Contains("error");
+            bool isWarnLine = lower.Contains("warning");
+
+            if (showErrorsOnly && showWarningsOnly)
+            {
+                return !(isErrLine || isWarnLine);
+            }
+            if (showErrorsOnly)
+            {
+                return !isErrLine;
+            }
+            if (showWarningsOnly)
+            {
+                return !isWarnLine;
+            }
+
+            return false;
+        }
+
+        private void ChkShowFilters_CheckedChanged(object sender, EventArgs e)
+        {
+            rtbBuildOutput.Clear();
+            foreach (var line in _fullPublishLog)
+            {
+                if (!ShouldFilterLine(line.Message, line.IsError))
+                {
+                    AppendToPublishConsole(line.Message, line.IsError, line.CustomColor);
+                }
+            }
         }
 
         private void LogPublish(string message, bool isError = false, Color? customColor = null)
@@ -278,6 +341,18 @@ namespace GFCDevOpsUtility
                 return;
             }
 
+            _fullPublishLog.Add(new LogLine { Message = message, IsError = isError, CustomColor = customColor });
+
+            if (ShouldFilterLine(message, isError))
+            {
+                return;
+            }
+
+            AppendToPublishConsole(message, isError, customColor);
+        }
+
+        private void AppendToPublishConsole(string message, bool isError = false, Color? customColor = null)
+        {
             Color logColor = ColorText;
 
             if (isError)
@@ -290,16 +365,25 @@ namespace GFCDevOpsUtility
             }
             else
             {
-                // Auto-detect status keywords
-                if (message.Contains("[OK]") || message.Contains("SUCCESS") || message.Contains("Successful"))
+                // Auto-detect status keywords (case-insensitive)
+                string lowerMsg = message.ToLowerInvariant();
+                if (lowerMsg.Contains("error"))
+                {
+                    logColor = Color.FromArgb(220, 38, 38); // Premium Red
+                }
+                else if (lowerMsg.Contains("warning"))
+                {
+                    logColor = Color.FromArgb(217, 119, 6); // Dark Yellow / Amber
+                }
+                else if (lowerMsg.Contains("[ok]") || lowerMsg.Contains("success") || lowerMsg.Contains("successful"))
                 {
                     logColor = ColorSuccess;
                 }
-                else if (message.Contains("[DRY]") || message.Contains("WARNING") || message.Contains("Would "))
+                else if (lowerMsg.Contains("[dry]") || lowerMsg.Contains("would "))
                 {
                     logColor = ColorWarning;
                 }
-                else if (message.Contains("[WAIT]") || message.Contains(">>>") || message.Contains("Stopping") || message.Contains("Starting"))
+                else if (lowerMsg.Contains("[wait]") || lowerMsg.Contains(">>>") || lowerMsg.Contains("stopping") || lowerMsg.Contains("starting"))
                 {
                     logColor = ColorWait;
                 }
@@ -309,7 +393,7 @@ namespace GFCDevOpsUtility
             rtbBuildOutput.SelectionLength = 0;
             rtbBuildOutput.SelectionColor = logColor;
             
-            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!"))
+            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!") || message.ToLowerInvariant().Contains("error"))
             {
                 rtbBuildOutput.SelectionFont = new Font(rtbBuildOutput.Font, FontStyle.Bold);
             }
@@ -785,11 +869,31 @@ namespace GFCDevOpsUtility
         }
         #endregion
 
-        #region Operations Blocker Helper
-        private void SetBusy(bool busy, string statusText)
+        private void SetBusy(bool busy, string statusText, bool isPublish = false)
         {
             _isBusy = busy;
-            btnRunPublish.Enabled = !busy;
+            
+            if (isPublish)
+            {
+                btnRunPublish.Enabled = true;
+                if (busy)
+                {
+                    btnRunPublish.Text = "🛑 Abort Publish";
+                    btnRunPublish.BackColor = Color.FromArgb(220, 38, 38); // Premium Red
+                }
+                else
+                {
+                    btnRunPublish.Text = "📤 Start Application Publish";
+                    btnRunPublish.BackColor = Color.FromArgb(37, 99, 235); // Royal Blue
+                }
+            }
+            else
+            {
+                btnRunPublish.Enabled = !busy;
+                btnRunPublish.Text = "📤 Start Application Publish";
+                btnRunPublish.BackColor = Color.FromArgb(37, 99, 235); // Royal Blue
+            }
+
             btnRunDeploy.Enabled = !busy;
             btnRunRevisionSync.Enabled = !busy;
 
@@ -810,7 +914,6 @@ namespace GFCDevOpsUtility
                 pbProgress.Style = ProgressBarStyle.Marquee;
             }
         }
-        #endregion
 
         #region Core Publish Operations (In-App Compression & Silent CLI)
         private string GetAppRevision(string appName, string workspace)
@@ -844,7 +947,15 @@ namespace GFCDevOpsUtility
 
         private async void BtnRunPublish_Click(object sender, EventArgs e)
         {
-            if (_isBusy) return;
+            if (_isBusy)
+            {
+                // Trigger Abort sequence
+                _isPublishAborted = true;
+                _activePublishRunner?.Abort();
+                return;
+            }
+
+            _isPublishAborted = false;
 
             var checkedApps = new List<AppPipelineConfig>();
             foreach (var item in clbPublishApps.CheckedItems)
@@ -870,9 +981,10 @@ namespace GFCDevOpsUtility
             _config.WorkspacePath = workspace;
             _config.Save();
 
-            SetBusy(true, "Publishing projects...");
+            SetBusy(true, "Publishing projects...", true);
             rtbTerminal.Clear();
             rtbBuildOutput.Clear();
+            _fullPublishLog.Clear();
             LogPublish($">>> STARTING BATCH PUBLISH FOR {checkedApps.Count} TARGET(S)...", false, ColorWait);
 
             // Initialize progress status indicators
@@ -903,6 +1015,17 @@ namespace GFCDevOpsUtility
 
             foreach (var app in checkedApps)
             {
+                if (_isPublishAborted)
+                {
+                    LogPublish($">>> [ABORT] Skipping publish pipeline for: {app.AppName} due to user abort.", false, ColorWarning);
+                    UpdateVisualStatus(app.AppName, false, "Aborted 🛑", Color.Red);
+                    if (app.PublishMobileApk)
+                    {
+                        UpdateVisualStatus(app.AppName, true, "Aborted 🛑", Color.Red);
+                    }
+                    continue;
+                }
+
                 if (app.PublishMobileApk)
                 {
                     UpdateVisualStatus(app.AppName, false, "APK Only", Color.Gray);
@@ -952,23 +1075,47 @@ namespace GFCDevOpsUtility
                     }
                     else
                     {
-                        failures.Add(app.AppName, "dotnet publish exited with compilation errors.");
-                        LogPublish($"!!! [FAIL] Publish pipeline FAILED for: {app.AppName}", true);
-                        UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
-                        if (app.PublishMobileApk)
+                        if (_isPublishAborted)
                         {
-                            UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                            LogPublish($">>> [ABORT] Publish pipeline aborted for: {app.AppName}", false, ColorWarning);
+                            UpdateVisualStatus(app.AppName, false, "Aborted 🛑", Color.Red);
+                            if (app.PublishMobileApk)
+                            {
+                                UpdateVisualStatus(app.AppName, true, "Aborted 🛑", Color.Red);
+                            }
+                        }
+                        else
+                        {
+                            failures.Add(app.AppName, "dotnet publish exited with compilation errors.");
+                            LogPublish($"!!! [FAIL] Publish pipeline FAILED for: {app.AppName}", true);
+                            UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
+                            if (app.PublishMobileApk)
+                            {
+                                UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                            }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    failures.Add(app.AppName, ex.Message);
-                    LogPublish($"!!! [EXCEPTION] Publish pipeline failed for {app.AppName}: {ex.Message}", true);
-                    UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
-                    if (app.PublishMobileApk)
+                    if (_isPublishAborted)
                     {
-                        UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                        LogPublish($">>> [ABORT] Publish pipeline aborted for: {app.AppName}", false, ColorWarning);
+                        UpdateVisualStatus(app.AppName, false, "Aborted 🛑", Color.Red);
+                        if (app.PublishMobileApk)
+                        {
+                            UpdateVisualStatus(app.AppName, true, "Aborted 🛑", Color.Red);
+                        }
+                    }
+                    else
+                    {
+                        failures.Add(app.AppName, ex.Message);
+                        LogPublish($"!!! [EXCEPTION] Publish pipeline failed for {app.AppName}: {ex.Message}", true);
+                        UpdateVisualStatus(app.AppName, false, "Failed ❌", Color.Red);
+                        if (app.PublishMobileApk)
+                        {
+                            UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                        }
                     }
                 }
             }
@@ -985,16 +1132,24 @@ namespace GFCDevOpsUtility
             if (lblAppDesc != null) lblAppDesc.Text = "Click/hover an item to see its purpose.";
             _isSyncingChecks = false;
 
-            SetBusy(false, failures.Count == 0 ? "Ready" : "Error: Build Failed!");
+            if (_isPublishAborted)
+            {
+                SetBusy(false, "Publish Aborted!", true);
+                MessageBox.Show("Publish operation was aborted by the user.", "Operation Aborted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            else
+            {
+                SetBusy(false, failures.Count == 0 ? "Ready" : "Error: Build Failed!", true);
 
-            string summaryMsg = $"Batch Publish Operation Completed.\n\n" +
-                                $"Successful ({successes.Count}):\n" +
-                                (successes.Count > 0 ? string.Join("\n", successes.ConvertAll(s => $" - {s}")) : " None") + "\n\n" +
-                                $"Failed ({failures.Count}):\n" +
-                                (failures.Count > 0 ? string.Join("\n", new List<string>(failures.Keys).ConvertAll(k => $" - {k}: {failures[k]}")) : " None");
+                string summaryMsg = $"Batch Publish Operation Completed.\n\n" +
+                                    $"Successful ({successes.Count}):\n" +
+                                    (successes.Count > 0 ? string.Join("\n", successes.ConvertAll(s => $" - {s}")) : " None") + "\n\n" +
+                                    $"Failed ({failures.Count}):\n" +
+                                    (failures.Count > 0 ? string.Join("\n", new List<string>(failures.Keys).ConvertAll(k => $" - {k}: {failures[k]}")) : " None");
 
-            MessageBox.Show(summaryMsg, "Publish Batch Summary", MessageBoxButtons.OK, 
-                            failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                MessageBox.Show(summaryMsg, "Publish Batch Summary", MessageBoxButtons.OK, 
+                                failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
         }
 
         private async Task<bool> PublishMobileAppAsync(string workspace, AppPipelineConfig app, string revision)
@@ -1010,11 +1165,21 @@ namespace GFCDevOpsUtility
             
             if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
 
+            if (_isPublishAborted) return false;
             LogPublish(">>> Executing dotnet publish...", false, ColorWait);
             var runner = new ProcessRunner((line, err) => LogPublish(line, err));
-            int exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            _activePublishRunner = runner;
+            int exit = -1;
+            try
+            {
+                exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
 
-            if (exit != 0)
+            if (exit != 0 || _isPublishAborted)
             {
                 LogPublish($"!!! dotnet publish failed with code {exit}", true);
                 if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
@@ -1066,13 +1231,23 @@ namespace GFCDevOpsUtility
                 return false;
             }
 
+            if (_isPublishAborted) return false;
             LogPublish($">>> Triggering version synchronization to version {version}...", false, ColorWait);
             var syncRunner = new ProcessRunner((line, err) => LogPublish($"[SYNC] {line}", err));
-            int syncExit = await syncRunner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \".\\sync-version.ps1\" -Project POS -Version \"{version}\"", workspace);
-            
-            if (syncExit != 0)
+            _activePublishRunner = syncRunner;
+            int syncExit = -1;
+            try
             {
-                LogPublish("!!! Version synchronization execution failed.", true);
+                syncExit = await syncRunner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \".\\sync-version.ps1\" -Project POS -Version \"{version}\"", workspace);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
+            
+            if (syncExit != 0 || _isPublishAborted)
+            {
+                LogPublish("!!! Version synchronization execution failed or was aborted.", true);
                 return false;
             }
 
@@ -1089,11 +1264,21 @@ namespace GFCDevOpsUtility
 
             if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
 
+            if (_isPublishAborted) return false;
             LogPublish(">>> Executing dotnet publish for POS Terminal...", false, ColorWait);
             var runner = new ProcessRunner((line, err) => LogPublish(line, err));
-            int exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            _activePublishRunner = runner;
+            int exit = -1;
+            try
+            {
+                exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
 
-            if (exit == 0)
+            if (exit == 0 && !_isPublishAborted)
             {
                 // Write version.txt
                 string wwwrootPath = Path.Combine(tempOut, "wwwroot");
@@ -1136,11 +1321,21 @@ namespace GFCDevOpsUtility
 
             if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
 
+            if (_isPublishAborted) return false;
             LogPublish(">>> Executing dotnet publish for Blazor Server...", false, ColorWait);
             var runner = new ProcessRunner((line, err) => LogPublish(line, err));
-            int exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            _activePublishRunner = runner;
+            int exit = -1;
+            try
+            {
+                exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
 
-            if (exit != 0)
+            if (exit != 0 || _isPublishAborted)
             {
                 LogPublish($"!!! dotnet publish failed with code {exit}", true);
                 if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
@@ -1252,9 +1447,19 @@ namespace GFCDevOpsUtility
                 LogPublish($">>> [Warning] Failed to clear intermediate build directories: {ex.Message}", false, ColorWarning);
             }
 
+            if (_isPublishAborted) return false;
             LogPublish(">>> Executing dotnet publish for Native Android project...", false, ColorWait);
             var mobileRunner = new ProcessRunner((line, err) => LogPublish(line, err));
-            int mobileExit = await mobileRunner.RunAsync("dotnet", $"publish \"{mobileProjectPath}\" -f net10.0-android -c Release -o \"{mobileTempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            _activePublishRunner = mobileRunner;
+            int mobileExit = -1;
+            try
+            {
+                mobileExit = await mobileRunner.RunAsync("dotnet", $"publish \"{mobileProjectPath}\" -f net10.0-android -c Release -o \"{mobileTempOut}\" /p:TreatWarningsAsErrors=false", workspace);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
 
             bool success = false;
             if (mobileExit == 0)
@@ -1313,13 +1518,20 @@ namespace GFCDevOpsUtility
                 }
             }
 
-            if (mobileExit == 0 && success)
+            if (mobileExit == 0 && success && !_isPublishAborted)
             {
                 UpdateVisualStatus(app.AppName, true, "Success ✅", Color.Green);
             }
             else
             {
-                UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                if (_isPublishAborted)
+                {
+                    UpdateVisualStatus(app.AppName, true, "Aborted 🛑", Color.Red);
+                }
+                else
+                {
+                    UpdateVisualStatus(app.AppName, true, "Failed ❌", Color.Red);
+                }
             }
 
             if (Directory.Exists(mobileTempOut)) Directory.Delete(mobileTempOut, true);
@@ -1643,6 +1855,13 @@ namespace GFCDevOpsUtility
                 {
                     if (preserveExclusions)
                     {
+                        // Exclude any files residing inside a "Download" or "downloads" directory
+                        if (file.IndexOf("\\Download\\", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                            file.IndexOf("\\downloads\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            continue;
+                        }
+
                         bool isExcluded = false;
                         foreach (var exc in exclusions)
                         {
@@ -1674,6 +1893,14 @@ namespace GFCDevOpsUtility
         {
             foreach (var directory in Directory.GetDirectories(path))
             {
+                // Protect "Download" and "downloads" subdirectories from being traversed/deleted
+                string dirName = Path.GetFileName(directory);
+                if (dirName.Equals("Download", StringComparison.OrdinalIgnoreCase) || 
+                    dirName.Equals("downloads", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 DeleteEmptySubdirectories(directory);
                 try
                 {

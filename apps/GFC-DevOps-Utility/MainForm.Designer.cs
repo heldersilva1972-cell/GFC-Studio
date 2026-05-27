@@ -63,6 +63,8 @@ namespace GFCDevOpsUtility
             this.txtBuildLogs = new System.Windows.Forms.RichTextBox();
             this.rtbBuildOutput = this.txtBuildLogs;
             this.btnCopyLog = new System.Windows.Forms.Button();
+            this.chkShowErrors = new System.Windows.Forms.CheckBox();
+            this.chkShowWarnings = new System.Windows.Forms.CheckBox();
 
             // Deploy Panel controls
             this.pnlDeploy = new System.Windows.Forms.Panel();
@@ -222,6 +224,8 @@ namespace GFCDevOpsUtility
             this.pnlPublish.Controls.Add(this.btnRunPublish);
             this.pnlPublish.Controls.Add(this.rtbBuildOutput);
             this.pnlPublish.Controls.Add(this.btnCopyLog);
+            this.pnlPublish.Controls.Add(this.chkShowErrors);
+            this.pnlPublish.Controls.Add(this.chkShowWarnings);
             this.pnlPublish.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pnlPublish.Location = new System.Drawing.Point(15, 15);
             this.pnlPublish.Name = "pnlPublish";
@@ -249,7 +253,7 @@ namespace GFCDevOpsUtility
             this.grpPublishOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpPublishOptions.Location = new System.Drawing.Point(5, 5);
             this.grpPublishOptions.Name = "grpPublishOptions";
-            this.grpPublishOptions.Size = new System.Drawing.Size(920, 160);
+            this.grpPublishOptions.Size = new System.Drawing.Size(880, 160);
             this.grpPublishOptions.TabIndex = 0;
             this.grpPublishOptions.TabStop = false;
             this.grpPublishOptions.Text = "Publish Project Parameters";
@@ -269,9 +273,9 @@ namespace GFCDevOpsUtility
             this.grpPipelineStatus.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.grpPipelineStatus.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpPipelineStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
-            this.grpPipelineStatus.Location = new System.Drawing.Point(935, 5);
+            this.grpPipelineStatus.Location = new System.Drawing.Point(895, 5);
             this.grpPipelineStatus.Name = "grpPipelineStatus";
-            this.grpPipelineStatus.Size = new System.Drawing.Size(340, 160);
+            this.grpPipelineStatus.Size = new System.Drawing.Size(450, 160);
             this.grpPipelineStatus.TabIndex = 12;
             this.grpPipelineStatus.TabStop = false;
             this.grpPipelineStatus.Text = "Publish Progress Indicators";
@@ -288,12 +292,12 @@ namespace GFCDevOpsUtility
             // 
             // lblStatusMobilePublish
             // 
-            this.lblStatusMobilePublish.AutoSize = true;
+            this.lblStatusMobilePublish.AutoSize = false;
             this.lblStatusMobilePublish.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusMobilePublish.ForeColor = System.Drawing.Color.Gray;
             this.lblStatusMobilePublish.Location = new System.Drawing.Point(135, 30);
             this.lblStatusMobilePublish.Name = "lblStatusMobilePublish";
-            this.lblStatusMobilePublish.Size = new System.Drawing.Size(75, 20);
+            this.lblStatusMobilePublish.Size = new System.Drawing.Size(125, 20);
             this.lblStatusMobilePublish.Text = "Idle 💤";
             // 
             // lblStatusMobileApk
@@ -301,7 +305,7 @@ namespace GFCDevOpsUtility
             this.lblStatusMobileApk.AutoSize = true;
             this.lblStatusMobileApk.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusMobileApk.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusMobileApk.Location = new System.Drawing.Point(215, 30);
+            this.lblStatusMobileApk.Location = new System.Drawing.Point(270, 30);
             this.lblStatusMobileApk.Name = "lblStatusMobileApk";
             this.lblStatusMobileApk.Size = new System.Drawing.Size(60, 20);
             this.lblStatusMobileApk.Text = "APK: -";
@@ -317,12 +321,12 @@ namespace GFCDevOpsUtility
             // 
             // lblStatusPosPublish
             // 
-            this.lblStatusPosPublish.AutoSize = true;
+            this.lblStatusPosPublish.AutoSize = false;
             this.lblStatusPosPublish.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusPosPublish.ForeColor = System.Drawing.Color.Gray;
             this.lblStatusPosPublish.Location = new System.Drawing.Point(135, 65);
             this.lblStatusPosPublish.Name = "lblStatusPosPublish";
-            this.lblStatusPosPublish.Size = new System.Drawing.Size(75, 20);
+            this.lblStatusPosPublish.Size = new System.Drawing.Size(125, 20);
             this.lblStatusPosPublish.Text = "Idle 💤";
             // 
             // lblStatusPosApk
@@ -330,7 +334,7 @@ namespace GFCDevOpsUtility
             this.lblStatusPosApk.AutoSize = true;
             this.lblStatusPosApk.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusPosApk.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusPosApk.Location = new System.Drawing.Point(215, 65);
+            this.lblStatusPosApk.Location = new System.Drawing.Point(270, 65);
             this.lblStatusPosApk.Name = "lblStatusPosApk";
             this.lblStatusPosApk.Size = new System.Drawing.Size(60, 20);
             this.lblStatusPosApk.Text = "APK: -";
@@ -346,12 +350,12 @@ namespace GFCDevOpsUtility
             // 
             // lblStatusWebAppPublish
             // 
-            this.lblStatusWebAppPublish.AutoSize = true;
+            this.lblStatusWebAppPublish.AutoSize = false;
             this.lblStatusWebAppPublish.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusWebAppPublish.ForeColor = System.Drawing.Color.Gray;
             this.lblStatusWebAppPublish.Location = new System.Drawing.Point(135, 100);
             this.lblStatusWebAppPublish.Name = "lblStatusWebAppPublish";
-            this.lblStatusWebAppPublish.Size = new System.Drawing.Size(75, 20);
+            this.lblStatusWebAppPublish.Size = new System.Drawing.Size(125, 20);
             this.lblStatusWebAppPublish.Text = "Idle 💤";
             // 
             // lblStatusWebAppApk
@@ -359,7 +363,7 @@ namespace GFCDevOpsUtility
             this.lblStatusWebAppApk.AutoSize = true;
             this.lblStatusWebAppApk.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusWebAppApk.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusWebAppApk.Location = new System.Drawing.Point(215, 100);
+            this.lblStatusWebAppApk.Location = new System.Drawing.Point(270, 100);
             this.lblStatusWebAppApk.Name = "lblStatusWebAppApk";
             this.lblStatusWebAppApk.Size = new System.Drawing.Size(60, 20);
             this.lblStatusWebAppApk.Text = "APK: -";
@@ -445,14 +449,14 @@ namespace GFCDevOpsUtility
             this.txtPubWorkspace.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.txtPubWorkspace.Location = new System.Drawing.Point(295, 48);
             this.txtPubWorkspace.Name = "txtPubWorkspace";
-            this.txtPubWorkspace.Size = new System.Drawing.Size(500, 25);
+            this.txtPubWorkspace.Size = new System.Drawing.Size(460, 25);
             this.txtPubWorkspace.TabIndex = 3;
             // 
             // btnPubWorkspaceBrowse
             // 
             this.btnPubWorkspaceBrowse.FlatStyle = System.Windows.Forms.FlatStyle.System;
             this.btnPubWorkspaceBrowse.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.btnPubWorkspaceBrowse.Location = new System.Drawing.Point(805, 47);
+            this.btnPubWorkspaceBrowse.Location = new System.Drawing.Point(765, 47);
             this.btnPubWorkspaceBrowse.Name = "btnPubWorkspaceBrowse";
             this.btnPubWorkspaceBrowse.Size = new System.Drawing.Size(95, 27);
             this.btnPubWorkspaceBrowse.TabIndex = 4;
@@ -475,14 +479,14 @@ namespace GFCDevOpsUtility
             this.txtPubOutput.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.txtPubOutput.Location = new System.Drawing.Point(295, 103);
             this.txtPubOutput.Name = "txtPubOutput";
-            this.txtPubOutput.Size = new System.Drawing.Size(500, 25);
+            this.txtPubOutput.Size = new System.Drawing.Size(460, 25);
             this.txtPubOutput.TabIndex = 6;
             // 
             // btnPubOutputBrowse
             // 
             this.btnPubOutputBrowse.FlatStyle = System.Windows.Forms.FlatStyle.System;
             this.btnPubOutputBrowse.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.btnPubOutputBrowse.Location = new System.Drawing.Point(805, 102);
+            this.btnPubOutputBrowse.Location = new System.Drawing.Point(765, 102);
             this.btnPubOutputBrowse.Name = "btnPubOutputBrowse";
             this.btnPubOutputBrowse.Size = new System.Drawing.Size(95, 27);
             this.btnPubOutputBrowse.TabIndex = 7;
@@ -518,6 +522,34 @@ namespace GFCDevOpsUtility
             this.btnCopyLog.Text = "📋 Copy Log to Clipboard";
             this.btnCopyLog.UseVisualStyleBackColor = true;
             this.btnCopyLog.Click += new System.EventHandler(this.BtnCopyLog_Click);
+            // 
+            // chkShowErrors
+            // 
+            this.chkShowErrors.AutoSize = true;
+            this.chkShowErrors.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.chkShowErrors.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.chkShowErrors.ForeColor = System.Drawing.Color.FromArgb(220, 38, 38);
+            this.chkShowErrors.Location = new System.Drawing.Point(505, 327);
+            this.chkShowErrors.Name = "chkShowErrors";
+            this.chkShowErrors.Size = new System.Drawing.Size(138, 21);
+            this.chkShowErrors.TabIndex = 12;
+            this.chkShowErrors.Text = "❌ Show Errors Only";
+            this.chkShowErrors.UseVisualStyleBackColor = true;
+            this.chkShowErrors.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
+            // 
+            // chkShowWarnings
+            // 
+            this.chkShowWarnings.AutoSize = true;
+            this.chkShowWarnings.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.chkShowWarnings.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.chkShowWarnings.ForeColor = System.Drawing.Color.FromArgb(217, 119, 6);
+            this.chkShowWarnings.Location = new System.Drawing.Point(685, 327);
+            this.chkShowWarnings.Name = "chkShowWarnings";
+            this.chkShowWarnings.Size = new System.Drawing.Size(161, 21);
+            this.chkShowWarnings.TabIndex = 13;
+            this.chkShowWarnings.Text = "⚠️ Show Warnings Only";
+            this.chkShowWarnings.UseVisualStyleBackColor = true;
+            this.chkShowWarnings.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
             // 
             // btnRunPublish
             // 
@@ -1164,12 +1196,12 @@ namespace GFCDevOpsUtility
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
-            this.ClientSize = new System.Drawing.Size(1320, 700);
+            this.ClientSize = new System.Drawing.Size(1380, 700);
             this.Controls.Add(this.pnlMainContainer);
             this.Controls.Add(this.pnlLogs);
             this.Controls.Add(this.pnlStatusStrip);
             this.Controls.Add(this.pnlNavBar);
-            this.MinimumSize = new System.Drawing.Size(1335, 740);
+            this.MinimumSize = new System.Drawing.Size(1395, 740);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "GFC Studio DevOps Utility";
@@ -1223,6 +1255,8 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.RichTextBox rtbBuildOutput;
         private System.Windows.Forms.RichTextBox txtBuildLogs; // Keep declaration to avoid design-time metadata breaks but use rtbBuildOutput
         private System.Windows.Forms.Button btnCopyLog;
+        private System.Windows.Forms.CheckBox chkShowErrors;
+        private System.Windows.Forms.CheckBox chkShowWarnings;
 
         // Deploy Tab Panel
         private System.Windows.Forms.Panel pnlDeploy;
