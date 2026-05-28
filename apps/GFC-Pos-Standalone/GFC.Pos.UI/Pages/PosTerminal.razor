@@ -6078,10 +6078,10 @@
             IsCorrection = _isCorrectionMode
         };
         
-        if (!forceTrainingMode && _isTabPayment && _selectedActiveEvent != null)
+        if (_isTabPayment && _selectedActiveEvent != null)
         {
             _selectedActiveEvent.CurrentBalance -= amountToRecord;
-            if (_cachedMenu != null)
+            if (!forceTrainingMode && _cachedMenu != null)
             {
                 await PosService.SaveMenuToVaultAsync(_cachedMenu);
             }
@@ -6091,7 +6091,27 @@
         var wasCorrection = _isCorrectionMode;
 
         // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
-        if (!forceTrainingMode)
+        if (forceTrainingMode)
+        {
+            if (_isCorrectionMode && _lastSale != null)
+            {
+                // Return the money originally removed from the event (prepaid or running tab)
+                if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
+                {
+                    var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
+                    if (originalEvent != null)
+                    {
+                        originalEvent.CurrentBalance += _lastSale.TotalAmount;
+                        Console.WriteLine($"[POS] [TRAINING] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
+                    }
+                }
+
+                sale.IsCorrection = true;
+                sale.OriginalSaleId = _lastSale.Id;
+                sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
+            }
+        }
+        else
         {
             if (_isCorrectionMode && _lastSale != null)
             {
@@ -6186,7 +6206,7 @@
                 {
                     printHtml = printHtml.Replace("Z-REPORT SUMMARY", "*** REPRINT ***<br/>Z-REPORT SUMMARY");
                 }
-                await PrinterService.PrintReceiptAsync(printHtml);
+                await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("Z-Report re-printing...");
                 return;
             }
@@ -6202,7 +6222,7 @@
             }
 
             var html = BuildZReportHtml(last, isReprint: true);
-            await PrinterService.PrintReceiptAsync(html);
+            await PrintReceiptAsync(html);
             Toast.ShowSuccess("Z-Report re-printing...");
             showOptionsMenu = false;
         }
@@ -6225,7 +6245,7 @@
                 {
                     printHtml = printHtml.Replace("X-REPORT SUMMARY", "*** REPRINT ***<br/>X-REPORT SUMMARY");
                 }
-                await PrinterService.PrintReceiptAsync(printHtml);
+                await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("X-Report re-printing...");
             }
             else
@@ -6253,7 +6273,7 @@
                 {
                     printHtml = printHtml.Replace("GFC EVENT RECEIPT", "<div style='text-align:center; font-weight:bold; font-size:14px; border:2px solid #000; padding:4px; margin-bottom:8px;'>*** REPRINT ***</div>GFC EVENT RECEIPT");
                 }
-                await PrinterService.PrintReceiptAsync(printHtml);
+                await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("Reprinting last event receipt...");
                 return;
             }
@@ -6319,7 +6339,7 @@
                     return;
                 }
                 var html = BuildLiquorInventoryHtml(items);
-                await PrinterService.PrintReceiptAsync(html);
+                await PrintReceiptAsync(html);
                 await InvokeAsync(() => Toast.ShowSuccess("Inventory printed successfully!"));
             }
             catch (Exception ex)
@@ -6415,7 +6435,7 @@
                 await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_x_html", html);
             }
             catch {}
-            await PrinterService.PrintReceiptAsync(html);
+            await PrintReceiptAsync(html);
             Toast.ShowSuccess("X-Report printed successfully!");
         }
         catch (Exception ex)
@@ -7025,7 +7045,7 @@
             </div>";
         try
         {
-            await PrinterService.PrintReceiptAsync(html);
+            await PrintReceiptAsync(html);
         }
         catch {}
     }
@@ -7400,7 +7420,7 @@
                     await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
                 }
                 catch {}
-                await PrinterService.PrintReceiptAsync(html);
+                await PrintReceiptAsync(html);
             }
         }
 
@@ -7676,6 +7696,20 @@
 
             Console.WriteLine($"[POS] Submitting liquor order receive for Order #{receipt.OrderId}. Invoice: {receipt.InvoiceNumber}, Total: {receipt.TotalDue}");
             
+            if (forceTrainingMode)
+            {
+                Toast.ShowSuccess("Delivery received in memory (Training Mode)!");
+                
+                var orderToRemove = _selectedLiquorOrder;
+                _selectedLiquorOrder = null;
+                await OpenLiquorOrdersWorkflow();
+                
+                // Remove from pending list in memory so it disappears from the current training screen
+                _pendingLiquorOrders.RemoveAll(o => o.Id == orderToRemove.Id);
+                StateHasChanged();
+                return;
+            }
+
             // Receive and cache / queue transaction in the background outbox
             await PosService.ReceiveLiquorOrderAsync(receipt);
 
@@ -8021,6 +8055,28 @@
                 EnableBeerTally = template.EnableBeerTally,
                 CreatedAt = DateTime.UtcNow
             };
+
+            if (forceTrainingMode)
+            {
+                newEvent.Id = new Random().Next(-999999, -1000);
+                if (DbActiveEvents == null) DbActiveEvents = new();
+                DbActiveEvents.Add(newEvent);
+                if (_cachedMenu != null)
+                {
+                    _cachedMenu.ActiveEvents = DbActiveEvents;
+                }
+                if (_newBanquetAmount > 0)
+                {
+                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
+                }
+                Toast.ShowSuccess("Event started in memory (Training Mode)!");
+                _newBanquetTemplateId = 0;
+                _newBanquetAmount = 0;
+                _newEventDirectCheckout = false;
+                showBanquetsModal = false; // Close the modal cleanly!
+                StateHasChanged();
+                return;
+            }
             
             if (!Connectivity.IsOnline)
             {
@@ -8088,7 +8144,7 @@
         _selectedBanquetToAddFunds.CurrentBalance += actualAmount;
         await LogTabDeposit(_selectedBanquetToAddFunds.Name, actualAmount, _selectedBanquetToAddFunds.Id, isInitial: false, isCorrection: _isDeductFundsMode);
         
-        if (_cachedMenu != null)
+        if (_cachedMenu != null && !forceTrainingMode)
         {
              await PosService.SaveMenuToVaultAsync(_cachedMenu);
         }
@@ -8102,6 +8158,12 @@
         _isDeductFundsMode = false;
         showBanquetsModal = false; // Close the entire modal after funds are added
         StateHasChanged();
+
+        if (forceTrainingMode)
+        {
+            Toast.ShowSuccess("Funds updated in memory (Training Mode)");
+            return;
+        }
 
         var addFundsKey = $"gfc_pos_vault_event_add_funds_{Guid.NewGuid()}";
         var request = new AddFundsRequest { Id = id, Amount = amt };
@@ -8165,6 +8227,15 @@
         
         await LogTabDeposit(_closingBanquet.Name, refundAmount, _closingBanquet.Id, isInitial: false, isCorrection: true);
 
+        if (forceTrainingMode)
+        {
+            _showBanquetRefundPrompt = false;
+            _showBanquetRefundSuccessConfirm = true;
+            StateHasChanged();
+            Toast.ShowSuccess("Refund logged in memory (Training Mode)");
+            return;
+        }
+
         // Queue the add-funds (refund) request in IndexedDB outbox so server syncs the negative correction
         var addFundsKey = $"gfc_pos_vault_event_add_funds_{Guid.NewGuid()}";
         var request = new AddFundsRequest { Id = _closingBanquet.Id, Amount = refundAmount };
@@ -8198,7 +8269,37 @@
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
-            await PosService.SaveMenuToVaultAsync(_cachedMenu);
+            if (!forceTrainingMode)
+            {
+                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+            }
+        }
+
+        if (forceTrainingMode)
+        {
+            // Auto reset selected active event if it was the one closed
+            if (_selectedActiveEvent?.Id == ev.Id)
+            {
+                var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
+                _selectedActiveEvent = directEvent;
+                ActiveCategory = "BEER";
+            }
+            showBanquetsModal = false; // Close the event manager modal
+            StateHasChanged();
+
+            if (print)
+            {
+                try
+                {
+                    _ = PrintBanquetMasterSummary(ev);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Failed to start background print: {ex.Message}");
+                }
+            }
+            Toast.ShowSuccess("Event closed in memory (Training Mode)");
+            return;
         }
 
         // Queue the event closure request in IndexedDB outbox
@@ -8533,13 +8634,41 @@
                 catch {}
             }
 
-            await PrinterService.PrintReceiptAsync(html);
+            await PrintReceiptAsync(html);
         }
         catch (Exception ex)
         {
             Console.WriteLine($@"[POS] Error printing banquet summary: {ex.Message}");
             Toast.ShowError("Failed to print banquet summary.");
         }
+    }
+
+    private async Task PrintReceiptAsync(string html)
+    {
+        if (forceTrainingMode)
+        {
+            var warningHeader = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-bottom:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
+            var warningFooter = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-top:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
+            
+            if (html.Contains("<body>"))
+            {
+                html = html.Replace("<body>", $"<body>{warningHeader}");
+            }
+            else
+            {
+                html = warningHeader + html;
+            }
+            
+            if (html.Contains("</body>"))
+            {
+                html = html.Replace("</body>", $"{warningFooter}</body>");
+            }
+            else
+            {
+                html = html + warningFooter;
+            }
+        }
+        await PrinterService.PrintReceiptAsync(html);
     }
 
     private async Task LogTabDeposit(string eventName, decimal amount, int? eventId, bool isInitial = false, bool isCorrection = false)
