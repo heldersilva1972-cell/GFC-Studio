@@ -5,6 +5,7 @@
 @using Microsoft.EntityFrameworkCore
 @using global::System.Security.Claims
 @using global::System.Globalization
+@using global::System.Text.Json
 @inject GfcDbContext DbContext
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
@@ -12,169 +13,355 @@
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
-<PageTitle>Bingo Expense Center | GFC Admin</PageTitle>
+<PageTitle>Bingo Bank Ledger & Expense Center</PageTitle>
 
-<div class="expense-center">
-    <div class="container py-5">
-        <!-- Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="d-flex align-items-center gap-3">
-                <button class="btn btn-icon shadow-sm" @onclick='() => Navigation.NavigateTo("/admin/bingo")'>
-                    <i class="bi bi-arrow-left"></i>
-                </button>
-                <h2 class="fw-black text-slate mb-0">EXPENSE CENTER</h2>
-            </div>
-            <div class="d-flex align-items-center gap-3">
-                <div class="balance-pill shadow-sm bg-white px-4 py-2 rounded-pill">
-                    <small class="text-muted fw-bold extra-small d-block text-end" style="line-height: 1;">ACCOUNT BALANCE</small>
-                    <span class="fw-black fs-4 @(AccountBalance >= 0 ? "text-success" : "text-danger")">@AccountBalance.ToString("C2")</span>
+<div class="expense-center py-4">
+    <div class="container-fluid px-4" style="max-width: 1400px;">
+        
+        <!-- Premium Header & Stats Banner -->
+        <div class="header-dashboard-banner mb-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-back-circle shadow-sm" @onclick='() => Navigation.NavigateTo("/admin/bingo")' title="Back to Bingo">
+                        <i class="bi bi-arrow-left fs-4"></i>
+                    </button>
+                    <div>
+                        <h1 class="fw-black text-white m-0 tracking-tight" style="font-size: 2rem; letter-spacing: -0.5px;">BINGO BANK LEDGER</h1>
+                        <p class="small fw-bold text-uppercase m-0" style="color: rgba(255, 255, 255, 0.85) !important;">Track transactions, manage cash, and reconcile bank statements</p>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-3 align-items-center">
+                    <!-- Balance Metric Card -->
+                    <div class="metric-card ledger-balance shadow-sm">
+                        <span class="metric-label">LEDGER BALANCE</span>
+                        <h3 class="metric-value @(AccountBalance >= 0 ? "text-success" : "text-danger")">
+                            @AccountBalance.ToString("C2")
+                        </h3>
+                    </div>
+
+                    <!-- Reconciled Balance Metric Card -->
+                    <div class="metric-card reconciled-balance shadow-sm">
+                        <span class="metric-label">RECONCILED BALANCE</span>
+                        <h3 class="metric-value">
+                            @ReconciledBalance.ToString("C2")
+                        </h3>
+                    </div>
+
+                    <!-- Bank Reconciliation Toggle -->
+                    <button class="btn btn-reconcile-toggle shadow-sm @(IsBalanced ? "balanced" : "unbalanced")" @onclick="ToggleReconcilePanel">
+                        <i class="bi @(IsBalanced ? "bi-check-all" : "bi-arrow-left-right")"></i>
+                        <span>@(IsBalanced ? "BALANCED & RECONCILED" : "RECONCILE STATEMENT")</span>
+                    </button>
                 </div>
             </div>
         </div>
 
         <div class="row g-4">
-            <!-- Entry Form -->
-            <div class="col-lg-7">
-                <div class="card border-0 shadow-sm rounded-4 p-4">
-                    <div class="row g-4">
+            
+            <!-- Left Side: Transaction Entry Form & Bank Reconciliation Panel -->
+            <div class="col-xl-4 col-lg-5">
+                
+                <!-- Quick Entry Form -->
+                <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 dashboard-pane">
+                    <h4 class="pane-title mb-4"><i class="bi bi-plus-circle-fill text-primary"></i> RECORD TRANSACTION</h4>
+                    
+                    <div class="row g-3">
+                        <!-- Transaction Type Toggle -->
                         <div class="col-12">
-                            <label class="form-label fw-bold text-muted small mb-1">AMOUNT</label>
-                            <div class="input-group input-group-lg bg-light rounded-3 overflow-hidden">
-                                <span class="input-group-text border-0 bg-transparent ps-4 fw-black fs-3 text-muted">$</span>
-                                <input type="number" step="0.01" class="form-control border-0 bg-transparent fw-black fs-1 py-3" @bind="NewExpense.Amount" placeholder="0.00" autofocus />
-                            </div>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted small mb-1">CATEGORY</label>
-                            <div class="d-flex gap-2">
-                                <select class="form-select form-select-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.CategoryId">
-                                    <option value="">Select Category...</option>
-                                    @foreach (var cat in ExpenseCategories)
-                                    {
-                                        <option value="@cat.Id">@cat.Name</option>
-                                    }
-                                </select>
-                                <button class="btn btn-light rounded-3 px-3" @onclick="() => OpenCategoryModal()" title="Manage Categories">
-                                    <i class="bi bi-plus-lg"></i>
+                            <label class="form-label fw-black text-muted small text-uppercase tracking-wider mb-2">Transaction Type</label>
+                            <div class="type-selector-pills">
+                                <button class="type-pill expense-type @(NewExpense.Type == "Expense" ? "active" : "")" 
+                                        @onclick='() => SetTransactionType("Expense")'>
+                                    <i class="bi bi-dash-circle-fill"></i> EXPENSE
+                                </button>
+                                <button class="type-pill deposit-type @(NewExpense.Type == "Income" ? "active" : "")" 
+                                        @onclick='() => SetTransactionType("Income")'>
+                                    <i class="bi bi-plus-circle-fill"></i> DEPOSIT
                                 </button>
                             </div>
                         </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted small mb-1">TRANSACTION TYPE</label>
-                            <div class="d-flex gap-2 p-1 bg-light rounded-3">
-                                <button class='btn flex-grow-1 rounded-2 fw-bold @(NewExpense.Type == "Expense" ? "btn-danger shadow-sm" : "text-muted")' 
-                                        @onclick='() => NewExpense.Type = "Expense"'>EXPENSE</button>
-                                <button class='btn flex-grow-1 rounded-2 fw-bold @(NewExpense.Type == "Income" ? "btn-success shadow-sm" : "text-muted")' 
-                                        @onclick='() => NewExpense.Type = "Income"'>DEPOSIT</button>
+                        <!-- Amount Input -->
+                        <div class="col-12">
+                            <label class="form-label fw-black text-muted small text-uppercase tracking-wider mb-1">Amount ($)</label>
+                            <div class="input-group input-group-lg bg-light border-0 rounded-4 overflow-hidden shadow-inner">
+                                <span class="input-group-text border-0 bg-transparent ps-4 fw-black fs-2 text-secondary">$</span>
+                                <input type="number" step="0.01" class="form-control border-0 bg-transparent fw-black fs-1 py-3 text-dark" @bind="NewExpense.Amount" placeholder="0.00" autofocus />
                             </div>
                         </div>
 
+                        @if (NewExpense.Type == "Expense")
+                        {
+                            <!-- Category Selector -->
+                            <div class="col-12">
+                                <label class="form-label fw-black text-muted small text-uppercase tracking-wider mb-1">Category</label>
+                                <div class="d-flex gap-2">
+                                    <select class="form-select form-select-lg border-2 bg-white rounded-3 fw-bold border-light shadow-sm" @bind="NewExpense.CategoryId">
+                                        <option value="">Select Category...</option>
+                                        @foreach (var cat in ExpenseCategories)
+                                        {
+                                            <option value="@cat.Id">@cat.Name</option>
+                                        }
+                                    </select>
+                                    <button class="btn btn-outline-primary rounded-3 px-3 shadow-sm" @onclick="() => OpenCategoryModal()" title="Manage Categories">
+                                        <i class="bi bi-tags-fill"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Description / Payee Input -->
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label fw-black text-muted small text-uppercase tracking-wider m-0">
+                                        Payee / Expense Detail
+                                    </label>
+                                </div>
+                                <input type="text" class="form-control form-control-lg border-2 bg-white rounded-3 fw-bold border-light shadow-sm" 
+                                       @bind="NewExpense.Description" 
+                                       placeholder="Enter vendor or payee name..." />
+                            </div>
+                        }
+
+                        <!-- Transaction Date -->
                         <div class="col-12">
-                            <label class="form-label fw-bold text-muted small mb-1">PAYEE / EXPENSE</label>
-                            <input type="text" class="form-control form-control-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.Description" placeholder="Enter payee or expense detail..." />
+                            <label class="form-label fw-black text-muted small text-uppercase tracking-wider mb-1">Transaction Date</label>
+                            <input type="date" class="form-control form-control-lg border-2 bg-white rounded-3 fw-bold border-light shadow-sm" @bind="NewExpense.Date" />
                         </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-muted small mb-1">DATE</label>
-                            <input type="date" class="form-control form-control-lg border-0 bg-light rounded-3 fw-bold" @bind="NewExpense.Date" />
-                        </div>
-
-                        <div class="col-12 pt-2">
-                            <button class="btn btn-primary btn-lg w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="AddExpense">
-                                RECORD @NewExpense.Type.ToUpper()
+                        <!-- Submit Button -->
+                        <div class="col-12 pt-3">
+                            <button class="btn @(NewExpense.Type == "Expense" ? "btn-danger" : "btn-success") btn-lg w-100 py-3 rounded-pill fw-black shadow-sm text-uppercase" 
+                                    @onclick="AddExpense">
+                                <i class="bi @(NewExpense.Type == "Expense" ? "bi-dash-circle" : "bi-plus-circle") me-2"></i> Record @NewExpense.Type.ToUpper()
                             </button>
                         </div>
                     </div>
                 </div>
+
+                <!-- Live Bank Reconciliation Box -->
+                @if (_showReconcilePanel)
+                {
+                    <div class="card border-0 shadow-sm rounded-4 p-4 dashboard-pane animate__animated animate__slideInLeft animate__faster" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 2px solid #cbd5e1 !important;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h4 class="pane-title text-navy m-0"><i class="bi bi-bank2 text-primary"></i> BANK STATEMENT RECONCILIATION</h4>
+                            <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" @onclick="ToggleReconcilePanel"><i class="bi bi-x-lg fs-5"></i></button>
+                        </div>
+                        <p class="text-muted small fw-semibold mb-4">Enter your bank statement ending balance and tick off transactions in the ledger to reconcile.</p>
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label fw-black text-muted small text-uppercase tracking-wider mb-1">Bank Statement Balance</label>
+                                <div class="input-group bg-white rounded-3 border-2 border shadow-sm overflow-hidden">
+                                    <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
+                                    <input type="number" step="0.01" class="form-control border-0 fw-black text-dark" @bind="_bankStatementBalance" @bind:after="RecalculateReconciliation" placeholder="0.00" />
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="bg-white p-3 rounded-3 border shadow-sm text-start">
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="small fw-bold text-muted">Ledger Balance:</span>
+                                        <span class="fw-black text-slate">@AccountBalance.ToString("C2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="small fw-bold text-muted">Uncleared Items:</span>
+                                        <span class="fw-black text-danger">@UnclearedTotal.ToString("C2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="small fw-bold text-muted">Reconciled Balance:</span>
+                                        <span class="fw-black text-primary">@ReconciledBalance.ToString("C2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between py-1 mt-2">
+                                        <span class="small fw-bold text-muted">Difference:</span>
+                                        <span class="fw-black @(ReconciliationDifference == 0 ? "text-success animate-pulse" : "text-danger")">@ReconciliationDifference.ToString("C2")</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (IsBalanced)
+                            {
+                                <div class="col-12 animate__animated animate__bounceIn">
+                                    <div class="alert alert-success border-0 rounded-3 p-3 text-center d-flex align-items-center justify-content-center gap-2">
+                                        <i class="bi bi-patch-check-fill fs-4 text-success"></i>
+                                        <span class="fw-black text-success small">LEDGER BALANCED & RECONCILED! 🟢</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
 
-            <!-- Manual Activity Only -->
-            <div class="col-lg-5">
-                <div class="card border-0 shadow-sm rounded-4 h-100 d-flex flex-column overflow-hidden">
-                    <div class="card-header bg-white border-0 p-4 pb-2 d-flex justify-content-between align-items-center">
-                        <h5 class="fw-black text-slate mb-0">MANUAL ENTRIES</h5>
-                        <span class="badge bg-light text-muted rounded-pill">LAST 20</span>
-                    </div>
+            <!-- Right Side: Unified Statement Ledger -->
+            <div class="col-xl-8 col-lg-7">
+                <div class="card border-0 shadow-sm rounded-4 p-4 dashboard-pane h-100 d-flex flex-column overflow-hidden">
                     
-                    <div class="card-body p-0 overflow-auto" style="max-height: 500px;">
-                        @if (!ManualExpenses.Any())
+                    <!-- Search, Filters, Actions Toolbar -->
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+                        <div>
+                            <h4 class="pane-title m-0"><i class="bi bi-list-columns-reverse text-primary"></i> BANK LEDGER STATEMENT</h4>
+                            <p class="text-muted extra-small fw-bold text-uppercase m-0">Showing manual ledger transactions and running balances</p>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <!-- Search Bar -->
+                            <div class="input-group input-group-sm bg-light border-0 rounded-pill px-3 py-1 shadow-inner" style="max-width: 250px;">
+                                <span class="input-group-text border-0 bg-transparent p-0 text-muted me-2"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-0 bg-transparent p-0 text-dark small" @bind="_searchText" @bind:event="oninput" placeholder="Search payee or detail..." />
+                            </div>
+
+                            <!-- Transaction Type Filter -->
+                            <select class="form-select form-select-sm border-2 rounded-pill fw-bold border-light bg-light shadow-sm" style="width: 130px;" @bind="_selectedTypeFilter">
+                                <option value="All">All Types</option>
+                                <option value="Income">Deposits</option>
+                                <option value="Expense">Expenses</option>
+                            </select>
+
+                            <!-- Status Filter -->
+                            <select class="form-select form-select-sm border-2 rounded-pill fw-bold border-light bg-light shadow-sm" style="width: 140px;" @bind="_selectedReconciledFilter">
+                                <option value="All">All Clearance</option>
+                                <option value="Reconciled">Reconciled</option>
+                                <option value="Uncleared">Uncleared</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Main Statement Ledger Table -->
+                    <div class="flex-grow-1 overflow-auto bg-light rounded-4 border" style="max-height: 700px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.02);">
+                        @if (!FilteredTransactions.Any())
                         {
-                            <div class="text-center py-5 text-muted opacity-50">
-                                <i class="bi bi-receipt-cutoff fs-1 d-block mb-2"></i>
-                                <span class="small fw-bold">No manual expenses found</span>
+                            <div class="text-center py-5 my-5 text-muted opacity-50">
+                                <i class="bi bi-card-checklist fs-1 d-block mb-2"></i>
+                                <span class="small fw-black text-uppercase">No matching transactions found</span>
                             </div>
                         }
                         else
                         {
-                            <div class="list-group list-group-flush">
-                                @foreach (var tx in ManualExpenses.Take(20))
-                                {
-                                    <div class="list-group-item border-0 border-bottom-1 px-4 py-3">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <div class="fw-black text-slate small">@(string.IsNullOrEmpty(tx.Description) ? tx.Category?.Name ?? "General" : tx.Description)</div>
-                                                <div class="extra-small text-muted fw-bold mt-1">
-                                                    @tx.Date.ToString("MMM dd, yyyy") • <span class="text-primary">@(tx.Category?.Name ?? "Uncategorized")</span>
-                                                </div>
-                                            </div>
-                                            <div class="text-end">
-                                                <div class='fw-black fs-5 @(tx.Amount >= 0 ? "text-success" : "text-danger")'>@tx.Amount.ToString("C2")</div>
-                                                <button class="btn btn-link btn-sm text-danger p-0 text-decoration-none" @onclick="() => DeleteTransaction(tx)">
-                                                    <i class="bi bi-trash-fill"></i>
+                            <table class="table table-hover align-middle mb-0 bank-table-theme">
+                                <thead class="table-white sticky-top shadow-sm border-bottom text-uppercase fs-7 fw-black text-secondary bg-white">
+                                    <tr>
+                                        <th class="ps-4 text-center" style="width: 60px;">Reconciled</th>
+                                        <th style="width: 130px;">Date</th>
+                                        <th>Category</th>
+                                        <th>Payee / Description</th>
+                                        <th class="text-end" style="width: 130px;">Amount</th>
+                                        <th class="text-end" style="width: 150px;">Running Balance</th>
+                                        <th class="text-center" style="width: 60px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in FilteredTransactions)
+                                    {
+                                        var isCleared = _reconciledTransactionIds.Contains(entry.Id);
+                                        var displayTitle = string.IsNullOrEmpty(entry.Description) 
+                                            ? (entry.Type == "Income" ? "Deposit Contribution" : entry.Category?.Name ?? "General Expense") 
+                                            : entry.Description;
+
+                                        <tr class="bank-row last-border-0 @(isCleared ? "reconciled-bg" : "")">
+                                            <!-- Status Checkbox -->
+                                            <td class="text-center ps-4">
+                                                <button class="btn btn-link p-0 text-decoration-none btn-clearance @(isCleared ? "cleared text-success" : "uncleared text-muted")" 
+                                                        @onclick="() => ToggleReconciliation(entry.Id)" 
+                                                        title="@(isCleared ? "Click to mark Uncleared" : "Click to mark Reconciled")">
+                                                    <i class="bi @(isCleared ? "bi-check-circle-fill" : "bi-circle")"></i>
                                                 </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
+                                            </td>
+
+                                            <!-- Transaction Date -->
+                                            <td class="fw-bold text-secondary font-monospace" style="font-size: 0.85rem;">
+                                                @entry.Date.ToString("yyyy-MM-dd")
+                                            </td>
+
+                                            <!-- Category -->
+                                            <td>
+                                                <span class="badge @(entry.Type == "Income" ? "bg-success-subtle text-success border border-success-subtle" : "bg-primary-subtle text-primary border border-primary-subtle") rounded-pill px-2.5 py-1 text-uppercase fw-black" style="font-size: 0.65rem;">
+                                                    @(entry.Category?.Name ?? (entry.Type == "Income" ? "DEPOSIT" : "UNCATEGORIZED"))
+                                                </span>
+                                            </td>
+
+                                            <!-- Description -->
+                                            <td>
+                                                <span class="fw-black text-slate text-capitalize" style="font-size: 0.9rem;">
+                                                    @displayTitle
+                                                </span>
+                                            </td>
+
+                                            <!-- Amount -->
+                                            <td class="text-end fw-black fs-6 @(entry.Type == "Income" ? "text-success" : "text-danger")">
+                                                @(entry.Type == "Income" ? "+" : "")@entry.Amount.ToString("C2")
+                                            </td>
+
+                                            <!-- Running Balance -->
+                                            <td class="text-end fw-black text-secondary font-monospace" style="font-size: 0.95rem;">
+                                                @entry.RunningBalance.ToString("C2")
+                                            </td>
+
+                                            <!-- Actions -->
+                                            <td class="text-center">
+                                                <button class="btn btn-outline-danger btn-sm border-0 rounded-circle d-flex align-items-center justify-content-center mx-auto shadow-sm" 
+                                                        style="width: 32px; height: 32px;" 
+                                                        @onclick="() => DeleteTransaction(entry)" 
+                                                        title="Delete Entry">
+                                                    <i class="bi bi-trash-fill fs-7"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         }
                     </div>
-                    
-                    <div class="mt-auto p-4 bg-light bg-opacity-50">
-                        <button class="btn btn-white shadow-sm w-100 fw-bold rounded-3 text-slate" @onclick='() => Navigation.NavigateTo("/admin/bingo")'>
-                            <i class="bi bi-speedometer2 me-2"></i> RETURN TO DASHBOARD
+
+                    <!-- Footer Back Action -->
+                    <div class="mt-4 pt-3 border-top d-flex justify-content-between align-items-center">
+                        <span class="extra-small text-muted fw-bold text-uppercase">Showing @FilteredTransactions.Count transactions</span>
+                        <button class="btn btn-outline-secondary rounded-pill px-4 fw-black" @onclick='() => Navigation.NavigateTo("/admin/bingo")'>
+                            <i class="bi bi-speedometer me-2"></i> RETURN TO DASHBOARD
                         </button>
                     </div>
                 </div>
             </div>
+
         </div>
+
     </div>
 </div>
 
+<!-- Add Category Modal -->
 @if (ShowCategoryModal)
 {
-    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.4); z-index: 1060; backdrop-filter: blur(5px);">
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.6); z-index: 1060; backdrop-filter: blur(8px);">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden animate__animated animate__zoomIn animate__faster">
                 <div class="modal-header border-0 p-4 pb-0">
-                    <h5 class="modal-title fw-black">MANAGE CATEGORIES</h5>
+                    <h5 class="modal-title fw-black"><i class="bi bi-tags-fill text-primary"></i> MANAGE CATEGORIES</h5>
                     <button type="button" class="btn-close" @onclick="() => ShowCategoryModal = false"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="mb-4 p-3 bg-light rounded-3">
-                        <label class="form-label fw-bold small text-muted">NEW CATEGORY NAME</label>
+                    <div class="mb-4 p-3 bg-light rounded-4 border">
+                        <label class="form-label fw-black small text-muted text-uppercase mb-2">Create New Category</label>
                         <div class="input-group">
-                            <input type="text" class="form-control border-0 fw-bold" @bind="EditingCategory.Name" placeholder="Category Name..." />
-                            <button class="btn btn-primary px-4 fw-bold" @onclick="SaveCategory">ADD</button>
+                            <input type="text" class="form-control border-2 fw-bold" @bind="EditingCategory.Name" placeholder="Category Name..." />
+                            <button class="btn btn-primary px-4 fw-black" @onclick="SaveCategory">ADD</button>
                         </div>
                     </div>
 
-                    <div class="list-group list-group-flush rounded-3 border">
+                    <label class="form-label fw-black small text-muted text-uppercase mb-2">Existing Categories</label>
+                    <div class="list-group list-group-flush rounded-3 border overflow-auto" style="max-height: 250px;">
                         @foreach (var cat in ExpenseCategories)
                         {
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
                                 <span class="fw-bold">@cat.Name</span>
-                                <button class="btn btn-sm btn-outline-danger border-0" @onclick="() => DeleteCategory(cat)">
-                                    <i class="bi bi-trash"></i>
+                                <button class="btn btn-sm btn-outline-danger border-0 rounded-circle" @onclick="() => DeleteCategory(cat)">
+                                    <i class="bi bi-trash fs-6"></i>
                                 </button>
                             </div>
                         }
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4 pt-0">
-                    <button class="btn btn-light w-100 rounded-3 fw-bold" @onclick="() => ShowCategoryModal = false">CLOSE</button>
+                    <button class="btn btn-light w-100 rounded-pill py-2.5 fw-black text-uppercase shadow-sm" @onclick="() => ShowCategoryModal = false">CLOSE</button>
                 </div>
             </div>
         </div>
@@ -184,17 +371,199 @@
 <style>
     .expense-center { background: #f8fafc; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     .text-slate { color: #0f172a; }
+    .text-navy { color: #1e3a8a; }
     .extra-small { font-size: 0.65rem; }
-    .btn-icon { width: 44px; height: 44px; background: #fff; border: 0; border-radius: 12px; color: #64748b; transition: all 0.2s; }
-    .btn-icon:hover { background: #0f172a; color: #fff; transform: translateY(-2px); }
-    .ls-1 { letter-spacing: 1px; }
-    
-    .form-select-lg { font-size: 1rem; }
-    .input-group-text { border-right: 0; }
-    
-    .list-group-item { transition: background 0.2s; }
-    .list-group-item:hover { background: #f8fafc; }
-    
+    .fs-7 { font-size: 0.75rem; }
+    .shadow-inner { box-shadow: inset 0 2px 6px rgba(0,0,0,0.05) !important; }
+
+    /* Header Banner with slick Indigo/Violet gradient */
+    .header-dashboard-banner {
+        background: linear-gradient(135deg, #1e3a8a 0%, #4338ca 50%, #6d28d9 100%);
+        padding: 2.25rem 2.5rem;
+        border-radius: 24px;
+        box-shadow: 0 10px 30px rgba(67, 56, 202, 0.2);
+    }
+
+    .btn-back-circle {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.15);
+        color: white;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }
+    .btn-back-circle:hover {
+        background: rgba(255, 255, 255, 0.35);
+        transform: scale(1.05);
+        color: white;
+    }
+
+    /* Metric Cards */
+    .metric-card {
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0.6rem 1.5rem;
+        border-radius: 16px;
+        min-width: 170px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .metric-card .metric-label {
+        font-size: 0.55rem;
+        font-weight: 900;
+        color: rgba(255, 255, 255, 0.6);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 2px;
+    }
+    .metric-card .metric-value {
+        font-weight: 900;
+        font-size: 1.35rem;
+        margin: 0;
+        letter-spacing: -0.5px;
+    }
+    .ledger-balance .metric-value {
+        color: #86efac !important;
+    }
+    .reconciled-balance .metric-value {
+        color: #93c5fd !important;
+    }
+
+    /* Reconcile Statement Action Button */
+    .btn-reconcile-toggle {
+        height: 52px;
+        border-radius: 16px;
+        border: none;
+        padding-left: 20px;
+        padding-right: 20px;
+        font-weight: 900;
+        font-size: 0.85rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+    }
+    .btn-reconcile-toggle.unbalanced {
+        background: white;
+        color: #1e3a8a;
+    }
+    .btn-reconcile-toggle.unbalanced:hover {
+        background: #f1f5f9;
+        transform: translateY(-2px);
+    }
+    .btn-reconcile-toggle.balanced {
+        background: #10b981;
+        color: white;
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35) !important;
+    }
+    .btn-reconcile-toggle.balanced:hover {
+        background: #059669;
+        transform: translateY(-2px);
+    }
+
+    /* Dashboard Panes */
+    .dashboard-pane {
+        background: white;
+        border: 1px solid #e2e8f0;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .dashboard-pane:hover {
+        border-color: #cbd5e1;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.03) !important;
+    }
+    .pane-title {
+        font-size: 1.1rem;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+        color: #0f172a;
+    }
+
+    /* Type Selector segmented pill buttons */
+    .type-selector-pills {
+        display: flex;
+        background: #f1f5f9;
+        padding: 5px;
+        border-radius: 14px;
+        border: 1px solid #e2e8f0;
+        gap: 4px;
+    }
+    .type-pill {
+        flex: 1;
+        border: none;
+        border-radius: 10px;
+        padding: 10px;
+        font-weight: 900;
+        font-size: 0.8rem;
+        letter-spacing: 0.5px;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        background: transparent;
+        color: #64748b;
+        cursor: pointer;
+    }
+    .type-pill.expense-type.active {
+        background: #ef4444;
+        color: white;
+        box-shadow: 0 4px 10px rgba(239, 68, 68, 0.25);
+    }
+    .type-pill.deposit-type.active {
+        background: #10b981;
+        color: white;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
+    }
+
+    /* Statement Ledger Table Styling */
+    .bank-table-theme {
+        width: 100%;
+        border-collapse: separate;
+    }
+    .bank-table-theme th {
+        font-size: 0.7rem;
+        letter-spacing: 1px;
+        color: #64748b;
+        background: white;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #e2e8f0;
+    }
+    .bank-row {
+        transition: all 0.15s ease;
+        cursor: pointer;
+    }
+    .bank-row:hover {
+        background-color: #f8fafc !important;
+    }
+    .bank-row.reconciled-bg {
+        background-color: rgba(16, 185, 129, 0.02) !important;
+    }
+    .bank-row.reconciled-bg:hover {
+        background-color: rgba(16, 185, 129, 0.05) !important;
+    }
+
+    /* Checkmark buttons */
+    .btn-clearance {
+        font-size: 1.15rem;
+        transition: transform 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .btn-clearance:hover {
+        transform: scale(1.15);
+    }
+
     .fw-black { font-weight: 900; }
     .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important; }
 
@@ -208,8 +577,8 @@
         -moz-appearance: textfield;
     }
     
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     
     .last-border-0:last-child { border-bottom: 0 !important; }
 </style>
@@ -217,41 +586,223 @@
 @code {
     private string _currentUsername = "Unknown";
     private decimal AccountBalance { get; set; }
-    private List<BingoLotteryTransaction> Transactions { get; set; } = new();
-    private List<BingoLotteryTransaction> ManualExpenses => Transactions.Where(t => t.SessionId == null && t.Type == "Expense").ToList();
+    private decimal ReconciledBalance { get; set; }
+    private decimal UnclearedTotal { get; set; }
+    private decimal ReconciliationDifference { get; set; }
+    
+    // Search & filter states
+    private string _searchText = "";
+    private string _selectedTypeFilter = "All";
+    private string _selectedReconciledFilter = "All";
+
+    // Bank Statement reconciliation ending balance
+    private decimal _bankStatementBalance = 0;
+    private bool _showReconcilePanel = false;
+    private bool IsBalanced => ReconciliationDifference == 0 && _bankStatementBalance != 0;
+
+    // Locally track reconciled transaction IDs to bypass database changes
+    private HashSet<int> _reconciledTransactionIds = new();
+
+    private List<LedgerItem> Transactions { get; set; } = new();
     private List<BingoExpenseCategory> ExpenseCategories { get; set; } = new();
     private BingoLotteryTransaction NewExpense { get; set; } = new BingoLotteryTransaction { Date = DateTime.Now, Type = "Expense" };
     private BingoExpenseCategory EditingCategory { get; set; } = new();
     private bool ShowCategoryModal { get; set; }
 
+    // Represent individual items inside our interactive ledger with running balance
+    private class LedgerItem
+    {
+        public int Id { get; set; }
+        public DateTime Date { get; set; }
+        public string Type { get; set; } // "Income", "Expense", "Prize", etc.
+        public decimal Amount { get; set; }
+        public string Description { get; set; }
+        public BingoExpenseCategory Category { get; set; }
+        public decimal RunningBalance { get; set; }
+        public BingoLotteryTransaction RawTransaction { get; set; }
+    }
+
+    private List<LedgerItem> FilteredTransactions
+    {
+        get
+        {
+            var query = Transactions.AsEnumerable();
+
+            // 1. Text Search Filter (payee/description/category)
+            if (!string.IsNullOrWhiteSpace(_searchText))
+            {
+                var term = _searchText.Trim().ToLower();
+                query = query.Where(t => 
+                    (t.Description ?? "").ToLower().Contains(term) ||
+                    (t.Category?.Name ?? "").ToLower().Contains(term)
+                );
+            }
+
+            // 2. Type Filter
+            if (_selectedTypeFilter != "All")
+            {
+                query = query.Where(t => t.Type == _selectedTypeFilter);
+            }
+
+            // 3. Reconciled Status Filter
+            if (_selectedReconciledFilter != "All")
+            {
+                bool showReconciled = _selectedReconciledFilter == "Reconciled";
+                query = query.Where(t => _reconciledTransactionIds.Contains(t.Id) == showReconciled);
+            }
+
+            return query.ToList();
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _currentUsername = authState.User.Identity?.Name ?? "Unknown";
+
+        // Load Reconciled IDs from localStorage first
+        try
+        {
+            var storedJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_bingo_reconciled_transaction_ids");
+            if (!string.IsNullOrEmpty(storedJson))
+            {
+                var list = JsonSerializer.Deserialize<List<int>>(storedJson);
+                if (list != null)
+                {
+                    _reconciledTransactionIds = new HashSet<int>(list);
+                }
+            }
+
+            var storedStatementBal = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_bingo_reconciled_statement_bal");
+            if (!string.IsNullOrEmpty(storedStatementBal) && decimal.TryParse(storedStatementBal, out var parsedVal))
+            {
+                _bankStatementBalance = parsedVal;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO EXPENSES] Failed to load local reconciliation cache: {ex.Message}");
+        }
+
         await LoadData();
     }
 
     private async Task LoadData()
     {
-        Transactions = await DbContext.BingoLotteryTransactions
+        // 1. Fetch raw rows from database (include session transactions too, to ensure ledger is exact!)
+        var rawTransactions = await DbContext.BingoLotteryTransactions
             .Include(t => t.Category)
             .Where(t => !t.IsDeleted)
-            .OrderByDescending(t => t.Date)
-            .ThenByDescending(t => t.Id)
+            .OrderBy(t => t.Date)  // Order oldest first to compute accurate running balance!
+            .ThenBy(t => t.Id)
             .ToListAsync();
+
+        // 2. Hydrate ledger list and compute sequential running balances
+        decimal runningTotal = 0;
+        var ledgerList = new List<LedgerItem>();
+
+        foreach (var t in rawTransactions)
+        {
+            runningTotal += t.Amount;
             
-        AccountBalance = Transactions.Sum(t => t.Amount);
+            // Only list manual transactions in the ledger statement (SessionId == null)
+            if (t.SessionId == null)
+            {
+                ledgerList.Add(new LedgerItem
+                {
+                    Id = t.Id,
+                    Date = t.Date,
+                    Type = t.Type,
+                    Amount = t.Amount,
+                    Description = t.Description,
+                    Category = t.Category,
+                    RunningBalance = runningTotal,
+                    RawTransaction = t
+                });
+            }
+        }
+
+        // 3. Order ledger newest first for dashboard display
+        Transactions = ledgerList.OrderByDescending(t => t.Date).ThenByDescending(t => t.Id).ToList();
+        
+        AccountBalance = runningTotal;
         ExpenseCategories = await DbContext.BingoExpenseCategories.Where(c => !c.IsDeleted).ToListAsync();
+        
+        RecalculateReconciliation();
+    }
+
+    private void SetTransactionType(string type)
+    {
+        NewExpense.Type = type;
+        StateHasChanged();
+    }
+
+    private void ToggleReconcilePanel()
+    {
+        _showReconcilePanel = !_showReconcilePanel;
+        StateHasChanged();
+    }
+
+    private async Task ToggleReconciliation(int txId)
+    {
+        if (_reconciledTransactionIds.Contains(txId))
+        {
+            _reconciledTransactionIds.Remove(txId);
+        }
+        else
+        {
+            _reconciledTransactionIds.Add(txId);
+        }
+
+        // Persist local reconciled states
+        try
+        {
+            var json = JsonSerializer.Serialize(_reconciledTransactionIds.ToList());
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_bingo_reconciled_transaction_ids", json);
+        }
+        catch {}
+
+        RecalculateReconciliation();
+        StateHasChanged();
+    }
+
+    private async Task RecalculateReconciliation()
+    {
+        // Uncleared items are those that have NOT been ticked reconciled
+        UnclearedTotal = Transactions
+            .Where(t => !_reconciledTransactionIds.Contains(t.Id))
+            .Sum(t => t.Amount);
+
+        // Reconciled balance matches statement balance when cleared
+        ReconciledBalance = AccountBalance - UnclearedTotal;
+        ReconciliationDifference = ReconciledBalance - _bankStatementBalance;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_bingo_reconciled_statement_bal", _bankStatementBalance.ToString("F2"));
+        }
+        catch {}
     }
 
     private async Task AddExpense()
     {
         if (NewExpense.Amount == 0) return;
         
-        if (NewExpense.Type == "Expense")
-            NewExpense.Amount = -Math.Abs(NewExpense.Amount);
-        else
+        // For Deposits, category and payee are completely bypassed and reset
+        if (NewExpense.Type == "Income")
+        {
             NewExpense.Amount = Math.Abs(NewExpense.Amount);
+            NewExpense.CategoryId = null; // Ensure category is empty for deposits
+            NewExpense.Description = "Deposit Contribution"; // Clean default description
+        }
+        else
+        {
+            NewExpense.Amount = -Math.Abs(NewExpense.Amount);
+            if (string.IsNullOrWhiteSpace(NewExpense.Description))
+            {
+                NewExpense.Description = "Bingo Cash Expense";
+            }
+        }
 
         NewExpense.CreatedAt = DateTime.UtcNow;
         NewExpense.CreatedBy = _currentUsername;
@@ -259,17 +810,22 @@
         DbContext.BingoLotteryTransactions.Add(NewExpense);
         await DbContext.SaveChangesAsync();
         
+        // Reset form
         NewExpense = new BingoLotteryTransaction { Date = DateTime.Now, Type = "Expense" };
         await LoadData();
+        StateHasChanged();
     }
 
-    private async Task DeleteTransaction(BingoLotteryTransaction tx)
+    private async Task DeleteTransaction(LedgerItem item)
     {
-        if (await JSRuntime.InvokeAsync<bool>("confirm", "Permanently delete this entry?"))
+        if (await JSRuntime.InvokeAsync<bool>("confirm", $"Permanently delete ledger transaction: '{item.Description}'?"))
         {
-            tx.IsDeleted = true;
+            item.RawTransaction.IsDeleted = true;
+            _reconciledTransactionIds.Remove(item.Id); // Clean local reconciled status if any
+            
             await DbContext.SaveChangesAsync();
             await LoadData();
+            StateHasChanged();
         }
     }
 

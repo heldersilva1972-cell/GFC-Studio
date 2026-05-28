@@ -99,13 +99,13 @@
                             <thead class="bg-light sticky-top">
                                 <tr>
                                     <th class="ps-4 py-2">DRINK PURCHASED</th>
-                                    <th class="text-center py-2">QTY</th>
+                                    <th class="text-center py-2">DATE/TIME</th>
                                     <th class="text-center py-2">VAL</th>
                                     <th class="pe-4 text-end py-2">GAP</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var u in TokenUsages.OrderBy(x => x.TotalProfitLoss))
+                                @foreach (var u in TokenUsages.OrderByDescending(x => x.Timestamp))
                                 {
                                     <tr>
                                         <td class="ps-4 py-3">
@@ -117,8 +117,8 @@
                                                 }
                                             </div>
                                         </td>
-                                        <td class="text-center py-3 fw-black">@u.Quantity</td>
-                                        <td class="text-center py-3 text-muted">@u.MenuPrice.ToString("N2")</td>
+                                        <td class="text-center py-3 text-muted" style="white-space: nowrap;">@u.Timestamp?.ToString("MM/dd hh:mm tt")</td>
+                                        <td class="text-center py-3 fw-black">@u.MenuPrice.ToString("N2")</td>
                                         <td class="pe-4 text-end py-3">
                                             <span class="fw-black @(u.ProfitLossPerUnit >= 0 ? "text-success" : "text-danger")">
                                                 @(u.ProfitLossPerUnit >= 0 ? "+" : "")@u.ProfitLossPerUnit.ToString("N2")
@@ -419,33 +419,33 @@
 
                             <div class="flex-grow-1 custom-scrollbar px-5 pb-5" style="overflow-y: auto;">
                                 <!-- TOP OVERVIEW CARDS -->
-                                <div class="row g-4 mb-5">
+                                 <div class="row g-4 mb-5">
                                     <div class="col-md-3">
                                         <div class="stat-card h-100 bg-light border-0 shadow-sm" style="border-radius: 24px;">
                                             <div class="label">TOTAL TOKENS SOLD</div>
                                             <div class="value" style="font-size: 2rem;">@(TokenYields.Sum(x => x.TotalSold))</div>
-                                            <div class="small text-muted mt-2">Including @(TokenYields.Sum(x => x.StartingBalance)) legacy adjustments</div>
+                                            <div class="small text-muted mt-2">Cash sales: @(TokenYields.Sum(x => x.Token.SalePrice * x.Sold).ToString("C"))</div>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
                                         <div class="stat-card h-100 bg-light border-0 shadow-sm" style="border-radius: 24px;">
                                             <div class="label">TOTAL REDEEMED</div>
                                             <div class="value" style="font-size: 2rem;">@(TokenYields.Sum(x => x.Redeemed))</div>
-                                            <div class="small text-muted mt-2">Physical tokens collected</div>
+                                            <div class="small text-muted mt-2">Menu value: @(TokenUsages.Sum(x => x.MenuPrice * x.Quantity).ToString("C"))</div>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
                                         <div class="stat-card h-100 bg-primary text-white border-0 shadow-lg" style="border-radius: 24px;">
                                             <div class="label text-white opacity-75">IN CIRCULATION</div>
                                             <div class="value text-white" style="font-size: 2.2rem;">@(TokenYields.Sum(x => x.InCirculation))</div>
-                                            <div class="small opacity-75 mt-2">Active liability in pockets</div>
+                                            <div class="small opacity-75 mt-2">@(TokenYields.Where(x => x.InCirculation > 0).Sum(x => x.InCirculation)) outstanding / @(Math.Abs(TokenYields.Where(x => x.InCirculation < 0).Sum(x => x.InCirculation))) legacy redeemed</div>
                                         </div>
                                     </div>
                                     <div class="col-md-3">
                                         <div class="stat-card h-100 @(TokenYields.Sum(x => x.NetFinancialImpact) >= 0 ? "bg-success" : "bg-danger") text-white border-0 shadow-lg" style="border-radius: 24px;">
-                                            <div class="label text-white opacity-75">NET FINANCIAL IMPACT</div>
+                                            <div class="label text-white opacity-75">@(TokenYields.Sum(x => x.NetFinancialImpact) >= 0 ? "SURPLUS (NET PROFIT)" : "DEFICIT (NET LOSS)")</div>
                                             <div class="value text-white" style="font-size: 2rem;">@(TokenYields.Sum(x => x.NetFinancialImpact).ToString("C"))</div>
-                                            <div class="small opacity-75 mt-2">Revenue vs Menu Value Gap</div>
+                                            <div class="small opacity-75 mt-2">@(TokenYields.Sum(x => x.NetFinancialImpact) >= 0 ? "Cash collected exceeds drink menu values" : "Drink menu values served exceed token cash sales")</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1615,6 +1615,7 @@
         public decimal MenuPrice { get; set; }
         public decimal TokenSalePrice { get; set; }
         public bool IsUpgrade { get; set; }
+        public DateTime? Timestamp { get; set; }
         public decimal ProfitLossPerUnit => TokenSalePrice - MenuPrice;
         public decimal TotalProfitLoss => ProfitLossPerUnit * Quantity;
     }
@@ -1940,8 +1941,8 @@
                 // SALE
                 if (item.Category == "TOKENS")
                 {
-                    // Flexible matching for token sales (e.g. "Beer Tokens" should match "Beer")
-                    var match = MasterTokens.FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
+                    // Flexible matching for token sales (e.g. "Beer Tokens" should match "Beer Token" before "Beer")
+                    var match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
                     if (match != null) stats[match.Name].Sold += item.Quantity;
                 }
 
@@ -1979,10 +1980,10 @@
                         menuPrice = dbItem?.Price ?? 0;
                     }
                     
-                    // Match to Token Type
+                    // Match to Token Type (longest name containing BEER first to avoid "Beer" vs "Beer Token" collision)
                     PosToken? match = null;
-                    if ((item.Name ?? "").ToUpper().Contains("BEER")) match = MasterTokens.FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == true);
-                    else match = MasterTokens.FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == false);
+                    if ((item.Name ?? "").ToUpper().Contains("BEER")) match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == true);
+                    else match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == false);
 
                     if (match != null && match.Name != null)
                     {
@@ -2001,27 +2002,17 @@
                                 
                                 stats[match.Name].RedemptionValue += valueOfRedemption * item.Quantity;
                                 
-                                // Usage Tracking - always add so the counts match
-                                var usage = TokenUsages.FirstOrDefault(u => u.DrinkName == drinkName && u.TokenName == match.Name);
-                                if (usage == null)
-                                {
-                                    usage = new TokenUsageEntry {
-                                        DrinkName = drinkName,
-                                        TokenName = match.Name,
-                                        MenuPrice = menuPrice,
-                                        TokenSalePrice = match.SalePrice,
-                                        IsUpgrade = item.Category == "TOKEN_CREDIT"
-                                    };
-                                    TokenUsages.Add(usage);
-                                }
-                                // Update the usage entry to reflect that for upgrades, the "Menu Price" that the token covered was only the credit amount
-                                if (item.Category == "TOKEN_CREDIT") 
-                                {
-                                    usage.MenuPrice = valueOfRedemption; 
-                                    usage.IsUpgrade = true;
-                                }
-                                
-                                usage.Quantity += item.Quantity;
+                                 // Usage Tracking - individual entries for detailed timestamp log
+                                 var usage = new TokenUsageEntry {
+                                     DrinkName = drinkName,
+                                     TokenName = match.Name,
+                                     MenuPrice = item.Category == "TOKEN_CREDIT" ? valueOfRedemption : menuPrice,
+                                     TokenSalePrice = match.SalePrice,
+                                     IsUpgrade = item.Category == "TOKEN_CREDIT",
+                                     Quantity = item.Quantity,
+                                     Timestamp = sale.Timestamp
+                                 };
+                                 TokenUsages.Add(usage);
                             }
                         }
                     }
@@ -2029,7 +2020,7 @@
             }
         }
 
-        TokenYields = stats.Values.ToList();
+        TokenYields = stats.Values.Where(y => y.Token.AllowCreditUpgrade != true).ToList();
     }
 
     private void OpenAdjustmentModal(PosToken token)
