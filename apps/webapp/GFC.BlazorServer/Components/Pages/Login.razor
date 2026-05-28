@@ -1,4 +1,5 @@
 @page "/login"
+@implements IDisposable
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
 @using Microsoft.AspNetCore.Authorization
@@ -14,6 +15,8 @@
 @inject IAuditLogger AuditLogger
 @inject IDeviceTrustService DeviceTrustService
 @inject IUserManagementService UserManagementService
+@inject IUserRepository UserRepository
+@inject IKeyCardRepository KeyCardRepository
 
 <PageTitle>Login - GFC Membership</PageTitle>
 
@@ -364,6 +367,7 @@
 </style>
 
 @code {
+    private DotNetObjectReference<Login>? _objRef;
     private LoginModel _model = new();
     private bool _isSubmitting = false;
     private string? _error;
@@ -813,5 +817,185 @@
         if (raw.StartsWith("//") || raw.Contains("://")) return null;
         if (!raw.StartsWith('/')) raw = "/" + raw;
         return raw.Equals("/login", StringComparison.OrdinalIgnoreCase) ? null : raw;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _objRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    window.GfcWebappCardScanner = {
+                        listener: null,
+                        initialize: (dotnetObj) => {
+                            let cardBuffer = '';
+                            let lastKeyTime = 0;
+                            
+                            window.GfcWebappCardScanner.listener = (e) => {
+                                const now = Date.now();
+                                
+                                // Hardware scanners type at < 50ms intervals. 
+                                // Humans type at > 100ms. Increased to 250ms for tablet compatibility.
+                                if (cardBuffer.length > 0 && (now - lastKeyTime) > 250) {
+                                    cardBuffer = ''; 
+                                }
+                                
+                                lastKeyTime = now;
+
+                                if (e.key === 'Enter') {
+                                    if (cardBuffer.length >= 5) { 
+                                        e.preventDefault(); // Stop form submission or scrolling
+                                        console.log('[WEB SCANNER] Card Detected:', cardBuffer.length, 'digits');
+                                        dotnetObj.invokeMethodAsync('OnCardScanned', cardBuffer);
+                                    }
+                                    cardBuffer = '';
+                                } else if (e.key.length === 1 && /[0-9]/.test(e.key)) {
+                                    cardBuffer += e.key;
+                                }
+                            };
+                            
+                            window.addEventListener('keydown', window.GfcWebappCardScanner.listener, { passive: false });
+                            console.log('[WEB SCANNER] Keydown listener initialized.');
+                        },
+                        dispose: () => {
+                            if (window.GfcWebappCardScanner.listener) {
+                                window.removeEventListener('keydown', window.GfcWebappCardScanner.listener);
+                                window.GfcWebappCardScanner.listener = null;
+                                console.log('[WEB SCANNER] Keydown listener disposed.');
+                            }
+                        }
+                    };
+                ");
+
+                await JSRuntime.InvokeVoidAsync("GfcWebappCardScanner.initialize", _objRef);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize card scanner listener");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnCardScanned(string cardNumber)
+    {
+        if (_isSubmitting) return;
+
+        var cleanCard = cardNumber?.Trim();
+        if (string.IsNullOrEmpty(cleanCard)) return;
+
+        Logger.LogInformation("Card scanned on login screen: {CardNumber}", cleanCard);
+        
+        try
+        {
+            KeyCard? card = null;
+            if (long.TryParse(cleanCard, out var scannedLong))
+            {
+                card = KeyCardRepository.GetByCardNumber(cleanCard);
+                if (card == null || !card.IsActive)
+                {
+                    var allCards = KeyCardRepository.GetAll();
+                    card = allCards.FirstOrDefault(c => c.IsActive && long.TryParse(c.CardNumber, out var dbLong) && dbLong == scannedLong);
+                }
+            }
+            else
+            {
+                card = KeyCardRepository.GetByCardNumber(cleanCard);
+            }
+
+            if (card == null || !card.IsActive)
+            {
+                Logger.LogWarning("Card login failed: Unknown or inactive card {CardNumber}", cleanCard);
+                _error = "Unknown or inactive access card.";
+                StateHasChanged();
+                return;
+            }
+
+            var user = UserRepository.GetByMemberId(card.MemberId);
+            if (user == null || !user.IsActive)
+            {
+                Logger.LogWarning("Card login failed: No active user account associated with member {MemberId}", card.MemberId);
+                _error = "No active user account found for this card.";
+                StateHasChanged();
+                return;
+            }
+
+            // STRICT STATION SECURITY GUARD
+            if (_isStationMode)
+            {
+                var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+                var station = await DeviceTrustService.GetDeviceByTokenAsync(stationToken);
+                if (station != null && !string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+                {
+                    var allowedUserIds = station.AuthorizedUserIdsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                           .Select(id => int.TryParse(id.Trim(), out int val) ? val : (int?)null)
+                                           .Where(id => id.HasValue)
+                                           .Select(id => id!.Value)
+                                           .ToList();
+                    
+                    if (!allowedUserIds.Contains(user.UserId) && !user.IsAdmin)
+                    {
+                        Logger.LogWarning("Card login failed: User {Username} (ID {UserId}) is not authorized on this station", user.Username, user.UserId);
+                        _error = "You are not authorized to log in on this station.";
+                        StateHasChanged();
+                        return;
+                    }
+                }
+            }
+
+            _isSubmitting = true;
+            _error = null;
+            _successMessage = $"Card authenticated. Logging in as {user.Username}...";
+            StateHasChanged();
+
+            var result = await AuthStateProvider.LoginWithUserAsync(user.UserId, UserConnectionService.IpAddress);
+            if (result.Code == LoginResultCode.Success && result.User != null)
+            {
+                if (!string.IsNullOrWhiteSpace(result.DeviceToken))
+                {
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
+                    await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", "gfc_session_active", "true");
+                    
+                    int cookieDays = _isStationMode ? 0 : 30;
+                    await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, cookieDays);
+                }
+
+                // Log audit trail
+                AuditLogger.Log("CardLogin", user.UserId, user.UserId, $"Logged in via access card #{cleanCard}", UserConnectionService.IpAddress);
+
+                Navigation.NavigateTo(GetPostLoginDestination(), forceLoad: false);
+            }
+            else
+            {
+                _error = result.ErrorMessageForLog ?? "Login failed.";
+                _successMessage = null;
+                _isSubmitting = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error processing card login for {CardNumber}", cleanCard);
+            _error = "An error occurred during card authentication.";
+            _successMessage = null;
+            _isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (_objRef != null)
+            {
+                _objRef.Dispose();
+            }
+            // Fire and forget JS dispose call
+            _ = JSRuntime.InvokeVoidAsync("GfcWebappCardScanner.dispose");
+        }
+        catch { }
     }
 }
