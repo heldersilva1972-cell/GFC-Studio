@@ -170,6 +170,10 @@ public class GfcDbContext : DbContext
     public DbSet<BingoPayoutTier> BingoPayoutTiers => Set<BingoPayoutTier>();
     public DbSet<BingoExpenseCategory> BingoExpenseCategories => Set<BingoExpenseCategory>();
     public DbSet<BingoLotteryTransaction> BingoLotteryTransactions => Set<BingoLotteryTransaction>();
+    public DbSet<BingoActiveLoan> BingoActiveLoans => Set<BingoActiveLoan>();
+    public DbSet<BingoReconciliation> BingoReconciliations => Set<BingoReconciliation>();
+
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -242,6 +246,10 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<ShiftReport>().ToTable("ShiftReports", "dbo").HasQueryFilter(s => !s.IsDeleted);
         modelBuilder.Entity<ClubEvent>().ToTable("ClubEvents", "dbo").HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<ClubEventTransaction>().ToTable("ClubEventTransactions", "dbo").HasQueryFilter(t => !t.IsDeleted);
+        modelBuilder.Entity<BingoActiveLoan>().ToTable("BingoActiveLoans", "dbo").HasQueryFilter(l => !l.IsDeleted);
+        modelBuilder.Entity<BingoReconciliation>().ToTable("BingoReconciliations", "dbo").HasQueryFilter(r => !r.IsDeleted);
+
+
 
         modelBuilder.Entity<ControllerDevice>()
             .ToTable("Controllers")
