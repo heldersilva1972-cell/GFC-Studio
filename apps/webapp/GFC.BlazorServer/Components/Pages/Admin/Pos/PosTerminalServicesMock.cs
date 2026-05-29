@@ -83,7 +83,7 @@ namespace GFC.Pos.UI.Services
     public interface IPrinterService
     {
         Task<bool> PrintReceiptAsync(string content);
-        Task<bool> PrintRawDataAsync(byte[] data, System.Threading.CancellationToken cancellationToken = default);
+        Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default);
         Task<bool> KickDrawerAsync();
         Task<List<UsbDeviceDto>> GetConnectedDevicesAsync();
     }
@@ -153,6 +153,9 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
             Console.WriteLine($"[SIMULATED PRINT] {content}");
             try
             {
+                // Serialize content outside of the string interpolation to avoid verbatim string parsing issues
+                string contentJson = global::System.Text.Json.JsonSerializer.Serialize(content);
+
                 // For Web/PWA, we create a temporary hidden iframe with the content and print it
                 await _js.InvokeVoidAsync("eval", $@"
                     (function(content) {{
@@ -175,7 +178,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
                         
                         // Remove iframe after print dialog is handled
                         setTimeout(() => document.body.removeChild(iframe), 1000);
-                    }})({System.Text.Json.JsonSerializer.Serialize(content)})");
+                    }})({contentJson})");
                 return true;
             }
             catch (Exception ex)
@@ -184,7 +187,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
                 return false;
             }
         }
-        public Task<bool> PrintRawDataAsync(byte[] data, System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> KickDrawerAsync()
         {
             Console.WriteLine("[SIMULATED KICK DRAWER]");

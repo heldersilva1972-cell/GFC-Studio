@@ -30,12 +30,15 @@ public class EthernetPrinterService : IPrinterService
             var cp437 = Encoding.GetEncoding(437);
             byte[] textBytes = cp437.GetBytes(plainText);
 
-            // Prepend ESC @ (Initialize printer reset) -> Hex: 1B 40
-            byte[] initCmd = new byte[] { 0x1B, 0x40 };
+            // Prepend ESC @ (Initialize printer reset), GS W (Set print width to 576 dots), and GS L (Set left margin to 0)
+            byte[] initCmd = new byte[] { 
+                0x1B, 0x40,             // Reset (ESC @)
+                0x1D, 0x57, 0x40, 0x02, // Set Width to 576 dots (GS W 64 2)
+                0x1D, 0x4C, 0x00, 0x00  // Set Left Margin to 0 (GS L 0 0)
+            };
 
-            // Append GS V 66 n (Feed and Cut) -> Hex: 1D 56 42 [n]
-            // n = 0x1E (30 decimal) feeds the paper 30 units past the printhead before cutting
-            byte[] cutCmd = new byte[] { 0x1D, 0x56, 0x42, 0x1E };
+            // Append GS V A 3 (Feed and Cut) -> Hex: 1D 56 41 03
+            byte[] cutCmd = new byte[] { 0x1D, 0x56, 0x41, 0x03 };
 
             // Assemble into a single atomic byte stream
             byte[] mergedJob = new byte[initCmd.Length + textBytes.Length + cutCmd.Length];
