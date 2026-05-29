@@ -15,7 +15,8 @@ param (
 
     [string]$Version,
     [switch]$Next,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$NoSync
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,8 +42,7 @@ $posSWFiles = @(
 $posProps = Join-Path $basePath "apps/GFC-Pos-Standalone/PosVersion.props"
 $posVersionTxtFiles = @(
     (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.Terminal/wwwroot/version.txt"),
-    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/version.txt"),
-    (Join-Path $basePath "apps/webapp/GFC.BlazorServer/wwwroot/version.txt")
+    (Join-Path $basePath "apps/GFC-Pos-Standalone/GFC.Pos.UI/wwwroot/version.txt")
 )
 
 function Write-Step ([string]$msg) { Write-Host "[WAIT] $msg" -ForegroundColor Cyan }
@@ -233,21 +233,32 @@ try {
     }
 
     # --- REMOTE DATABASE SYNC (INSTANT UPDATES) ---
-    Write-Step "Syncing version to Remote Database..."
-    $serverUrl = "https://gfc.lovanow.com"  # Update this if your production URL changes
-    $apiKey = "GFC_SYNC_V2_SECRET_2026"
-    $syncUrl = "$serverUrl/api/mobile-reporting/sync-version?project=$Project&version=$targetVersion&apiKey=$apiKey"
-    
-    try {
-        if ($DryRun) {
-            Write-DryRun "Would call API: $syncUrl"
-        } else {
-            $response = Invoke-RestMethod -Uri $syncUrl -Method Post
-            Write-Host "Remote Sync Successful: $($response.Message)" -ForegroundColor Gray
+    if (-not $NoSync) {
+        Write-Step "Syncing version to Remote Database..."
+        $serverUrl = "https://gfc.lovanow.com"  # Update this if your production URL changes
+        $apiKey = "GFC_SYNC_V2_SECRET_2026"
+        $syncUrl = "$serverUrl/api/mobile-reporting/sync-version?project=$Project&version=$targetVersion&apiKey=$apiKey"
+        
+        try {
+            if ($DryRun) {
+                Write-DryRun "Would call API: $syncUrl"
+            } else {
+                # Force modern security protocol (TLS 1.2)
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+                
+                # Bypass SSL certificate validation to prevent trust relationship errors
+                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                
+                # Add explicit empty body and content type to bypass PowerShell 5.1 POST send bug
+                $response = Invoke-RestMethod -Uri $syncUrl -Method Post -Body "" -ContentType "application/json"
+                Write-Host "Remote Sync Successful: $($response.Message)" -ForegroundColor Gray
+            }
+        } catch {
+            Write-Warning "Remote Database Sync failed. This is expected if the site is not yet deployed or is offline."
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         }
-    } catch {
-        Write-Warning "Remote Database Sync failed. This is expected if the site is not yet deployed or is offline."
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    } else {
+        Write-Host "Skipping Remote Database Sync (-NoSync is active)." -ForegroundColor Yellow
     }
 
     Write-Host "`nDONE! $Project is now on $targetVersion" -ForegroundColor Green

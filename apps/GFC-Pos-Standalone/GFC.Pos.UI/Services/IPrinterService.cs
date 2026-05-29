@@ -3,7 +3,7 @@ namespace GFC.Pos.UI.Services;
 public interface IPrinterService
 {
     Task<bool> PrintReceiptAsync(string content);
-    Task<bool> PrintRawDataAsync(byte[] data);
+    Task<bool> PrintRawDataAsync(byte[] data, System.Threading.CancellationToken cancellationToken = default);
     Task<bool> KickDrawerAsync();
     Task<List<UsbDeviceDto>> GetConnectedDevicesAsync();
 }

@@ -78,7 +78,10 @@ namespace GFC.BlazorServer.Controllers
             // Set audit fields if not provided
             session.CreatedAt = DateTime.UtcNow;
             session.CreatedBy = User.Identity?.Name;
-            session.Status = "Submitted";
+            if (string.IsNullOrEmpty(session.Status) || session.Status == "Draft")
+            {
+                session.Status = "Submitted";
+            }
 
             foreach (var entry in session.GameEntries)
             {

@@ -421,8 +421,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         try
         {
             var timestamp = DateTime.UtcNow.Ticks;
+            string? apiVersion = null;
+            string? txtVersion = null;
             
-            string origin = "https://gfc.lovanow.com";
+            string origin = "https://pos.lovanow.com";
             try
             {
                 var currentOrigin = await _js.InvokeAsync<string>("eval", "window.location.origin");
@@ -432,10 +434,6 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     !currentOrigin.StartsWith("app://"))
                 {
                     origin = currentOrigin;
-                }
-                else if (_http.BaseAddress != null)
-                {
-                    origin = _http.BaseAddress.ToString();
                 }
             }
             catch { }
@@ -468,6 +466,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         }
         catch { return "Offline"; }
     }
+
 
     public async Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId)
     {

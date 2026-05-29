@@ -612,7 +612,7 @@ namespace GFCDevOpsUtility
             this.grpDeployOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpDeployOptions.Location = new System.Drawing.Point(5, 5);
             this.grpDeployOptions.Name = "grpDeployOptions";
-            this.grpDeployOptions.Size = new System.Drawing.Size(920, 260);
+            this.grpDeployOptions.Size = new System.Drawing.Size(1000, 260);
             this.grpDeployOptions.TabIndex = 0;
             this.grpDeployOptions.TabStop = false;
             this.grpDeployOptions.Text = "Deployment Target Parameters";
@@ -629,9 +629,9 @@ namespace GFCDevOpsUtility
             this.grpDeployStatus.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.grpDeployStatus.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpDeployStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
-            this.grpDeployStatus.Location = new System.Drawing.Point(935, 5);
+            this.grpDeployStatus.Location = new System.Drawing.Point(1015, 5);
             this.grpDeployStatus.Name = "grpDeployStatus";
-            this.grpDeployStatus.Size = new System.Drawing.Size(340, 260);
+            this.grpDeployStatus.Size = new System.Drawing.Size(300, 260);
             this.grpDeployStatus.TabIndex = 13;
             this.grpDeployStatus.TabStop = false;
             this.grpDeployStatus.Text = "Deployment Progress Indicators";
@@ -865,7 +865,7 @@ namespace GFCDevOpsUtility
             this.chkAutoConfigWebConfig.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkAutoConfigWebConfig.Location = new System.Drawing.Point(520, 102);
             this.chkAutoConfigWebConfig.Name = "chkAutoConfigWebConfig";
-            this.chkAutoConfigWebConfig.Size = new System.Drawing.Size(380, 21);
+            this.chkAutoConfigWebConfig.Size = new System.Drawing.Size(460, 21);
             this.chkAutoConfigWebConfig.TabIndex = 18;
             this.chkAutoConfigWebConfig.Text = "Auto-configure web.config (for WASM / SPA routing)";
             this.chkAutoConfigWebConfig.UseVisualStyleBackColor = true;
@@ -877,7 +877,7 @@ namespace GFCDevOpsUtility
             this.lblAutoConfigDesc.ForeColor = System.Drawing.Color.FromArgb(100, 116, 139);
             this.lblAutoConfigDesc.Location = new System.Drawing.Point(542, 124);
             this.lblAutoConfigDesc.Name = "lblAutoConfigDesc";
-            this.lblAutoConfigDesc.Size = new System.Drawing.Size(350, 32);
+            this.lblAutoConfigDesc.Size = new System.Drawing.Size(435, 32);
             this.lblAutoConfigDesc.TabIndex = 20;
             this.lblAutoConfigDesc.Text = "Writes an optimized web.config to IIS so WASM mime-types are served and client-side SPA routing refreshes work.";
             // 
@@ -888,9 +888,9 @@ namespace GFCDevOpsUtility
             this.chkPurgeFiles.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkPurgeFiles.Location = new System.Drawing.Point(520, 160);
             this.chkPurgeFiles.Name = "chkPurgeFiles";
-            this.chkPurgeFiles.Size = new System.Drawing.Size(380, 21);
+            this.chkPurgeFiles.Size = new System.Drawing.Size(460, 21);
             this.chkPurgeFiles.TabIndex = 19;
-            this.chkPurgeFiles.Text = "Purge existing files on live target (exclude appsettings / config)";
+            this.chkPurgeFiles.Text = "Purge existing files on live target (exclude appsettings / config / version)";
             this.chkPurgeFiles.UseVisualStyleBackColor = true;
             // 
             // lblPurgeDesc
@@ -900,9 +900,9 @@ namespace GFCDevOpsUtility
             this.lblPurgeDesc.ForeColor = System.Drawing.Color.FromArgb(100, 116, 139);
             this.lblPurgeDesc.Location = new System.Drawing.Point(542, 182);
             this.lblPurgeDesc.Name = "lblPurgeDesc";
-            this.lblPurgeDesc.Size = new System.Drawing.Size(350, 32);
+            this.lblPurgeDesc.Size = new System.Drawing.Size(435, 32);
             this.lblPurgeDesc.TabIndex = 21;
-            this.lblPurgeDesc.Text = "Removes old files in live folder first during deployments, keeping your production appsettings configurations safe.";
+            this.lblPurgeDesc.Text = "Removes old files in live folder first during deployments, keeping your production appsettings configurations and version.txt safe.";
             // 
             // chkDepMobileApk
             // 

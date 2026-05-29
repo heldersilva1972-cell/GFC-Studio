@@ -42,7 +42,7 @@ public class WebPrinterService : IPrinterService
         return true;
     }
 
-    public Task<bool> PrintRawDataAsync(byte[] data)
+    public Task<bool> PrintRawDataAsync(byte[] data, System.Threading.CancellationToken cancellationToken = default)
     {
         // The Web version (Browser/PWA) does not support direct raw byte transmission to USB 
         // without specialized WebUSB implementations. Returning false for now.

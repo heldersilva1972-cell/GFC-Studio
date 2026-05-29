@@ -3412,6 +3412,17 @@
                 <div class="badge bg-white bg-opacity-10 text-white rounded-pill px-4 py-2 border border-white border-opacity-10" style="font-size: 0.8rem; letter-spacing: 1px; cursor: pointer;" @onclick="HandleBrandTap">
                     GFC STANDALONE POS <span class="opacity-50 mx-2">|</span> v@(VersionService.GetRevision())
                 </div>
+                @if (_showUpdateBanner)
+                {
+                    <div class="mt-4 animate__animated animate__pulse animate__infinite">
+                        <button class="btn btn-warning rounded-pill px-4 py-2 fw-black shadow d-inline-flex align-items-center gap-2" 
+                                @onclick="TriggerNuclearReload" 
+                                style="font-size: 0.8rem; letter-spacing: 1px; background: #eab308; border: none; color: #0f172a;">
+                            <i class="bi bi-cloud-arrow-down-fill"></i>
+                            <span>TAP TO INSTALL TERMINAL UPDATE</span>
+                        </button>
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -5316,6 +5327,7 @@
 
     private async Task CheckForUpdatesAsync()
     {
+        if (_isDownloadingUpdate) return;
         try
         {
             var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
@@ -5325,25 +5337,28 @@
             {
                 // [LOOP-PROTECTION] Verify if we just tried to update to this specific version
                 var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
-                var lastAttemptTimeStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_time");
+                var activeServerVersion = !string.IsNullOrEmpty(_serverVersionFound) ? _serverVersionFound : UpdateService.ServerVersion;
                 
-                if (lastAttemptVersion == _serverVersionFound && !string.IsNullOrEmpty(lastAttemptTimeStr))
+                if (lastAttemptVersion == activeServerVersion || 
+                    (!string.IsNullOrEmpty(lastAttemptVersion) && !string.IsNullOrEmpty(activeServerVersion) && 
+                     (lastAttemptVersion.Contains(activeServerVersion) || activeServerVersion.Contains(lastAttemptVersion))))
                 {
-                    if (long.TryParse(lastAttemptTimeStr, out long lastTime))
+                    // We already tried to update to this exact version! Since we are still running,
+                    // the server files are not yet fully compiled/published or browser cache is persistent.
+                    // DO NOT automatically reload again to prevent an infinite reload loop.
+                    Console.WriteLine($"[GFC POS UPDATE] Suppressing auto-reload loop. Already tried updating to {activeServerVersion} but client is still running {VersionService.GetRevision()}.");
+                    if (!_showUpdateBanner)
                     {
-                        var diffSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lastTime;
-                        if (diffSeconds < 120) // 2 minute cooling period for the same version
-                        {
-                            Console.WriteLine($"[GFC POS UPDATE] Suppressing update loop. Last attempt for {_serverVersionFound} was {diffSeconds}s ago.");
-                            return;
-                        }
+                        _showUpdateBanner = true;
+                        await InvokeAsync(StateHasChanged);
                     }
+                    return;
                 }
 
                 if (string.IsNullOrEmpty(CurrentUserName))
                 {
                     // SAFE TO AUTO-UPDATE: No user is logged in
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Forcing reload/installer...");
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({activeServerVersion}). Forcing reload/installer...");
                     await TriggerNuclearReload();
                 }
                 else if (!_showUpdateBanner)
@@ -5516,9 +5531,17 @@
             var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
             if (isUpdateAvailable)
             {
-                Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing reload/installer...");
-                await TriggerNuclearReload();
-                return;
+                var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
+                if (lastAttemptVersion != UpdateService.ServerVersion)
+                {
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing reload/installer...");
+                    await TriggerNuclearReload();
+                    return;
+                }
+                else
+                {
+                    Console.WriteLine($"[GFC POS UPDATE] Suppressing auto-reload during logout. Already tried updating to {UpdateService.ServerVersion}.");
+                }
             }
         }
         catch { /* Fallback to standard lock */ }
@@ -5529,8 +5552,12 @@
 
     private async Task TriggerNuclearReload()
     {
+        if (_isDownloadingUpdate) return;
+        
         // Store attempt info to prevent infinite loops (set prior to wipe, then preserved)
-        var serverVersion = _serverVersionFound;
+        var serverVersion = !string.IsNullOrEmpty(_serverVersionFound) ? _serverVersionFound : UpdateService.ServerVersion;
+        if (string.IsNullOrEmpty(serverVersion)) serverVersion = "FORCE_LIMIT";
+        
         var unixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
 
         try
@@ -5559,6 +5586,18 @@
                 _downloadProgress = -1;
                 Toast.ShowError("Android Native Update Installation Failed. Please try again.");
                 await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                // The native installer was successfully launched. Since the user might cancel the installation,
+                // press the back button, or take time to tap Install, we clear the overlay after 8 seconds 
+                // so the terminal screen does not remain frozen at 100% in the background.
+                _ = Task.Delay(8000).ContinueWith(async t =>
+                {
+                    _isDownloadingUpdate = false;
+                    _downloadProgress = 0;
+                    await InvokeAsync(StateHasChanged);
+                });
             }
             return;
         }

@@ -1,4 +1,5 @@
 using Android.App;
+using Android.Content;
 using Android.Content.PM;
 using Android.OS;
 using Android.Views;
@@ -17,7 +18,37 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
-        
+
+        // --- VERSION-AWARE WEBVIEW CACHE CLEARING ---
+        // When a new APK is installed, the Android WebView aggressively caches
+        // the old Blazor JS/HTML assets. We detect a version change and wipe the
+        // cache before the app loads so the new assets are always served fresh.
+        try
+        {
+            string currentVersion = AppInfo.Current.VersionString;
+            const string PrefKey = "last_seen_version";
+            var prefs = GetSharedPreferences("gfc_pos_prefs", FileCreationMode.Private);
+            string lastVersion = prefs?.GetString(PrefKey, string.Empty) ?? string.Empty;
+
+            if (lastVersion != currentVersion)
+            {
+                // New version detected — clear WebView cache and storage
+                Android.Webkit.WebView.SetWebContentsDebuggingEnabled(false);
+                var wv = new Android.Webkit.WebView(this);
+                wv.ClearCache(true);
+                Android.Webkit.CookieManager.Instance?.RemoveAllCookies(null);
+
+                // Persist the new version so we don't clear again on next boot
+                var editor = prefs?.Edit();
+                editor?.PutString(PrefKey, currentVersion);
+                editor?.Apply();
+            }
+        }
+        catch
+        {
+            // Never let a cache-clear failure crash the app
+        }
+
         // Asynchronous delay to prevent race conditions during cold boot phase of OS/drivers
         System.Threading.Tasks.Task.Run(async () =>
         {

@@ -61,18 +61,9 @@ public class AndroidUpdateService : IUpdateService
         {
             Console.WriteLine("[GFC UPDATE] Starting native Android APK downloader...");
             
-            // 1. Resolve Server Domain / Address
-            string domain = "https://gfc.lovanow.com";
-            try
-            {
-                if (_http.BaseAddress != null)
-                {
-                    domain = _http.BaseAddress.ToString().TrimEnd('/');
-                }
-            }
-            catch { }
-
-            var apkUrl = $"{domain}/Download/GFC_POS_Mobile.apk";
+            // 1. Resolve Server Domain / Address (Always download APK from the POS domain, not the API/WebApp domain)
+            string domain = "https://pos.lovanow.com";
+            var apkUrl = $"{domain}/Download/GFC_POS_Mobile.apk?v={DateTime.UtcNow.Ticks}";
             var tempApkPath = Path.Combine(Microsoft.Maui.Storage.FileSystem.CacheDirectory, "update.apk");
 
             if (File.Exists(tempApkPath))
@@ -80,28 +71,33 @@ public class AndroidUpdateService : IUpdateService
                 File.Delete(tempApkPath);
             }
 
-            // 2. Download APK with Progress
-            using (var response = await _http.GetAsync(apkUrl, HttpCompletionOption.ResponseHeadersRead))
+            // 2. Download APK with Progress (Use a clean HttpClient with a standard mobile User-Agent to bypass Cloudflare bot blocks)
+            using (var cleanHttp = new HttpClient())
             {
-                response.EnsureSuccessStatusCode();
-                var contentLength = response.Content.Headers.ContentLength;
-
-                using (var downloadStream = await response.Content.ReadAsStreamAsync())
-                using (var fileStream = new FileStream(tempApkPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
+                cleanHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                
+                using (var response = await cleanHttp.GetAsync(apkUrl, HttpCompletionOption.ResponseHeadersRead))
                 {
-                    var buffer = new byte[8192];
-                    long totalRead = 0;
-                    int bytesRead;
+                    response.EnsureSuccessStatusCode();
+                    var contentLength = response.Content.Headers.ContentLength;
 
-                    while ((bytesRead = await downloadStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    using (var downloadStream = await response.Content.ReadAsStreamAsync())
+                    using (var fileStream = new FileStream(tempApkPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
                     {
-                        await fileStream.WriteAsync(buffer, 0, bytesRead);
-                        totalRead += bytesRead;
+                        var buffer = new byte[8192];
+                        long totalRead = 0;
+                        int bytesRead;
 
-                        if (contentLength.HasValue && progressCallback != null)
+                        while ((bytesRead = await downloadStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                         {
-                            double progress = (double)totalRead / contentLength.Value;
-                            progressCallback.Invoke(progress);
+                            await fileStream.WriteAsync(buffer, 0, bytesRead);
+                            totalRead += bytesRead;
+
+                            if (contentLength.HasValue && progressCallback != null)
+                            {
+                                double progress = (double)totalRead / contentLength.Value;
+                                progressCallback.Invoke(progress);
+                            }
                         }
                     }
                 }

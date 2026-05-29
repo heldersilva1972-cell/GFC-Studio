@@ -28,15 +28,15 @@ namespace GFCDevOpsUtility
         public string MobileBackupPath { get; set; } = @"C:\inetpub\history_mobile";
         public string MobileIisSite { get; set; } = "GFCMobile";
         public string MobileIisAppPool { get; set; } = "GFCMobile";
-
-        public string PosLivePath { get; set; } = @"C:\inetpub\wwwroot\GFCPOS";
+ 
+        public string PosLivePath { get; set; } = @"C:\WebSites\GFCPos";
         public string PosStagingPath { get; set; } = @"C:\inetpub\PublishGFCPos";
         public string PosBackupPath { get; set; } = @"C:\inetpub\history_pos";
         public string PosIisSite { get; set; } = "Default Web Site";
         public string PosIisAppPool { get; set; } = "DefaultAppPool";
         public bool PosDeployMobileApk { get; set; } = false;
         public bool PosPublishMobileApk { get; set; } = false;
-        public string PosApkDistFolder { get; set; } = @"C:\inetpub\wwwroot\GFCPOS\downloads";
+        public string PosApkDistFolder { get; set; } = @"C:\WebSites\GFCPos\downloads";
 
         public string WebAppLivePath { get; set; } = @"C:\inetpub\GFCWebApp";
         public string WebAppStagingPath { get; set; } = @"C:\inetpub\PublishGFCWebApp";
@@ -148,18 +148,18 @@ namespace GFCDevOpsUtility
 
         private static string FindDefaultWorkspace()
         {
-            // Scans upwards or checks current/parent folder to see if we are running inside the GFC-Studio structure
+            // Scan upwards from the EXE location to find a folder containing the 'apps' subdirectory
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             while (!string.IsNullOrEmpty(dir))
             {
-                if (File.Exists(Path.Combine(dir, "sync-version.ps1")) && Directory.Exists(Path.Combine(dir, "apps")))
+                if (Directory.Exists(Path.Combine(dir, "apps")))
                 {
                     return dir;
                 }
                 dir = Path.GetDirectoryName(dir) ?? string.Empty;
             }
 
-            // Fallback to a common developer path or leave empty
+            // Fallback to a common developer path
             string devPath = @"C:\Users\hnsil\Documents\GFC\cursor files\GFC-System\GFC-Studio V2";
             if (Directory.Exists(devPath)) return devPath;
 

@@ -62,7 +62,7 @@ if "%TRACK%"=="mobile" (
     )
     
     echo Locating generated APK installer file...
-    powershell -Command "$apk = Get-ChildItem -Path 'publish_pos_mobile\*.apk' | Select-Object -First 1; if (-not $apk) { $apk = Get-ChildItem -Path 'apps\GFC-Pos-Standalone\GFC.Pos.Mobile\bin\Release\net10.0-android\*.apk' | Select-Object -First 1 }; if ($apk) { Copy-Item $apk.FullName -Destination '%USERPROFILE%\Desktop\GFC_POS_Mobile.apk' -Force; Write-Host 'Copied' $apk.Name 'to Desktop as GFC_POS_Mobile.apk' } else { Write-Error 'No APK file found in publish outputs!' }"
+    powershell -Command "$apk = Get-ChildItem -Path 'publish_pos_mobile\*Signed.apk' | Select-Object -First 1; if (-not $apk) { $apk = Get-ChildItem -Path 'apps\GFC-Pos-Standalone\GFC.Pos.Mobile\bin\Release\net10.0-android\*Signed.apk' | Select-Object -First 1 }; if ($apk) { Copy-Item $apk.FullName -Destination '%USERPROFILE%\Desktop\GFC_POS_Mobile.apk' -Force; Write-Host 'Copied' $apk.Name 'to Desktop as GFC_POS_Mobile.apk' } else { Write-Error 'No APK file found in publish outputs!' }"
     if %errorLevel% neq 0 (
         echo [ERROR] Failed to locate or copy APK installer file.
         pause

@@ -29,7 +29,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo     $apps = @(
 >>"%PS_PATH%" echo         @{ Name="GFCWebApp"; Live="C:\inetpub\GFCWebApp"; Staging="webapp"; Backup="C:\inetpub\history_webapp" },
 >>"%PS_PATH%" echo         @{ Name="GFCMobile"; Live="C:\inetpub\wwwroot\GFCMobile"; Staging="mobile"; Backup="C:\inetpub\history_mobile" },
->>"%PS_PATH%" echo         @{ Name="Default Web Site"; Live="C:\inetpub\wwwroot\GFCPOS";    Staging="pos";    Backup="C:\inetpub\history_pos" }
+>>"%PS_PATH%" echo         @{ Name="Default Web Site"; Live="C:\WebSites\GFCPos";    Staging="pos";    Backup="C:\inetpub\history_pos" }
 >>"%PS_PATH%" echo     )
 >>"%PS_PATH%" echo     Import-Module WebAdministration -ErrorAction SilentlyContinue
 >>"%PS_PATH%" echo     foreach ($app in $apps) {
@@ -44,7 +44,7 @@ if exist "%PS_PATH%" del "%PS_PATH%"
 >>"%PS_PATH%" echo         if ($app.Name -eq "GFCMobile" -or $app.Name -eq "Default Web Site" -or $app.Name -eq "GFCPOS") {
 >>"%PS_PATH%" echo             Write-Step "Flattening $($app.Name) deployment..."
 >>"%PS_PATH%" echo             $sourceWwwroot = Join-Path $appStaging "wwwroot"
->>"%PS_PATH%" echo             robocopy $sourceWwwroot $app.Live /S /E /PURGE /XD "history" /XF "appsettings.Production.json" "web.config" ^| Out-Null
+>>"%PS_PATH%" echo             robocopy $sourceWwwroot $app.Live /S /E /PURGE /XD "history" "downloads" "Download" /XF "appsettings.Production.json" "web.config" ^| Out-Null
 >>"%PS_PATH%" echo             $liveWebConfig = Join-Path $app.Live "web.config"
 >>"%PS_PATH%" echo             $cleanWebConfig = @"
 >>"%PS_PATH%" echo ^<?xml version="1.0" encoding="UTF-8"?^>

@@ -8,6 +8,7 @@ using System.Security.Principal;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Web.Administration;
 
 namespace GFCDevOpsUtility
 {
@@ -79,6 +80,7 @@ namespace GFCDevOpsUtility
 
         private void MainForm_Load(object sender, EventArgs e)
         {
+            this.Text = DevOpsVersion.DisplayTitle;
             _config = AppConfig.Load();
 
             // Populate form text boxes from config
@@ -1233,21 +1235,20 @@ namespace GFCDevOpsUtility
 
             if (_isPublishAborted) return false;
             LogPublish($">>> Triggering version synchronization to version {version}...", false, ColorWait);
-            var syncRunner = new ProcessRunner((line, err) => LogPublish($"[SYNC] {line}", err));
-            _activePublishRunner = syncRunner;
-            int syncExit = -1;
-            try
+
+            bool syncOk = await VersionSyncEngine.SyncVersionAsync(
+                project: "POS",
+                workspace: workspace,
+                explicitVersion: version,
+                useNext: false,
+                dryRun: false,
+                noSync: false,
+                log: (msg, isErr) => LogPublish($"[SYNC] {msg}", isErr)
+            );
+
+            if (!syncOk || _isPublishAborted)
             {
-                syncExit = await syncRunner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \".\\sync-version.ps1\" -Project POS -Version \"{version}\"", workspace);
-            }
-            finally
-            {
-                _activePublishRunner = null;
-            }
-            
-            if (syncExit != 0 || _isPublishAborted)
-            {
-                LogPublish("!!! Version synchronization execution failed or was aborted.", true);
+                LogPublish("!!! Version synchronization failed or was aborted.", true);
                 return false;
             }
 
@@ -1486,7 +1487,7 @@ namespace GFCDevOpsUtility
                 string foundApk = null;
                 if (Directory.Exists(mobileTempOut))
                 {
-                    var apks = Directory.GetFiles(mobileTempOut, "*.apk");
+                    var apks = Directory.GetFiles(mobileTempOut, "*Signed.apk");
                     if (apks.Length > 0) foundApk = apks[0];
                 }
                 
@@ -1495,7 +1496,7 @@ namespace GFCDevOpsUtility
                     string fallbackDir = Path.Combine(workspace, "apps", "GFC-Pos-Standalone", "GFC.Pos.Mobile", "bin", "Release", "net10.0-android");
                     if (Directory.Exists(fallbackDir))
                     {
-                        var apks = Directory.GetFiles(fallbackDir, "*.apk");
+                        var apks = Directory.GetFiles(fallbackDir, "*Signed.apk");
                         if (apks.Length > 0) foundApk = apks[0];
                     }
                 }
@@ -1668,23 +1669,39 @@ namespace GFCDevOpsUtility
                         if (Directory.Exists(app.SourceZipFolder))
                         {
                             var apks = Directory.GetFiles(app.SourceZipFolder, "*.apk");
-                            if (apks.Length > 0) foundApkPath = apks[0];
+                            if (apks.Length > 0)
+                            {
+                                Array.Sort(apks, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                                foundApkPath = apks[0];
+                            }
                         }
                         if (foundApkPath == null && Directory.Exists(desktop))
                         {
                             var apks = Directory.GetFiles(desktop, "*.apk");
-                            if (apks.Length > 0) foundApkPath = apks[0];
+                            if (apks.Length > 0)
+                            {
+                                Array.Sort(apks, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                                foundApkPath = apks[0];
+                            }
                         }
                     }
 
                     if (foundApkPath != null)
                     {
                         Log($">>> Located APK installer for APK-Only deployment: {foundApkPath}", false, ColorWait);
-                        if (!Directory.Exists(_config.PosApkDistFolder))
+                        string distFolder = _config.PosApkDistFolder;
+                        if (string.IsNullOrEmpty(distFolder))
                         {
-                            Directory.CreateDirectory(_config.PosApkDistFolder);
+                            distFolder = !string.IsNullOrEmpty(app.LiveTargetFolder)
+                                ? Path.Combine(app.LiveTargetFolder, "Download")
+                                : @"C:\inetpub\wwwroot\GFCPOS\Download";
                         }
-                        string destApk = Path.Combine(_config.PosApkDistFolder, "GFC_POS_Mobile.apk");
+
+                        if (!Directory.Exists(distFolder))
+                        {
+                            Directory.CreateDirectory(distFolder);
+                        }
+                        string destApk = Path.Combine(distFolder, "GFC_POS_Mobile.apk");
                         Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
                         File.Copy(foundApkPath, destApk, true);
                         Log($">>> [OK] APK successfully copied to server (APK-Only).", false, ColorSuccess);
@@ -1725,12 +1742,19 @@ namespace GFCDevOpsUtility
                 Log($"[Step A] [OK] Package archived successfully: {archiveDest}", false, ColorSuccess);
 
                 // Step B: Deploy
-                Log($"[Step B] Clearing production folder: {app.LiveTargetFolder}...", false, ColorWait);
-                if (!Directory.Exists(app.LiveTargetFolder))
+                if (chkPurgeFiles.Checked)
                 {
-                    Directory.CreateDirectory(app.LiveTargetFolder);
+                    Log($"[Step B] Clearing production folder (preserving configurations/versions): {app.LiveTargetFolder}...", false, ColorWait);
+                    if (!Directory.Exists(app.LiveTargetFolder))
+                    {
+                        Directory.CreateDirectory(app.LiveTargetFolder);
+                    }
+                    await ClearDirectoryContentsAsync(app.LiveTargetFolder, true);
                 }
-                await ClearDirectoryContentsAsync(app.LiveTargetFolder, chkPurgeFiles.Checked);
+                else
+                {
+                    Log($"[Step B] Purge is disabled. Skipping production folder clearing step.", false, ColorWait);
+                }
 
                 Log($"[Step B] Extracting new flat ZIP contents directly to live folder...", false, ColorWait);
                 await ExtractZipAsync(zipPath, app.LiveTargetFolder);
@@ -1805,23 +1829,40 @@ namespace GFCDevOpsUtility
                 if (Directory.Exists(sourceZipFolder))
                 {
                     var apks = Directory.GetFiles(sourceZipFolder, "*.apk");
-                    if (apks.Length > 0) foundApkPath = apks[0];
+                    if (apks.Length > 0)
+                    {
+                        Array.Sort(apks, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                        foundApkPath = apks[0];
+                    }
                 }
                 if (foundApkPath == null && Directory.Exists(desktop))
                 {
                     var apks = Directory.GetFiles(desktop, "*.apk");
-                    if (apks.Length > 0) foundApkPath = apks[0];
+                    if (apks.Length > 0)
+                    {
+                        Array.Sort(apks, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                        foundApkPath = apks[0];
+                    }
                 }
             }
 
             if (foundApkPath != null)
             {
                 Log($">>> Located APK installer at: {foundApkPath}", false, ColorWait);
-                if (!Directory.Exists(_config.PosApkDistFolder))
+                string distFolder = _config.PosApkDistFolder;
+                if (string.IsNullOrEmpty(distFolder))
                 {
-                    Directory.CreateDirectory(_config.PosApkDistFolder);
+                    var posApp = _config.AppPipelines.Find(a => a.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase));
+                    distFolder = (posApp != null && !string.IsNullOrEmpty(posApp.LiveTargetFolder))
+                        ? Path.Combine(posApp.LiveTargetFolder, "Download")
+                        : @"C:\inetpub\wwwroot\GFCPOS\Download";
                 }
-                string destApk = Path.Combine(_config.PosApkDistFolder, "GFC_POS_Mobile.apk");
+
+                if (!Directory.Exists(distFolder))
+                {
+                    Directory.CreateDirectory(distFolder);
+                }
+                string destApk = Path.Combine(distFolder, "GFC_POS_Mobile.apk");
                 Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
                 File.Copy(foundApkPath, destApk, true);
                 Log($">>> [OK] APK successfully copied to server.", false, ColorSuccess);
@@ -1848,7 +1889,7 @@ namespace GFCDevOpsUtility
             {
                 if (!Directory.Exists(path)) return;
 
-                var exclusions = new string[] { "appsettings.Production.json", "web.config" };
+                var exclusions = new string[] { "appsettings.Production.json", "web.config", "version.txt", "version.json" };
                 
                 // Delete files
                 foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
@@ -1998,13 +2039,59 @@ namespace GFCDevOpsUtility
 
         private async Task ToggleIisAsync(string site, string pool, bool start)
         {
-            string cmd = start ? "Start" : "Stop";
-            var iisRunner = new ProcessRunner((line, err) => Log($"[IIS] {line}", err));
+            await Task.Run(() =>
+            {
+                try
+                {
+                    using var manager = new ServerManager();
 
-            // Stop/Start Pool
-            await iisRunner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -Command \"Import-Module WebAdministration; {cmd}-WebAppPool -Name '{pool}'\"", Environment.SystemDirectory);
-            // Stop/Start Site
-            await iisRunner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -Command \"Import-Module WebAdministration; {cmd}-Website -Name '{site}'\"", Environment.SystemDirectory);
+                    // Toggle Application Pool
+                    var appPool = manager.ApplicationPools[pool];
+                    if (appPool != null)
+                    {
+                        if (start)
+                        {
+                            if (appPool.State != ObjectState.Started && appPool.State != ObjectState.Starting)
+                                appPool.Start();
+                        }
+                        else
+                        {
+                            if (appPool.State != ObjectState.Stopped && appPool.State != ObjectState.Stopping)
+                                appPool.Stop();
+                        }
+                        Log($"[IIS] App Pool '{pool}' {(start ? "started" : "stopped")}.", false);
+                    }
+                    else
+                    {
+                        Log($"[IIS] App Pool '{pool}' not found — skipping.", false);
+                    }
+
+                    // Toggle Website
+                    var website = manager.Sites[site];
+                    if (website != null)
+                    {
+                        if (start)
+                        {
+                            if (website.State != ObjectState.Started && website.State != ObjectState.Starting)
+                                website.Start();
+                        }
+                        else
+                        {
+                            if (website.State != ObjectState.Stopped && website.State != ObjectState.Stopping)
+                                website.Stop();
+                        }
+                        Log($"[IIS] Website '{site}' {(start ? "started" : "stopped")}.", false);
+                    }
+                    else
+                    {
+                        Log($"[IIS] Website '{site}' not found — skipping.", false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[IIS] Warning: Could not toggle IIS state for '{site}': {ex.Message}", true);
+                }
+            });
 
             await Task.Delay(1500); // cooldown sleep
         }
@@ -2217,37 +2304,46 @@ namespace GFCDevOpsUtility
                 args += " -DryRun";
             }
 
+            // Resolve version and flags from UI
+            string? customVer = radRevNext.Checked ? null : txtRevCustomValue.Text.Trim();
+            bool useNext = radRevNext.Checked;
+            bool dryRun = chkRevDryRun.Checked;
+
             SetBusy(true, "Syncing version revisions...");
             rtbTerminal.Clear();
             Log($">>> [WAIT] Triggering Version Revision Sync for project: {project}...", false, ColorWait);
-            Log($">>> Executing command: powershell.exe -File .\\sync-version.ps1 {args}", false, ColorTextMuted);
 
             try
             {
-                var runner = new ProcessRunner((line, err) => Log($"[SYNC] {line}", err));
-                int exit = await runner.RunAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \".\\sync-version.ps1\" {args}", workspace);
+                bool success = await VersionSyncEngine.SyncVersionAsync(
+                    project: project,
+                    workspace: workspace,
+                    explicitVersion: customVer,
+                    useNext: useNext,
+                    dryRun: dryRun,
+                    noSync: false,
+                    log: (msg, isErr) => Log($"[SYNC] {msg}", isErr)
+                );
 
-                if (exit == 0)
+                if (success)
                 {
                     Log(">>> REVISION SYNCHRONIZATION PIPELINE SUCCESSFUL!", false, ColorSuccess);
                     SetBusy(false, "Ready");
                     MessageBox.Show("Version sync completed successfully!", "Sync Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    
-                    // Rescan and update UI dashboard
                     RefreshVersionDashboard();
                 }
                 else
                 {
-                    Log($"!!! sync-version.ps1 execution failed with code {exit}", true);
+                    Log("!!! Version synchronization failed. Check errors in logs above.", true);
                     SetBusy(false, "Error: Sync Failed!");
-                    MessageBox.Show("Version sync script execution failed. Check errors in logs.", "Sync Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("Version sync failed. Check errors in logs.", "Sync Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
             catch (Exception ex)
             {
                 Log($"CRITICAL SYNC EXCEPTION: {ex.Message}", true);
                 SetBusy(false, "Exception Failure");
-                MessageBox.Show($"Pipeline execution failed: {ex.Message}", "Critical Exception", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Sync failed: {ex.Message}", "Critical Exception", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         #endregion

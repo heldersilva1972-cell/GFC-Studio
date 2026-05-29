@@ -6,7 +6,7 @@ echo   GFC POS Deployment (COMPLETE SYSTEM RESTORE)
 echo ===================================================
 
 :: --- CONFIGURATION ---
-set "LIVE_PATH=C:\inetpub\wwwroot\GFCPOS"
+set "LIVE_PATH=C:\WebSites\GFCPos"
 set "STAGING_PATH=C:\inetpub\PublishGFCPos"
 :: ---------------------
 
@@ -60,7 +60,7 @@ echo         if (-not (Test-Path $live)) { New-Item -ItemType Directory -Path $l
 echo         icacls $live /grant "IIS_IUSRS:(OI)(CI)R" /T /C /Q>>"%PS_PATH%"
 echo         Get-ChildItem $live -Include *.br, *.gz -Recurse -ErrorAction SilentlyContinue ^| Remove-Item -Force>>"%PS_PATH%"
 echo         Write-Host ">>> Deploying files to $live...">>"%PS_PATH%"
-echo         robocopy $sourcePath $live /S /E /PURGE /XF "appsettings.Production.json" "web.config">>"%PS_PATH%"
+echo         robocopy $sourcePath $live /S /E /PURGE /XD "downloads" "Download" /XF "appsettings.Production.json" "web.config">>"%PS_PATH%"
 echo     }>>"%PS_PATH%"
 echo.
 echo     # 4.5 DEPLOY APK (MOBILE TRACK)>>"%PS_PATH%"

@@ -26,7 +26,7 @@ public class AndroidPrinterService : IPrinterService
         return await PrintRawDataAsync(Encoding.ASCII.GetBytes(plainText));
     }
 
-    public async Task<bool> PrintRawDataAsync(byte[] data)
+    public async Task<bool> PrintRawDataAsync(byte[] data, System.Threading.CancellationToken cancellationToken = default)
     {
         var (vid, pid) = _configService.GetParsedSettings();
         if (vid == null || pid == null) return false;
