@@ -32,5 +32,8 @@ namespace GFC.Core.Models
         
         [ForeignKey("SessionId")]
         public virtual BingoSession? Session { get; set; }
+
+        [StringLength(50)]
+        public string? CheckNumber { get; set; }
     }
 }
