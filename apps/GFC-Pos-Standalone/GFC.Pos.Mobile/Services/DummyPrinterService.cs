@@ -6,6 +6,7 @@ public class DummyPrinterService : IPrinterService
 {
     public Task<bool> PrintReceiptAsync(string content) => Task.FromResult(false);
     public Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> PrintTestAsync() => Task.FromResult(false);
     public Task<bool> KickDrawerAsync() => Task.FromResult(false);
     public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync() => Task.FromResult(new List<UsbDeviceDto>());
 }

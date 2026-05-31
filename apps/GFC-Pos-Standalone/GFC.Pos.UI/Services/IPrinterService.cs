@@ -4,6 +4,7 @@ public interface IPrinterService
 {
     Task<bool> PrintReceiptAsync(string content);
     Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default);
+    Task<bool> PrintTestAsync();
     Task<bool> KickDrawerAsync();
     Task<List<UsbDeviceDto>> GetConnectedDevicesAsync();
 }
@@ -27,11 +28,24 @@ public static class HtmlToPlainTextConverter
         var clean = System.Text.RegularExpressions.Regex.Replace(html, @"<style[^>]*>[\s\S]*?</style>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         // 2. Pre-process lines
-        var lines = clean.Split(new[] { "\r\n", "\r", "\n" }, System.StringSplitOptions.None);
-        for (int i = 0; i < lines.Length; i++)
+        var rawLines = clean.Split(new[] { "\r\n", "\r", "\n" }, System.StringSplitOptions.None);
+        var processedLines = new System.Collections.Generic.List<string>();
+
+        for (int i = 0; i < rawLines.Length; i++)
         {
-            var line = lines[i];
-            
+            var line = rawLines[i];
+            bool isHeader = false;
+
+            // Check if this is a centered header
+            if (System.Text.RegularExpressions.Regex.IsMatch(line, @"<h[1-4][^>]*>", System.Text.RegularExpressions.RegexOptions.IgnoreCase) || 
+                line.Contains("text-align:center") || 
+                line.Contains("text-align: center") || 
+                line.Contains("class=\"center\"") || 
+                line.Contains("class='center'"))
+            {
+                isHeader = true;
+            }
+
             // Format double-column flex-like rows
             if (line.Contains("justify-content:space-between") || line.Contains("justify-content: space-between") || line.Contains("justify-content:between") || line.Contains("justify-content: between"))
             {
@@ -41,52 +55,78 @@ public static class HtmlToPlainTextConverter
                     var left = StripTags(matches[0].Groups[1].Value).Trim();
                     var right = StripTags(matches[1].Groups[1].Value).Trim();
 
-                    // Standard thermal print width is 40 characters
-                    int spaceCount = 40 - left.Length - right.Length;
+                    // Width parameters is strictly 42 characters
+                    int spaceCount = 42 - left.Length - right.Length;
                     if (spaceCount > 0)
                     {
-                        lines[i] = left + new string(' ', spaceCount) + right;
+                        line = left + new string(' ', spaceCount) + right;
                     }
                     else
                     {
-                        lines[i] = left + " " + right;
+                        // Wrap or truncate left side if too long
+                        int maxLeftLen = 42 - right.Length - 1;
+                        if (maxLeftLen > 0)
+                        {
+                            if (left.Length > maxLeftLen)
+                            {
+                                left = left.Substring(0, maxLeftLen);
+                            }
+                            spaceCount = 42 - left.Length - right.Length;
+                            line = left + new string(' ', spaceCount) + right;
+                        }
+                        else
+                        {
+                            line = (left + " " + right).Substring(0, Math.Min(42, left.Length + right.Length + 1)).PadRight(42);
+                        }
                     }
-                    continue;
                 }
             }
-
-            // Format headers (center aligned h1, h2, h3, h4)
-            if (System.Text.RegularExpressions.Regex.IsMatch(line, @"<h[1-4][^>]*>", System.Text.RegularExpressions.RegexOptions.IgnoreCase) || line.Contains("text-align:center") || line.Contains("text-align: center") || line.Contains("class=\"center\"") || line.Contains("class='center'"))
+            else if (isHeader)
             {
                 var text = StripTags(line).Trim();
                 if (!string.IsNullOrEmpty(text))
                 {
-                    int spaceCount = (40 - text.Length) / 2;
-                    if (spaceCount > 0)
-                    {
-                        lines[i] = new string(' ', spaceCount) + text.ToUpper();
-                    }
-                    else
-                    {
-                        lines[i] = text.ToUpper();
-                    }
-                    continue;
+                    // Prepend special header markers that services can parse to change hardware alignments
+                    // ESC a 1 (center) will be applied. We prefix with a marker.
+                    line = "[ALIGN_CENTER]" + text.ToUpper();
                 }
             }
+            else
+            {
+                // Inline formatting tags replacement
+                line = System.Text.RegularExpressions.Regex.Replace(line, @"<hr\s*/?>", "------------------------------------------\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                line = System.Text.RegularExpressions.Regex.Replace(line, @"<br\s*/?>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                line = System.Text.RegularExpressions.Regex.Replace(line, @"</(div|p|li|tr|h[1-4])>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                line = StripTags(line);
+            }
 
-            // Inline formatting tags replacement
-            line = line.Replace("<hr/>", "----------------------------------------");
-            line = line.Replace("<hr>", "----------------------------------------");
-            line = line.Replace("<br/>", "\n");
-            line = line.Replace("<br>", "\n");
-            line = line.Replace("</div>", "\n");
-            line = line.Replace("</p>", "\n");
-            line = line.Replace("</li>", "\n");
-
-            lines[i] = StripTags(line);
+            // Split line into multiple sub-lines by newlines first
+            var subLines = line.Split('\n');
+            foreach (var sub in subLines)
+            {
+                if (sub.StartsWith("[ALIGN_CENTER]"))
+                {
+                    processedLines.Add(sub);
+                }
+                else
+                {
+                    // Enforce the 42 character limit with wrapping/truncating
+                    var remainder = sub;
+                    while (remainder.Length > 42)
+                    {
+                        var chunk = remainder.Substring(0, 42);
+                        processedLines.Add(chunk.PadRight(42));
+                        remainder = remainder.Substring(42);
+                    }
+                    if (remainder.Length > 0 || string.IsNullOrEmpty(sub))
+                    {
+                        processedLines.Add(remainder.PadRight(42));
+                    }
+                }
+            }
         }
 
-        var result = string.Join("\n", lines);
+        var result = string.Join("\n", processedLines);
 
         // Decode HTML entities
         result = result.Replace("&nbsp;", " ");

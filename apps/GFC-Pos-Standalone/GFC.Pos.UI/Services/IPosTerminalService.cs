@@ -8,6 +8,7 @@ namespace GFC.Pos.UI.Services;
 
 public interface IPosTerminalService
 {
+    Task InitializeAsync();
     Task<PosMenuDto> GetMenuAsync(bool force = false);
     Task<PosMenuDto?> GetCachedMenuAsync();
     Task SaveMenuToVaultAsync(PosMenuDto menu);

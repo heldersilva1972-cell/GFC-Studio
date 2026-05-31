@@ -364,7 +364,8 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     }
 
     private readonly SemaphoreSlim _syncLock = new(1, 1);
-    private readonly Timer _syncTimer;
+    private Timer? _syncTimer;
+    private bool _isInitialized = false;
 
     public PosTerminalService(HttpClient http, IJSRuntime js, ConnectivityService connectivity, IStationSettingsService stationSettings)
     {
@@ -372,14 +373,24 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         _js = js;
         _connectivity = connectivity;
         _stationSettings = stationSettings;
+    }
+
+    public async Task InitializeAsync()
+    {
+        if (_isInitialized) return;
+
+        System.Diagnostics.Debug.WriteLine("[PosTerminalService] Asynchronously initializing...");
+
+        // Initialize API Base Address from Override if present
+        await InitializeApiUrlAsync();
+
+        _connectivity.ConnectivityChanged += HandleConnectivityChanged;
 
         // [SYNC HEARTBEAT] Pulse every 30 seconds to flush trapped data
         _syncTimer = new Timer(async _ => await SafeFlushAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
 
-        _connectivity.ConnectivityChanged += HandleConnectivityChanged;
-
-        // Initialize API Base Address from Override if present
-        _ = InitializeApiUrlAsync();
+        _isInitialized = true;
+        System.Diagnostics.Debug.WriteLine("[PosTerminalService] Initialization complete.");
     }
 
     private void HandleConnectivityChanged(bool isOnline)

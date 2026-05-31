@@ -49,6 +49,11 @@ public class WebPrinterService : IPrinterService
         return Task.FromResult(false);
     }
 
+    public Task<bool> PrintTestAsync()
+    {
+        return Task.FromResult(false);
+    }
+
     public Task<bool> KickDrawerAsync()
     {
         // Browser cannot kick drawer directly

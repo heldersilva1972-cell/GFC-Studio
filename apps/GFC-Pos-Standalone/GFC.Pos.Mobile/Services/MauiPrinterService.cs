@@ -34,6 +34,7 @@ public class MauiPrinterService : IPrinterService
 
     public Task<bool> PrintReceiptAsync(string content) => GetImplementation().PrintReceiptAsync(content);
     public Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default) => GetImplementation().PrintRawDataAsync(data, cancellationToken);
+    public Task<bool> PrintTestAsync() => GetImplementation().PrintTestAsync();
     public Task<bool> KickDrawerAsync() => GetImplementation().KickDrawerAsync();
     public Task<List<UsbDeviceDto>> GetConnectedDevicesAsync() => GetImplementation().GetConnectedDevicesAsync();
 }

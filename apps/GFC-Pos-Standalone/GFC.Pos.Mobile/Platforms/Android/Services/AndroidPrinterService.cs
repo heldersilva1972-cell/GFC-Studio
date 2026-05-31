@@ -16,7 +16,6 @@ public class AndroidPrinterService : IPrinterService
 
     static AndroidPrinterService()
     {
-        // Register CodePages encoding provider for CodePage 437 support
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
@@ -26,56 +25,94 @@ public class AndroidPrinterService : IPrinterService
         _usbManager = (UsbManager)Platform.CurrentActivity.GetSystemService(Context.UsbService);
     }
 
+    /// <summary>
+    /// Receives pre-formatted 42-char plain-text from the receipt builder.
+    /// Wraps it in ESC/POS init + cut commands and sends via USB bulk transfer.
+    /// </summary>
     public async Task<bool> PrintReceiptAsync(string content)
     {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            System.Diagnostics.Debug.WriteLine("[AndroidPrinter] PrintReceiptAsync aborted: Content is null or empty.");
+            return false;
+        }
+
         try
         {
-            var plainText = HtmlToPlainTextConverter.Convert(content);
-            
-            // Encode the string in CodePage 437 (compatible with ESC/POS for symbols like $)
-            var cp437 = Encoding.GetEncoding(437);
-            byte[] textBytes = cp437.GetBytes(plainText);
-
-            // Prepend ESC @ (Initialize printer reset), GS W (Set print width to 576 dots), and GS L (Set left margin to 0)
-            byte[] initCmd = new byte[] { 
-                0x1B, 0x40,             // Reset (ESC @)
-                0x1D, 0x57, 0x40, 0x02, // Set Width to 576 dots (GS W 64 2)
-                0x1D, 0x4C, 0x00, 0x00  // Set Left Margin to 0 (GS L 0 0)
-            };
-
-            // Append GS V A 3 (Feed and Cut) -> Hex: 1D 56 41 03
-            byte[] cutCmd = new byte[] { 0x1D, 0x56, 0x41, 0x03 };
-
-            // Assemble into a single atomic byte stream
-            byte[] mergedJob = new byte[initCmd.Length + textBytes.Length + cutCmd.Length];
-            Buffer.BlockCopy(initCmd, 0, mergedJob, 0, initCmd.Length);
-            Buffer.BlockCopy(textBytes, 0, mergedJob, initCmd.Length, textBytes.Length);
-            Buffer.BlockCopy(cutCmd, 0, mergedJob, initCmd.Length + textBytes.Length, cutCmd.Length);
-
-            return await PrintRawDataAsync(mergedJob);
+            var payload = BuildEscPosPayload(content);
+            return await PrintRawDataAsync(payload);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AndroidPrinter] Error assembling ESC/POS job: {ex.Message}");
+            Console.WriteLine($"[AndroidPrinter] PrintReceiptAsync failed: {ex.Message}");
             return false;
         }
     }
 
     public async Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default)
     {
+        if (data == null || data.Length == 0)
+        {
+            System.Diagnostics.Debug.WriteLine("[AndroidPrinter] PrintRawDataAsync aborted: Data buffer is empty.");
+            return false;
+        }
+
         var (vid, pid) = _configService.GetParsedSettings();
-        if (vid == null || pid == null) return false;
+        if (vid == null || pid == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[AndroidPrinter] Ready-state failed: VID or PID not configured.");
+            return false;
+        }
 
         var device = FindPrinter(vid.Value, pid.Value);
-        if (device == null) return false;
+        if (device == null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AndroidPrinter] Printer VID {vid:X4} PID {pid:X4} not found on USB bus.");
+            return false;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[AndroidPrinter] USB device VID {vid:X4} PID {pid:X4} found. Checking permission...");
 
         if (!_usbManager.HasPermission(device))
         {
+            System.Diagnostics.Debug.WriteLine("[AndroidPrinter] USB permission not granted — requesting...");
             var granted = await RequestPermissionAsync(device);
-            if (!granted) return false;
+            if (!granted)
+            {
+                System.Diagnostics.Debug.WriteLine("[AndroidPrinter] USB permission denied.");
+                return false;
+            }
+            System.Diagnostics.Debug.WriteLine("[AndroidPrinter] USB permission granted.");
         }
 
+        System.Diagnostics.Debug.WriteLine("[AndroidPrinter] Initiating USB bulk transfer...");
         return SendRawData(device, data);
+    }
+
+    public async Task<bool> PrintTestAsync()
+    {
+        // NOTE: Ethernet routing is handled by MauiPrinterService before reaching this class.
+        // This method only handles local USB printing.
+        try
+        {
+            var sb = new StringBuilder();
+            ReceiptFormatter.AppendDivider(sb, '=');
+            ReceiptFormatter.AppendCenter(sb, "GFC POS TEST PRINT");
+            ReceiptFormatter.AppendDivider(sb, '=');
+            ReceiptFormatter.AppendBlank(sb);
+            ReceiptFormatter.AppendLine(sb, "STATUS", "ONLINE (USB)");
+            ReceiptFormatter.AppendBlank(sb);
+            ReceiptFormatter.AppendCenter(sb, "PRINTER READY");
+            ReceiptFormatter.AppendDivider(sb, '-');
+
+            var payload = BuildEscPosPayload(sb.ToString());
+            return await PrintRawDataAsync(payload);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AndroidPrinter] PrintTest failed: {ex.Message}");
+            return false;
+        }
     }
 
     public async Task<bool> KickDrawerAsync()
@@ -99,6 +136,31 @@ public class AndroidPrinterService : IPrinterService
         return Task.FromResult(devices);
     }
 
+    // ── Private helpers ──────────────────────────────────────────────────────
+
+    private byte[] BuildEscPosPayload(string plainText)
+    {
+        var cp437 = Encoding.GetEncoding(437);
+        var bytes = new List<byte>();
+
+        // ESC @ — Initialise printer (reset all settings)
+        bytes.Add(0x1B); bytes.Add(0x40);
+
+        // GS L nL nH — Set left margin to 0
+        bytes.AddRange(new byte[] { 0x1D, 0x4C, 0x00, 0x00 });
+
+        // Plain-text body — pre-formatted, line endings are \n
+        bytes.AddRange(cp437.GetBytes(plainText));
+
+        // 4× line feeds before cut so text clears the cutter blade
+        bytes.AddRange(new byte[] { 0x0A, 0x0A, 0x0A, 0x0A });
+
+        // GS V B 0 — Full cut (feed & cut)
+        bytes.AddRange(new byte[] { 0x1D, 0x56, 0x42, 0x00 });
+
+        return bytes.ToArray();
+    }
+
     private UsbDevice? FindPrinter(int vid, int pid)
     {
         foreach (var device in _usbManager.DeviceList.Values)
@@ -111,7 +173,7 @@ public class AndroidPrinterService : IPrinterService
     private async Task<bool> RequestPermissionAsync(UsbDevice device)
     {
         _permissionTcs = new TaskCompletionSource<bool>();
-        
+
         var context = Platform.CurrentActivity;
         var receiver = new UsbPermissionReceiver();
         context.RegisterReceiver(receiver, new IntentFilter(ActionUsbPermission), ReceiverFlags.NotExported);

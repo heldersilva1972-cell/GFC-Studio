@@ -5104,19 +5104,27 @@
     protected override async Task OnInitializedAsync()
     {
         _isInitialLoading = true;
-        
-        // 1. [HYDRATE-FIRST] Load from local device immediately
-        // Do not wait for connectivity checks or terminal names
-        await RefreshData(cacheOnly: true);
+        try
+        {
+            // 1. [HYDRATE-FIRST] Load from local device immediately
+            // Do not wait for connectivity checks or terminal names
+            await RefreshData(cacheOnly: true);
 
-        // 2. [BACKGROUND-INIT] Now handle connectivity and network sync
-        _ = Task.Run(async () => {
+            // 2. [BACKGROUND-INIT] Now handle connectivity and network sync sequentially and safely
             await Connectivity.InitializeAsync();
             await LoadTerminalName();
+            await PosService.InitializeAsync();
             await RefreshData(cacheOnly: false);
-        });
-        
-        _isInitialLoading = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Initialization Error: {ex.Message}");
+            Toast.ShowError("Error starting up services.");
+        }
+        finally
+        {
+            _isInitialLoading = false;
+        }
         
         // [AUTO-SYNC] Load from vault instantly, then background refresh from server
         _ = SyncUsers();
@@ -6683,41 +6691,43 @@
         var spirits = active.Where(i => !i.IsBeer).OrderBy(i => i.Category).ThenBy(i => i.Name).ToList();
         var beer    = active.Where(i => i.IsBeer).OrderBy(i => i.Name).ToList();
 
-        string BuildSection(string title, List<GFC.Core.Models.LiquorItem> list)
+        var sb = new System.Text.StringBuilder();
+
+        ReceiptFormatter.AppendReceiptHeader(sb,
+            title1: "GFC TERMINAL",
+            title2: TerminalName,
+            dateStr: $"Printed: {DateTime.Now:MM/dd/yyyy h:mm tt}",
+            operatorName: $"By: {CurrentUserName}");
+
+        ReceiptFormatter.AppendCenter(sb, "LIQUOR INVENTORY");
+        ReceiptFormatter.AppendDivider(sb, '-');
+
+        ReceiptFormatter.AppendLine(sb, "ITEM", "QTY");
+        ReceiptFormatter.AppendDivider(sb, '-');
+
+        void AppendSection(string title, List<GFC.Core.Models.LiquorItem> list)
         {
-            if (!list.Any()) return "";
-            var rows = "";
+            if (!list.Any()) return;
+            
+            ReceiptFormatter.AppendSectionHeader(sb, $"{title} ({list.Count})");
             foreach (var item in list)
             {
                 var size    = string.IsNullOrEmpty(item.BottleSize) ? "" : $" ({item.BottleSize})";
-                var lowWarn = item.CurrentStock <= item.MinStockLimit ? " &#x26A0;" : "";
-                rows += $@"<div style='display:flex; justify-content:space-between; font-size:0.82em; padding:2px 0; border-bottom:1px dotted #ccc;'>
-                    <span>{item.Name}{size}{lowWarn}</span>
-                    <span style='font-weight:bold;'>{item.CurrentStock}</span>
-                </div>";
+                var lowWarn = item.CurrentStock <= item.MinStockLimit ? " !" : "";
+                var itemName = $"{item.Name}{size}{lowWarn}";
+                var qtyStr = item.CurrentStock.ToString();
+                ReceiptFormatter.AppendLine(sb, itemName, qtyStr);
             }
-            return $@"<div style='font-weight:bold; border-bottom:2px solid #000; margin-top:10px; margin-bottom:4px; font-size:0.9em; text-transform:uppercase;'>{title} ({list.Count})</div>{rows}";
         }
 
-        return $@"<div style='font-family:monospace; width:300px; padding:10px;'>
-            <div style='text-align:center;'>
-                <h2 style='margin:0;'>GFC TERMINAL</h2>
-                <div style='font-size:0.9em;'>{TerminalName}</div>
-                <hr/>
-                <h3 style='margin:6px 0;'>LIQUOR INVENTORY</h3>
-                <div style='font-size:0.8em;'>Printed: {DateTime.Now:MM/dd/yyyy h:mm tt}</div>
-                <div style='font-size:0.8em;'>By: {CurrentUserName}</div>
-                <hr/>
-            </div>
-            <div style='display:flex; justify-content:space-between; font-size:0.75em; font-weight:bold; opacity:0.6; margin-bottom:2px;'>
-                <span>ITEM</span><span>QTY</span>
-            </div>
-            {BuildSection("SPIRITS", spirits)}
-            {BuildSection("BEER & COOLERS", beer)}
-            <div style='margin-top:12px; border-top:1px solid #000; padding-top:6px; font-size:0.78em; text-align:center;'>
-                Total Active Items: {active.Count} &nbsp;|&nbsp; &#x26A0; = Low Stock
-            </div>
-        </div>";
+        AppendSection("SPIRITS", spirits);
+        AppendSection("BEER & COOLERS", beer);
+
+        ReceiptFormatter.AppendDivider(sb, '-');
+        ReceiptFormatter.AppendCenter(sb, $"Total Active Items: {active.Count}");
+        ReceiptFormatter.AppendCenter(sb, "! = Low Stock");
+
+        return sb.ToString();
     }
 
     private async Task PrintXReport()
@@ -7342,39 +7352,38 @@
     {
         var item = JsonSerializer.Deserialize<List<ProductItem>>(payout.ItemsJson)?.FirstOrDefault();
         var parts = item?.Name.Split(':') ?? Array.Empty<string>();
-        var cat = parts.Length > 1 ? parts[1] : "OTHER";
+        var cat  = parts.Length > 1 ? parts[1] : "OTHER";
         var desc = parts.Length > 2 ? parts[2] : "";
-        
-        var html = $@"
-            <div style='font-family:monospace; width:280px; font-size:12px; line-height:1.4;'>
-                <div style='text-align:center; font-weight:bold; font-size:16px; margin-bottom:4px;'>GFC PAYOUT VOUCHER</div>
-                <div style='text-align:center; border-bottom:1px dashed #000; padding-bottom:8px; margin-bottom:8px;'>
-                    TERMINAL: {TerminalName.ToUpper()}<br/>
-                    DATE: {payout.Timestamp:MM/dd/yyyy h:mm tt}<br/>
-                    OPERATOR: {payout.BartenderName.ToUpper()}
-                </div>
-                <div style='margin-bottom:8px;'>
-                    <div style='display:flex; justify-content:space-between;'>
-                        <span>CATEGORY:</span><span style='font-weight:bold;'>{cat}</span>
-                    </div>
-                    {(string.IsNullOrEmpty(desc) ? "" : $@"
-                    <div style='display:flex; justify-content:space-between; margin-top:2px;'>
-                        <span>NOTE:</span><span style='font-weight:bold;'>{desc}</span>
-                    </div>")}
-                    <div style='display:flex; justify-content:space-between; font-size:14px; font-weight:bold; border-top:1px solid #000; margin-top:4px; padding-top:4px;'>
-                        <span>PAID OUT:</span><span>{payout.TotalAmount:C}</span>
-                    </div>
-                </div>
-                <div style='margin-top:30px; border-top:1px solid #000; text-align:center; padding-top:4px;'>
-                    SIGNATURE
-                </div>
-            </div>";
+
+        var sb = new System.Text.StringBuilder();
+
+        ReceiptFormatter.AppendReceiptHeader(sb,
+            title1: "GFC PAYOUT VOUCHER",
+            title2: payout.TerminalName.ToUpper(),
+            dateStr: payout.Timestamp.ToString("MM/dd/yyyy  h:mm tt"),
+            operatorName: $"Operator: {payout.BartenderName.ToUpper()}");
+
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendLine(sb, "CATEGORY", cat.ToUpper());
+        if (!string.IsNullOrEmpty(desc))
+            ReceiptFormatter.AppendLine(sb, "NOTE", desc);
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendDivider(sb, '-');
+        ReceiptFormatter.AppendLine(sb, "PAID OUT", $"{payout.TotalAmount:C}");
+        ReceiptFormatter.AppendDivider(sb, '-');
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendDivider(sb, '_');
+        ReceiptFormatter.AppendCenter(sb, "SIGNATURE");
+
         try
         {
-            await PrintReceiptAsync(html);
+            await PrintReceiptAsync(sb.ToString());
         }
         catch {}
     }
+
 
     private string BuildZReportHtml(PosZReportDto z, bool isXReport = false, bool isReprint = false)
     {
@@ -7383,16 +7392,15 @@
         var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
         var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Sum());
 
-        // Parse Payouts from z.SalesSummaryJson
+        // Parse Payouts from SalesSummaryJson
         decimal payoutTotal = 0;
-        var payoutRowsList = new List<string>();
+        var payoutLines = new List<(string label, string amount)>();
         var regularSalesSummary = new Dictionary<string, int>(salesSummary);
-        
+
         foreach (var kvp in salesSummary)
         {
             if (kvp.Key.StartsWith("PAYOUT:"))
             {
-                // Key format: "PAYOUT:{Category}:{Description}:{AmountCents}"
                 var parts = kvp.Key.Split(':');
                 if (parts.Length >= 4 && int.TryParse(parts[3], out var amountCents))
                 {
@@ -7400,20 +7408,14 @@
                     var desc = parts[2];
                     var amt = amountCents / 100m;
                     payoutTotal += amt;
-                    
-                    payoutRowsList.Add($@"
-                        <div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'>
-                            <span>- {cat}{(string.IsNullOrEmpty(desc) ? "" : $" ({desc})")}</span>
-                            <span>-{amt:C}</span>
-                        </div>");
+                    var payLabel = string.IsNullOrEmpty(desc) ? $"  - {cat}" : $"  - {cat} ({desc})";
+                    payoutLines.Add((payLabel, $"-{amt:C}"));
                 }
-                
-                // Remove payout from regular sales summary
                 regularSalesSummary.Remove(kvp.Key);
             }
         }
 
-        // [SMART SUBTRACTION] Subtract banquet item sales from standard category calculations
+        // Subtract banquet item sales from standard category calculations
         foreach (var b in banquetSummary)
         {
             foreach (var item in b.ItemSummary)
@@ -7422,194 +7424,157 @@
                 {
                     regularSalesSummary[item.Key] -= item.Value;
                     if (regularSalesSummary[item.Key] <= 0)
-                    {
                         regularSalesSummary.Remove(item.Key);
-                    }
                 }
             }
         }
 
-        // Remove deposit keys from regular sales so they don't show up as MISC $0.00 items in regular sales
+        // Remove deposit keys
         var depositKeys = regularSalesSummary.Keys
             .Where(k => k.StartsWith("TAB DEPOSIT:") || k.StartsWith("INITIAL DEPOSIT:") || k.StartsWith("DEPOSIT CORRECTION:"))
             .ToList();
-        foreach (var k in depositKeys)
-        {
-            regularSalesSummary.Remove(k);
-        }
+        foreach (var k in depositKeys) regularSalesSummary.Remove(k);
 
-        // Calculate Token Credits directly from the Z-Report DTO
         decimal tokenCredits = z.TokenCredits;
 
-        // Generate Sales Rows (Grouped by Category)
+        // Group regular sales by category
         var groupedRegular = regularSalesSummary
             .Select(kvp => {
                 var cleanKey = kvp.Key;
                 if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
-                
                 var product = DbItems.FirstOrDefault(i => i.Name == cleanKey);
                 var category = product?.Category;
                 if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                 if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
-                
                 decimal price = product?.Price ?? 0;
-                
-                // Dynamically resolve negative token credit prices for upgrade lines
                 if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
                 {
                     var tokenPart = kvp.Key.Substring(2, kvp.Key.IndexOf(" TOKEN CREDIT FOR ") - 2).Trim();
                     var token = DbTokens.FirstOrDefault(t => t.Name.Equals(tokenPart, StringComparison.OrdinalIgnoreCase));
-                    if (token != null)
-                    {
-                        price = -(token.CreditValue ?? token.SalePrice);
-                    }
+                    if (token != null) price = -(token.CreditValue ?? token.SalePrice);
                 }
-
-                return new { 
-                    Name = kvp.Key, 
-                    Quantity = kvp.Value, 
-                    Category = category ?? "MISC", 
-                    Total = price * kvp.Value
-                };
+                return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = price * kvp.Value };
             })
             .GroupBy(x => x.Category)
             .OrderBy(g => g.Key);
 
-        var salesRows = "";
-        foreach(var group in groupedRegular) {
-            salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
-            foreach(var item in group.OrderByDescending(x => x.Quantity)) {
-                salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
+        // ── Build pre-formatted plain-text receipt ──────────────────────────
+        var sb = new System.Text.StringBuilder();
+
+        // Header
+        ReceiptFormatter.AppendReceiptHeader(sb,
+            title1: isXReport ? "GFC X-REPORT" : "GFC Z-REPORT",
+            title2: z.TerminalName,
+            dateStr: z.Timestamp.ToString("ddd, MMM d yyyy  h:mm tt"),
+            operatorName: $"Bartender: {z.BartenderName}",
+            isReprint: isReprint);
+
+        // Financial Summary section
+        ReceiptFormatter.AppendSectionHeader(sb, "FINANCIAL SUMMARY");
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendLine(sb, "GROSS SALES", $"{z.TotalGrossSales:C}");
+        if (totalPrepaidDeposits > 0)
+            ReceiptFormatter.AppendLine(sb, "PREPAID FUNDS ADDED", $"+{totalPrepaidDeposits:C}");
+        if (tokenCredits > 0)
+            ReceiptFormatter.AppendLine(sb, "TOKEN CREDITS", $"-{tokenCredits:C}");
+        if (payoutTotal > 0)
+            ReceiptFormatter.AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
+        ReceiptFormatter.AppendLine(sb, "EXPECTED CASH", $"{(z.CashTotal - payoutTotal):C}");
+        ReceiptFormatter.AppendBlank(sb);
+        foreach (var wl in ReceiptFormatter.WrapText("* Expected cash = Cash Sales minus Payouts.", 0))
+            sb.Append(wl).Append('\n');
+
+        // Payouts detail
+        if (payoutLines.Any())
+        {
+            ReceiptFormatter.AppendSectionHeader(sb, "DRAWER PAYOUTS");
+            foreach (var (lbl, amt) in payoutLines)
+                ReceiptFormatter.AppendLine(sb, lbl, amt);
+            ReceiptFormatter.AppendDivider(sb, '-');
+            ReceiptFormatter.AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
+        }
+
+        // Shift Breakdown (regular sales by category)
+        ReceiptFormatter.AppendSectionHeader(sb, "SHIFT BREAKDOWN");
+        foreach (var group in groupedRegular)
+        {
+            ReceiptFormatter.AppendBlank(sb);
+            ReceiptFormatter.AppendLeft(sb, group.Key.ToUpper());
+            foreach (var item in group.OrderByDescending(x => x.Quantity))
+            {
+                var qty = $"{item.Quantity} x";
+                var name = item.Name.ToUpper();
+                var combined = qty.PadRight(4) + " " + name;
+                if (combined.Length > ReceiptFormatter.Width)
+                    combined = combined[..ReceiptFormatter.Width];
+                sb.Append(combined.PadRight(ReceiptFormatter.Width)).Append('\n');
             }
             var groupTotal = group.Sum(x => x.Total);
-            salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
+            ReceiptFormatter.AppendLine(sb, $"  {group.Key} TOTAL", $"{groupTotal:C}");
         }
 
-        var inventoryRows = "";
-        foreach(var pull in inventoryPulls) {
-            var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
-            if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
-        }
-
-        var banquetRows = "";
-        foreach (var b in banquetSummary)
+        // Banquet Activity
+        if (banquetSummary.Any())
         {
-            var isRunningTab = b.EventType == "RunningTab";
-            banquetRows += $@"
-                <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
-                    <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>EVENT: {b.EventName}</div>";
-            
-            if (!isRunningTab)
+            ReceiptFormatter.AppendSectionHeader(sb, "BANQUET ACTIVITY");
+            foreach (var b in banquetSummary)
             {
-                banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
-                foreach (var dep in b.Deposits)
+                var isRunningTab = b.EventType == "RunningTab";
+                ReceiptFormatter.AppendBlank(sb);
+                ReceiptFormatter.AppendLeft(sb, $"EVENT: {b.EventName.ToUpper()}");
+                ReceiptFormatter.AppendDivider(sb, '.');
+                if (!isRunningTab && b.Deposits.Any())
                 {
-                    var label = dep < 0 ? "- Correction / Void" : "- Add Funds";
-                    var amtStr = dep < 0 ? $"-{Math.Abs(dep):C}" : $"{dep:C}";
-                    banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{label}</span><span>{amtStr}</span></div>";
+                    ReceiptFormatter.AppendLeft(sb, "DEPOSITS:");
+                    foreach (var dep in b.Deposits)
+                    {
+                        var lbl = dep < 0 ? "  - Correction/Void" : "  - Add Funds";
+                        var amt = dep < 0 ? $"-{Math.Abs(dep):C}" : $"{dep:C}";
+                        ReceiptFormatter.AppendLine(sb, lbl, amt);
+                    }
                 }
+                ReceiptFormatter.AppendLeft(sb, "TAB PURCHASES:");
+                foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
+                {
+                    var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
+                    ReceiptFormatter.AppendLine(sb, $"  {item.Key} (x{item.Value})", $"{itemTotal:C}");
+                }
+                ReceiptFormatter.AppendDivider(sb, '.');
+                ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
+                var remaining = b.Deposits.Sum() - b.TotalSpent;
+                if (!isRunningTab)
+                    ReceiptFormatter.AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
+                else
+                    ReceiptFormatter.AppendLine(sb, "TOTAL DUE", $"{b.TotalSpent:C}");
             }
-            
-            banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
-            foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
-            {
-                var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
-            }
-            
-            var remaining = b.Deposits.Sum() - b.TotalSpent;
-            banquetRows += $@"
-                    <div style='display:flex; justify-content:space-between; font-size:0.9em; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
-                        <span>TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
-                    </div>";
-
-            if (!isRunningTab)
-            {
-                banquetRows += $@"
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.95em;'>
-                        <span>TAB BALANCE:</span><span>{remaining:C}</span>
-                    </div>";
-            }
-            else
-            {
-                banquetRows += $@"
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.95em;'>
-                        <span>TOTAL DUE:</span><span>{b.TotalSpent:C}</span>
-                    </div>";
-            }
-            banquetRows += "</div>";
         }
 
-        return $@"
-            <div style='font-family: monospace; width: 300px; padding: 10px;'>
-                {(isReprint ? "<div style='text-align:center; font-weight:bold; font-size:14px; border:2px solid #000; padding:4px; margin-bottom:8px;'>*** REPRINT ***</div>" : string.Empty)}
-                <div style='text-align: center;'>
-                    <h2 style='margin:0;'>GFC TERMINAL</h2>
-                    <div style='font-size:0.9em;'>{z.TerminalName}</div>
-                    <hr/>
-                    <h3 style='margin:10px 0;'>{(isXReport ? "X-REPORT SUMMARY" : "Z-REPORT SUMMARY")}</h3>
-                    <hr/>
-                </div>
-                
-                <div style='margin-bottom:10px;'>
-                    <div>Date: {z.Timestamp:g}</div>
-                    <div>Operator: {z.BartenderName}</div>
-                </div>
+        // Inventory Removal Log
+        if (inventoryPulls.Any())
+        {
+            ReceiptFormatter.AppendSectionHeader(sb, "INVENTORY REMOVAL LOG");
+            foreach (var pull in inventoryPulls)
+            {
+                var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
+                if (prod != null)
+                    ReceiptFormatter.AppendLine(sb, prod.Name.ToUpper(), pull.Value.ToString());
+            }
+        }
 
-                <div style='border: 1px solid #000; padding: 5px; margin-bottom:10px;'>
-                    <div style='display:flex; justify-content:space-between; font-weight:bold;'>
-                        <span>GROSS SALES:</span><span>{z.TotalGrossSales:C}</span>
-                    </div>
-                    {(totalPrepaidDeposits > 0 ? $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #166534; margin-top:2px;'>
-                            <span>PREPAID FUNDS ADDED:</span><span>+ {totalPrepaidDeposits:C}</span>
-                        </div>" : "")}
-                    {(tokenCredits > 0 ? $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #991b1b; margin-top:2px;'>
-                            <span>TOKEN CREDITS:</span><span>- {tokenCredits:C}</span>
-                        </div>" : "")}
-                    {(payoutTotal > 0 ? $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #b45309; margin-top:2px;'>
-                            <span>TOTAL PAYOUTS:</span><span>- {payoutTotal:C}</span>
-                        </div>" : "")}
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; border-top: 1px solid #000; margin-top:4px; padding-top:4px;'>
-                        <span>EXPECTED CASH:</span><span>{(z.CashTotal - payoutTotal):C}</span>
-                    </div>
-                    <div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Expected cash in drawer equals Cash Sales minus Payouts.</div>
-                </div>
+        // Total Sales footer
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendDivider(sb, '=');
+        ReceiptFormatter.AppendLine(sb, "TOTAL SALES", $"{z.TotalGrossSales:C}");
+        ReceiptFormatter.AppendDivider(sb, '=');
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendCenter(sb, $"REF: {z.Id}");
+        ReceiptFormatter.AppendCenter(sb, $"Standalone v{VersionService.GetRevision()}");
 
-                {(payoutRowsList.Any() ? $@"
-                <div style='margin-top:15px;'>
-                    <div style='font-weight:bold; border-bottom:2px solid #000; margin-bottom:5px; font-size:1.1em; color: #b45309;'>DRAWER PAYOUTS</div>
-                    {string.Join("", payoutRowsList)}
-                    <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:4px; padding-top:4px;'>
-                        <span>TOTAL PAYOUTS</span><span>-{payoutTotal:C}</span>
-                    </div>
-                </div>" : "")}
-
-                <div style='margin-top:15px;'>
-                    <div style='font-weight:bold; border-bottom:2px solid #000; margin-bottom:5px; font-size:1.1em;'>REGULAR SALES</div>
-                    {salesRows}
-                </div>
-
-                {(string.IsNullOrEmpty(banquetRows) ? "" : $@"
-                <div style='margin-top:15px;'>
-                    <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>BANQUET ACTIVITY</div>
-                    {banquetRows}
-                </div>")}
-
-                {(string.IsNullOrEmpty(inventoryRows) ? "" : $@"
-                <div style='margin-top:15px;'>
-                    <div style='font-weight:bold; border-bottom:1px solid #ccc; margin-bottom:5px;'>INVENTORY REMOVAL LOG</div>
-                    {inventoryRows}
-                </div>")}
-
-                <div style='text-align: center; margin-top:20px; font-size: 0.7em; opacity: 0.8;'>
-                    <hr/>
-                    Standalone Mode v{VersionService.GetRevision()}
-                </div>
-            </div>";
+        return sb.ToString();
     }
+
 
     private async Task HandleNoSale()
     {
@@ -8784,21 +8749,18 @@
             }
 
             var isRunningTab = ev.Type == GFC.Core.Enums.EventTabType.RunningTab;
-            var html = $@"
-                <div style='font-family:monospace; width:280px; font-size:12px; line-height:1.4;'>
-                    {(isReprint ? "<div style='text-align:center; font-weight:bold; font-size:14px; border:2px solid #000; padding:4px; margin-bottom:8px;'>*** REPRINT ***</div>" : string.Empty)}
-                    <div style='text-align:center; font-weight:bold; font-size:16px; margin-bottom:4px;'>GFC EVENT RECEIPT</div>
-                    <div style='text-align:center; border-bottom:1px dashed #000; padding-bottom:8px; margin-bottom:8px;'>
-                        {(isOffline ? "<span style='color:red; font-weight:bold;'>*** OFFLINE MODE ***</span><br/>" : "")}
-                        EVENT: {eventName.ToUpper()}<br/>
-                        DATE: {DateTime.Now:MM/dd/yyyy h:mm tt}
-                    </div>";
+            var sb = new System.Text.StringBuilder();
+
+            ReceiptFormatter.AppendReceiptHeader(sb,
+                title1: "GFC EVENT RECEIPT",
+                title2: eventName,
+                dateStr: $"DATE: {DateTime.Now:MM/dd/yyyy h:mm tt}",
+                operatorName: isOffline ? "*** OFFLINE MODE ***" : "",
+                isReprint: isReprint);
 
             if (!isRunningTab)
             {
-                html += $@"
-                    <div style='border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:8px;'>
-                        <div style='font-weight:bold; margin-bottom:4px;'>FUNDS & DEPOSITS LOG</div>";
+                ReceiptFormatter.AppendSectionHeader(sb, "FUNDS & DEPOSITS LOG");
 
                 // Compile a fully unified, robust deposits list
                 var depositsToPrint = new List<BanquetDepositDetailDto>();
@@ -8897,102 +8859,70 @@
                     {
                         var label = dep.IsInitial ? "INITIAL DEPOSIT" : (dep.Amount < 0 ? "FUNDS CORRECTION" : "ADDED FUNDS");
                         var amtStr = dep.Amount < 0 ? $"-{Math.Abs(dep.Amount):C}" : $"{dep.Amount:C}";
-                        html += $@"
-                            <div style='display:flex; justify-content:space-between; font-size:11px;'>
-                                <span>- {label} ({dep.Timestamp.ToLocalTime():MM/dd h:mm tt})</span>
-                                <span>{amtStr}</span>
-                            </div>";
+                        var lineText = $"- {label} ({dep.Timestamp.ToLocalTime():MM/dd h:mm tt})";
+                        ReceiptFormatter.AppendLine(sb, lineText, amtStr);
                     }
                 }
                 else
                 {
-                    html += $@"
-                        <div style='display:flex; justify-content:space-between; font-size:11px;'>
-                            <span>- INITIAL DEPOSIT</span>
-                            <span>{ev.InitialAmount:C}</span>
-                        </div>";
+                    ReceiptFormatter.AppendLine(sb, "- INITIAL DEPOSIT", $"{ev.InitialAmount:C}");
                 }
 
-                html += $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:13px; border-top:1px solid #000; margin-top:4px; padding-top:4px;'>
-                            <span>TOTAL FUNDS DEPOSITED:</span>
-                            <span>{grossDeposited:C}</span>
-                        </div>";
+                ReceiptFormatter.AppendDivider(sb, '-');
+                ReceiptFormatter.AppendLine(sb, "TOTAL FUNDS DEPOSITED", $"{grossDeposited:C}");
 
                 if (refundedAmount > 0)
                 {
-                    html += $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:13px; margin-top:2px;'>
-                            <span>FUNDS RETURNED:</span>
-                            <span>-{refundedAmount:C}</span>
-                        </div>";
+                    ReceiptFormatter.AppendLine(sb, "FUNDS RETURNED", $"-{refundedAmount:C}");
                 }
-
-                html += $@"
-                    </div>";
             }
 
-            html += $@"
-                    <div style='font-weight:bold; text-transform:uppercase; margin-bottom:4px;'>TAB ITEM SUMMARY</div>";
+            ReceiptFormatter.AppendBlank(sb);
+            ReceiptFormatter.AppendSectionHeader(sb, "TAB ITEM SUMMARY");
 
             if (items.Any())
             {
                 foreach (var item in items.OrderByDescending(x => x.Value))
                 {
                     var itemTotal = totals.ContainsKey(item.Key) ? totals[item.Key] : 0;
-                    html += $@"<div style='display:flex; justify-content:space-between; font-size:11px;'>
-                        <span>{item.Key} (x{item.Value})</span>
-                        <span>{itemTotal:C}</span>
-                    </div>";
+                    ReceiptFormatter.AppendLine(sb, $"{item.Key} (x{item.Value})", $"{itemTotal:C}");
                 }
             }
             else
             {
-                html += "<div style='font-style:italic; text-align:center; margin:8px 0;'>No purchases recorded on tab.</div>";
+                ReceiptFormatter.AppendCenter(sb, "No purchases recorded on tab.");
             }
 
             var remaining = totalDeposited - totalSpent;
-            html += $@"
-                    <div style='border-top:1px dashed #000; margin-top:8px; padding-top:4px;'>";
+            ReceiptFormatter.AppendDivider(sb, '-');
 
             if (!isRunningTab)
             {
-                html += $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:13px;'>
-                            <span>TOTAL SPENT:</span>
-                            <span>{totalSpent:C}</span>
-                        </div>
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px; border-top:1px solid #000; padding-top:4px;'>
-                            <span>TAB BALANCE:</span>
-                            <span>{remaining:C}</span>
-                        </div>";
+                ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{totalSpent:C}");
+                ReceiptFormatter.AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
             }
             else
             {
-                html += $@"
-                        <div style='display:flex; justify-content:space-between; font-weight:bold; font-size:14px; margin-top:4px; border-top:1px solid #000; padding-top:4px;'>
-                            <span>TOTAL DUE:</span>
-                            <span>{totalSpent:C}</span>
-                        </div>";
+                ReceiptFormatter.AppendLine(sb, "TOTAL DUE", $"{totalSpent:C}");
             }
-            html += "</div>";
 
-            html += $@"
-                    <div style='text-align:center; margin-top:20px; border-top:1px dashed #000; padding-top:8px; font-size:10px; color:#555;'>
-                        Thank you for hosting your event with GFC!
-                    </div>
-                </div>";
+            ReceiptFormatter.AppendDivider(sb, '=');
+            ReceiptFormatter.AppendBlank(sb);
+            ReceiptFormatter.AppendCenter(sb, "Thank you for hosting");
+            ReceiptFormatter.AppendCenter(sb, "your event with GFC!");
+
+            var receiptText = sb.ToString();
 
             if (!isReprint)
             {
                 try
                 {
-                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_event_html", html);
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_event_html", receiptText);
                 }
                 catch {}
             }
 
-            await PrintReceiptAsync(html);
+            await PrintReceiptAsync(receiptText);
         }
         catch (Exception ex)
         {
@@ -9003,6 +8933,12 @@
 
     private async Task PrintReceiptAsync(string html)
     {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            Console.WriteLine("[POS] PrintReceiptAsync aborted: Input HTML string is null or whitespace.");
+            return;
+        }
+
         if (forceTrainingMode)
         {
             var warningHeader = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-bottom:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
