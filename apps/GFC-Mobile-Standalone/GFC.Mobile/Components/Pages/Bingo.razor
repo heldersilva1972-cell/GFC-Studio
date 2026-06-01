@@ -16,19 +16,32 @@
                 <!-- HEADER MERGED INTO HUB HEADER -->
                 <MobileHubHeader IsConnected="@_isCircutAlive" Syncing="@_isSyncing" ShiftType="Bingo" Username="@_currentUsername">
                     <div class="d-flex align-items-center gap-3">
-                        <div class="d-flex align-items-center bg-white rounded-pill px-3 py-1 border shadow-sm">
-                            <div class="me-2">
+                        <div class="d-flex align-items-center bg-white rounded-pill px-3 py-1 border shadow-sm me-1">
+                            <div>
                                 <label class="d-block mb-0 text-uppercase fw-bold text-muted" style="font-size: 0.45rem; letter-spacing: 0.05em;">Date</label>
-                                <input type="date" class="bg-transparent border-0 p-0 fw-black text-primary" style="font-size: 0.8rem; outline: none; width: 125px;" 
+                                <input type="date" class="bg-transparent border-0 p-0 fw-black text-primary" style="font-size: 0.8rem; outline: none; width: 120px;" 
                                        value="@SessionDate.ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
                             </div>
                         </div>
-
-                        <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.6rem;" @onclick="RefreshBingoProgram" disabled="@_isSyncing">
-                            @if (_isSyncing) { <span class="spinner-border spinner-border-sm"></span> }
-                            else { <i class="bi bi-arrow-clockwise"></i> }
-                            SYNC PROGRAM
+                        
+                        <!-- Dedicated Session Directory button: Easy tablet tap target size -->
+                        <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.65rem; height: 36px;" @onclick="async () => { await LoadSessionHistoryAsync(); _showDirectoryModal = true; }">
+                            <i class="bi bi-calendar3-range-fill"></i> SESSION DIRECTORY
                         </button>
+
+                        <!-- Sleek lock/unlock action button in header -->
+                        @if (_sessionState == "Open")
+                        {
+                            <button class="btn btn-success rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm animate-pulse" style="font-size: 0.6rem;" @onclick="CloseEntireSession">
+                                <i class="bi bi-lock-fill"></i> CLOSE & LOCK SESSION
+                            </button>
+                        }
+                        else if (_sessionState == "Closed")
+                        {
+                            <button class="btn btn-warning rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm text-dark animate-pulse" style="font-size: 0.6rem;" @onclick="UnlockSession">
+                                <i class="bi bi-unlock-fill"></i> UNLOCK SESSION
+                            </button>
+                        }
 
                         <div class="text-end position-relative" style="cursor: pointer; min-width: 100px;" @onclick="() => _showSummaryDetail = !_showSummaryDetail">
                             <div class="text-uppercase fw-black text-muted d-flex align-items-center justify-content-end" style="font-size: 0.5rem; letter-spacing: 0.1em;">
@@ -43,6 +56,7 @@
                                     <div class="detail-row mb-1"><span>Gross Revenue</span> <span class="fw-black text-white">@TotalGross.ToString("C2")</span></div>
                                     <div class="detail-row mb-1 text-danger"><span>Prizes Paid</span> <span class="fw-black">-@TotalPrizes.ToString("C2")</span></div>
                                     <div class="detail-row mb-1 text-warning"><span>Lottery Fees</span> <span class="fw-black">-@TotalLotteryTake.ToString("C2")</span></div>
+                                    <div class="detail-row mb-1 text-warning"><span>Payout Breakage</span> <span class="fw-black">-@TotalSessionBreakage.ToString("C2")</span></div>
                                     <div class="detail-row @(TotalNetProceeds < 0 ? "text-danger" : "text-success") pt-2 border-top mt-2"><span>@(TotalNetProceeds < 0 ? "TOTAL LOSS" : "TOTAL PROFIT")</span> <span class="fw-black">@TotalNetProceeds.ToString("C2")</span></div>
                                 </div>
                             }
@@ -58,23 +72,69 @@
                 <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Loading Bingo Session...</span>
             </div>
         }
-        @if (_sessionState == "NotStarted")
+        @if (_sessionState == "NotStarted" || !_sessionEntered)
         {
-            <div class="d-flex flex-column align-items-center justify-content-center py-5 px-3 text-center mx-auto" style="max-width: 550px; min-height: 60vh;">
-                <div class="premium-splash-icon mb-4">
-                    <i class="bi bi-ticket-perforated text-primary animate-pulse" style="font-size: 5rem; opacity: 0.85;"></i>
-                </div>
-                <h2 class="fw-black text-dark mb-2 text-uppercase" style="letter-spacing: -0.02em;">Bingo Tracking Session</h2>
-                <div class="badge rounded-pill bg-primary bg-opacity-10 text-primary px-4 py-2 fw-black mb-4 fs-6 border border-primary border-opacity-25 shadow-sm">
-                    @SessionDate.ToLongDateString()
-                </div>
-                <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
-                    An active session records all player admissions, floor sheets sold, game winner payouts, and progressive jackpot ball counts. 
-                    Tapping the button below opens the session draft for tracking.
-                </p>
-                <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 60px;" @onclick="StartSession">
-                    <i class="bi bi-play-fill me-2"></i> Start / Open Bingo Session
-                </button>
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 px-3 text-center mx-auto animate-fade-in" style="max-width: 550px; min-height: 60vh;">
+                @if (_sessionState == "NotStarted")
+                {
+                    <div class="premium-splash-icon mb-4">
+                        <i class="bi bi-ticket-perforated text-primary animate-pulse" style="font-size: 5rem; opacity: 0.85;"></i>
+                    </div>
+                    <h2 class="fw-black text-dark mb-2 text-uppercase" style="letter-spacing: -0.02em;">Bingo Tracking Session</h2>
+                    <div class="badge rounded-pill bg-primary bg-opacity-10 text-primary px-4 py-2 fw-black mb-4 fs-6 border border-primary border-opacity-25 shadow-sm">
+                        @SessionDate.ToLongDateString()
+                    </div>
+                    <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
+                        An active session records all player admissions, floor sheets sold, game winner payouts, and progressive jackpot ball counts. 
+                        Tapping the button below opens the session draft for tracking.
+                    </p>
+                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 60px;" @onclick="StartSession">
+                        <i class="bi bi-play-fill me-2"></i> Start / Open Bingo Session
+                    </button>
+                }
+                else if (_sessionState == "Open")
+                {
+                    <div class="premium-splash-icon mb-4">
+                        <i class="bi bi-play-circle-fill text-success animate-pulse" style="font-size: 5rem; opacity: 0.85;"></i>
+                    </div>
+                    <h2 class="fw-black text-dark mb-2 text-uppercase" style="letter-spacing: -0.02em;">Active Session Open</h2>
+                    <div class="badge rounded-pill bg-success bg-opacity-10 text-success px-4 py-2 fw-black mb-4 fs-6 border border-success border-opacity-25 shadow-sm">
+                        @SessionDate.ToLongDateString()
+                    </div>
+                    <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
+                        A tracking session is currently active and open for this date. 
+                        You can continue tracking or view details in read-only mode.
+                    </p>
+                    <div class="d-flex flex-column gap-2 w-100">
+                        <button class="btn btn-success py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 55px;" @onclick="() => _sessionEntered = true">
+                            <i class="bi bi-arrow-right-circle-fill me-2"></i> Continue Tracking Session
+                        </button>
+                        <button class="btn btn-outline-secondary py-3 rounded-pill fw-bold text-uppercase" style="font-size: 0.85rem; height: 50px;" @onclick='() => { _sessionState = "Closed"; _sessionEntered = true; }'>
+                            <i class="bi bi-eye-fill me-2"></i> View Details (Read-Only)
+                        </button>
+                    </div>
+                }
+                else if (_sessionState == "Closed")
+                {
+                    <div class="premium-splash-icon mb-4">
+                        <i class="bi bi-lock-fill text-danger" style="font-size: 5rem; opacity: 0.85;"></i>
+                    </div>
+                    <h2 class="fw-black text-dark mb-2 text-uppercase" style="letter-spacing: -0.02em;">Session Closed & Locked</h2>
+                    <div class="badge rounded-pill bg-danger bg-opacity-10 text-danger px-4 py-2 fw-black mb-4 fs-6 border border-danger border-opacity-25 shadow-sm">
+                        @SessionDate.ToLongDateString()
+                    </div>
+                    <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
+                        This tracking session is finalized and locked. You can review all session summary details in read-only mode, or unlock it to perform adjustments.
+                    </p>
+                    <div class="d-flex flex-column gap-2 w-100">
+                        <button class="btn btn-primary py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 55px;" @onclick="() => _sessionEntered = true">
+                            <i class="bi bi-eye-fill me-2"></i> View Session Summary (Read-Only)
+                        </button>
+                        <button class="btn btn-warning py-3 rounded-pill fw-black text-uppercase text-dark shadow-sm" style="font-size: 0.9rem; height: 50px;" @onclick="UnlockSession">
+                            <i class="bi bi-unlock-fill me-2"></i> Unlock & Edit Session
+                        </button>
+                    </div>
+                }
             </div>
         }
         else
@@ -106,10 +166,14 @@
                                     <div class="val">@AdmissionPacks.Sum(p => p.Sold)</div>
                                 </div>
                                 <div class="summary-item main">
+                                    <label>ADDITIONAL CARDS</label>
+                                    <div class="val text-primary">@TotalExtraCards</div>
+                                </div>
+                                <div class="summary-item main">
                                     <label>ADMISSION REVENUE</label>
                                     <div class="d-flex align-items-center gap-3">
                                         <div class="val text-primary">@AdmissionPacks.Sum(p => p.Sold * p.Price).ToString("C2")</div>
-                                        <button class="btn btn-primary rounded-pill px-3 py-1 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="OpenAdmissionAudit">
+                                        <button class="btn btn-primary rounded-pill px-4 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.75rem; min-height: 38px;" @onclick:stopPropagation="true" @onclick="OpenAdmissionAudit">
                                             <i class="bi bi-graph-up-arrow"></i> SUMMARY
                                         </button>
                                     </div>
@@ -195,6 +259,20 @@
                                     </div>
                                     
                                     <div class="modal-body-compact p-3">
+                                        <!-- Entry Mode Selector -->
+                                        <div class="d-flex justify-content-center mb-3">
+                                            <div class="btn-group bg-light rounded-pill p-1 shadow-sm border border-light border-opacity-10" style="display: inline-flex;">
+                                                <button class="btn btn-sm rounded-pill px-4 fw-black @(!_entryModeIsDollars ? "btn-success shadow-sm text-white" : "btn-light text-muted border-0")" 
+                                                        style="font-size: 0.7rem; height: 32px;" @onclick="() => ToggleEntryMode(false)">
+                                                    ENTER QUANTITY
+                                                </button>
+                                                <button class="btn btn-sm rounded-pill px-4 fw-black @(_entryModeIsDollars ? "btn-success shadow-sm text-white" : "btn-light text-muted border-0")" 
+                                                        style="font-size: 0.7rem; height: 32px;" @onclick="() => ToggleEntryMode(true)">
+                                                    ENTER DOLLAR AMOUNT ($)
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div class="admissions-expanded-list">
                                             @foreach (var sheet in Sheets.Where(s => !s.IsAdmissionOnly))
                                             {
@@ -205,25 +283,59 @@
                                                             <div class="color-dot-large" style="background: @sheet.DisplayColor"></div>
                                                             <div class="d-flex flex-column">
                                                                 <span class="fw-black text-uppercase" style="font-size: 0.9rem;">@sheet.ColorName</span>
-                                                                <span class="extra-small text-muted fw-bold">@sheet.Price.ToString("C2") PER SHEET</span>
+                                                                <span class="extra-small text-muted fw-bold">
+                                                                    @sheet.Price.ToString("C0") PER SHEET
+                                                                    @if (_entryModeIsDollars)
+                                                                    {
+                                                                        <span class="text-success ms-1">(@sheet.ManualSold SHEETS SOLD)</span>
+                                                                    }
+                                                                </span>
+                                                                @if (_entryModeIsDollars && _activeField == sheet.ColorName + "_Sold" && _currentBuffer != "")
+                                                                {
+                                                                    @if (decimal.TryParse(_currentBuffer, out var enteredAmt))
+                                                                    {
+                                                                        var calcSheets = (int)(enteredAmt / sheet.Price);
+                                                                        var rem = enteredAmt - (calcSheets * sheet.Price);
+                                                                        if (rem > 0)
+                                                                        {
+                                                                            <span class="text-warning extra-small fw-bold d-block mt-1">
+                                                                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                                                                $@enteredAmt.ToString("N0") is not a multiple of @sheet.Price.ToString("C0"). (@calcSheets sheets + $@rem.ToString("N0") remainder)
+                                                                            </span>
+                                                                        }
+                                                                    }
+                                                                }
                                                             </div>
                                                         </div>
                                                         <div class="d-flex align-items-center gap-4">
                                                             <div class="text-end">
                                                                 <span class="extra-small text-muted d-block">TOTAL</span>
-                                                                <span class="fw-black">@((sheet.ManualSold * sheet.Price).ToString("C2"))</span>
+                                                                <span class="fw-black">@((sheet.ManualSold * sheet.Price).ToString("C0"))</span>
                                                             </div>
                                                             <div class="entry-val-large @(_activeField == sheet.ColorName + "_Sold" ? "focused-success" : "")">
                                                                 @if (_activeField == sheet.ColorName + "_Sold")
                                                                 {
                                                                     <div class="d-flex align-items-center">
-                                                                        <span class="@(_currentBuffer == "" ? "ghost-value" : "")">@(_currentBuffer == "" ? sheet.ManualSold.ToString() : _currentBuffer)</span>
+                                                                        @if (_entryModeIsDollars)
+                                                                        {
+                                                                            <span class="text-success me-1">$</span>
+                                                                        }
+                                                                        <span class="@(_currentBuffer == "" ? "ghost-value" : "")">
+                                                                            @if (_currentBuffer == "")
+                                                                            {
+                                                                                @(_entryModeIsDollars ? (sheet.ManualSold * sheet.Price).ToString("N0") : sheet.ManualSold.ToString())
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                @_currentBuffer
+                                                                            }
+                                                                        </span>
                                                                         <span class="cursor-blink">|</span>
                                                                     </div>
                                                                 }
                                                                 else
                                                                 {
-                                                                    @sheet.ManualSold
+                                                                    @(_entryModeIsDollars ? (sheet.ManualSold * sheet.Price).ToString("C0") : sheet.ManualSold.ToString())
                                                                 }
                                                             </div>
                                                         </div>
@@ -245,6 +357,9 @@
                         <!-- ADMISSION ENTRY MODAL (existing) -->
                         @if (_showAdmissionPopup)
                         {
+                            var basePack = AdmissionPacks.OrderBy(p => GetAdmitCount(p.Name)).FirstOrDefault();
+                            var baseCount = basePack != null ? GetAdmitCount(basePack.Name) : 9;
+
                             <div class="admission-modal-overlay @(_showFloatingKeypad ? "keypad-open" : "")" @onclick="CloseEntryModals">
                                 <div class="admission-modal-content shadow-lg" @onclick:stopPropagation>
                                     <div class="modal-header-compact">
@@ -255,28 +370,53 @@
                                     </div>
                                     
                                     <div class="modal-body-compact p-3">
+                                        <!-- 2-Column Summary Banner -->
+                                        <div class="row g-2 mb-3">
+                                            <div class="col-6">
+                                                <div class="p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-10 text-center h-100 d-flex flex-column justify-content-center">
+                                                    <span class="extra-small text-uppercase fw-bold text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Admission Packs Sold</span>
+                                                    <span class="fw-black text-primary fs-5 mt-1">@AdmissionPacks.Sum(p => p.Sold)</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-10 text-center h-100 d-flex flex-column justify-content-center">
+                                                    <span class="extra-small text-uppercase fw-bold text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Additional Cards</span>
+                                                    <span class="fw-black text-primary fs-5 mt-1">@AdmissionPacks.Sum(p => p.Sold * (GetAdmitCount(p.Name) - baseCount) / 3)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div class="admissions-expanded-list">
                                             @foreach (var pack in AdmissionPacks)
                                             {
+                                                var extraCount = GetAdmitCount(pack.Name) - baseCount;
+                                                var extraCards = extraCount / 3;
+
                                                 <div id="admin-row-@pack.Id" class="admission-entry-row p-3 rounded-4 mb-2 border-2 @(_activeField == "Pack_" + pack.Id ? "border-primary bg-primary-subtle shadow-sm" : "bg-white border-light")" 
                                                      @onclick='() => ActivateField("Pack_" + pack.Id)'>
                                                     <div class="d-flex justify-content-between align-items-center">
                                                         <div class="d-flex align-items-center gap-3">
                                                             <div class="color-dot-large" style="background: @pack.DisplayColor"></div>
                                                             <div class="d-flex flex-column">
-                                                                <div class="d-flex align-items-center gap-2">
+                                                                <div class="d-flex align-items-center gap-2 flex-wrap">
                                                                     <span class="fw-black text-uppercase" style="font-size: 0.9rem;">@pack.Name</span>
+                                                                    @if (extraCards > 0)
+                                                                    {
+                                                                        <span class="badge rounded-pill bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-0.5 fw-black" style="font-size: 0.6rem; letter-spacing: 0.02em;">
+                                                                            +@extraCards EXTRA @(extraCards == 1 ? "CARD" : "CARDS")
+                                                                        </span>
+                                                                    }
                                                                     <button class="btn btn-link p-0 text-muted" @onclick:stopPropagation="true" @onclick="() => _selectedPackDetail = pack">
                                                                         <i class="bi bi-info-circle-fill"></i>
                                                                     </button>
                                                                 </div>
-                                                                <span class="extra-small text-muted fw-bold">@pack.Price.ToString("C2") PER PACK</span>
+                                                                <span class="extra-small text-muted fw-bold">@pack.Price.ToString("C0") PER PACK</span>
                                                             </div>
                                                         </div>
                                                         <div class="d-flex align-items-center gap-4">
                                                             <div class="text-end">
                                                                 <span class="extra-small text-muted d-block">TOTAL</span>
-                                                                <span class="fw-black">@((pack.Sold * pack.Price).ToString("C2"))</span>
+                                                                <span class="fw-black">@((pack.Sold * pack.Price).ToString("C0"))</span>
                                                             </div>
                                                             <div class="entry-val-large @(_activeField == "Pack_" + pack.Id ? "focused" : "")">
                                                                 @if (_activeField == "Pack_" + pack.Id)
@@ -316,7 +456,7 @@
                         <div class="bingo-tiles-grid">
                             @foreach (var sheet in Sheets)
                             {
-                                <div class="bingo-tile @(sheet.IsClosedOut ? "completed-tile" : "") @(!_showFloorSalesPopup && !_showAdmissionPopup && _activeField.StartsWith(sheet.ColorName) ? "active-tile" : "")" 
+                                <div class="bingo-tile @(!_showFloorSalesPopup && !_showAdmissionPopup && _activeField.StartsWith(sheet.ColorName) ? "active-tile" : "")" 
                                      style="--accent-color: @sheet.DisplayColor; cursor: pointer;" @onclick="() => OpenSheetDetail(sheet)">
                                     <div class="tile-accent" style="background: @sheet.DisplayColor"></div>
                                     <div class="tile-header">
@@ -560,16 +700,7 @@
         box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
     }
 
-    .bingo-tile.completed-tile {
-        opacity: 0.85;
-        background: rgba(240, 253, 244, 0.8);
-        border-color: rgba(34, 197, 94, 0.2);
-    }
 
-    .bingo-tile.completed-tile:hover {
-        opacity: 1;
-        background: rgba(240, 253, 244, 0.95);
-    }
 
     .tile-accent {
         height: 4px;
@@ -1380,6 +1511,10 @@
 
 @if (_selectedSheet != null)
 {
+    var sheetRoundingBreakage = _selectedSheet.Games.Sum(g => CalculateGameRoundingAdjustment(_selectedSheet, g));
+    var sheetManualBreakage = _selectedSheet.Games.Sum(g => CalculateGameManualAdjustmentBreakage(_selectedSheet, g));
+    var sheetTotalBreakage = sheetRoundingBreakage + sheetManualBreakage;
+
     <div class="modal-backdrop-custom animate-fade-in" style="z-index: 4500;" @onclick="() => _selectedSheet = null"></div>
     <div class="sheet-detail-modal animate-zoom-in">
         <div class="detail-header" style="background: @_selectedSheet.DisplayColor">
@@ -1595,7 +1730,7 @@
                                 <div class="d-flex flex-column align-items-center" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game))'>
                                     <label class="extra-small text-muted fw-bold mb-1" style="font-size: 0.55rem; letter-spacing: 0.05em;">WINNERS</label>
                                     <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary shadow-sm" : "bg-light")" 
-                                         style="width: 55px; height: 35px; border-radius: 10px; font-size: 1.1rem; cursor: pointer;">
+                                         style="width: 50px; height: 35px; border-radius: 10px; font-size: 1.1rem; cursor: pointer;">
                                         @if (_activeField == (_selectedSheet.ColorName + "_Winner_" + _selectedSheet.Games.IndexOf(game)))
                                         {
                                             <div class="d-flex align-items-center">
@@ -1610,13 +1745,48 @@
                                     </div>
                                 </div>
 
+                                <!-- PAYOUT / WINNER INPUT -->
+                                <div class="d-flex align-items-center gap-1">
+                                    <div class="d-flex flex-column align-items-center" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Override_" + _selectedSheet.Games.IndexOf(game))'>
+                                        <label class="extra-small text-muted fw-bold mb-1" style="font-size: 0.55rem; letter-spacing: 0.05em;">PAYOUT/WINNER</label>
+                                        <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Override_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary shadow-sm" : "bg-light")" 
+                                             style="width: 80px; height: 35px; border-radius: 10px; font-size: 1rem; cursor: pointer;">
+                                            @{
+                                                var shareVal = CalculateGamePayoutFinalShare(_selectedSheet, game);
+                                            }
+                                            @if (_activeField == (_selectedSheet.ColorName + "_Override_" + _selectedSheet.Games.IndexOf(game)))
+                                            {
+                                                <div class="d-flex align-items-center text-primary">
+                                                    <span>$</span>
+                                                    <span class="@(_currentBuffer == "" ? "ghost-value" : "")">@(_currentBuffer == "" ? shareVal.ToString("N2") : _currentBuffer)</span>
+                                                    <span class="cursor-blink">|</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="@(game.CustomPayoutOverride.HasValue ? "text-success fw-black" : "")">$@shareVal.ToString("N2")</span>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    @if (game.CustomPayoutOverride.HasValue)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger border-2 rounded-circle p-0 d-flex align-items-center justify-content-center mt-3 shadow-sm animate-pulse" 
+                                                style="width: 28px; height: 28px;" 
+                                                @onclick:stopPropagation="true" 
+                                                @onclick="() => { game.CustomPayoutOverride = null; RecalculateSheetTotals(); }">
+                                            <i class="bi bi-arrow-counterclockwise" style="font-size: 0.8rem; -webkit-text-stroke: 0.5px;"></i>
+                                        </button>
+                                    }
+                                </div>
+
                                 @if (game.IsProgressive)
                                 {
                                     <!-- BALLS CALLED INPUT -->
                                     <div class="d-flex flex-column align-items-center" @onclick:stopPropagation="true" @onclick='() => ActivateField(_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game))'>
                                         <label class="extra-small text-muted fw-bold mb-1" style="font-size: 0.55rem; letter-spacing: 0.05em;">BALLS</label>
                                         <div class="form-control form-control-sm text-center fw-black border-2 d-flex align-items-center justify-content-center @(_activeField == (_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game)) ? "border-primary bg-white text-primary shadow-sm" : "bg-light")" 
-                                             style="width: 55px; height: 35px; border-radius: 10px; font-size: 1.1rem; cursor: pointer;">
+                                             style="width: 50px; height: 35px; border-radius: 10px; font-size: 1.1rem; cursor: pointer;">
                                             @if (_activeField == (_selectedSheet.ColorName + "_Balls_" + _selectedSheet.Games.IndexOf(game)))
                                             {
                                                 <div class="d-flex align-items-center">
@@ -1638,6 +1808,8 @@
                                 @{
                                     var totalPayout = CalculateGamePayout(_selectedSheet, game);
                                     var perWinner = game.WinnerCount > 0 ? totalPayout / game.WinnerCount : totalPayout;
+                                    var origShare = CalculateGamePayoutRoundedShare(_selectedSheet, game);
+                                    var origTotal = origShare * game.WinnerCount;
                                 }
                                 
                                 @if (_selectedSheet.PayoutMode == 0 && game.IsVariablePayout)
@@ -1652,18 +1824,55 @@
                                 }
                                 else
                                 {
-                                    <div class="fw-black text-primary fs-5" style="line-height: 1;">@totalPayout.ToString("C2")</div>
+                                    @if (game.CustomPayoutOverride.HasValue)
+                                    {
+                                        <div class="fw-black text-success fs-5" style="line-height: 1;">@totalPayout.ToString("C2")</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="fw-black text-primary fs-5" style="line-height: 1;">@totalPayout.ToString("C2")</div>
+                                    }
                                 }
+
+                                <div class="mt-1 extra-small fw-bold text-dark opacity-75" style="font-size: 0.62rem; line-height: 1.2;">
+                                    Orig Calc: <span class="text-decoration-underline text-dark fw-bold">@origTotal.ToString("C2")</span>
+                                    @if (game.WinnerCount > 1)
+                                    {
+                                        <span class="text-muted"> (@origShare.ToString("C2") ea)</span>
+                                    }
+                                </div>
 
                                 @if (game.WinnerCount > 1)
                                 {
-                                    <div class="mt-1 bg-primary bg-opacity-10 rounded-3 px-2 py-1 d-inline-block border border-primary border-opacity-20 shadow-sm">
-                                        <span class="fw-black text-primary fs-6" style="font-size: 0.75rem !important;">@perWinner.ToString("C2")</span>
+                                    <div class="mt-1 bg-primary bg-opacity-10 rounded-3 px-2 py-0.5 d-inline-block border border-primary border-opacity-20 shadow-sm">
+                                        <span class="fw-black text-primary" style="font-size: 0.7rem !important;">@perWinner.ToString("C2")</span>
                                         <span class="extra-small fw-bold text-primary opacity-75 ms-1" style="font-size: 0.5rem;">EACH</span>
                                     </div>
                                 }
                             </div>
                         </div>
+
+                        <!-- System Calc Helper Label and Breakage Info when Custom Payout is active -->
+                        @if (game.CustomPayoutOverride.HasValue)
+                        {
+                            var systemShare = CalculateGamePayoutRoundedShare(_selectedSheet, game);
+                            var sysRoundingBreakage = CalculateGameRoundingAdjustment(_selectedSheet, game);
+                            var manualBreakage = CalculateGameManualAdjustmentBreakage(_selectedSheet, game);
+                            <div class="d-flex justify-content-between align-items-center extra-small mt-1 px-1 text-dark fw-semibold" style="font-size: 0.65rem; border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 6px;">
+                                <span class="d-flex align-items-center gap-2">
+                                    <span><i class="bi bi-info-circle me-1"></i> System Calc: <strong class="text-primary">@systemShare.ToString("C2")</strong> each</span>
+                                    <button class="btn btn-outline-danger btn-sm rounded-pill px-2 py-0.5 fw-black text-uppercase shadow-sm d-flex align-items-center gap-1 border-2" 
+                                            style="font-size: 0.55rem; line-height: 1; height: auto; padding: 2px 8px !important;" 
+                                            @onclick:stopPropagation="true" 
+                                            @onclick="() => { game.CustomPayoutOverride = null; RecalculateSheetTotals(); }">
+                                        <i class="bi bi-arrow-counterclockwise" style="font-size: 0.6rem;"></i> Reset
+                                    </button>
+                                </span>
+                                <span class="badge bg-dark text-white fw-black px-3 py-2 shadow" style="font-size: 0.75rem; letter-spacing: 0.02em;">
+                                    Manual Adj: +@manualBreakage.ToString("C2") Breakage
+                                </span>
+                            </div>
+                        }
 
                         <!-- Bottom Row: Progressive Details (Full Width below Name/Inputs) -->
                         @if (game.IsProgressive)
@@ -1710,30 +1919,36 @@
                 }
             </div>
 
-            <div class="row g-2 mt-4">
-                @if (!_openedFromSummary)
-                {
-                    <div class="col-8">
-                        @if (_selectedSheet.IsClosedOut)
-                        {
-                            <button class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-lg d-flex align-items-center justify-content-center gap-2" @onclick="() => { _selectedSheet.IsClosedOut = false; StateHasChanged(); }">
-                                <i class="bi bi-pencil-fill"></i> EDIT THIS COLOR
-                            </button>
-                        }
-                        else
-                        {
-                            <button class="btn btn-success w-100 py-3 rounded-pill fw-black shadow-lg d-flex align-items-center justify-content-center gap-2" @onclick="RequestCloseOut">
-                                <i class="bi bi-cloud-upload-fill"></i> CLOSE OUT COLOR
-                            </button>
-                        }
+            <!-- BREAKAGE ACCOUNTING CARD -->
+            @if (sheetTotalBreakage != 0)
+            {
+                <div class="math-card p-3 rounded-4 mb-3 border border-secondary border-opacity-25" style="background: rgba(15, 23, 42, 0.02);">
+                    <label class="math-label mb-2 text-dark d-block fw-black" style="font-size: 0.65rem;"><i class="bi bi-calculator-fill me-1"></i> Breakage Accounting</label>
+                    <div class="math-row">
+                        <span class="math-label small text-dark">System Rounding Breakage</span>
+                        <span class="math-val fw-bold text-dark">@sheetRoundingBreakage.ToString("C2")</span>
                     </div>
-                }
-                <div class="@(_openedFromSummary ? "col-12" : "col-4")">
-                    <button class="btn btn-light w-100 py-3 rounded-pill fw-black border-2" @onclick="HandleSheetModalClose">
-                        @(_openedFromSummary ? "RETURN TO SUMMARY" : "CLOSE")
-                    </button>
+                    @if (sheetManualBreakage != 0)
+                    {
+                        <div class="math-row">
+                            <span class="math-label small text-dark">Manual Adjustment Breakage</span>
+                            <span class="math-val fw-bold text-dark">@sheetManualBreakage.ToString("C2")</span>
+                        </div>
+                    }
+                    <div class="math-row total" style="border-top-color: rgba(15, 23, 42, 0.1);">
+                        <span class="math-label text-dark">Total Color Breakage</span>
+                        <span class="math-val text-dark font-black" style="font-size: 1.1rem;">@sheetTotalBreakage.ToString("C2")</span>
+                    </div>
                 </div>
-            </div>
+            }
+
+        </div>
+
+        <!-- Pinned, Non-Scrollable Footer: Always visible on tablet screens -->
+        <div class="detail-footer bg-light p-3 border-top" style="border-bottom-left-radius: 32px; border-bottom-right-radius: 32px; z-index: 10;">
+            <button class="btn btn-light w-100 py-3 rounded-pill fw-black border-2 shadow-sm" style="height: 50px;" @onclick="HandleSheetModalClose">
+                @(_openedFromSummary ? "RETURN TO SUMMARY" : "CLOSE")
+            </button>
         </div>
     </div>
 }
@@ -1893,25 +2108,31 @@
             <div class="container-fluid px-0">
                 <!-- TOP LEVEL KPI CARDS -->
                 <div class="row g-3 mb-4">
-                    <div class="col-md-3">
+                    <div class="col-lg col-md-4">
                         <div class="kpi-card">
                             <label>TOTAL GROSS RECEIPTS</label>
                             <div class="val">@TotalGross.ToString("C2")</div>
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-lg col-md-4">
                         <div class="kpi-card">
                             <label>TOTAL PRIZES PAID</label>
                             <div class="val text-danger">@TotalPrizes.ToString("C2")</div>
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-lg col-md-4">
                         <div class="kpi-card text-muted">
                             <label>TOTAL LOTTERY FEES</label>
                             <div class="val text-muted">@TotalLotteryTake.ToString("C2")</div>
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-lg col-md-6">
+                        <div class="kpi-card text-warning" style="border-color: rgba(245,158,11,0.2); background: rgba(245,158,11,0.03);">
+                            <label class="text-warning">TOTAL BREAKAGE</label>
+                            <div class="val text-warning">@TotalSessionBreakage.ToString("C2")</div>
+                        </div>
+                    </div>
+                    <div class="col-lg col-md-6">
                         <div class="kpi-card highlight">
                             <label>NET CLUB PROFIT</label>
                             <div class="val">@TotalClubTake.ToString("C2")</div>
@@ -2232,12 +2453,92 @@
             </div>
             <h4 class="fw-black text-uppercase mb-3" style="letter-spacing: -0.02em;">Session Configuration Locked</h4>
             <p class="text-muted mb-4 px-2" style="font-size: 0.9rem; line-height: 1.5;">
-                You cannot modify <strong>@_lockedAction</strong> because the <strong>@_lockedColor</strong> sheet has already been closed out. 
+                You cannot modify <strong>@_lockedAction</strong> because the entire tracking session has been closed and locked. 
                 <br/><br/>
-                To make changes, you must first click <strong>'EDIT'</strong> on the <strong>@_lockedColor</strong> sheet to unlock the session.
+                To make changes, you must click <strong>'UNLOCK SESSION'</strong> in the header bar at the top of the screen.
             </p>
             <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showSessionLockedNotice = false">
                 UNDERSTOOD
+            </button>
+        </div>
+    </div>
+}
+
+@if (_showDirectoryModal)
+{
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 9000;" @onclick="() => _showDirectoryModal = false"></div>
+    <div class="sheet-detail-modal animate-zoom-in shadow-lg border-top border-primary" style="z-index: 9500; max-width: 550px; border-top-width: 8px !important; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; max-height: 80vh; border-radius: 24px;">
+        <div class="detail-header d-flex justify-content-between align-items-center p-4 border-bottom bg-light" style="border-top-left-radius: 16px; border-top-right-radius: 16px;">
+            <h5 class="fw-black text-uppercase mb-0 d-flex align-items-center gap-2" style="letter-spacing: -0.02em; color: #0f172a !important;">
+                <i class="bi bi-calendar3 text-primary fs-4"></i> SESSION DIRECTORY
+            </h5>
+            <button type="button" class="btn-close" @onclick="() => _showDirectoryModal = false" aria-label="Close"></button>
+        </div>
+        <div class="detail-body p-4 overflow-auto bg-light" style="flex: 1;">
+            @if (_historyItems == null || !_historyItems.Any())
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-folder2-open text-muted" style="font-size: 3.5rem; opacity: 0.4;"></i>
+                    <p class="text-muted fw-black mt-3 mb-1 text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em;">No Sessions Tracked Yet</p>
+                    <small class="text-muted fw-semibold">Your tracked local sessions will appear here automatically.</small>
+                </div>
+            }
+            else
+            {
+                <div class="d-flex flex-column gap-3">
+                    @foreach (var item in _historyItems)
+                    {
+                        <div class="card border border-light-subtle rounded-4 p-3 shadow-sm" 
+                             style="cursor: pointer; transition: all 0.2s; background: white;"
+                             @onclick="() => SelectHistorySession(item.Date)">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <div class="fw-black text-dark fs-6">@item.Date.ToString("dddd, MMMM dd, yyyy")</div>
+                                    <div class="d-flex align-items-center gap-2 mt-1">
+                                        @if (item.SessionState == "Open")
+                                        {
+                                            <span class="badge bg-success bg-opacity-10 text-success fw-black border border-success border-opacity-25 px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
+                                                <i class="bi bi-play-circle-fill me-1 animate-pulse"></i> ACTIVE TRACKING
+                                            </span>
+                                        }
+                                        else if (item.SessionState == "Closed")
+                                        {
+                                            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 fw-black text-dark px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
+                                                <i class="bi bi-lock-fill me-1"></i> CLOSED & LOCKED
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-black px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
+                                                <i class="bi bi-slash-circle-fill me-1"></i> NOT STARTED
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="fw-black text-muted text-uppercase" style="font-size: 0.55rem; letter-spacing: 0.05em;">ATTENDANCE</span>
+                                    <div class="fw-black text-primary" style="font-size: 1.2rem; line-height: 1;">@item.AdmissionCount</div>
+                                </div>
+                            </div>
+                            
+                            <div class="row g-2 border-top pt-2 mt-2" style="font-size: 0.75rem;">
+                                <div class="col-6">
+                                    <div class="text-muted fw-bold text-uppercase" style="font-size: 0.55rem; letter-spacing: 0.05em;">GROSS REVENUE</div>
+                                    <div class="fw-black text-dark" style="font-size: 0.9rem;">@item.TotalGross.ToString("C0")</div>
+                                </div>
+                                <div class="col-6 text-end">
+                                    <div class="text-muted fw-bold text-uppercase" style="font-size: 0.55rem; letter-spacing: 0.05em;">NET PROCEEDS</div>
+                                    <div class="fw-black @(item.TotalNet < 0 ? "text-danger" : "text-success")" style="font-size: 0.9rem;">@item.TotalNet.ToString("C0")</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        <div class="detail-footer p-4 border-top bg-light" style="border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;">
+            <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.85rem; letter-spacing: 0.05em;" @onclick="() => _showDirectoryModal = false">
+                CLOSE DIRECTORY
             </button>
         </div>
     </div>
@@ -2262,6 +2563,12 @@
     private bool _isOffline = false;
     private bool _isSyncing = false;
     private bool _needsSync = false;
+    private bool _entryModeIsDollars = true;
+    private void ToggleEntryMode(bool isDollars)
+    {
+        _entryModeIsDollars = isDollars;
+        _currentBuffer = ""; // Clear buffer on toggle
+    }
     private async Task ShowToast(string title, string message, string type = "success")
     {
         await JSRuntime.InvokeVoidAsync("Swal.fire", new {
@@ -2283,6 +2590,9 @@
     private bool _showScalingTiers = false;
     private bool _showSessionLockedNotice = false;
     private string _sessionState = "NotStarted";
+    private bool _sessionEntered = true;
+    private bool _showDirectoryModal = false;
+    private List<SessionHistoryItem> _historyItems = new();
     private string _lockedAction = "";
     private string _lockedColor = "";
 
@@ -2312,14 +2622,13 @@
     private void ShowLockedSessionNotice(string action)
     {
         _lockedAction = action;
-        _lockedColor = Sheets.FirstOrDefault(s => s.IsClosedOut)?.ColorName ?? "a color";
         _showSessionLockedNotice = true;
         StateHasChanged();
     }
 
     private void OpenAdditionalSalesEntry()
     {
-        if (Sheets.Any(s => s.IsClosedOut))
+        if (_sessionState == "Closed")
         {
             ShowLockedSessionNotice("Additional Sales");
             return;
@@ -2331,7 +2640,7 @@
 
     private void OpenAdmissionEntry()
     {
-        if (Sheets.Any(s => s.IsClosedOut))
+        if (_sessionState == "Closed")
         {
             ShowLockedSessionNotice("Admission Counts");
             return;
@@ -2641,6 +2950,7 @@
     private async Task UnlockSession()
     {
         _sessionState = "Open";
+        foreach (var s in Sheets) s.IsClosedOut = false;
         await SaveDraftAsync();
         await ShowToast("Session Unlocked", "You can now make corrections. Remember to lock it when finished.", "info");
     }
@@ -2683,20 +2993,6 @@
         {
             await ShowToast("Session Locked", "This session is finalized. Tap 'UNLOCK' to make corrections.", "warning");
             return;
-        }
-        // 1. If any sheet is closed, block admission (Pack_) changes
-        if (field.StartsWith("Pack_") && Sheets.Any(s => s.IsClosedOut))
-        {
-            ShowLockedSessionNotice("Admission Counts");
-            return;
-        }
-
-        // 2. Prevent editing fields for a specifically closed sheet (Winners, Balls, Sheet-specific Sold)
-        if (field.Contains("_"))
-        {
-            var color = field.Split('_')[0];
-            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
-            if (sheet != null && sheet.IsClosedOut) return;
         }
 
         _activeField = field;
@@ -2761,6 +3057,40 @@
             {
                 if (int.TryParse(_currentBuffer, out var val)) sheet.Games[gameIdx].WinnerCount = val;
                 else sheet.Games[gameIdx].WinnerCount = 1;
+                
+                RecalculateSheetTotals();
+            }
+        }
+        else if (_activeField.Contains("_Override_"))
+        {
+            var parts = _activeField.Split('_');
+            var color = parts[0];
+            var gameIdx = int.Parse(parts[2]);
+            
+            var sheet = Sheets.FirstOrDefault(s => s.ColorName == color);
+            if (sheet != null && gameIdx < sheet.Games.Count)
+            {
+                var game = sheet.Games[gameIdx];
+                var originalShare = CalculateGamePayoutRoundedShare(sheet, game);
+
+                if (decimal.TryParse(_currentBuffer, out var val))
+                {
+                    if (val < originalShare)
+                    {
+                        game.CustomPayoutOverride = null;
+                        _ = ShowToast("Below Minimum", $"Payout cannot be less than the calculated system share of {originalShare:C2}.", "warning");
+                    }
+                    else
+                    {
+                        game.CustomPayoutOverride = val;
+                    }
+                }
+                else
+                {
+                    game.CustomPayoutOverride = null;
+                }
+                
+                RecalculateSheetTotals();
             }
         }
         else if (_activeField.Contains("_Balls_"))
@@ -2787,8 +3117,21 @@
 
             if (type == "Sold")
             {
-                if (int.TryParse(_currentBuffer, out var val)) sheet.ManualSold = val;
-                else sheet.ManualSold = 0;
+                if (decimal.TryParse(_currentBuffer, out var val))
+                {
+                    if (_entryModeIsDollars)
+                    {
+                        sheet.ManualSold = (int)(val / sheet.Price);
+                    }
+                    else
+                    {
+                        sheet.ManualSold = (int)val;
+                    }
+                }
+                else
+                {
+                    sheet.ManualSold = 0;
+                }
                 
                 RecalculateSheetTotals();
                 _needsSync = true;
@@ -2809,7 +3152,7 @@
                 sheet.Sold += AdmissionPacks.Sum(p => p.Sold);
             }
             
-            // Recalculate payouts for all games in this sheet (for 50/50)
+            // Recalculate payouts for all games in this sheet
             foreach(var g in sheet.Games) g.Payout = CalculateGamePayout(sheet, g);
         }
     }
@@ -2833,6 +3176,11 @@
             var sheetIndex = Sheets.FindIndex(s => s.ColorName == color);
             
             if (_activeField.Contains("_Winner_"))
+            {
+                var gameIdx = int.Parse(parts[2]);
+                ActivateField(color + "_Override_" + gameIdx);
+            }
+            else if (_activeField.Contains("_Override_"))
             {
                 var gameIdx = int.Parse(parts[2]);
                 var sheet = Sheets[sheetIndex];
@@ -2900,12 +3248,14 @@
         if (DateTime.TryParse(e.Value?.ToString(), out var date))
         {
             SessionDate = date;
+            _sessionEntered = false;
             await LoadDraftAsync();
         }
     }
 
     // MATH
-    private int AdmissionCount => AdmissionPacks.Sum(p => p.Sold);
+    private int TotalPacksSold => AdmissionPacks.Sum(p => p.Sold);
+    private int AdmissionCount => TotalPacksSold + TotalExtraCards;
     private decimal TotalAdmissionRevenue => AdmissionPacks.Sum(p => p.Sold * p.Price);
     private decimal TotalFloorRevenue => Sheets.Sum(s => s.ManualSold * s.Price);
     private decimal TotalGross => TotalAdmissionRevenue + TotalFloorRevenue;
@@ -2913,7 +3263,7 @@
     private decimal TotalRoundingAdjustment => Sheets.Sum(s => s.Games.Sum(g => CalculateGameRoundingAdjustment(s, g)));
     
     // The "Standard Program" is the revenue reserved for the Base games ($15 + extra squares)
-    private decimal StandardProgramRevenue => (AdmissionCount * _bingoSettings.BasePrice) + (TotalExtraCards * _bingoSettings.CardPrice);
+    private decimal StandardProgramRevenue => (TotalPacksSold * _bingoSettings.BasePrice) + (TotalExtraCards * _bingoSettings.CardPrice);
 
     private int TotalExtraCards => AdmissionPacks.Sum(p => p.Sold * (GetAdmitCount(p.Name) - 9) / 3);
 
@@ -2930,10 +3280,10 @@
 
     private decimal GetAllocatedAdmissionGross(BingoSheet sheet)
     {
-        if (!sheet.IsIncludedInAdmission || AdmissionCount <= 0) return 0;
+        if (!sheet.IsIncludedInAdmission || TotalPacksSold <= 0) return 0;
         
         // If it's a special with a fixed price included in the pack, its value is that price
-        if (!sheet.IsAdmissionOnly && sheet.Price > 0) return AdmissionCount * sheet.Price;
+        if (!sheet.IsAdmissionOnly && sheet.Price > 0) return TotalPacksSold * sheet.Price;
         
         // If it's an "Admission Only" sheet (Standard program), it shares the remaining admission pool
         if (sheet.IsAdmissionOnly)
@@ -2942,7 +3292,7 @@
             if (standardSheets.Count == 0) return 0;
             
             // Pool is Total Admission Revenue minus the value already attributed to priced specials
-            var totalSpecialsAdmissionGross = Sheets.Where(s => !s.IsAdmissionOnly && s.IsIncludedInAdmission).Sum(s => AdmissionCount * s.Price);
+            var totalSpecialsAdmissionGross = Sheets.Where(s => !s.IsAdmissionOnly && s.IsIncludedInAdmission).Sum(s => TotalPacksSold * s.Price);
             var totalPoolForStandards = TotalAdmissionRevenue - totalSpecialsAdmissionGross;
             
             return totalPoolForStandards / standardSheets.Count;
@@ -2987,26 +3337,51 @@
 
 
 
+    private decimal CalculateGamePayoutRawShare(BingoSheet sheet, BingoGame game)
+    {
+        return Math.Round(CalculateGamePayoutRaw(sheet, game) / game.WinnerCount, 2);
+    }
+
+    private decimal CalculateGamePayoutRoundedShare(BingoSheet sheet, BingoGame game)
+    {
+        var rawShare = CalculateGamePayoutRawShare(sheet, game);
+        if (_bingoSettings.PayoutRoundingMode == 1) // Round Up
+            return Math.Ceiling(rawShare);
+        if (_bingoSettings.PayoutRoundingMode == 2) // Round Down
+            return Math.Floor(rawShare);
+        return rawShare;
+    }
+
+    private decimal CalculateGamePayoutFinalShare(BingoSheet sheet, BingoGame game)
+    {
+        return game.CustomPayoutOverride ?? CalculateGamePayoutRoundedShare(sheet, game);
+    }
+
     private decimal CalculateGamePayout(BingoSheet sheet, BingoGame game)
     {
-        var rawPayout = CalculateGamePayoutRaw(sheet, game);
-
-        // Apply Rounding (Nearest Dollar)
-        if (_bingoSettings.PayoutRoundingMode == 1) // Round Up
-            return Math.Ceiling(rawPayout);
-        if (_bingoSettings.PayoutRoundingMode == 2) // Round Down
-            return Math.Floor(rawPayout);
-            
-        return rawPayout;
+        return CalculateGamePayoutFinalShare(sheet, game) * game.WinnerCount;
     }
 
     private decimal CalculateGameRoundingAdjustment(BingoSheet sheet, BingoGame game)
     {
-        if (_bingoSettings.PayoutRoundingMode == 0) return 0;
-        var rounded = CalculateGamePayout(sheet, game);
-        var raw = CalculateGamePayoutRaw(sheet, game);
-        return rounded - raw;
+        var rawShare = CalculateGamePayoutRawShare(sheet, game);
+        var roundedShare = CalculateGamePayoutRoundedShare(sheet, game);
+        return (roundedShare - rawShare) * game.WinnerCount;
     }
+
+    private decimal CalculateGameManualAdjustmentBreakage(BingoSheet sheet, BingoGame game)
+    {
+        var roundedShare = CalculateGamePayoutRoundedShare(sheet, game);
+        var finalShare = CalculateGamePayoutFinalShare(sheet, game);
+        return (finalShare - roundedShare) * game.WinnerCount;
+    }
+
+    private decimal CalculateGameTotalBreakage(BingoSheet sheet, BingoGame game)
+    {
+        return CalculateGameRoundingAdjustment(sheet, game) + CalculateGameManualAdjustmentBreakage(sheet, game);
+    }
+
+    private decimal TotalSessionBreakage => Sheets.Sum(s => s.Games.Sum(g => CalculateGameTotalBreakage(s, g)));
 
     private decimal CalculateGamePayoutRaw(BingoSheet sheet, BingoGame game)
     {
@@ -3086,18 +3461,45 @@
                                 g.Payout = dGame.Payout;
                                 g.WinnerCount = dGame.WinnerCount;
                                 g.BallsCalled = dGame.BallsCalled;
+                                g.CustomPayoutOverride = dGame.CustomPayoutOverride;
                             }
                         }
                     }
                 }
+                if (_sessionState == "Open" || _sessionState == "NotStarted")
+                {
+                    foreach (var s in Sheets) s.IsClosedOut = false;
+                }
                 RecalculateSheetTotals();
                 _needsSync = true;
+            }
+            else
+            {
+                // FULL RESET FOR BLANK SESSION
+                _sessionState = "NotStarted";
+                foreach (var p in AdmissionPacks)
+                {
+                    p.Sold = 0;
+                }
+                foreach (var s in Sheets)
+                {
+                    s.ManualSold = 0;
+                    s.IsClosedOut = false;
+                    s.IsSynced = false;
+                    foreach (var g in s.Games)
+                    {
+                        g.WinnerCount = 1;
+                        g.BallsCalled = 0;
+                        g.CustomPayoutOverride = null;
+                    }
+                }
+                RecalculateSheetTotals();
+                _needsSync = false;
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Draft error: {ex.Message}");
-            // Don't remove it, let's keep it in case it's a temporary issue
         }
     }
 
@@ -3307,6 +3709,7 @@
         public decimal ConsolationAmount { get; set; }
         public int BallsCalled { get; set; }
         public decimal? ClubPercentage { get; set; }
+        public decimal? CustomPayoutOverride { get; set; }
     }
 
     public class AdmissionPack
@@ -3324,6 +3727,158 @@
         public List<AdmissionPack> AdmissionPacks { get; set; } = new();
         public List<BingoSheet> Sheets { get; set; } = new();
         public string SessionState { get; set; } = "NotStarted";
+    }
+
+    private async Task LoadSessionHistoryAsync()
+    {
+        try
+        {
+            // Auto-save current session to database so it is immediately visible in the directory
+            if (_sessionState != "NotStarted")
+            {
+                await SaveDraftAsync();
+            }
+
+            var records = await JSRuntime.InvokeAsync<List<VaultRecord>>("window.gfcGetAllAsync");
+            _historyItems.Clear();
+            if (records != null)
+            {
+                foreach (var rec in records)
+                {
+                    if (rec.Key != null && rec.Key.StartsWith("gfc_bingo_draft_"))
+                    {
+                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var draft = System.Text.Json.JsonSerializer.Deserialize<BingoDraft>(rec.Data.GetRawText(), options);
+                        if (draft != null)
+                        {
+                            var item = new SessionHistoryItem();
+                            
+                            DateTime date = draft.Date;
+                            var keySuffix = rec.Key.Replace("gfc_bingo_draft_", "");
+                            if (DateTime.TryParseExact(keySuffix, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var parsedDate))
+                            {
+                                date = parsedDate;
+                            }
+                            
+                            item.Date = date;
+                            item.SessionState = draft.SessionState ?? "NotStarted";
+                            
+                            var totalPacksSold = draft.AdmissionPacks?.Sum(p => p.Sold) ?? 0;
+                            
+                            var totalExtraCards = 0;
+                            if (draft.AdmissionPacks != null)
+                            {
+                                foreach (var p in draft.AdmissionPacks)
+                                {
+                                    var admitCount = 9;
+                                    try 
+                                    {
+                                        var parts = p.Name.Split(' ');
+                                        if (int.TryParse(parts.Last(), out var val)) admitCount = val;
+                                    } 
+                                    catch {}
+                                    totalExtraCards += p.Sold * (admitCount - 9) / 3;
+                                }
+                            }
+                            
+                            item.AdmissionCount = totalPacksSold + totalExtraCards;
+                            
+                            var admissionRevenue = draft.AdmissionPacks?.Sum(p => p.Sold * p.Price) ?? 0;
+                            var floorRevenue = draft.Sheets?.Sum(s => s.ManualSold * s.Price) ?? 0;
+                            item.TotalGross = admissionRevenue + floorRevenue;
+                            
+                            decimal totalPrizes = 0;
+                            decimal totalLotteryTake = 0;
+                            
+                            if (draft.Sheets != null)
+                            {
+                                foreach (var s in draft.Sheets)
+                                {
+                                    foreach (var g in s.Games)
+                                    {
+                                        totalPrizes += g.CustomPayoutOverride ?? g.Payout;
+                                    }
+                                    
+                                    decimal allocatedAdmissionGross = 0;
+                                    if (s.IsIncludedInAdmission && totalPacksSold > 0)
+                                    {
+                                        if (!s.IsAdmissionOnly && s.Price > 0)
+                                        {
+                                            allocatedAdmissionGross = totalPacksSold * s.Price;
+                                        }
+                                        else if (s.IsAdmissionOnly)
+                                        {
+                                            var standardSheets = draft.Sheets.Where(x => x.IsAdmissionOnly).ToList();
+                                            if (standardSheets.Count > 0)
+                                            {
+                                                var totalSpecialsAdmissionGross = draft.Sheets.Where(x => !x.IsAdmissionOnly && x.IsIncludedInAdmission).Sum(x => totalPacksSold * x.Price);
+                                                var totalPoolForStandards = admissionRevenue - totalSpecialsAdmissionGross;
+                                                allocatedAdmissionGross = totalPoolForStandards / standardSheets.Count;
+                                            }
+                                        }
+                                    }
+                                    var sheetGross = allocatedAdmissionGross + (s.ManualSold * s.Price);
+                                    totalLotteryTake += sheetGross * s.LotteryPercentage;
+                                }
+                            }
+                            
+                            item.TotalPrizes = totalPrizes;
+                            item.TotalNet = item.TotalGross - item.TotalPrizes - totalLotteryTake;
+                            
+                            _historyItems.Add(item);
+                        }
+                    }
+                }
+            }
+            // Ensure the active in-memory session (whether saved, new, or modified) is always present and up-to-the-second accurate
+            _historyItems.RemoveAll(i => i.Date.Date == SessionDate.Date);
+            _historyItems.Add(new SessionHistoryItem
+            {
+                Date = SessionDate,
+                SessionState = _sessionState,
+                AdmissionCount = AdmissionCount,
+                TotalGross = TotalGross,
+                TotalPrizes = TotalPrizes,
+                TotalNet = TotalNetProceeds
+            });
+
+            _historyItems = _historyItems.OrderByDescending(i => i.Date).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading session history: {ex.Message}");
+        }
+    }
+
+    private async Task SelectHistorySession(DateTime date)
+    {
+        SessionDate = date;
+        _sessionEntered = false;
+        await LoadDraftAsync();
+        _showDirectoryModal = false;
+        StateHasChanged();
+    }
+
+    public class VaultRecord
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("key")]
+        public string Key { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("data")]
+        public System.Text.Json.JsonElement Data { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+        public long Timestamp { get; set; }
+    }
+
+    public class SessionHistoryItem
+    {
+        public DateTime Date { get; set; }
+        public string SessionState { get; set; } = "NotStarted";
+        public int AdmissionCount { get; set; }
+        public decimal TotalGross { get; set; }
+        public decimal TotalPrizes { get; set; }
+        public decimal TotalNet { get; set; }
     }
 
     private async Task OnInputFocus(FocusEventArgs e)

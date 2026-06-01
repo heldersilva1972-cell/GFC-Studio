@@ -380,6 +380,11 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.LiquorEmailCc = settings.LiquorEmailCc;
         existingSettings.GlobalLiquorPourSize = settings.GlobalLiquorPourSize;
 
+        // Bingo Settings
+        existingSettings.BingoBaseAdmissionPrice = settings.BingoBaseAdmissionPrice;
+        existingSettings.BingoAdditionalCardPrice = settings.BingoAdditionalCardPrice;
+        existingSettings.BingoPayoutRoundingMode = settings.BingoPayoutRoundingMode;
+
         // Revisions (Safe attempt)
         try {
             existingSettings.WebappRevision = settings.WebappRevision;
