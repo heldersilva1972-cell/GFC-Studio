@@ -250,6 +250,22 @@ namespace GFC.BlazorServer.Controllers
             return Ok(new { success = true, sessionId = session.Id });
         }
 
+        [HttpGet("session-by-date")]
+        public async Task<ActionResult<BingoSession>> GetSessionByDate([FromQuery] DateTime date)
+        {
+            var session = await _context.BingoSessions
+                .Include(s => s.GameEntries)
+                .Include(s => s.AdmissionEntries)
+                .FirstOrDefaultAsync(s => s.SessionDate.Date == date.Date && !s.IsDeleted);
+
+            if (session == null)
+            {
+                return Ok((BingoSession)null);
+            }
+
+            return Ok(session);
+        }
+
         [HttpGet("history")]
         public async Task<ActionResult<IEnumerable<BingoSession>>> GetHistory()
         {

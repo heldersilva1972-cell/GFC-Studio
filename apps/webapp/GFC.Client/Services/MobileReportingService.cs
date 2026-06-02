@@ -91,4 +91,9 @@ public class MobileReportingService : IMobileReportingService
     {
         return await _http.GetFromJsonAsync<BingoSettingsDto>("api/bingo/settings") ?? new BingoSettingsDto();
     }
+
+    public async Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date)
+    {
+        return await _http.GetFromJsonAsync<BingoSession>($"api/bingo/session-by-date?date={date:yyyy-MM-dd}");
+    }
 }

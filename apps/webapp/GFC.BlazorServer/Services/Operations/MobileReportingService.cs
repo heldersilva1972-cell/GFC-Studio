@@ -568,4 +568,13 @@ public class MobileReportingService : IMobileReportingService
             PayoutTiers = tiers
         };
     }
+
+    public async Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.BingoSessions
+            .Include(s => s.GameEntries)
+            .Include(s => s.AdmissionEntries)
+            .FirstOrDefaultAsync(s => s.SessionDate.Date == date.Date && !s.IsDeleted);
+    }
 }

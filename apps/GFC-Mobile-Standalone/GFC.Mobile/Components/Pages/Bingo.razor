@@ -3475,26 +3475,86 @@
             }
             else
             {
-                // FULL RESET FOR BLANK SESSION
-                _sessionState = "NotStarted";
-                foreach (var p in AdmissionPacks)
+                // TRY QUERYING SERVER FOR PREVIOUSLY SUBMITTED/SYNCED SESSION
+                BingoSession? serverSession = null;
+                try
                 {
-                    p.Sold = 0;
+                    serverSession = await ReportingService.GetBingoSessionByDateAsync(SessionDate);
                 }
-                foreach (var s in Sheets)
+                catch (Exception ex)
                 {
-                    s.ManualSold = 0;
-                    s.IsClosedOut = false;
-                    s.IsSynced = false;
-                    foreach (var g in s.Games)
+                    Console.WriteLine($"[BINGO] GetBingoSessionByDateAsync error: {ex.Message}");
+                }
+
+                if (serverSession != null)
+                {
+                    _sessionState = serverSession.Status ?? "Closed";
+                    _sessionEntered = true; // Auto-enter to show pre-populated data!
+                    
+                    // 1. Populate AdmissionPacks
+                    foreach (var p in AdmissionPacks)
                     {
-                        g.WinnerCount = 1;
-                        g.BallsCalled = 0;
-                        g.CustomPayoutOverride = null;
+                        var entry = serverSession.AdmissionEntries?.FirstOrDefault(ae => ae.AdmissionDefinitionId == p.Id);
+                        p.Sold = entry?.Quantity ?? 0;
                     }
+
+                    // 2. Populate Sheets and Games
+                    foreach (var s in Sheets)
+                    {
+                        var sheetEntries = serverSession.GameEntries?.Where(ge => ge.SheetColor == s.ColorName).ToList() ?? new List<BingoGameEntry>();
+                        
+                        var extraEntry = sheetEntries.FirstOrDefault(e => e.PricePerSheet > 0);
+                        s.ManualSold = extraEntry?.SheetsSold ?? 0;
+                        
+                        s.IsClosedOut = true; 
+                        s.IsSynced = true;
+                        
+                        foreach (var g in s.Games)
+                        {
+                            var gameEntries = sheetEntries.Where(e => e.GameName == g.Name).ToList();
+                            
+                            var entryWithBalls = gameEntries.FirstOrDefault(e => e.BallsCalled > 0);
+                            g.BallsCalled = entryWithBalls?.BallsCalled ?? 0;
+
+                            g.WinnerCount = 1;
+                            g.CustomPayoutOverride = null;
+                            
+                            // Reconstruct CustomPayoutOverride if the prize paid on server differs from standard calculated payout
+                            var defaultPayout = CalculateGamePayout(s, g); 
+                            var actualPrizePaid = gameEntries.Sum(e => e.PrizePaid);
+                            if (actualPrizePaid > 0 && Math.Abs(actualPrizePaid - defaultPayout) > 0.05m)
+                            {
+                                g.CustomPayoutOverride = actualPrizePaid;
+                            }
+                        }
+                    }
+                    
+                    RecalculateSheetTotals();
+                    _needsSync = false;
                 }
-                RecalculateSheetTotals();
-                _needsSync = false;
+                else
+                {
+                    // FULL RESET FOR BLANK SESSION
+                    _sessionState = "NotStarted";
+                    foreach (var p in AdmissionPacks)
+                    {
+                        p.Sold = 0;
+                    }
+                    foreach (var s in Sheets)
+                    {
+                        s.ManualSold = 0;
+                        s.IsClosedOut = false;
+                        s.IsSynced = false;
+                        foreach (var g in s.Games)
+                        {
+                            g.WinnerCount = 1;
+                            g.BallsCalled = 0;
+                            g.CustomPayoutOverride = null;
+                        }
+                    }
+                    RecalculateSheetTotals();
+                    _needsSync = false;
+                }
             }
         }
         catch (Exception ex)

@@ -354,6 +354,35 @@ public class MobileReportingService : IMobileReportingService
         return true;
     }
 
+    public async Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date)
+    {
+        // 1. Try local vault/outbox first
+        var vaultKey = $"gfc_bingo_outbox_{date:yyyy-MM-dd}";
+        try
+        {
+            var cached = await _js.InvokeAsync<BingoSession>("window.gfcGetAsync", vaultKey);
+            if (cached != null) return cached;
+        }
+        catch { }
+
+        // 2. Query Server
+        try
+        {
+            if (await _connectivity.GateAsync("GetBingoSessionByDate"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var session = await _http.GetFromJsonAsync<BingoSession>($"/api/bingo/session-by-date?date={date:yyyy-MM-dd}", cts.Token);
+                return session;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] GetBingoSessionByDate server fetch failed: {ex.Message}");
+        }
+
+        return null;
+    }
+
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {
         try
