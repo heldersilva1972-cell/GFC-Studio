@@ -294,11 +294,11 @@ namespace GFC.Core.Services
                 PeriodLabel = label,
                 ShiftCount = shifts.Count,
                 
-                // [SHIFT-ACTIVITY MODEL]: We sum ALL shifts for the day to get the total daily activity.
-                TotalSales = dtos.Sum(d => d.TotalSales),
-                TotalPayouts = dtos.Sum(d => d.TotalPayouts),
-                TotalCancels = dtos.Sum(d => d.TotalCancels),
-                TotalNetDue = dtos.Sum(d => d.NetDue),
+                // MACHINE TOTALS: We sum the Night shifts only (Cumulative for the day)
+                TotalSales = shiftsByDay.Sum(d => d.LatestShift.TotalSales),
+                TotalPayouts = shiftsByDay.Sum(d => d.LatestShift.TotalPayouts),
+                TotalCancels = shiftsByDay.Sum(d => d.LatestShift.TotalCancels),
+                TotalNetDue = shiftsByDay.Sum(d => d.LatestShift.NetDue),
                 
                 // ACTIVITY: We sum EVERY shift's results to get the total for the week
                 TotalNetSales = dtos.Sum(s => s.NetSales),

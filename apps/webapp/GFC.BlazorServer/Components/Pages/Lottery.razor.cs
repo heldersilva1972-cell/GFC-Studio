@@ -68,6 +68,11 @@ namespace GFC.BlazorServer.Components.Pages
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
                 _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
             }
+            else if (_viewMode == "monthly")
+            {
+                _filterStartDate = new DateTime(_selectedYear, 1, 1);
+                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+            }
             // Snap reconcile to start of week if we switch to it
             if (_viewMode == "reconcile")
             {
@@ -431,6 +436,12 @@ namespace GFC.BlazorServer.Components.Pages
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
                 _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
             }
+            else if (_viewMode == "monthly")
+            {
+                // Snap to the full year for the monthly totals (Yearly View)
+                _filterStartDate = new DateTime(_selectedYear, 1, 1);
+                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+            }
 
             await LoadData();
         }
@@ -438,6 +449,11 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeYear(int year)
         {
             _selectedYear = year;
+            if (_viewMode == "monthly")
+            {
+                _filterStartDate = new DateTime(_selectedYear, 1, 1);
+                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+            }
             await LoadData();
         }
 
