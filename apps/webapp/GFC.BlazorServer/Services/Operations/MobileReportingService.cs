@@ -471,6 +471,13 @@ public class MobileReportingService : IMobileReportingService
         session.CreatedBy = username;
         session.Status = "Submitted";
 
+        // Enforce session-level totals calculated directly from the actual game-level entries
+        if (session.GameEntries != null && session.GameEntries.Any())
+        {
+            session.TotalPrizesPaid = session.GameEntries.Sum(e => e.PrizePaid);
+            session.TotalClubTake = session.TotalGrossReceipts - session.TotalPrizesPaid - session.TotalLotteryTake - session.RoundingAdjustment;
+        }
+
         foreach (var entry in session.GameEntries)
         {
             entry.CreatedAt = DateTime.UtcNow;

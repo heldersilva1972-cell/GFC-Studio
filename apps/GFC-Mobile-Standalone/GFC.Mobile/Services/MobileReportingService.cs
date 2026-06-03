@@ -383,6 +383,33 @@ public class MobileReportingService : IMobileReportingService
         return null;
     }
 
+    public async Task<bool> CancelBingoSessionAsync(DateTime date)
+    {
+        var vaultKey = $"gfc_bingo_outbox_{date:yyyy-MM-dd}";
+        try
+        {
+            await _js.InvokeVoidAsync("window.gfcRemoveAsync", vaultKey);
+            _ = RefreshPendingCountAsync();
+        }
+        catch { }
+
+        try
+        {
+            if (await _connectivity.GateAsync("CancelBingoSession"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var response = await _http.DeleteAsync($"/api/bingo/session?date={date:yyyy-MM-dd}", cts.Token);
+                return response.IsSuccessStatusCode;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] CancelBingoSession server call failed: {ex.Message}");
+        }
+
+        return false;
+    }
+
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {
         try

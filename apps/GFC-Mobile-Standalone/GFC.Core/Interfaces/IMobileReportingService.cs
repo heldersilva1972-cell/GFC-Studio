@@ -27,6 +27,7 @@ public interface IMobileReportingService
     string? LastSyncStatus { get; }
     event Action? OutboxChanged;
     Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date);
+    Task<bool> CancelBingoSessionAsync(DateTime date);
 }
 
 public class DailyShiftSummary // Revision 2.1.35

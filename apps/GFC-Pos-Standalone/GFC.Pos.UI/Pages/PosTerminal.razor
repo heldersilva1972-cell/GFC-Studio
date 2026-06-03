@@ -6483,7 +6483,17 @@
             // Open drawer for CASH sales, or corrections (where cash may need to be returned/collected)
             if (payment == "CASH" || wasCorrection)
             {
-                await PrinterService.KickDrawerAsync();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await PrinterService.KickDrawerAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS] Checkout KickDrawerAsync failed: {ex.Message}");
+                    }
+                });
             }
 
             await PosService.SaveSaleAsync(sale);
@@ -7328,16 +7338,27 @@
             Toast.ShowSuccess($"Payout of {_payoutAmount:C} recorded successfully.");
             StateHasChanged();
 
-            // Then kick the drawer and print voucher (hardware ops — can take a moment)
-            if (!forceTrainingMode || allowHardwareInTraining)
+            // Then kick the drawer and print voucher (hardware ops — run in background so UI doesn't lock up)
+            _ = Task.Run(async () =>
             {
-                await PrinterService.KickDrawerAsync();
-            }
+                try
+                {
+                    if (!forceTrainingMode || allowHardwareInTraining)
+                    {
+                        await PrinterService.KickDrawerAsync();
+                    }
 
-            if (_printPayoutVoucher)
-            {
-                await PrintPayoutVoucher(payoutSale);
-            }
+                    if (_printPayoutVoucher)
+                    {
+                        await PrintPayoutVoucher(payoutSale);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Payout hardware operation failed: {ex.Message}");
+                    await InvokeAsync(() => Toast.ShowError("Payout recorded, but drawer/printer failed."));
+                }
+            });
 
             // Re-calculate local audit totals in background
             _ = UpdateAuditAsync();

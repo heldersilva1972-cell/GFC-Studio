@@ -8,6 +8,7 @@
 @inject IJSRuntime JSRuntime
 @inject GFC.Core.Interfaces.IUserManagementService UserService
 @inject GFC.Core.Interfaces.ISystemSettingsService SettingsService
+@inject GFC.Core.Interfaces.IAuditLogRepository AuditLogRepository
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
@@ -29,6 +30,9 @@
                 </button>
                 <button class="btn @(ActiveTab == "Financials" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Financials"'>
                     PERCENTAGES
+                </button>
+                <button class="btn @(ActiveTab == "Progressives" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Progressives"'>
+                    PROGRESSIVES
                 </button>
             </div>
         </div>
@@ -384,6 +388,160 @@
             </div>
         </div>
     }
+    else if (ActiveTab == "Progressives")
+    {
+        <div class="glass-card shadow-sm border p-4">
+            <h5 class="fw-black text-uppercase mb-3">Progressive Games & Target Goals</h5>
+            <p class="text-muted small mb-3">Monitor historical play, view manual override logs, and adjust the current rolling ball targets for progressive games.</p>
+
+            <div class="alert alert-info border-info border-opacity-25 rounded-4 mb-4" style="background: rgba(13, 110, 253, 0.05);">
+                <h6 class="fw-bold text-primary mb-2 text-uppercase"><i class="bi bi-info-circle-fill me-2"></i> How Progressive Goals Work</h6>
+                <div class="text-muted small mb-0" style="line-height: 1.5;">
+                    <ul class="mb-0 ps-3">
+                        <li class="mb-1"><strong>Baseline Goal:</strong> The starting ball count goal defined in the game setup.</li>
+                        <li class="mb-1"><strong>Current Target Goal:</strong> The actual target goal active for the next/current tracking session.</li>
+                        <li class="mb-1"><strong>Automatic Incrementing:</strong> If a bingo session is completed and locked with a ball count <em>higher</em> than the Current Target Goal (meaning the progressive jackpot was NOT won), the target goal automatically increments by <strong>1 ball</strong> for the next session.</li>
+                        <li class="mb-1"><strong>Jackpot Reset:</strong> If the progressive jackpot IS won (a game is completed in <em>fewer or equal</em> balls than the Current Target Goal), the target goal automatically resets back to the <strong>Baseline Goal</strong> for the next session.</li>
+                        <li class="mb-0"><strong>Manual Overrides:</strong> Use the controls below to adjust the Current Target Goal at any time. Any changes are saved to the server and logged in the audit trail.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="row g-4">
+                @{
+                    bool hasProgressives = false;
+                }
+                @foreach (var sheet in Sheets)
+                {
+                    @foreach (var game in sheet.Games.Where(g => g.IsProgressive))
+                    {
+                        hasProgressives = true;
+                        <div class="col-12 mb-3">
+                            <div class="card shadow-sm border rounded-4 overflow-hidden">
+                                <div class="card-header border-bottom bg-light py-3 px-4 d-flex justify-content-between align-items-center" style="border-left: 6px solid @sheet.DisplayColor;">
+                                    <div>
+                                        <span class="badge bg-primary text-uppercase me-2" style="font-size: 0.65rem;">@sheet.ColorName</span>
+                                        <strong class="text-dark text-uppercase fs-6">@game.GameName</strong>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="text-end me-2">
+                                            <span class="extra-small fw-bold text-muted text-uppercase d-block" style="font-size: 0.55rem;">Baseline Goal</span>
+                                            <span class="fw-bold text-dark">@game.ProgressiveBallGoal Balls</span>
+                                        </div>
+                                        <div class="border-start ps-3 d-flex align-items-center gap-2">
+                                            <div style="width: 140px;">
+                                                <span class="extra-small fw-black text-muted text-uppercase d-block mb-1" style="font-size: 0.55rem;">Current Goal</span>
+                                                <div class="input-group input-group-sm">
+                                                    <button class="btn btn-outline-dark" type="button" @onclick="() => DecrementCurrentGoal(game)"><i class="bi bi-dash-lg"></i></button>
+                                                    <input type="number" class="form-control text-center fw-black fs-6" @bind="game.CurrentProgressiveBallGoal" style="min-width: 50px;" />
+                                                    <button class="btn btn-outline-dark" type="button" @onclick="() => IncrementCurrentGoal(game)"><i class="bi bi-plus-lg"></i></button>
+                                                </div>
+                                            </div>
+                                            <button class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm fw-bold align-self-end mb-1" style="height: 31px;" @onclick="() => SaveProgressiveOverride(game)">
+                                                SAVE
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body p-4 bg-white">
+                                    <div class="row g-3 mb-2">
+                                        <div class="col-md-3">
+                                            <div class="p-3 border rounded-4 bg-light text-center">
+                                                <span class="extra-small fw-black text-muted d-block text-uppercase mb-1">Jackpot Amount</span>
+                                                <span class="fs-4 fw-black text-success">@game.ProgressiveJackpotAmount.ToString("C0")</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="p-3 border rounded-4 bg-light text-center">
+                                                <span class="extra-small fw-black text-muted d-block text-uppercase mb-1">Consolation Amount</span>
+                                                <span class="fs-4 fw-black text-danger">@game.ProgressiveConsolationAmount.ToString("C0")</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6 d-flex align-items-center justify-content-end">
+                                            <button class="btn btn-outline-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="() => ToggleHistory(game)">
+                                                <i class="bi @(IsHistoryExpanded(game) ? "bi-chevron-up" : "bi-clock-history") me-2"></i>
+                                                @(IsHistoryExpanded(game) ? "HIDE LOGS" : "VIEW HISTORY LOGS")
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    @if (IsHistoryExpanded(game))
+                                    {
+                                        <div class="mt-3 border-top pt-3">
+                                            <h6 class="fw-black text-uppercase text-muted mb-3" style="font-size: 0.75rem;"><i class="bi bi-clock-history me-1"></i> HISTORY & OVERRIDE LOG</h6>
+                                            
+                                            @if (GameHistoryLoading(game))
+                                            {
+                                                <div class="text-center py-3">
+                                                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                                    <span class="ms-2 text-muted extra-small">Loading history...</span>
+                                                </div>
+                                            }
+                                            else if (!GetGameHistory(game).Any())
+                                            {
+                                                <div class="text-center py-4 bg-light rounded-4 text-muted italic extra-small">
+                                                    No history found for this game.
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="table-responsive rounded-4 border">
+                                                    <table class="table table-hover align-middle mb-0">
+                                                        <thead class="bg-light">
+                                                            <tr class="extra-small text-muted fw-black text-uppercase">
+                                                                <th class="ps-4">Date / Time</th>
+                                                                <th>Activity Type</th>
+                                                                <th>Goal / Ball Value</th>
+                                                                <th>Log Details</th>
+                                                                <th class="pe-4">Performed By</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var log in GetGameHistory(game))
+                                                            {
+                                                                <tr>
+                                                                    <td class="ps-4 py-2 small fw-bold">@log.Timestamp.ToString("g")</td>
+                                                                    <td>
+                                                                        @if (log.Type == "Manual Override")
+                                                                        {
+                                                                            <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-25 px-2 py-1 rounded-pill fw-bold" style="font-size: 0.6rem;">
+                                                                                <i class="bi bi-sliders me-1"></i> OVERRIDE
+                                                                            </span>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <span class="badge bg-success-subtle text-success border border-success border-opacity-25 px-2 py-1 rounded-pill fw-bold" style="font-size: 0.6rem;">
+                                                                                <i class="bi bi-play-fill me-1"></i> SESSION PLAY
+                                                                            </span>
+                                                                        }
+                                                                    </td>
+                                                                    <td class="fw-black text-primary">@log.Value</td>
+                                                                    <td class="small text-muted">@log.Details</td>
+                                                                    <td class="pe-4 small fw-bold text-dark">@log.PerformedBy</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+                @if (!hasProgressives)
+                {
+                    <div class="col-12 text-center py-5">
+                        <i class="bi bi-rocket-takeoff text-muted" style="font-size: 3rem; opacity: 0.3;"></i>
+                        <p class="text-muted fw-bold mt-3">No Progressive Games Defined</p>
+                        <small class="text-muted">Create or edit a game definition and turn on the "Progressive" toggle to manage it here.</small>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 </div>
 
 @if (ShowSheetModal && EditingSheet != null)
@@ -713,6 +871,10 @@
     private List<BingoAdmissionDefinition> Admissions { get; set; } = new();
     private List<BingoPayoutTier> PayoutTiers { get; set; } = new();
     private SystemSettings SystemSettings { get; set; } = new();
+
+    private Dictionary<int, List<ProgressiveHistoryDto>> _gameHistories = new();
+    private HashSet<int> _expandedGames = new();
+    private HashSet<int> _loadingHistoryGames = new();
     
     private bool ShowSheetModal { get; set; }
     private BingoSheetDefinition EditingSheet { get; set; } = new();
@@ -1110,5 +1272,170 @@
         }
         ShowConfirm = false;
         StateHasChanged();
+    }
+
+    private bool IsHistoryExpanded(BingoGameDefinition game) => _expandedGames.Contains(game.Id);
+    private bool GameHistoryLoading(BingoGameDefinition game) => _loadingHistoryGames.Contains(game.Id);
+    private List<ProgressiveHistoryDto> GetGameHistory(BingoGameDefinition game) => 
+        _gameHistories.TryGetValue(game.Id, out var list) ? list : new List<ProgressiveHistoryDto>();
+
+    private void IncrementCurrentGoal(BingoGameDefinition game)
+    {
+        game.CurrentProgressiveBallGoal++;
+    }
+
+    private void DecrementCurrentGoal(BingoGameDefinition game)
+    {
+        if (game.CurrentProgressiveBallGoal > 0)
+            game.CurrentProgressiveBallGoal--;
+    }
+
+    private async Task ToggleHistory(BingoGameDefinition game)
+    {
+        if (_expandedGames.Contains(game.Id))
+        {
+            _expandedGames.Remove(game.Id);
+        }
+        else
+        {
+            _expandedGames.Add(game.Id);
+            if (!_gameHistories.ContainsKey(game.Id))
+            {
+                await LoadGameHistory(game);
+            }
+        }
+    }
+
+    private async Task LoadGameHistory(BingoGameDefinition game)
+    {
+        var sheet = Sheets.FirstOrDefault(s => s.Games.Any(g => g.Id == game.Id));
+        if (sheet == null) return;
+
+        _loadingHistoryGames.Add(game.Id);
+        StateHasChanged();
+
+        try
+        {
+            var history = new List<ProgressiveHistoryDto>();
+
+            // 1. Get Game Entries from DB
+            var entries = await DbContext.BingoGameEntries
+                .Include(e => e.Session)
+                .Where(e => e.GameName == game.GameName 
+                            && e.SheetColor == sheet.ColorName 
+                            && e.BallsCalled > 0 
+                            && e.Session != null 
+                            && !e.Session.IsDeleted 
+                            && !e.IsDeleted)
+                .OrderByDescending(e => e.Session!.SessionDate)
+                .Take(20)
+                .ToListAsync();
+
+            foreach (var e in entries)
+            {
+                history.Add(new ProgressiveHistoryDto
+                {
+                    Timestamp = e.Session!.SessionDate,
+                    Type = "Session Play",
+                    Value = e.BallsCalled,
+                    Details = $"Balls pulled: {e.BallsCalled}. Prize paid: {e.PrizePaid:C2}.",
+                    PerformedBy = e.CreatedBy ?? "System"
+                });
+            }
+
+            // 2. Get Audit logs
+            var auditResult = await AuditLogRepository.GetAuditLogsAsync(
+                "Override Progressive Ball Goal",
+                $"'{sheet.ColorName} - {game.GameName}'",
+                null, null, null, 1, 100
+            );
+
+            if (auditResult?.Items != null)
+            {
+                foreach (var a in auditResult.Items)
+                {
+                    int goalVal = 0;
+                    var parts = a.Details?.Split("to ");
+                    if (parts != null && parts.Length > 1 && int.TryParse(parts[1].TrimEnd('.'), out var g))
+                    {
+                        goalVal = g;
+                    }
+
+                    history.Add(new ProgressiveHistoryDto
+                    {
+                        Timestamp = a.TimestampUtc.ToLocalTime(),
+                        Type = "Manual Override",
+                        Value = goalVal,
+                        Details = a.Details ?? "Manual override applied.",
+                        PerformedBy = a.PerformedByDisplayName
+                    });
+                }
+            }
+
+            _gameHistories[game.Id] = history.OrderByDescending(h => h.Timestamp).Take(25).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading progressive history: {ex.Message}");
+        }
+        finally
+        {
+            _loadingHistoryGames.Remove(game.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveProgressiveOverride(BingoGameDefinition game)
+    {
+        var sheet = Sheets.FirstOrDefault(s => s.Games.Any(g => g.Id == game.Id));
+        if (sheet == null) return;
+
+        try
+        {
+            var target = await DbContext.BingoGameDefinitions.FindAsync(game.Id);
+            if (target != null)
+            {
+                int oldGoal = target.CurrentProgressiveBallGoal;
+                target.CurrentProgressiveBallGoal = game.CurrentProgressiveBallGoal;
+                target.DateLastProgressed = DateTime.UtcNow.Date;
+                target.ModifiedAt = DateTime.UtcNow;
+                
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var username = authState.User.Identity?.Name ?? "Staff";
+                target.ModifiedBy = username;
+
+                await DbContext.SaveChangesAsync();
+
+                // Log audit
+                var user = await DbContext.AppUsers.FirstOrDefaultAsync(u => u.Username == username);
+                var audit = new AuditLogEntry
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    PerformedByUserId = user?.UserId,
+                    Action = "Override Progressive Ball Goal",
+                    Details = $"Manual override for '{sheet.ColorName} - {game.GameName}'. Changed current goal from {oldGoal} to {game.CurrentProgressiveBallGoal}.",
+                    PageUrl = "/admin/bingo/setup"
+                };
+                await AuditLogRepository.InsertAsync(audit);
+
+                await JSRuntime.InvokeVoidAsync("alert", "Goal updated and audit logged successfully!");
+                
+                // Refresh history for this game
+                await LoadGameHistory(game);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Error saving override: " + ex.Message);
+        }
+    }
+
+    public class ProgressiveHistoryDto
+    {
+        public DateTime Timestamp { get; set; }
+        public string Type { get; set; } = string.Empty;
+        public int Value { get; set; }
+        public string Details { get; set; } = string.Empty;
+        public string PerformedBy { get; set; } = string.Empty;
     }
 }

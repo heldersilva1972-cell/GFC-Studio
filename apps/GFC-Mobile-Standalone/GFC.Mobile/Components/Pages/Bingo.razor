@@ -35,6 +35,9 @@
                             <button class="btn btn-success rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm animate-pulse" style="font-size: 0.6rem;" @onclick="CloseEntireSession">
                                 <i class="bi bi-lock-fill"></i> CLOSE & LOCK SESSION
                             </button>
+                            <button class="btn btn-danger rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm text-white ms-1" style="font-size: 0.6rem;" @onclick="PromptCancelSession">
+                                <i class="bi bi-trash3-fill"></i> CANCEL SESSION
+                            </button>
                         }
                         else if (_sessionState == "Closed")
                         {
@@ -84,13 +87,30 @@
                     <div class="badge rounded-pill bg-primary bg-opacity-10 text-primary px-4 py-2 fw-black mb-4 fs-6 border border-primary border-opacity-25 shadow-sm">
                         @SessionDate.ToLongDateString()
                     </div>
-                    <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
-                        An active session records all player admissions, floor sheets sold, game winner payouts, and progressive jackpot ball counts. 
-                        Tapping the button below opens the session draft for tracking.
-                    </p>
-                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 60px;" @onclick="StartSession">
-                        <i class="bi bi-play-fill me-2"></i> Start / Open Bingo Session
-                    </button>
+                    @if (_hasBlockingOpenSession && _blockingSessionDate.HasValue)
+                    {
+                        <div class="alert alert-danger shadow-sm rounded-4 mb-4 text-start w-100 p-4 border-2 border-danger border-opacity-25 animate-fade-in">
+                            <h5 class="fw-black text-danger mb-2 text-uppercase"><i class="bi bi-exclamation-octagon-fill me-2 animate-pulse"></i> Unclosed Session Detected</h5>
+                            <p class="small mb-0 text-muted fw-semibold" style="line-height: 1.5;">
+                                There is currently an unfinished/open tracking session for <strong>@_blockingSessionDate.Value.ToLongDateString()</strong>.
+                                <br/><br/>
+                                To ensure progressive goals and statistics remain correct, please select that date using the calendar in the top-left, complete its counts, and click <strong>'Close & Lock Session'</strong> (or cancel it) before opening today's session.
+                            </p>
+                        </div>
+                        <button class="btn btn-secondary w-100 py-3 rounded-pill fw-black text-uppercase" style="font-size: 0.95rem; height: 60px; opacity: 0.65; cursor: not-allowed;" disabled>
+                            <i class="bi bi-lock-fill me-2"></i> Start Session Blocked
+                        </button>
+                    }
+                    else
+                    {
+                        <p class="text-muted fw-semibold mb-5 px-4" style="font-size: 0.9rem; line-height: 1.6;">
+                            An active session records all player admissions, floor sheets sold, game winner payouts, and progressive jackpot ball counts. 
+                            Tapping the button below opens the session draft for tracking.
+                        </p>
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.95rem; letter-spacing: 0.05em; height: 60px;" @onclick="StartSession">
+                            <i class="bi bi-play-fill me-2"></i> Start / Open Bingo Session
+                        </button>
+                    }
                 }
                 else if (_sessionState == "Open")
                 {
@@ -1430,6 +1450,26 @@
         flex-direction: column;
     }
 
+    /* Shift modal when keypad is open to prevent overlapping */
+    @@media (min-width: 577px) and (max-width: 1024px) {
+        .sheet-detail-modal.keypad-open {
+            left: 40px;
+            transform: translate(0, -50%);
+            width: calc(100% - 380px);
+            max-width: 480px;
+        }
+    }
+
+    @@media (max-width: 576px) {
+        .sheet-detail-modal.keypad-open {
+            top: 10px;
+            left: 50%;
+            transform: translate(-50%, 0);
+            max-height: 42vh;
+            width: 95%;
+        }
+    }
+
     .detail-header {
         padding: 15px 20px;
         color: white;
@@ -1516,7 +1556,7 @@
     var sheetTotalBreakage = sheetRoundingBreakage + sheetManualBreakage;
 
     <div class="modal-backdrop-custom animate-fade-in" style="z-index: 4500;" @onclick="() => _selectedSheet = null"></div>
-    <div class="sheet-detail-modal animate-zoom-in">
+    <div class="sheet-detail-modal animate-zoom-in @(_showFloatingKeypad ? "keypad-open" : "")">
         <div class="detail-header" style="background: @_selectedSheet.DisplayColor">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
@@ -1688,7 +1728,8 @@
             <div class="tile-games-list">
                 @foreach (var game in _selectedSheet.Games)
                 {
-                    <div class="game-detail-item d-flex flex-column align-items-stretch p-3 rounded-4 mb-3 border @(game.IsVariablePayout ? "bg-primary-subtle border-primary border-opacity-25" : "bg-white border-light")" style="margin-bottom: 12px; gap: 8px;">
+                    var gameIdx = _selectedSheet.Games.IndexOf(game);
+                    <div id="game-row-@(_selectedSheet.ColorName)-@(gameIdx)" class="game-detail-item d-flex flex-column align-items-stretch p-3 rounded-4 mb-3 border @(game.IsVariablePayout ? "bg-primary-subtle border-primary border-opacity-25" : "bg-white border-light")" style="margin-bottom: 12px; gap: 8px;">
                         <!-- Top Row: Name, Inputs, Payout -->
                         <div class="d-flex justify-content-between align-items-center gap-2">
                             <!-- Left: Name -->
@@ -2441,6 +2482,34 @@
     </div>
 }
 
+@if (_showCancelSessionConfirmation)
+{
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 9000;" @onclick="() => _showCancelSessionConfirmation = false"></div>
+    <div class="sheet-detail-modal animate-zoom-in" style="z-index: 9500; max-width: 420px; border-top: 8px solid #ef4444; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+        <div class="detail-body p-4 text-center">
+            <div class="mb-3">
+                <div class="d-inline-flex align-items-center justify-content-center bg-danger bg-opacity-10 rounded-circle" style="width: 80px; height: 80px;">
+                    <i class="bi bi-trash3-fill text-danger" style="font-size: 2.5rem;"></i>
+                </div>
+            </div>
+            <h4 class="fw-black text-uppercase mb-3" style="letter-spacing: -0.02em;">Cancel Active Session?</h4>
+            <p class="text-muted mb-4 px-2" style="font-size: 0.9rem; line-height: 1.5;">
+                Are you sure you want to cancel today's tracking session? 
+                <br/><br/>
+                All entered admissions and sheet counts will be permanently erased locally and on the server.
+            </p>
+            <div class="d-flex gap-2">
+                <button class="btn btn-light w-50 py-3 rounded-pill fw-bold" @onclick="() => _showCancelSessionConfirmation = false">
+                    BACK
+                </button>
+                <button class="btn btn-danger w-50 py-3 rounded-pill fw-black text-white shadow-lg" @onclick="CancelActiveSessionAsync">
+                    YES, CANCEL
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showSessionLockedNotice)
 {
     <div class="modal-backdrop-custom animate-fade-in" style="z-index: 9000;" @onclick="() => _showSessionLockedNotice = false"></div>
@@ -2558,6 +2627,9 @@
     private string _currentBuffer = "";
     private bool _showAdmissionPopup = false;
     private bool _showFloorSalesPopup = false;
+    private bool _showCancelSessionConfirmation = false;
+    private bool _hasBlockingOpenSession = false;
+    private DateTime? _blockingSessionDate;
     private bool _showFloatingKeypad = false;
     private bool _showSummaryDetail = false;
     private bool _isOffline = false;
@@ -2942,13 +3014,84 @@
 
     private async Task StartSession()
     {
+        await CheckForBlockingOpenSessionAsync();
+        if (_hasBlockingOpenSession)
+        {
+            await ShowToast("Blocked", "Cannot start session while another session is open.", "error");
+            return;
+        }
         _sessionState = "Open";
         await SaveDraftAsync();
         await ShowToast("Session Opened", "Bingo session has been successfully opened for today.");
     }
 
+    private void PromptCancelSession()
+    {
+        _showCancelSessionConfirmation = true;
+        StateHasChanged();
+    }
+
+    private async Task CancelActiveSessionAsync()
+    {
+        _showCancelSessionConfirmation = false;
+        
+        // 1. Delete local draft
+        var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
+        await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, (object?)null);
+        
+        // 2. Call backend delete session endpoint if online
+        try
+        {
+            var success = await ReportingService.CancelBingoSessionAsync(SessionDate);
+            if (success)
+            {
+                await ShowToast("Session Cancelled", "The session draft was successfully removed from the server.");
+            }
+            else
+            {
+                await ShowToast("Cleared Locally", "Draft cleared locally, but server cancellation was offline.", "warning");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Error calling cancel endpoint: {ex.Message}");
+            await ShowToast("Cleared Locally", "Draft cleared locally, but server cancellation failed.", "warning");
+        }
+
+        // 3. Reset all variables
+        _sessionState = "NotStarted";
+        _sessionEntered = false;
+        foreach (var p in AdmissionPacks)
+        {
+            p.Sold = 0;
+        }
+        foreach (var s in Sheets)
+        {
+            s.ManualSold = 0;
+            s.IsClosedOut = false;
+            s.IsSynced = false;
+            foreach (var g in s.Games)
+            {
+                g.WinnerCount = 1;
+                g.BallsCalled = 0;
+                g.CustomPayoutOverride = null;
+            }
+        }
+        RecalculateSheetTotals();
+        _needsSync = false;
+        
+        await CheckForBlockingOpenSessionAsync();
+        StateHasChanged();
+    }
+
     private async Task UnlockSession()
     {
+        await CheckForBlockingOpenSessionAsync();
+        if (_hasBlockingOpenSession)
+        {
+            await ShowToast("Blocked", "Cannot unlock session while another session is open.", "error");
+            return;
+        }
         _sessionState = "Open";
         foreach (var s in Sheets) s.IsClosedOut = false;
         await SaveDraftAsync();
@@ -2957,6 +3100,44 @@
 
     private async Task CloseEntireSession()
     {
+        // 1. Total Attendance Check
+        var totalAttendance = AdmissionPacks.Sum(p => p.Sold);
+        if (totalAttendance <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("Swal.fire", new {
+                title = "Lock Blocked",
+                text = "Cannot lock a session with 0 total attendance.",
+                icon = "error",
+                confirmButtonText = "OK"
+            });
+            return;
+        }
+
+        // 2. Progressive Games Ball Count Check
+        var missingProgressives = new List<string>();
+        foreach (var s in Sheets)
+        {
+            foreach (var g in s.Games)
+            {
+                if (g.IsProgressive && g.BallsCalled <= 0)
+                {
+                    missingProgressives.Add($"{s.ColorName} - {g.Name}");
+                }
+            }
+        }
+
+        if (missingProgressives.Any())
+        {
+            var msg = "Please enter the balls called for these progressive games: " + string.Join(", ", missingProgressives);
+            await JSRuntime.InvokeVoidAsync("Swal.fire", new {
+                title = "Balls Called Required",
+                text = msg,
+                icon = "error",
+                confirmButtonText = "OK"
+            });
+            return;
+        }
+
         _sessionState = "Closed";
         foreach (var s in Sheets) s.IsClosedOut = true;
         
@@ -2984,6 +3165,7 @@
             await ShowToast("Session Locked", "Saved locally in offline mode. Will sync when online.", "warning");
         }
         
+        await CheckForBlockingOpenSessionAsync();
         StateHasChanged();
     }
 
@@ -3009,6 +3191,13 @@
         {
             var id = field.Replace("Pack_", "");
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('admin-row-{id}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
+        }
+        else if (_selectedSheet != null && (field.Contains("_Winner_") || field.Contains("_Override_") || field.Contains("_Balls_")))
+        {
+            var parts = field.Split('_');
+            var color = parts[0];
+            var idx = parts[2];
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('game-row-{color}-{idx}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
         }
     }
 
@@ -3255,7 +3444,7 @@
 
     // MATH
     private int TotalPacksSold => AdmissionPacks.Sum(p => p.Sold);
-    private int AdmissionCount => TotalPacksSold + TotalExtraCards;
+    private int AdmissionCount => TotalPacksSold;
     private decimal TotalAdmissionRevenue => AdmissionPacks.Sum(p => p.Sold * p.Price);
     private decimal TotalFloorRevenue => Sheets.Sum(s => s.ManualSold * s.Price);
     private decimal TotalGross => TotalAdmissionRevenue + TotalFloorRevenue;
@@ -3413,7 +3602,7 @@
                 availableForPrizes = gross * (1 - totalDeductionPercent);
             }
             
-            return availableForPrizes;
+            return sheet.Games.Count > 0 ? (availableForPrizes / sheet.Games.Count) : availableForPrizes;
         }
 
         // Mode 0: Fixed Prize (Adjusted by attendance)
@@ -3431,10 +3620,52 @@
         StateHasChanged();
     }
 
+    private async Task CheckForBlockingOpenSessionAsync()
+    {
+        try
+        {
+            _hasBlockingOpenSession = false;
+            _blockingSessionDate = null;
+
+            var records = await JSRuntime.InvokeAsync<List<VaultRecord>>("window.gfcGetAllAsync");
+            if (records != null)
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                foreach (var rec in records)
+                {
+                    if (rec.Key != null && rec.Key.StartsWith("gfc_bingo_draft_"))
+                    {
+                        var keySuffix = rec.Key.Replace("gfc_bingo_draft_", "");
+                        if (DateTime.TryParseExact(keySuffix, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var parsedDate))
+                        {
+                            if (parsedDate.Date == SessionDate.Date)
+                            {
+                                continue;
+                            }
+                            
+                            var draft = System.Text.Json.JsonSerializer.Deserialize<BingoDraft>(rec.Data.GetRawText(), options);
+                            if (draft != null && draft.SessionState == "Open")
+                            {
+                                _hasBlockingOpenSession = true;
+                                _blockingSessionDate = parsedDate;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Error checking blocking open session: {ex.Message}");
+        }
+    }
+
     private async Task LoadDraftAsync()
     {
         try 
         {
+            await CheckForBlockingOpenSessionAsync();
             var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
             var draft = await JSRuntime.InvokeAsync<BingoDraft>("window.gfcGetAsync", key);
             
@@ -3661,7 +3892,7 @@
                     {
                         var pkgGross = GetAllocatedAdmissionGross(s) / s.Games.Count;
                         var totalSheetGross = GetAllocatedAdmissionGross(s) + (s.ManualSold * s.Price);
-                        var pkgPrizeRatio = totalSheetGross > 0 ? (pkgGross / totalSheetGross) : 1.0m;
+                        var pkgPrizeRatio = totalSheetGross > 0 ? (GetAllocatedAdmissionGross(s) / totalSheetGross) : 1.0m;
 
                         entries.Add(new BingoGameEntry
                         {
@@ -3687,7 +3918,7 @@
                     {
                         var extraGross = (s.ManualSold * s.Price) / s.Games.Count;
                         var totalSheetGross = GetAllocatedAdmissionGross(s) + (s.ManualSold * s.Price);
-                        var extraPrizeRatio = totalSheetGross > 0 ? (extraGross / totalSheetGross) : 1.0m;
+                        var extraPrizeRatio = totalSheetGross > 0 ? ((s.ManualSold * s.Price) / totalSheetGross) : 1.0m;
 
                         entries.Add(new BingoGameEntry
                         {
@@ -3841,7 +4072,7 @@
                                 }
                             }
                             
-                            item.AdmissionCount = totalPacksSold + totalExtraCards;
+                            item.AdmissionCount = totalPacksSold;
                             
                             var admissionRevenue = draft.AdmissionPacks?.Sum(p => p.Sold * p.Price) ?? 0;
                             var floorRevenue = draft.Sheets?.Sum(s => s.ManualSold * s.Price) ?? 0;
