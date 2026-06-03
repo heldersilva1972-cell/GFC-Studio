@@ -48,27 +48,27 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     public async Task VoidSaleAsync(Guid saleId, string reason)
     {
         var key = $"{ShiftLogPrefix}{saleId}";
-        var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
-        if (vaultItems.ValueKind == JsonValueKind.Array)
+        try
         {
-            foreach (var item in vaultItems.EnumerateArray())
+            var saleJson = await _js.InvokeAsync<string>("window.gfcGetAsync", key);
+            if (!string.IsNullOrEmpty(saleJson) && saleJson != "null")
             {
-                var k = item.GetProperty("key").GetString();
-                if (k == key)
+                var sale = JsonSerializer.Deserialize<PosSaleDto>(saleJson, _jsonOptions);
+                if (sale != null)
                 {
-                    var sale = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
-                    if (sale != null)
-                    {
-                        sale.IsVoided = true;
-                        sale.AdjustmentReason = reason;
-                        await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
-                        
-                        // Sync to outbox too
-                        var vKey = $"{VaultPrefixSales}{saleId}";
-                        await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, sale);
-                    }
+                    sale.IsVoided = true;
+                    sale.AdjustmentReason = reason;
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
+                    
+                    // Sync to outbox too
+                    var vKey = $"{VaultPrefixSales}{saleId}";
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, sale);
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] VoidSaleAsync error: {ex.Message}");
         }
     }
 
@@ -786,8 +786,13 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         var key = $"{VaultPrefixSales}{sale.Id}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
         
-        await GetTotalPendingAsync();
-        OutboxChanged?.Invoke();
+        // PERFORMANCE: Run outbox count in the background to prevent blocking UI finalization
+        _ = Task.Run(async () => {
+            try {
+                await GetTotalPendingAsync();
+                OutboxChanged?.Invoke();
+            } catch {}
+        });
 
         // 2. Background Attempt
         _ = SafeFlushAsync();
@@ -800,8 +805,13 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         var key = $"{VaultPrefixZ}{report.Id}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, report);
         
-        await GetTotalPendingAsync();
-        OutboxChanged?.Invoke();
+        // PERFORMANCE: Run outbox count in the background to prevent blocking UI finalization
+        _ = Task.Run(async () => {
+            try {
+                await GetTotalPendingAsync();
+                OutboxChanged?.Invoke();
+            } catch {}
+        });
 
         _ = SafeFlushAsync();
     }
@@ -1386,8 +1396,13 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         var key = $"{VaultPrefixLiquorReceipt}{receipt.OrderId}_{DateTime.UtcNow.Ticks}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, receipt);
         
-        await GetTotalPendingAsync();
-        OutboxChanged?.Invoke();
+        // PERFORMANCE: Run outbox count in the background to prevent blocking UI finalization
+        _ = Task.Run(async () => {
+            try {
+                await GetTotalPendingAsync();
+                OutboxChanged?.Invoke();
+            } catch {}
+        });
 
         // Trigger immediate background sync flush attempt
         _ = Task.Run(async () => {
