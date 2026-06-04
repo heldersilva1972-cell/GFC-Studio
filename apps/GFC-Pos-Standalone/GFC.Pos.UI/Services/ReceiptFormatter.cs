@@ -32,11 +32,7 @@ public static class ReceiptFormatter
         return text.PadRight(Width);
     }
 
-    /// <summary>
-    /// Two-column row: label on left, value flush-right.
-    /// Label is truncated to 28 chars if needed to guarantee value fits.
-    /// </summary>
-    public static string FormatLine(string label, string value)
+    public static string FormatLine(string label, string value, char padChar = ' ')
     {
         // Ensure value fits first
         if (value.Length > Width) value = value[..Width];
@@ -48,7 +44,7 @@ public static class ReceiptFormatter
         int spaces = Width - label.Length - value.Length;
         if (spaces < 1) spaces = 1;
 
-        return label + new string(' ', spaces) + value;
+        return label + new string(padChar, spaces) + value;
     }
 
     /// <summary>
@@ -105,8 +101,8 @@ public static class ReceiptFormatter
         => sb.Append(Divider(ch)).Append('\n');
 
     /// <summary>Append a two-column label/value row followed by \n.</summary>
-    public static void AppendLine(System.Text.StringBuilder sb, string label, string value)
-        => sb.Append(FormatLine(label, value)).Append('\n');
+    public static void AppendLine(System.Text.StringBuilder sb, string label, string value, char padChar = ' ')
+        => sb.Append(FormatLine(label, value, padChar)).Append('\n');
 
     /// <summary>Append a left-aligned line followed by \n.</summary>
     public static void AppendLeft(System.Text.StringBuilder sb, string text)

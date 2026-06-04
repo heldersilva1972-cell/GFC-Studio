@@ -656,6 +656,7 @@
                                         <tr>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Item Name</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Add-on Display Name</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Eligible Categories</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 150px;">Price Override</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 150px;">Stock Deduction</th>
                                             <th class="text-end px-4">Actions</th>
@@ -672,6 +673,37 @@
                                                            value="@mod.Name"
                                                            @onchange="@((e) => UpdateModifierName(mod, e.Value))"
                                                            style="max-width: 200px;" />
+                                                </td>
+                                                <td class="py-2 px-4 text-center">
+                                                    <div class="dropdown">
+                                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle rounded-pill w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="max-width: 250px;">
+                                                            @{
+                                                                var selectedCats = string.IsNullOrEmpty(mod.EligibleCategories) 
+                                                                    ? "All Categories" 
+                                                                    : string.Join(", ", mod.EligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()));
+                                                            }
+                                                            <span class="text-truncate d-inline-block align-middle" style="max-width: 180px;">@selectedCats</span>
+                                                        </button>
+                                                        <div class="dropdown-menu p-3" style="min-width: 220px; max-height: 250px; overflow-y: auto; z-index: 1050;">
+                                                            @if (categories != null)
+                                                            {
+                                                                @foreach (var cat in categories.Where(c => !c.IsModifierCategory))
+                                                                {
+                                                                    var catUpper = cat.Name.Trim().ToUpper();
+                                                                    var isChecked = !string.IsNullOrEmpty(mod.EligibleCategories) && 
+                                                                                    mod.EligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                                                                        .Select(c => c.Trim().ToUpper())
+                                                                                        .Contains(catUpper);
+                                                                    <div class="form-check mb-1 text-start">
+                                                                        <input class="form-check-input" type="checkbox" id="tblcat_@(mod.ItemId)_@(cat.Id)" 
+                                                                               checked="@isChecked" 
+                                                                               @onchange="@((e) => ToggleTableModifierCategory(mod, cat.Name, e.Value))" />
+                                                                        <label class="form-check-label small fw-bold" for="tblcat_@(mod.ItemId)_@(cat.Id)">@cat.Name</label>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                        </div>
+                                                    </div>
                                                 </td>
                                                 <td class="py-2 px-4">
                                                     <div class="input-group input-group-sm mx-auto" style="width: 110px;">
@@ -841,6 +873,26 @@
                         <div class="mb-3">
                             <label class="form-label small fw-bold text-muted text-uppercase">Add-on Display Name</label>
                             <input type="text" class="form-control rounded-3" @bind="newModifierName" placeholder="e.g. Splash of Red Bull" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-muted text-uppercase">Eligible Categories</label>
+                            <div class="d-flex flex-wrap gap-2 p-3 border rounded-3 bg-light" style="max-height: 150px; overflow-y: auto;">
+                                @if (categories != null)
+                                {
+                                    @foreach (var cat in categories.Where(c => !c.IsModifierCategory))
+                                    {
+                                        var catUpper = cat.Name.Trim().ToUpper();
+                                        var isChecked = newModifierEligibleCategoriesList.Contains(catUpper);
+                                        <div class="form-check me-3 mb-2">
+                                            <input class="form-check-input" type="checkbox" id="addcat_@cat.Id" 
+                                                   checked="@isChecked" 
+                                                   @onchange="@((e) => ToggleNewModifierCategory(cat.Name, e.Value))" />
+                                            <label class="form-check-label small fw-bold" for="addcat_@cat.Id">@cat.Name</label>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <span class="extra-small text-muted d-block mt-1">Select the categories this modifier applies to. If none are selected, it applies to all categories.</span>
                         </div>
                         <div class="row g-3">
                             <div class="col-6">
@@ -2789,6 +2841,7 @@
     private string newModifierName = string.Empty;
     private decimal newModifierPrice = 0;
     private decimal newModifierPourSize = 1;
+    private List<string> newModifierEligibleCategoriesList = new();
 
     private void OpenAddModifierModal()
     {
@@ -2796,6 +2849,7 @@
         newModifierName = string.Empty;
         newModifierPrice = 0;
         newModifierPourSize = 1;
+        newModifierEligibleCategoriesList = new List<string>();
         showAddModifierModal = true;
     }
 
@@ -2820,9 +2874,57 @@
         }
     }
 
+    private void ToggleNewModifierCategory(string categoryName, object? isChecked)
+    {
+        var catUpper = categoryName.Trim().ToUpper();
+        if (isChecked is bool val && val)
+        {
+            if (!newModifierEligibleCategoriesList.Contains(catUpper))
+                newModifierEligibleCategoriesList.Add(catUpper);
+        }
+        else
+        {
+            newModifierEligibleCategoriesList.Remove(catUpper);
+        }
+    }
+
+    private async Task ToggleTableModifierCategory(PosModifierDto mod, string categoryName, object? isChecked)
+    {
+        if (selectedCategory == null) return;
+        var catUpper = categoryName.Trim().ToUpper();
+        var currentList = string.IsNullOrEmpty(mod.EligibleCategories)
+            ? new List<string>()
+            : mod.EligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim().ToUpper()).ToList();
+
+        if (isChecked is bool val && val)
+        {
+            if (!currentList.Contains(catUpper))
+                currentList.Add(catUpper);
+        }
+        else
+        {
+            currentList.Remove(catUpper);
+        }
+
+        mod.EligibleCategories = currentList.Any() ? string.Join(",", currentList) : null;
+        selectedCategory.ModifiersJson = global::System.Text.Json.JsonSerializer.Serialize(mappedModifiers);
+        using var db = await DbFactory.CreateDbContextAsync();
+        var cat = await db.PosCategories.FindAsync(selectedCategory.Id);
+        if (cat != null)
+        {
+            cat.ModifiersJson = selectedCategory.ModifiersJson;
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess("Modifier target categories updated");
+        }
+    }
+
     private async Task SaveNewModifier()
     {
         if (selectedModifierItemId == 0 || selectedCategory == null) return;
+
+        var eligibleCatsStr = newModifierEligibleCategoriesList.Any()
+            ? string.Join(",", newModifierEligibleCategoriesList)
+            : null;
 
         if (selectedModifierItemId < 0)
         {
@@ -2833,7 +2935,8 @@
                 ItemId = uniqueId,
                 Name = newModifierName,
                 Price = newModifierPrice,
-                PourSize = 0
+                PourSize = 0,
+                EligibleCategories = eligibleCatsStr
             });
         }
         else
@@ -2844,6 +2947,7 @@
                 existing.Name = newModifierName;
                 existing.Price = newModifierPrice;
                 existing.PourSize = newModifierPourSize;
+                existing.EligibleCategories = eligibleCatsStr;
             }
             else
             {
@@ -2852,7 +2956,8 @@
                     ItemId = selectedModifierItemId,
                     Name = newModifierName,
                     Price = newModifierPrice,
-                    PourSize = newModifierPourSize
+                    PourSize = newModifierPourSize,
+                    EligibleCategories = eligibleCatsStr
                 });
             }
         }
@@ -2870,6 +2975,7 @@
         showAddModifierModal = false;
         await ReloadItems();
     }
+
 
     private async Task UpdateModifierPrice(PosModifierDto mod, object? val)
     {

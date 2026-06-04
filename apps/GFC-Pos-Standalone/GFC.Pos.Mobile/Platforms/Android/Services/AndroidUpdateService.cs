@@ -7,7 +7,9 @@ using GFC.Core.Interfaces;
 using GFC.Pos.UI.Services;
 
 #if ANDROID
+using Android.App;
 using Android.Content;
+using Android.Content.PM;
 using Android.Net;
 using Microsoft.Maui.ApplicationModel;
 #endif
@@ -105,24 +107,55 @@ public class AndroidUpdateService : IUpdateService
 
             Console.WriteLine($"[GFC UPDATE] Download complete. Saved to: {tempApkPath}");
 
-            // 3. Launch System Package Installer using FileProvider
+            // 3. Silent Installation via PackageInstaller API
             var context = Android.App.Application.Context;
-            var file = new Java.IO.File(tempApkPath);
-            
-            // Safe URI sharing using whitelisted fileprovider defined in AndroidManifest.xml
-            var apkUri = AndroidX.Core.Content.FileProvider.GetUriForFile(
-                context, 
-                "com.gfc.pos.mobile.fileprovider", 
-                file
-            );
+            var packageManager = context.PackageManager;
+            if (packageManager == null) return false;
 
-            var intent = new Intent(Intent.ActionView);
-            intent.SetDataAndType(apkUri, "application/vnd.android.package-archive");
-            intent.AddFlags(ActivityFlags.GrantReadUriPermission);
-            intent.AddFlags(ActivityFlags.NewTask);
+            var packageInstaller = packageManager.PackageInstaller;
+            if (packageInstaller == null) return false;
 
-            context.StartActivity(intent);
-            return true;
+            var sessionParams = new PackageInstaller.SessionParams(PackageInstallMode.FullInstall);
+            int sessionId = -1;
+            PackageInstaller.Session? session = null;
+
+            try
+            {
+                sessionId = packageInstaller.CreateSession(sessionParams);
+                session = packageInstaller.OpenSession(sessionId);
+
+                using (var apkStream = new FileStream(tempApkPath, FileMode.Open, FileAccess.Read))
+                using (var sessionStream = session.OpenWrite("package_update", 0, apkStream.Length))
+                {
+                    byte[] buffer = new byte[65536];
+                    int bytesRead;
+                    while ((bytesRead = apkStream.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        sessionStream.Write(buffer, 0, bytesRead);
+                    }
+                    session.Fsync(sessionStream);
+                }
+
+                const string action = "com.gfc.pos.mobile.SESSION_API_PACKAGE_INSTALLED";
+                var intent = new Intent(context, typeof(PackageInstallReceiver));
+                intent.SetAction(action);
+
+                var pendingIntentFlags = PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Mutable;
+                var pendingIntent = PendingIntent.GetBroadcast(context, sessionId, intent, pendingIntentFlags);
+
+                session.Commit(pendingIntent!.IntentSender);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GFC UPDATE ERROR] Silent install session failed: {ex.Message}");
+                session?.Abandon();
+                return false;
+            }
+            finally
+            {
+                session?.Dispose();
+            }
         }
         catch (Exception ex)
         {
@@ -161,3 +194,36 @@ public class AndroidUpdateService : IUpdateService
         catch { return false; }
     }
 }
+
+#if ANDROID
+[BroadcastReceiver(Name = "com.gfc.pos.mobile.PackageInstallReceiver", Exported = true)]
+[IntentFilter(new[] { "com.gfc.pos.mobile.SESSION_API_PACKAGE_INSTALLED" })]
+public class PackageInstallReceiver : BroadcastReceiver
+{
+    public override void OnReceive(Context context, Intent intent)
+    {
+        if (intent == null) return;
+        var status = (PackageInstallStatus)intent.GetIntExtra(PackageInstaller.ExtraStatus, (int)PackageInstallStatus.Failure);
+
+        switch (status)
+        {
+            case PackageInstallStatus.Success:
+                Console.WriteLine("[GFC POS UPDATE] Silent update completed successfully.");
+                break;
+            case PackageInstallStatus.PendingUserAction:
+                Console.WriteLine("[GFC POS UPDATE] Pending user action status received. Setting Device Owner mode might have failed.");
+                var confirmIntent = (Intent?)intent.GetParcelableExtra(Intent.ExtraIntent);
+                if (confirmIntent != null)
+                {
+                    confirmIntent.AddFlags(ActivityFlags.NewTask);
+                    context.StartActivity(confirmIntent);
+                }
+                break;
+            default:
+                var message = intent.GetStringExtra(PackageInstaller.ExtraStatusMessage);
+                Console.WriteLine($"[GFC POS UPDATE ERROR] Silent install failed: {status} - {message}");
+                break;
+        }
+    }
+}
+#endif

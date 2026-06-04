@@ -1078,9 +1078,11 @@
             
             @if (_showUpdateBanner)
             {
-                <div class="update-pill" @onclick="TriggerNuclearReload" title="A new terminal update is available. Tap to install now.">
-                    <i class="bi bi-cloud-arrow-down-fill"></i>
-                    <span>UPDATE AVAILABLE</span>
+                <div class="update-banner-container">
+                    <div class="update-pill" @onclick="TriggerNuclearReload" title="A new terminal update is available. Tap to install now.">
+                        <i class="bi bi-cloud-arrow-down-fill"></i>
+                        <span>UPDATE AVAILABLE</span>
+                    </div>
                 </div>
             }
             @if (_isCorrectionMode)
@@ -1091,7 +1093,7 @@
                 </div>
             }
             
-            <div class="user-indicator-pill" @onclick="LockTerminal">
+            <div class="user-indicator-pill @(_showUpdateBanner ? "update-active-shift" : "")" @onclick="LockTerminal">
                 <div class="user-avatar">
                     <i class="bi bi-person-fill"></i>
                 </div>
@@ -4871,8 +4873,23 @@
 
     private async Task OpenModifiersOverlay()
     {
+        if (CartItems.Count > 0 && SelectedCartItem == null) SelectedCartItem = CartItems.Last();
+
         try {
-            ModifierItems = Modifiers
+            var selectedItemCat = SelectedCartItem?.Category?.Trim().ToUpper() ?? string.Empty;
+            var filtered = Modifiers.AsEnumerable();
+
+            if (!string.IsNullOrEmpty(selectedItemCat))
+            {
+                filtered = filtered.Where(m => 
+                    string.IsNullOrWhiteSpace(m.EligibleCategories) || 
+                    m.EligibleCategories.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(c => c.Trim().ToUpper())
+                        .Contains(selectedItemCat)
+                );
+            }
+
+            ModifierItems = filtered
                 .Select(m => new ProductItem {
                     Id = m.ItemId,
                     Name = m.Name,
@@ -4883,7 +4900,6 @@
                 .ToList();
         } catch {}
         
-        if (CartItems.Count > 0 && SelectedCartItem == null) SelectedCartItem = CartItems.Last();
         showModifiersOverlay = true;
         StateHasChanged();
     }
@@ -5523,16 +5539,11 @@
                     return;
                 }
 
-                if (string.IsNullOrEmpty(CurrentUserName))
+                if (!_showUpdateBanner)
                 {
-                    // SAFE TO AUTO-UPDATE: No user is logged in
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({activeServerVersion}). Forcing reload/installer...");
-                    await TriggerNuclearReload();
-                }
-                else if (!_showUpdateBanner)
-                {
-                    // USER IS ACTIVE: Show banner instead of reloading
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({_serverVersionFound}). Showing update pill.");
+                    // Show update banner/pill instead of executing background reload.
+                    // This satisfies the requirement that updates only happen after logging out or when manual button is pressed.
+                    Console.WriteLine($"[GFC POS UPDATE] New version detected ({activeServerVersion}). Showing update pill.");
                     _showUpdateBanner = true;
                     await InvokeAsync(StateHasChanged);
                 }
@@ -5696,20 +5707,19 @@
         // [AUTO-UPDATE] Check for newer POS version before locking
         try
         {
+            if (_showUpdateBanner)
+            {
+                Console.WriteLine("[GFC POS UPDATE] Active update banner detected during logout. Forcing reload/installer...");
+                await TriggerNuclearReload();
+                return;
+            }
+
             var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
             if (isUpdateAvailable)
             {
-                var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
-                if (lastAttemptVersion != UpdateService.ServerVersion)
-                {
-                    Console.WriteLine($"[GFC POS UPDATE] New version detected during logout. Forcing reload/installer...");
-                    await TriggerNuclearReload();
-                    return;
-                }
-                else
-                {
-                    Console.WriteLine($"[GFC POS UPDATE] Suppressing auto-reload during logout. Already tried updating to {UpdateService.ServerVersion}.");
-                }
+                Console.WriteLine($"[GFC POS UPDATE] New version ({UpdateService.ServerVersion}) detected during logout. Forcing reload/installer...");
+                await TriggerNuclearReload();
+                return;
             }
         }
         catch { /* Fallback to standard lock */ }
@@ -6893,7 +6903,7 @@
                 var lowWarn = item.CurrentStock <= item.MinStockLimit ? " !" : "";
                 var itemName = $"{item.Name}{size}{lowWarn}";
                 var qtyStr = item.CurrentStock.ToString();
-                ReceiptFormatter.AppendLine(sb, itemName, qtyStr);
+                ReceiptFormatter.AppendLine(sb, itemName, qtyStr, '.');
             }
         }
 
