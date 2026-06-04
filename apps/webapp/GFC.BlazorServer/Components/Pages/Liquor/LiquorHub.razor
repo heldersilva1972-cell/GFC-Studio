@@ -4,12 +4,14 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components
 @using GFC.BlazorServer.Auth
+@using Microsoft.EntityFrameworkCore
 @attribute [Authorize]
 @inject ILiquorService LiquorService
 @inject IJSRuntime JSRuntime
 @inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavigationManager
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @implements IDisposable
 <PageTitle>Liquor Hub | GFC</PageTitle>
 
@@ -476,6 +478,31 @@
                             }
                         </select>
                         <span class="text-muted d-block" style="font-size: 0.65rem; margin-top: 2px; line-height: 1.1;">The default supplier to purchase this item from.</span>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-12">
+                        <label class="small fw-bold text-muted mb-0">Inventory Tracking Override</label>
+                        <select class="form-select form-select-sm rounded-pill border-2 fw-bold" @bind="_itemToEdit.InventoryTrackType" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">
+                            <option value="0">Inherit Category Setting</option>
+                            <option value="1">None (Do Not Track)</option>
+                            <option value="2">Track in Liquor Hub</option>
+                            <option value="3">Track in General/Food</option>
+                        </select>
+                        <span class="text-muted d-block" style="font-size: 0.65rem; margin-top: 2px; line-height: 1.2;">
+                            @if (_itemToEdit.InventoryTrackType == 0)
+                            {
+                                var matchedCat = _categories?.FirstOrDefault(c => c.Name.Equals(_itemToEdit.Category, StringComparison.OrdinalIgnoreCase));
+                                <text>Inherits category tracking: </text>
+                                @if (matchedCat == null || matchedCat.InventoryTrackType == 0) { <strong class="text-danger">None (Not Tracked)</strong> }
+                                else if (matchedCat.InventoryTrackType == 1) { <strong class="text-primary">Liquor Hub</strong> }
+                                else if (matchedCat.InventoryTrackType == 2) { <strong class="text-success">Food/General Inventory</strong> }
+                            }
+                            else if (_itemToEdit.InventoryTrackType == 1) { <strong class="text-danger">None (Do Not Track)</strong><text> - Forcefully excluded from all lists.</text> }
+                            else if (_itemToEdit.InventoryTrackType == 2) { <strong class="text-primary">Liquor Hub</strong><text> - Forcefully tracked in Liquor Hub.</text> }
+                            else if (_itemToEdit.InventoryTrackType == 3) { <strong class="text-success">Food/General</strong><text> - Forcefully tracked in Food/General Inventory.</text> }
+                        </span>
                     </div>
                 </div>
 
@@ -1678,7 +1705,7 @@
                                                 <td colspan="6" class="text-center py-5 text-muted">No system activity has been recorded yet.</td>
                                             </tr>
                                         }
-                                        @foreach (var tx in _recentTransactions.OrderByDescending(t => t.Timestamp))
+                                        @foreach (var tx in _recentTransactions.Where(t => string.IsNullOrEmpty(t.Notes) || !t.Notes.StartsWith("POS Sale")).OrderByDescending(t => t.Timestamp))
                                         {
                                             <tr>
                                                 <td class="ps-3">
@@ -2929,6 +2956,10 @@
         color: white;
         border-color: #3b82f6;
     }
+    .btn-icon-small {
+        width: 32px !important; 
+        height: 32px !important; 
+        border-radius: 8px !important;
         background: white !important; 
         border: 1.5px solid #cbd5e1 !important; 
         display: flex !important;
@@ -2939,7 +2970,7 @@
         padding: 0;
     }
     
-    .btn-icon:hover { 
+    .btn-icon-small:hover { 
         background: #f1f5f9 !important; 
         border-color: #3b82f6 !important;
         color: #3b82f6 !important;
@@ -3129,6 +3160,7 @@
     private string _activeSetupTab = "email";
     private string _statSortMode = "performance";
     private List<LiquorItem> _items = new();
+    private List<PosCategory> _categories = new();
     private List<LiquorVendor> _vendors = new();
     private List<LiquorOrder> _pendingOrders = new();
     private List<LiquorOrder> _historyOrders = new();
@@ -3375,7 +3407,12 @@
         await Task.WhenAll(settingsTask, itemsTask, vendorsTask);
         
         _settings = await settingsTask;
-        _items = (await itemsTask).ToList();
+        using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _categories = await db.PosCategories.ToListAsync();
+        }
+        var allItems = (await itemsTask).ToList();
+        _items = allItems.Where(i => IsLiquorInventoryItem(i)).ToList();
         _vendors = (await vendorsTask).ToList();
 
         // Reveal the UI as soon as critical data is ready
@@ -3427,6 +3464,20 @@
                 Console.WriteLine($"[LiquorHub] Background load failed: {ex.Message}");
             }
         });
+    }
+
+    private bool IsLiquorInventoryItem(LiquorItem item)
+    {
+        if (item.InventoryTrackType == 2) return true; // Force Liquor Hub
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false; // Exclude or Force General
+        
+        // Inherit Category Default
+        var cat = _categories.FirstOrDefault(c => c.Name.Equals(item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 1; // 1 represents Liquor Hub destination
+        }
+        return true; // Default fallback to track in Liquor Hub
     }
 
     // -- Stock Count Logic --

@@ -54,6 +54,8 @@ namespace GFC.Core.Models
 
         public bool IsUnitBased { get; set; } = false; // Sold by unit (Can, Bottle, Pack) vs By Ounce (Liquor)
 
+        public int InventoryTrackType { get; set; } = 0; // 0 = Inherit Category, 1 = None, 2 = Liquor, 3 = Food/General
+
         public bool IsActive { get; set; } = true;
         public bool IsBeer { get; set; } = false;
         public bool ShowInPos { get; set; } = false;

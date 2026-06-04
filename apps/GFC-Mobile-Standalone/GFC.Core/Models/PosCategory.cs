@@ -21,6 +21,8 @@ namespace GFC.Core.Models
 
         public bool IsModifierCategory { get; set; } = false;
 
+        public int InventoryTrackType { get; set; } = 0; // 0 = None, 1 = Liquor, 2 = Food/General
+
         public string? ModifiersJson { get; set; }
     }
 }

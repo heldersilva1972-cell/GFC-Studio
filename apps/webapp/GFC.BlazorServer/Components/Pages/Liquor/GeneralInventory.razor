@@ -1,0 +1,369 @@
+@page "/liquor/general-inventory"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject GFC.BlazorServer.Services.IToastService ToastService
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>General Inventory | GFC</PageTitle>
+
+<div class="container-fluid py-4 bg-light-subtle min-vh-100" style="font-family: 'Inter', sans-serif;">
+    <!-- Page Header & Guide -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <div>
+                        <h1 class="fw-black mb-1 text-dark text-uppercase tracking-wider" style="letter-spacing: -0.5px;">General Inventory</h1>
+                        <p class="text-muted mb-0">Track and reconcile food, kitchen ingredients, merchandise, and supplies.</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-outline-secondary rounded-pill fw-bold px-4" @onclick="GoBack">
+                            <i class="bi bi-arrow-left me-2"></i>Back to Menu
+                        </button>
+                    </div>
+                </div>
+
+                <div class="alert border-0 rounded-3 mt-3 mb-0 d-flex align-items-start gap-3" style="background-color: #f8fafc; border: 1px solid #e2e8f0 !important;">
+                    <i class="bi bi-info-circle-fill fs-5 text-secondary mt-0.5"></i>
+                    <div>
+                        <h6 class="fw-bold mb-1 text-dark">Kitchen & General Stock Tracking</h6>
+                        <p class="text-muted small mb-0">This view only shows items configured for the **Food/General** inventory pool (e.g. burgers, steaks, merchandise, or supplies). This keeps your Liquor Hub clean. Configure which items appear here using the POS Menu Manager by setting the Category's default pool or modifying a specific item's override.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="d-flex justify-content-center align-items-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Cards -->
+        <div class="row g-3 mb-4 animate__animated animate__fadeIn">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="p-3 rounded-3 bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-box-seam fs-3"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">Total Logged Products</span>
+                            <h3 class="fw-black mb-0 text-dark">@_generalItems.Count</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="p-3 rounded-3 @(_lowStockItems.Any() ? "bg-danger bg-opacity-10 text-danger" : "bg-success bg-opacity-10 text-success")">
+                            <i class="bi bi-exclamation-triangle fs-3"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">Low Stock Alerts</span>
+                            <h3 class="fw-black mb-0 @(_lowStockItems.Any() ? "text-danger" : "text-success")">@_lowStockItems.Count</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="p-3 rounded-3 bg-info bg-opacity-10 text-info">
+                            <i class="bi bi-clipboard-check fs-3"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">Pending Count Actions</span>
+                            <h3 class="fw-black mb-0 text-dark">@_modifiedCounts.Count</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row animate__animated animate__fadeIn">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm rounded-4 bg-white overflow-hidden">
+                    <div class="card-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2" style="max-width: 320px; width: 100%;">
+                            <i class="bi bi-search text-muted position-absolute ms-3"></i>
+                            <input type="text" class="form-control rounded-pill ps-5 border-2" placeholder="Search general inventory..." @bind="_searchQuery" @bind:event="oninput" />
+                        </div>
+                        <div class="d-flex gap-2">
+                            @if (_modifiedCounts.Any())
+                            {
+                                <button class="btn btn-warning rounded-pill fw-black px-4 shadow-sm" @onclick="SaveReconciledCounts">
+                                    <i class="bi bi-check-lg me-2"></i>SAVE @_modifiedCounts.Count STOCK CHANGES
+                                </button>
+                            }
+                            <button class="btn btn-light border rounded-pill fw-bold px-3" @onclick="RefreshDataAsync">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Reload
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" style="max-height: 60vh;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-4">Product Name</th>
+                                    <th>Category</th>
+                                    <th>Unit Size</th>
+                                    <th class="text-center" style="width: 140px;">Min Limit</th>
+                                    <th class="text-center" style="width: 260px;">Current Stock</th>
+                                    <th class="pe-4 text-end">Routing Source</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!FilteredItems.Any())
+                                {
+                                    <tr>
+                                        <td colspan="6" class="text-center py-5 text-muted">
+                                            <i class="bi bi-inbox display-4 opacity-25"></i>
+                                            <h5 class="mt-3">No General Items Found</h5>
+                                            <p class="small text-muted">No products are currently matched for this inventory list.</p>
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var item in FilteredItems)
+                                    {
+                                        var isLow = item.CurrentStock <= item.MinStockLimit;
+                                        var hasPending = _modifiedCounts.TryGetValue(item.Id, out var pendingCount);
+                                        var activeStock = hasPending ? pendingCount : item.CurrentStock;
+
+                                        <tr class="@(isLow ? "table-danger table-opacity-10" : "")">
+                                            <td class="ps-4">
+                                                <div class="fw-bold text-dark">@item.Name</div>
+                                                @if (isLow)
+                                                {
+                                                    <span class="badge bg-danger rounded-pill extra-small" style="font-size: 0.6rem; font-weight: 800;">LOW STOCK ALERT</span>
+                                                }
+                                                @if (hasPending)
+                                                {
+                                                    <span class="badge bg-warning text-dark rounded-pill extra-small" style="font-size: 0.6rem; font-weight: 800; margin-left: 5px;">PENDING CHANGE</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-light text-muted border px-2 py-1 rounded-pill small">@item.Category</span>
+                                            </td>
+                                            <td>@(string.IsNullOrEmpty(item.BottleSize) ? "Unit" : item.BottleSize)</td>
+                                            <td class="text-center">
+                                                <input type="number" class="form-control form-control-sm text-center mx-auto rounded-3" 
+                                                       style="width: 70px;" 
+                                                       value="@item.MinStockLimit" 
+                                                       @onchange="@(async (e) => await UpdateMinStock(item, int.Parse(e.Value?.ToString() ?? "0")))" />
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="d-inline-flex align-items-center gap-2 bg-light p-1 rounded-3 border">
+                                                    <button class="btn btn-sm btn-white border shadow-sm rounded-circle px-2" style="width:28px; height:28px;" @onclick="() => AdjustStock(item.Id, activeStock - 1)">-</button>
+                                                    <input type="number" class="form-control form-control-sm text-center border-0 fw-black text-primary" 
+                                                           style="width: 80px; background: transparent; font-size: 1rem;" 
+                                                           value="@activeStock" 
+                                                           @oninput="@((e) => HandleDirectInput(item.Id, e.Value?.ToString()))" />
+                                                    <button class="btn btn-sm btn-white border shadow-sm rounded-circle px-2" style="width:28px; height:28px;" @onclick="() => AdjustStock(item.Id, activeStock + 1)">+</button>
+                                                </div>
+                                            </td>
+                                            <td class="pe-4 text-end">
+                                                @if (item.InventoryTrackType == 0)
+                                                {
+                                                    <span class="text-muted small"><i class="bi bi-diagram-3 me-1"></i> Inherited from category</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-primary small fw-bold"><i class="bi bi-pencil-square me-1"></i> Override</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private string _searchQuery = "";
+    private List<LiquorItem> _generalItems = new();
+    private List<LiquorItem> _lowStockItems = new();
+    private List<PosCategory> _categories = new();
+    private Dictionary<int, int> _modifiedCounts = new(); // ItemId -> PendingCount
+    private AppUser? _currentUser;
+
+    private List<LiquorItem> FilteredItems => _generalItems
+        .Where(i => string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(i => i.Name)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userIdStr = user.FindFirst("UserId")?.Value 
+                         ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdStr, out var userId))
+            {
+                _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = userId };
+            }
+        }
+        await RefreshDataAsync();
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        _isLoading = true;
+        _modifiedCounts.Clear();
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _categories = await db.PosCategories.ToListAsync();
+
+            var allItems = await db.LiquorItems
+                .Where(i => i.IsActive)
+                .ToListAsync();
+
+            _generalItems = allItems.Where(i => IsGeneralInventoryItem(i)).ToList();
+            _lowStockItems = _generalItems.Where(i => i.CurrentStock <= i.MinStockLimit).ToList();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to load general inventory: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsGeneralInventoryItem(LiquorItem item)
+    {
+        if (item.InventoryTrackType == 3) return true; // Force General/Food
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 2) return false; // Exclude or Force Liquor
+        
+        // Inherit Category Default
+        var cat = _categories.FirstOrDefault(c => c.Name.Equals(item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 2; // 2 represents General/Food destination
+        }
+        return false; // Default non-liquor/other items to Exclude unless explicitly routed
+    }
+
+    private void AdjustStock(int itemId, int newCount)
+    {
+        if (newCount < 0) newCount = 0;
+        var originalItem = _generalItems.FirstOrDefault(i => i.Id == itemId);
+        if (originalItem == null) return;
+
+        if (originalItem.CurrentStock == newCount)
+        {
+            _modifiedCounts.Remove(itemId);
+        }
+        else
+        {
+            _modifiedCounts[itemId] = newCount;
+        }
+        StateHasChanged();
+    }
+
+    private void HandleDirectInput(int itemId, string? input)
+    {
+        if (int.TryParse(input, out var res))
+        {
+            AdjustStock(itemId, res);
+        }
+    }
+
+    private async Task UpdateMinStock(LiquorItem item, int newMin)
+    {
+        if (newMin < 0) newMin = 0;
+        try
+        {
+            item.MinStockLimit = newMin;
+            await LiquorService.UpdateItemAsync(item, _currentUser?.UserId);
+            await ToastService.ShowSuccess($"Updated minimum stock threshold for {item.Name}.");
+            _lowStockItems = _generalItems.Where(i => i.CurrentStock <= i.MinStockLimit).ToList();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to update min stock limit: {ex.Message}");
+        }
+    }
+
+    private async Task SaveReconciledCounts()
+    {
+        if (!_modifiedCounts.Any()) return;
+
+        try
+        {
+            _isLoading = true;
+            StateHasChanged();
+
+            using var db = await DbFactory.CreateDbContextAsync();
+            foreach (var edit in _modifiedCounts)
+            {
+                var dbItem = await db.LiquorItems.FindAsync(edit.Key);
+                if (dbItem != null)
+                {
+                    int diff = edit.Value - dbItem.CurrentStock;
+                    dbItem.CurrentStock = edit.Value;
+                    db.LiquorItems.Update(dbItem);
+
+                    // Record a transaction log for accountability
+                    var transaction = new LiquorTransaction
+                    {
+                        ItemId = dbItem.Id,
+                        ChangeAmount = diff,
+                        TransactionType = "Adjustment",
+                        Notes = $"Manual stock reconciliation on General Inventory. Current Count set to {edit.Value}.",
+                        Timestamp = DateTime.UtcNow,
+                        UserId = _currentUser?.UserId ?? 1
+                    };
+                    db.LiquorTransactions.Add(transaction);
+                }
+            }
+
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess("Reconciled counts saved successfully.");
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save stock counts: {ex.Message}");
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/admin/pos-menu");
+    }
+}
