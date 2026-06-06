@@ -2,11 +2,13 @@
 @using GFC.Core.Models.Security
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
+@implements IDisposable
 @attribute [Authorize]
 @inject IDeviceTrustService DeviceTrustService
 @inject IUserRepository UserRepository
 @inject IJSRuntime JSRuntime
 @inject ILogger<ActiveSessions> Logger
+@inject NavigationManager Navigation
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -15,6 +17,9 @@
             <p class="text-muted">Manage all devices authorized to access the system.</p>
         </div>
         <div class="d-flex gap-2">
+            <button class="btn btn-primary btn-sm" @onclick="OpenOnboardModal">
+                <i class="bi bi-plus-circle me-1"></i> Quick Onboard Device
+            </button>
             <button class="btn btn-outline-danger btn-sm" @onclick="RevokeAllSessions">
                 <i class="bi bi-shield-slash me-1"></i> Revoke All
             </button>
@@ -35,6 +40,47 @@
     }
     else
     {
+        @if (_pendingSessions.Any())
+        {
+            <div class="mb-5">
+                <h3 class="h5 mb-3 d-flex align-items-center text-warning">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Pending Pairing Requests
+                    <span class="badge rounded-pill bg-warning text-dark ms-2" style="font-size: 0.7rem;">@_pendingSessions.Count Pending Approval</span>
+                </h3>
+                <div class="row g-3">
+                    @foreach (var session in _pendingSessions)
+                    {
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card h-100 border-warning shadow-sm">
+                                <div class="card-body d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <span class="badge bg-warning text-dark">@ParseUserAgent(session.UserAgent)</span>
+                                            <span class="text-muted small">IP: @session.IpAddress</span>
+                                        </div>
+                                        <h5 class="card-title mb-1 text-warning">
+                                            @session.StationName
+                                        </h5>
+                                        <p class="text-muted small mb-2">Requested by: <strong>@session.Username</strong></p>
+                                        <p class="x-small text-muted mb-3 text-truncate" title="@session.UserAgent" style="max-width: 100%;">@session.UserAgent</p>
+                                    </div>
+                                    <div class="d-flex gap-2 mt-2">
+                                        <button class="btn btn-success btn-sm flex-fill" @onclick="() => ApproveRequest(session)">
+                                            <i class="bi bi-check-circle me-1"></i> Approve
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm flex-fill" @onclick="() => RejectRequest(session)">
+                                            <i class="bi bi-x-circle me-1"></i> Reject
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
         <!-- SHARED STATIONS SECTION -->
         <div class="mb-5">
             <h3 class="h5 mb-3 d-flex align-items-center">
@@ -61,10 +107,15 @@
                                         <div class="bg-primary bg-opacity-10 p-2 rounded text-primary">
                                             <i class="bi bi-pc-display-horizontal fs-4"></i>
                                         </div>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => RevokeSession(session)">
-                                            <i class="bi bi-x-circle me-1"></i> Revoke Station
-                                        </button>
-                                    </div>
+                                         <div class="d-flex gap-1">
+                                             <button class="btn btn-outline-primary btn-sm" @onclick="() => ReTrustStation(session)" title="Re-trust this station without sending a code">
+                                                 <i class="bi bi-key-fill me-1"></i> Re-Trust
+                                             </button>
+                                             <button class="btn btn-outline-danger btn-sm" @onclick="() => RevokeSession(session)" title="Revoke station access">
+                                                 <i class="bi bi-x-circle"></i>
+                                             </button>
+                                         </div>
+                                     </div>
                                     <h5 class="card-title mb-1 text-primary">
                                         @(!string.IsNullOrEmpty(session.StationName) ? session.StationName : "Shared Station Device")
                                     </h5>
@@ -146,15 +197,128 @@
 <style>
     .border-dashed { border: 2px dashed #dee2e6 !important; }
     .x-small { font-size: 0.75rem; }
+    .tracking-wide { letter-spacing: 2px; }
 </style>
+
+@if (_showOnboardModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1050;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white border-0">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-shield-plus me-2"></i>Quick Onboard Device</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseOnboardModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (string.IsNullOrEmpty(_generatedPairingCode))
+                    {
+                        <div class="mb-3 form-check form-switch bg-light p-3 rounded border border-light">
+                            <input class="form-check-input ms-0 me-2" type="checkbox" role="switch" id="curateToggle" @bind="_curateToggle" />
+                            <label class="form-check-label fw-bold" for="curateToggle">
+                                <i class="bi bi-people-fill me-1 text-primary"></i> Curate Staff Shortcut List (Fast Login)
+                            </label>
+                            <div class="form-text ms-4 mt-1">Enable this to pre-select which staff members are displayed in the Fast Login grid on this device. Otherwise, standard login is used.</div>
+                        </div>
+
+                        @if (_curateToggle)
+                        {
+                            <div class="card p-3 border-light bg-light mb-3 animate-fade-in">
+                                <label class="form-label fw-semibold small text-primary mb-2"><i class="bi bi-person-check-fill me-1"></i>Select Authorized Users for Fast Login</label>
+                                <div class="border rounded p-2 bg-white mb-2" style="max-height: 180px; overflow-y: auto;">
+                                    @foreach (var u in _allUsers)
+                                    {
+                                        <div class="form-check py-1 border-bottom border-light">
+                                            <input class="form-check-input" type="checkbox" id="authUser_@u.UserId" 
+                                                   checked="@_selectedAuthorizedUserIds.Contains(u.UserId)"
+                                                   @onclick="() => ToggleAuthorizedUser(u.UserId)" />
+                                            <label class="form-check-label small fw-semibold" for="authUser_@u.UserId">
+                                                @u.Username
+                                            </label>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="form-text x-small">Selected users will be shown on the fast login screen. Others must use standard manual login.</div>
+                            </div>
+                        }
+
+                        <div class="d-grid mt-4">
+                            <button class="btn btn-primary btn-lg" @onclick="GenerateCode">
+                                <i class="bi bi-qr-code me-2"></i>Generate Onboarding Code
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-3">
+                            <p class="text-muted mb-1">Enter this pairing code on the new device's setup screen:</p>
+                            <h2 class="display-4 fw-bold text-primary my-3 tracking-wide">@_generatedPairingCode</h2>
+                            
+                            <div class="alert alert-warning border-0 small d-inline-block py-2 px-3">
+                                <i class="bi bi-clock-history me-2"></i>Code expires in <strong>@FormatTime(_secondsRemaining)</strong>
+                            </div>
+
+                            <p class="text-muted x-small mt-3">Once the code is submitted on the device, it will request permission. You will see a request to approve or reject right here.</p>
+
+                            <button class="btn btn-outline-secondary btn-sm mt-3" @onclick="ResetGeneratedCode">
+                                <i class="bi bi-arrow-left me-1"></i> Generate Another Code
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showReTrustModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white border-0">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-key-fill me-2"></i>Re-Trust Station</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseReTrustModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4 text-center">
+                    <p class="text-muted mb-1">Enter this recovery code on the blocked screen of <strong class="text-dark">@_reTrustStationName</strong>:</p>
+                    <h2 class="display-4 fw-bold text-primary my-3 tracking-wide" style="letter-spacing: 2px;">@_reTrustCode</h2>
+                    <p class="text-muted x-small">This code is valid for 15 minutes. Once typed on the device, its access will be restored immediately without needing further approval.</p>
+                    <button class="btn btn-secondary btn-sm mt-3" @onclick="CloseReTrustModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private bool _isLoading = true;
     private List<DeviceSessionDto> _sessions = new();
+    private List<DeviceSessionDto> _pendingSessions = new();
+    private List<GFC.Core.Models.AppUser> _allUsers = new();
 
-    protected override async Task OnInitializedAsync()
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = null!;
+
+    // Modal states
+    private bool _showOnboardModal = false;
+    private bool _curateToggle = false;
+    private List<int> _selectedAuthorizedUserIds = new();
+
+    private string? _generatedPairingCode;
+    private global::System.Threading.Timer? _countdownTimer;
+    private int _secondsRemaining = 900; // 15 minutes
+
+    // Re-trust states
+    private bool _showReTrustModal = false;
+    private string? _reTrustCode;
+    private string? _reTrustStationName;
+
+    protected override void OnInitialized()
     {
-        await LoadData();
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        var onboard = query.TryGetValue("onboard", out var onboardVal) && onboardVal == "true" ? "&onboard=true" : "";
+        Navigation.NavigateTo($"/users?tab=stations{onboard}", forceLoad: true);
     }
 
     private async Task LoadData()
@@ -163,11 +327,15 @@
         try
         {
             _sessions = await DeviceTrustService.GetAllActiveDevicesAsync();
+            _pendingSessions = await DeviceTrustService.GetPendingPairingRequestsAsync();
+            _allUsers = await Task.Run(() => UserRepository.GetAllUsers().OrderBy(u => u.Username).ToList());
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading active sessions");
             _sessions = new();
+            _pendingSessions = new();
+            _allUsers = new();
         }
         finally
         {
@@ -243,5 +411,132 @@
         if (span.TotalMinutes < 60) return $"{span.Minutes}m ago";
         if (span.TotalHours < 24) return $"{span.Hours}h ago";
         return $"{span.Days}d ago";
+    }
+
+    private void OpenOnboardModal()
+    {
+        _generatedPairingCode = null;
+        _showOnboardModal = true;
+        _curateToggle = false;
+        _selectedAuthorizedUserIds.Clear();
+    }
+
+    private void CloseOnboardModal()
+    {
+        _showOnboardModal = false;
+        StopCountdown();
+    }
+
+    private void ToggleAuthorizedUser(int userId)
+    {
+        if (_selectedAuthorizedUserIds.Contains(userId))
+            _selectedAuthorizedUserIds.Remove(userId);
+        else
+            _selectedAuthorizedUserIds.Add(userId);
+    }
+
+    private async Task GenerateCode()
+    {
+        var state = await AuthState;
+        var adminIdClaim = state?.User?.FindFirst("UserId")?.Value;
+        int adminUserId = int.TryParse(adminIdClaim, out var id) ? id : 1;
+
+        string? csv = null;
+        if (_curateToggle && _selectedAuthorizedUserIds.Any())
+        {
+            csv = string.Join(",", _selectedAuthorizedUserIds);
+        }
+
+        _generatedPairingCode = await DeviceTrustService.GeneratePairingCodeAsync(
+            adminUserId, 
+            "Shared Station", 
+            null, 
+            _curateToggle ? "FastGrid" : "Standard", 
+            csv
+        );
+
+        StartCountdown();
+    }
+
+    private async Task ReTrustStation(DeviceSessionDto session)
+    {
+        _reTrustStationName = session.StationName ?? "Shared Station";
+        _reTrustCode = await DeviceTrustService.GenerateSetupCodeAsync(session.DeviceToken, session.UserId);
+        _showReTrustModal = true;
+    }
+
+    private void CloseReTrustModal()
+    {
+        _showReTrustModal = false;
+        _reTrustCode = null;
+    }
+
+    private void ResetGeneratedCode()
+    {
+        _generatedPairingCode = null;
+        StopCountdown();
+    }
+
+    private void StartCountdown()
+    {
+        StopCountdown();
+        _secondsRemaining = 900;
+        _countdownTimer = new global::System.Threading.Timer((state) =>
+        {
+            InvokeAsync(() =>
+            {
+                if (_secondsRemaining > 0)
+                {
+                    _secondsRemaining--;
+                    StateHasChanged();
+                }
+                else
+                {
+                    StopCountdown();
+                    _generatedPairingCode = null;
+                    StateHasChanged();
+                }
+            });
+        }, null, 0, 1000);
+    }
+
+    private void StopCountdown()
+    {
+        _countdownTimer?.Dispose();
+        _countdownTimer = null;
+    }
+
+    private string FormatTime(int seconds)
+    {
+        int minutes = seconds / 60;
+        int remainingSeconds = seconds % 60;
+        return $"{minutes:D2}:{remainingSeconds:D2}";
+    }
+
+    private async Task ApproveRequest(DeviceSessionDto session)
+    {
+        var success = await DeviceTrustService.ApprovePairingRequestAsync(session.DeviceToken);
+        if (success)
+        {
+            await LoadData();
+        }
+    }
+
+    private async Task RejectRequest(DeviceSessionDto session)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to reject and delete this device pairing request?");
+        if (confirmed)
+        {
+            var success = await DeviceTrustService.RejectPairingRequestAsync(session.DeviceToken);
+            if (success)
+            {
+                await LoadData();
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        StopCountdown();
     }
 }

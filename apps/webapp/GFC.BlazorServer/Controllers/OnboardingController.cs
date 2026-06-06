@@ -22,17 +22,20 @@ public class OnboardingController : ControllerBase
     private readonly IBlazorSystemSettingsService _systemSettingsService;
     private readonly IAuditLogger _auditLogger;
     private readonly ILogger<OnboardingController> _logger;
+    private readonly IDeviceTrustService _deviceTrustService;
 
     public OnboardingController(
         IVpnConfigurationService vpnConfigService,
         IBlazorSystemSettingsService systemSettingsService,
         IAuditLogger auditLogger,
-        ILogger<OnboardingController> logger)
+        ILogger<OnboardingController> logger,
+        IDeviceTrustService deviceTrustService)
     {
         _vpnConfigService = vpnConfigService;
         _systemSettingsService = systemSettingsService;
         _auditLogger = auditLogger;
         _logger = logger;
+        _deviceTrustService = deviceTrustService;
     }
 
     /// <summary>
@@ -349,6 +352,54 @@ public class OnboardingController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while completing onboarding" });
         }
     }
+
+    /// <summary>
+    /// Submits an 8-digit pairing code to request device trust.
+    /// </summary>
+    [HttpPost("pair")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PairDevice([FromBody] PairDeviceRequest request)
+    {
+        try
+        {
+            var userAgent = request.UserAgent ?? Request.Headers["User-Agent"].ToString() ?? "Unknown Device";
+            var ipAddress = Request.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
+
+            var tempToken = await _deviceTrustService.SubmitPairingCodeAsync(request.Code, userAgent, ipAddress);
+
+            if (string.IsNullOrEmpty(tempToken))
+            {
+                return BadRequest(new { error = "Invalid or expired onboarding code" });
+            }
+
+            return Ok(new { tempToken });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error pairing device");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred during pairing" });
+        }
+    }
+
+    /// <summary>
+    /// Checks the status of a pending pairing request.
+    /// </summary>
+    [HttpGet("status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckPairingStatus([FromQuery] string tempToken)
+    {
+        try
+        {
+            var (status, realToken) = await _deviceTrustService.CheckPairingStatusAsync(tempToken);
+            return Ok(new { status, realToken });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking pairing status");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while checking pairing status" });
+        }
+    }
 }
 
 /// <summary>
@@ -369,4 +420,14 @@ public class OnboardingCompletionRequest
     public string? DeviceInfo { get; set; }
     public string? Platform { get; set; }
     public bool TestPassed { get; set; }
+}
+
+/// <summary>
+/// Request model for submitting a device pairing code
+/// </summary>
+public class PairDeviceRequest
+{
+    [Required]
+    public string Code { get; set; } = null!;
+    public string? UserAgent { get; set; }
 }

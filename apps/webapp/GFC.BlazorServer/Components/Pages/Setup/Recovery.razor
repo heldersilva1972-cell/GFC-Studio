@@ -1,58 +1,90 @@
 @page "/setup/recovery"
 @layout GFC.BlazorServer.Components.Layout.EmptyLayout
+@implements IDisposable
 @inject IDeviceTrustService DeviceTrustService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject IHttpContextAccessor HttpContextAccessor
 @inject ILogger<Recovery> Logger
 
-<PageTitle>Station Recovery - GFC</PageTitle>
+<PageTitle>Register Device - GFC</PageTitle>
 
 <div class="recovery-container">
     <div class="recovery-card @(_isProcessing ? "processing" : "")">
-        <div class="recovery-header">
-            <div class="recovery-icon">
-                <i class="bi bi-shield-lock-fill"></i>
+        @if (!_isPendingApproval)
+        {
+            <div class="recovery-header">
+                <div class="recovery-icon">
+                    <i class="bi bi-shield-lock-fill"></i>
+                </div>
+                <h1>Register Device</h1>
+                <p>Enter the 8-digit code provided by your administrator to register and access this device.</p>
             </div>
-            <h1>Station Recovery</h1>
-            <p>Enter the 8-digit setup code provided by your administrator to restore trust to this station.</p>
-        </div>
 
-        <div class="code-input-group">
-            <div class="code-display">
-                @for (int i = 0; i < 8; i++)
+            <div class="code-input-group">
+                <div class="code-display">
+                    @for (int i = 0; i < 8; i++)
+                    {
+                        <div class="code-digit @(i == _inputIndex ? "active" : "") @(string.IsNullOrEmpty(_codeDigits[i]) ? "" : "filled")">
+                            @(string.IsNullOrEmpty(_codeDigits[i]) ? "•" : _codeDigits[i])
+                        </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
                 {
-                    <div class="code-digit @(i == _inputIndex ? "active" : "") @(string.IsNullOrEmpty(_codeDigits[i]) ? "" : "filled")">
-                        @(string.IsNullOrEmpty(_codeDigits[i]) ? "•" : _codeDigits[i])
+                    <div class="alert alert-danger animate-shake">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
                     </div>
                 }
-            </div>
 
-            @if (!string.IsNullOrEmpty(_errorMessage))
-            {
-                <div class="alert alert-danger animate-shake">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
+                <div class="numpad">
+                    @for (int i = 1; i <= 9; i++)
+                    {
+                        var digit = i.ToString();
+                        <button class="numpad-btn" @onclick="() => AppendDigit(digit)" disabled="@_isProcessing">@digit</button>
+                    }
+                    <button class="numpad-btn clear" @onclick="Clear" disabled="@_isProcessing">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                    <button class="numpad-btn" @onclick='() => AppendDigit("0")' disabled="@_isProcessing">0</button>
+                    <button class="numpad-btn backspace" @onclick="Backspace" disabled="@_isProcessing">
+                        <i class="bi bi-backspace"></i>
+                    </button>
                 </div>
-            }
-
-            <div class="numpad">
-                @for (int i = 1; i <= 9; i++)
-                {
-                    var digit = i.ToString();
-                    <button class="numpad-btn" @onclick="() => AppendDigit(digit)" disabled="@_isProcessing">@digit</button>
-                }
-                <button class="numpad-btn clear" @onclick="Clear" disabled="@_isProcessing">
-                    <i class="bi bi-x-lg"></i>
-                </button>
-                <button class="numpad-btn" @onclick='() => AppendDigit("0")' disabled="@_isProcessing">0</button>
-                <button class="numpad-btn backspace" @onclick="Backspace" disabled="@_isProcessing">
-                    <i class="bi bi-backspace"></i>
-                </button>
             </div>
-        </div>
 
-        <div class="recovery-footer">
-            <button class="btn-cancel" @onclick='() => Navigation.NavigateTo("/", forceLoad: true)'>Cancel</button>
-        </div>
+            <div class="recovery-footer">
+                <button class="btn-cancel" @onclick='() => Navigation.NavigateTo("/", forceLoad: true)'>Cancel</button>
+            </div>
+        }
+        else
+        {
+            <div class="recovery-header">
+                <div class="recovery-icon text-warning animate-pulse">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <h1>Awaiting Approval</h1>
+                <p>Your pairing request has been submitted. Please ask an administrator to approve this device from the Security Dashboard.</p>
+            </div>
+
+            <div class="text-center py-4">
+                <div class="spinner-grow text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="text-muted small">
+                    Device: <strong class="text-white">@_parsedDeviceName</strong><br/>
+                    IP: <strong class="text-white">@_ipAddress</strong>
+                </div>
+                <div class="alert alert-info mt-4 border-0 small text-start" style="background: rgba(0, 123, 255, 0.1); color: #9ec5ff;">
+                    <i class="bi bi-info-circle-fill me-2"></i> This screen will automatically refresh and unlock once access is granted. Keep this window open.
+                </div>
+            </div>
+
+            <div class="recovery-footer">
+                <button class="btn-cancel" @onclick="CancelPending">Cancel Request</button>
+            </div>
+        }
     </div>
 </div>
 
@@ -190,6 +222,16 @@
         animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
     }
 
+    .animate-pulse {
+        animation: pulse 2s infinite;
+    }
+
+    @@keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.7; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+
     @@keyframes shake {
         10%, 90% { transform: translate3d(-1px, 0, 0); }
         20%, 80% { transform: translate3d(2px, 0, 0); }
@@ -203,6 +245,42 @@
     private int _inputIndex = 0;
     private string? _errorMessage;
     private bool _isProcessing = false;
+    private bool _isPendingApproval = false;
+    private string _userAgent = "Unknown Device";
+    private string _ipAddress = "0.0.0.0";
+    private string _parsedDeviceName = "Unknown Device";
+    private string? _tempToken;
+    private System.Threading.Timer? _pollingTimer;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            var context = HttpContextAccessor.HttpContext;
+            if (context != null)
+            {
+                _userAgent = context.Request.Headers["User-Agent"].ToString() ?? "Unknown Device";
+                _ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
+                _parsedDeviceName = ParseUserAgent(_userAgent);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to capture initial HttpContext details.");
+        }
+    }
+
+    private string ParseUserAgent(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "Unknown Device";
+        if (userAgent.Contains("iPhone")) return "iPhone";
+        if (userAgent.Contains("iPad")) return "iPad";
+        if (userAgent.Contains("Android")) return "Android Device";
+        if (userAgent.Contains("Windows")) return "Windows PC";
+        if (userAgent.Contains("Macintosh")) return "Mac";
+        if (userAgent.Contains("Linux")) return "Linux PC";
+        return "Web Browser";
+    }
 
     private async Task AppendDigit(string digit)
     {
@@ -244,6 +322,8 @@
         try
         {
             var code = string.Join("", _codeDigits);
+            
+            // 1. Try legacy recovery PIN validation
             var token = await DeviceTrustService.ValidateSetupCodeAsync(code);
 
             if (!string.IsNullOrEmpty(token))
@@ -253,6 +333,18 @@
                 await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
                 
                 Navigation.NavigateTo("/", forceLoad: true);
+                return;
+            }
+
+            // 2. Try onboarding pairing code flow
+            var tempToken = await DeviceTrustService.SubmitPairingCodeAsync(code, _userAgent, _ipAddress);
+
+            if (!string.IsNullOrEmpty(tempToken))
+            {
+                _tempToken = tempToken;
+                _isPendingApproval = true;
+                _errorMessage = null;
+                StartPolling();
             }
             else
             {
@@ -270,5 +362,66 @@
         {
             _isProcessing = false;
         }
+    }
+
+    private void StartPolling()
+    {
+        _pollingTimer?.Dispose();
+        _pollingTimer = new System.Threading.Timer(async (state) =>
+        {
+            if (string.IsNullOrEmpty(_tempToken)) return;
+
+            try
+            {
+                var (status, realToken) = await DeviceTrustService.CheckPairingStatusAsync(_tempToken);
+
+                if (status == "Approved" && !string.IsNullOrEmpty(realToken))
+                {
+                    _pollingTimer?.Dispose();
+                    _pollingTimer = null;
+
+                    await InvokeAsync(async () =>
+                    {
+                        await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", realToken, 3650); // 10 years
+                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", realToken);
+                        Navigation.NavigateTo("/", forceLoad: true);
+                    });
+                }
+                else if (status == "Rejected")
+                {
+                    _pollingTimer?.Dispose();
+                    _pollingTimer = null;
+
+                    await InvokeAsync(() =>
+                    {
+                        _isPendingApproval = false;
+                        _errorMessage = "Your device pairing request was rejected or has expired.";
+                        Clear();
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error checking pairing status in background");
+            }
+        }, null, 3000, 3000);
+    }
+
+    private async Task CancelPending()
+    {
+        _pollingTimer?.Dispose();
+        _pollingTimer = null;
+        if (!string.IsNullOrEmpty(_tempToken))
+        {
+            await DeviceTrustService.RejectPairingRequestAsync(_tempToken);
+        }
+        _isPendingApproval = false;
+        Clear();
+    }
+
+    public void Dispose()
+    {
+        _pollingTimer?.Dispose();
     }
 }

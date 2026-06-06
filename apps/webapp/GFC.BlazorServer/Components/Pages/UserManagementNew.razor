@@ -18,6 +18,9 @@
 @inject IPasskeyService PasskeyService
 @inject IDeviceTrustService DeviceTrustService
 @inject IDeviceInviteService DeviceInviteService
+@inject NavigationManager Navigation
+@inject IBlazorSystemSettingsService SystemSettingsService
+@implements IDisposable
 
 <PageTitle>User Management - GFC</PageTitle>
 
@@ -28,12 +31,12 @@
             <p class="page-subtitle">Manage user accounts and permissions</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-warning text-dark fw-bold px-4 shadow-sm" @onclick="OpenQuickOnboardModal">
-                <i class="bi bi-lightning-charge-fill me-2"></i>Quick Onboard
-            </button>
-            <button class="btn btn-primary px-4" @onclick="OpenAddUserModal">
-                <i class="bi bi-person-plus me-2"></i>Add User
-            </button>
+            @if (_currentTab == "users")
+            {
+                <button class="btn btn-primary px-4" @onclick="OpenAddUserModal">
+                    <i class="bi bi-person-plus me-2"></i>Add User
+                </button>
+            }
         </div>
     </div>
 
@@ -80,13 +83,17 @@
     @* Main Content Tabs *@
     <div class="content-card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <div class="tab-switcher d-flex gap-4">
-                <h2 class="card-title mb-0 cursor-pointer @(_currentTab == "users" ? "text-primary border-bottom border-3 border-primary pb-2" : "text-muted hover-opacity")" @onclick='() => _currentTab = "users"'>
-                    <i class="bi bi-people-fill me-2"></i>Active Users
-                </h2>
-                <h2 class="card-title mb-0 cursor-pointer @(_currentTab == "stations" ? "text-primary border-bottom border-3 border-primary pb-2" : "text-muted hover-opacity")" @onclick='() => _currentTab = "stations"'>
-                    <i class="bi bi-display me-2"></i>Shared Stations
-                </h2>
+            <div class="nav nav-pills bg-light p-1 rounded-3 gap-1" style="display: inline-flex; border: 1px solid rgba(0,0,0,0.08);">
+                <button type="button" class="btn btn-sm px-4 py-2 fw-semibold rounded-3 d-flex align-items-center gap-2 border-0 @(_currentTab == "users" ? "bg-white text-primary shadow-sm" : "text-muted bg-transparent")" 
+                        @onclick='() => _currentTab = "users"' style="transition: all 0.2s ease-in-out; font-size: 0.95rem;">
+                    <i class="bi bi-people-fill"></i>
+                    <span>Staff Accounts</span>
+                </button>
+                <button type="button" class="btn btn-sm px-4 py-2 fw-semibold rounded-3 d-flex align-items-center gap-2 border-0 @(_currentTab == "stations" ? "bg-white text-primary shadow-sm" : "text-muted bg-transparent")" 
+                        @onclick='() => _currentTab = "stations"' style="transition: all 0.2s ease-in-out; font-size: 0.95rem;">
+                    <i class="bi bi-display"></i>
+                    <span>Shared Workstations</span>
+                </button>
             </div>
             <div class="card-actions">
                 @if (_currentTab == "users")
@@ -248,87 +255,206 @@
         }
         else if (_currentTab == "stations")
         {
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h3 class="h5 mb-0">Active Shared Stations</h3>
-                <button class="btn btn-light btn-sm border" @onclick="async () => await RefreshStations()">
-                    <i class="bi bi-arrow-clockwise me-1"></i> Sync Stations
-                </button>
-            </div>
-            
-            @if (_activeStations != null && _activeStations.Any())
-            {
-                <div class="table-responsive">
-                    <table class="modern-table">
-                        <thead>
-                            <tr>
-                                <th>Station Name</th>
-                                <th>Network Address</th>
-                                <th>Last Authorization</th>
-                                <th class="text-center">Status</th>
-                                <th class="text-end">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var station in _activeStations)
-                            {
-                                <tr>
-                                    <td>
-                                        <div class="d-flex align-items-center">
-                                            <div class="user-avatar bg-info bg-opacity-10 text-info me-3">
-                                                <i class="bi bi-display"></i>
-                                            </div>
-                                            <div>
-                                                <div class="fw-bold">@(!string.IsNullOrEmpty(station.StationName) ? station.StationName : "Unnamed Station")</div>
-                                                @if (station.LoginMode == "FastGrid")
-                                                {
-                                                    <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-25 x-small px-2 py-0">
-                                                        <i class="bi bi-grid-fill me-1"></i>Fast Login
-                                                    </span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="badge bg-light text-muted border x-small px-2 py-0">Standard</span>
-                                                }
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td><code class="text-primary bg-light px-2 py-1 rounded">@station.IpAddress</code></td>
-                                    <td><span class="text-muted small">@station.LastUsedUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span></td>
-                                    <td class="text-center">
-                                        <span class="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-3">
-                                            <i class="bi bi-shield-check me-1"></i>Secure
-                                        </span>
-                                    </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-warning px-3 rounded-pill me-2" title="Generate Recovery Code" @onclick="async () => await GenerateStationRecoveryCode(station)">
-                                            <i class="bi bi-key-fill me-1"></i>Recover
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-primary px-3 rounded-pill me-2" @onclick="() => OpenEditStationModal(station)">
-                                            <i class="bi bi-pencil me-1"></i>Edit
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger px-3 rounded-pill" @onclick="async () => await RevokeStation(station)">
-                                            <i class="bi bi-trash3 me-1"></i>Revoke
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h3 class="h5 mb-1"><i class="bi bi-display-fill text-primary me-2"></i>Shared Workstations</h3>
+                    <p class="text-muted small mb-0">Authorized machines and browsers configured as shared workstations or POS terminals.</p>
                 </div>
-            }
-            else
-            {
-                <div class="empty-state text-center py-5">
-                    <i class="bi bi-display text-muted" style="font-size: 3rem; opacity: 0.3;"></i>
-                    <h3 class="mt-3">No Shared Stations Linked</h3>
-                    <p class="text-muted mx-auto" style="max-width: 400px;">
-                        Authorized machines like lobby PCs or shared tablets will appear here after they are onboarded.
-                    </p>
-                    <button class="btn btn-warning text-dark rounded-pill px-4 mt-2 shadow-sm" @onclick="OpenQuickOnboardModal">
-                        <i class="bi bi-lightning-charge-fill me-2"></i>Onboard First Station
+                <div class="d-flex gap-2">
+                    <button class="btn btn-warning text-dark btn-sm fw-bold shadow-sm" @onclick="OpenQuickOnboardModal">
+                        <i class="bi bi-lightning-charge-fill me-1"></i> Quick Onboard Workstation
+                    </button>
+                    <button class="btn btn-light btn-sm border" @onclick="async () => await RefreshWorkstations()">
+                        <i class="bi bi-arrow-clockwise me-1"></i> Sync Workstations
                     </button>
                 </div>
+            </div>
+
+            @if (_systemSettings != null)
+            {
+                <div class="card p-3 mb-4 shadow-sm border-0 bg-light rounded-3">
+                    <div class="row align-items-end g-3 text-dark">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold mb-1 small d-flex align-items-center">
+                                <i class="bi bi-hourglass-split text-primary me-2"></i>
+                                Workstation Session Timeout (Minutes)
+                            </label>
+                            <input type="number" class="form-control form-control-sm" @bind="_systemSettings.IdleTimeoutMinutes" min="1" max="1440" />
+                            <div class="text-muted x-small mt-1" style="font-size: 0.75rem;">Minutes of inactivity before logging out the active staff member.</div>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold mb-1 small d-flex align-items-center">
+                                <i class="bi bi-shield-check text-primary me-2"></i>
+                                Workstation Trust Lifespan (Days)
+                            </label>
+                            <input type="number" class="form-control form-control-sm" @bind="_systemSettings.TrustedDeviceDurationDays" min="1" max="3650" />
+                            <div class="text-muted x-small mt-1" style="font-size: 0.75rem;">Days a shared workstation remains authorized before requiring re-pairing.</div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-primary btn-sm w-100 fw-bold py-2 shadow-sm" @onclick="SaveSystemSettings" disabled="@_savingSettings">
+                                @if (_savingSettings)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-save me-1"></i>
+                                }
+                                Save Policies
+                            </button>
+                        </div>
+                    </div>
+                </div>
             }
+
+            @if (_pendingSessions != null && _pendingSessions.Any())
+            {
+                <div class="mb-5 p-3 rounded-4 border border-warning animate-fade-in" style="background: rgba(240, 173, 78, 0.05); margin-bottom: 2rem;">
+                    <h4 class="h6 mb-3 d-flex align-items-center text-warning fw-bold">
+                        <i class="bi bi-exclamation-triangle-fill me-2 animate-pulse"></i>
+                        Pending Workstation Registrations
+                        <span class="badge rounded-pill bg-warning text-dark ms-2" style="font-size: 0.7rem;">@_pendingSessions.Count Awaiting Approval</span>
+                    </h4>
+                    <div class="row g-3">
+                        @foreach (var session in _pendingSessions)
+                        {
+                            <div class="col-md-6 col-lg-4" @key="session.DeviceToken">
+                                <div class="card h-100 border-warning shadow-sm" style="background: #fff; border-radius: 12px;">
+                                    <div class="card-body d-flex flex-column justify-content-between p-3">
+                                        <div>
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <span class="badge bg-warning text-dark">@ParseUserAgent(session.UserAgent)</span>
+                                                <span class="text-muted small text-dark">IP: @session.IpAddress</span>
+                                            </div>
+                                            <h5 class="card-title mb-1 text-warning fw-bold">
+                                                @session.StationName
+                                            </h5>
+                                            <p class="text-muted small mb-2 text-dark">Requested by: <strong>@session.Username</strong></p>
+                                            <p class="x-small text-muted mb-3 text-truncate" title="@session.UserAgent" style="max-width: 100%;">@session.UserAgent</p>
+                                        </div>
+                                        <div class="d-flex gap-2 mt-2">
+                                            <button class="btn btn-success btn-sm flex-fill" @onclick="() => ApproveRequest(session)">
+                                                <i class="bi bi-check-circle me-1"></i> Approve
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm flex-fill" @onclick="() => RejectRequest(session)">
+                                                <i class="bi bi-x-circle me-1"></i> Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="mb-5">
+                @if (_sessions == null || !_sessions.Any(s => s.IsStation))
+                {
+                    <div class="empty-state text-center py-5">
+                        <i class="bi bi-display text-muted" style="font-size: 3rem; opacity: 0.3;"></i>
+                        <h3 class="mt-3 text-dark">No Shared Workstations Linked</h3>
+                        <p class="text-muted mx-auto" style="max-width: 400px;">
+                            Authorized machines like lobby PCs or shared tablets will appear here after they are onboarded.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <div class="row g-3">
+                        @foreach (var session in _sessions.Where(s => s.IsStation))
+                        {
+                            <div class="col-md-6 col-lg-4" @key="session.DeviceToken">
+                                <div class="card h-100 border-primary shadow-sm" style="background: #fff; border-radius: 12px; border: 1px solid rgba(0, 123, 255, 0.25);">
+                                    <div class="card-body p-3 text-dark">
+                                        <div class="d-flex justify-content-between align-items-start mb-3">
+                                            <div class="bg-primary bg-opacity-10 p-2 rounded text-primary">
+                                                <i class="bi bi-pc-display-horizontal fs-4"></i>
+                                            </div>
+                                            <div class="d-flex gap-1">
+                                                <button class="btn btn-outline-primary btn-sm" @onclick="() => ReTrustStation(session)" title="Re-trust this workstation without sending a code">
+                                                    <i class="bi bi-key-fill me-1"></i> Re-Trust
+                                                </button>
+                                                <button class="btn btn-outline-danger btn-sm" @onclick="() => RevokeSession(session)" title="Revoke workstation access">
+                                                    <i class="bi bi-x-circle"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <h5 class="card-title mb-1 text-primary fw-bold">
+                                            @(!string.IsNullOrEmpty(session.StationName) ? session.StationName : "Shared Workstation")
+                                        </h5>
+                                        <p class="text-muted small mb-3">IP: @session.IpAddress</p>
+                                        
+                                        <div class="d-flex align-items-center p-2 bg-light rounded small mb-2">
+                                            <i class="bi bi-person-check-fill text-muted me-2"></i>
+                                            <div>
+                                                <div class="text-muted">Authorized By</div>
+                                                <div class="fw-bold text-dark">@session.Username</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="mt-2 pt-2 border-top d-flex justify-content-between x-small text-muted">
+                                            <span>Last used: @GetTimeAgo(session.LastUsedUtc)</span>
+                                            <span>Expires in 10 years</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- PERSONAL DEVICES SECTION -->
+            <div class="mt-5">
+                <h4 class="h5 mb-3 d-flex align-items-center text-muted fw-bold">
+                    <i class="bi bi-laptop me-2"></i>
+                    Active User Sessions (Personal Devices)
+                    <span class="badge rounded-pill bg-light text-dark border ms-2" style="font-size: 0.7rem;">@(_sessions?.Count(s => !s.IsStation) ?? 0) Active</span>
+                </h4>
+                
+                @if (_sessions == null || !_sessions.Any(s => !s.IsStation))
+                {
+                    <div class="card border-dashed p-4 text-center bg-light">
+                        <p class="text-muted mb-0">No personal devices are currently remembered.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="card border-0 shadow-sm overflow-hidden">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0 text-dark">
+                                <thead class="bg-light x-small text-uppercase">
+                                    <tr>
+                                        <th class="ps-4 text-muted">User</th>
+                                        <th class="text-muted">Device</th>
+                                        <th class="text-muted">Last Action</th>
+                                        <th class="text-end pe-4 text-muted">Manage</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var session in _sessions.Where(s => !s.IsStation))
+                                    {
+                                        <tr @key="session.DeviceToken">
+                                            <td class="ps-4 fw-bold text-dark">@session.Username</td>
+                                            <td>
+                                                <i class="bi @GetDeviceIcon(session.UserAgent) me-2 text-muted"></i>
+                                                @ParseUserAgent(session.UserAgent)
+                                            </td>
+                                            <td class="small text-muted">@GetTimeAgo(session.LastUsedUtc)</td>
+                                            <td class="text-end pe-4">
+                                                <button class="btn btn-outline-danger btn-sm" @onclick="() => RevokeSession(session)" title="Logout this user on this device">
+                                                    <i class="bi bi-box-arrow-right"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            </div>
         }
     </div>
 </div>
@@ -390,28 +516,21 @@
                     }
                 }
 
-                @if (IsEditingAdmin)
-                {
-                    <div class="form-group">
-                        <label class="form-label">Update Passcode</label>
-                        <div class="position-relative">
-                            <input type="@(_showAdminPasscode ? "text" : "password")" class="form-control pe-5" @bind="_userForm.Password" 
-                                   placeholder="Enter new 6-digit passcode" maxlength="6" />
-                            <button type="button" 
-                                    class="btn btn-link position-absolute end-0 top-50 translate-middle-y text-muted px-3" 
-                                    style="z-index: 10; border: none; text-decoration: none;"
-                                    @onclick="() => _showAdminPasscode = !_showAdminPasscode"
-                                    tabindex="-1">
-                                <i class="bi @(_showAdminPasscode ? "bi-eye-slash" : "bi-eye")"></i>
-                            </button>
-                        </div>
-                        <small class="text-muted">Leave blank to keep current passcode. Must be exactly 6 digits.</small>
+                <div class="form-group">
+                    <label class="form-label">@(_editingUser == null ? "Initial Passcode" : "Update Passcode")</label>
+                    <div class="position-relative">
+                        <input type="@(_showAdminPasscode ? "text" : "password")" class="form-control pe-5" @bind="_userForm.Password" 
+                               placeholder="Enter 6-digit passcode" maxlength="6" />
+                        <button type="button" 
+                                class="btn btn-link position-absolute end-0 top-50 translate-middle-y text-muted px-3" 
+                                style="z-index: 10; border: none; text-decoration: none;"
+                                @onclick="() => _showAdminPasscode = !_showAdminPasscode"
+                                tabindex="-1">
+                            <i class="bi @(_showAdminPasscode ? "bi-eye-slash" : "bi-eye")"></i>
+                        </button>
                     </div>
-                }
-                else
-                {
-                     @* Regular users set passcode during device activation wizard *@
-                }
+                    <small class="text-muted">@(_editingUser == null ? "Enter a 6-digit numeric passcode for fast login." : "Leave blank to keep current passcode. Must be exactly 6 digits.")</small>
+                </div>
 
                 <div class="form-group">
                     <div class="form-check form-switch">
@@ -729,236 +848,88 @@
     </div>
 }
 
-@* Quick Onboard Modal (Unified with Access Controls) *@
-@if (_showQuickOnboardModal)
+@* Quick Onboard Modal (Simplified Workstation Onboarding) *@
+@if (_showOnboardModal)
 {
-    <div class="modal-overlay" @onclick="CloseQuickOnboardModal">
-        <div class="modal-container modal-lg" @onclick:stopPropagation>
-            <div class="modal-header bg-warning bg-opacity-10 border-bottom-0">
-                <div>
-                    <h2 class="modal-title text-dark"><i class="bi bi-lightning-charge-fill text-warning me-2"></i>Quick Onboard Device</h2>
-                    <p class="modal-subtitle">Generate a one-time link or QR code to authorize a new phone or computer.</p>
-                </div>
-                <button class="btn-close" @onclick="CloseQuickOnboardModal">
-                    <i class="bi bi-x-lg"></i>
-                </button>
+    <div class="modal-overlay" @onclick="CloseOnboardModal">
+        <div class="modal-container" @onclick:stopPropagation style="max-width: 500px;">
+            <div class="modal-header bg-primary text-white border-0">
+                <h5 class="modal-title fw-bold text-white"><i class="bi bi-shield-plus me-2"></i>Quick Onboard Workstation</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseOnboardModal" aria-label="Close"></button>
             </div>
-            <div class="modal-body pt-0 @(string.IsNullOrEmpty(_quickGeneratedLink) ? "" : "modal-compact-results")" style="max-height: 75vh; overflow-y: auto;">
-                <div class="onboarding-tool p-3 bg-light rounded-4 border">
-                    <div class="row g-3">
-                        <div class="col-md-6 border-end">
-                            @if (!_isStationSetup)
-                            {
-                                <label class="form-label fw-bold">1. Select the User to Onboard</label>
-                                <select class="form-select border-0 shadow-sm py-2 mb-4" @bind="_quickOnboardUserId">
-                                    <option value="0">Choose a user...</option>
-                                    @foreach (var user in _users.OrderBy(u => u.Username))
-                                    {
-                                        <option value="@user.UserId">@user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")</option>
-                                    }
-                                </select>
-
-                                 @if (_onboardMode == "PIN")
-                                 {
-                                     <div class="form-group mb-4 animate-slide-up p-3 bg-white rounded-4 shadow-sm border border-warning border-opacity-25">
-                                         <label class="form-label fw-bold text-warning-emphasis small text-uppercase mb-2"><i class="bi bi-display me-2"></i>Target Station (Required)</label>
-                                         <div class="d-flex gap-2 align-items-center">
-                                             <select class="form-select border-0 bg-light py-2 rounded-3" @bind="_selectedStationId">
-                                                 <option value="0">Choose shared station...</option>
-                                                 @foreach (var station in _activeStations)
-                                                 {
-                                                     <option value="@station.Id">@(string.IsNullOrEmpty(station.StationName) ? $"Unnamed Station ({station.IpAddress})" : station.StationName)</option>
-                                                 }
-                                             </select>
-                                             <button class="btn btn-light border btn-sm p-1 rounded-3" @onclick="RefreshStations" title="Sync Stations list" type="button">
-                                                 <i class="bi bi-arrow-clockwise"></i>
-                                             </button>
-                                         </div>
-                                         <div class="x-small text-muted mt-2">
-                                             <i class="bi bi-info-circle me-1"></i> The user must set their PIN on <strong>this specific machine</strong>.
-                                         </div>
-                                     </div>
-
-                                     <div class="alert alert-warning border-0 rounded-4 x-small mb-3 animate-fade-in shadow-sm">
-                                         <div class="fw-bold mb-1"><i class="bi bi-shield-lock-fill me-2"></i>PIN Setup Flow</div>
-                                         The user simply opens the link on the machine. They <strong>do not need to log in</strong> with a password; the link authorizes them to set their PIN immediately.
-                                     </div>
-                                 }
-
-                                 @if (_quickOnboardUserId > 0 && _onboardMode != "PIN")
-                                 {
-                                     <div class="troubleshooting-card animate-entrance card border-0 shadow-sm p-4 mb-3 bg-white rounded-4">
-                                         <label class="fw-bold text-danger small mb-2 d-block text-uppercase"><i class="bi bi-shield-exclamation me-2"></i>Troubleshooting Only</label>
-                                         <p class="x-small text-muted mb-3">If the user is stuck in a login loop or can't see the hub, use the <strong>Clean Slate</strong> reset first.</p>
-                                         
-                                         <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
-                                             @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                             else { <i class="bi bi-trash3-fill me-2"></i> }
-                                             Revoke All Linked Devices
-                                         </button>
-                                     </div>
-                                 }
-                            }
-                            else
-                            {
-                                <div class="station-mode-info animate-entrance h-100 d-flex flex-column justify-content-center p-4 bg-white rounded-4 shadow-sm border border-primary border-opacity-10">
-                                    <div class="text-center mb-3">
-                                        <i class="bi bi-display text-primary" style="font-size: 3rem; opacity: 0.2;"></i>
-                                    </div>
-                                    <h5 class="fw-bold text-primary mb-3 text-center text-uppercase">Station Identity Setup</h5>
-                                    
-                                    <div class="form-group mb-3">
-                                        <label class="form-label fw-bold small text-muted text-uppercase mb-2">Friendly Station Name</label>
-                                        <input type="text" class="form-control border shadow-sm py-2 px-3 rounded-3" 
-                                               placeholder="e.g. Lobby Terminal, Bar Tablet..." 
-                                               @bind="_quickStationName" 
-                                               disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))" />
-                                        <div class="x-small text-muted mt-2">
-                                            <i class="bi bi-info-circle me-1"></i> Give this computer a label to identify it in the system.
-                                        </div>
-                                    </div>
-
-                                    <div class="form-group mb-3">
-                                        <label class="form-label fw-bold small text-muted text-uppercase mb-2">
-                                            <i class="bi bi-people-fill me-2"></i>Curate Staff Shortcut List (Fast Login)
-                                        </label>
-                                        <div class="user-selection-grid p-2 bg-light border rounded-3" style="max-height: 180px; overflow-y: auto;">
-                                            @foreach (var user in _users.Where(u => u.IsActive).OrderBy(u => u.Username))
-                                            {
-                                                <div class="form-check small mb-1">
-                                                    <input class="form-check-input" type="checkbox" id="staff-@user.UserId" 
-                                                           checked="@_selectedAuthorizedUserIds.Contains(user.UserId)"
-                                                           @onchange="@(e => ToggleStationUser(user.UserId, (bool)e.Value))">
-                                                    <label class="form-check-label" for="staff-@user.UserId">
-                                                        @user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")
-                                                    </label>
-                                                </div>
-                                            }
-                                        </div>
-                                        <div class="x-small text-muted mt-2">
-                                            <i class="bi bi-info-circle me-1"></i> These users will appear on the Fast Login grid.
-                                        </div>
-                                    </div>
-
-                                    <div class="mt-auto p-2 bg-light rounded small text-center">
-                                        <i class="bi bi-shield-check me-2 text-success"></i>Authorized by: <strong>Admin (@(_users.FirstOrDefault(u => u.UserId == _currentUserId)?.Username ?? "You"))</strong>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                        <div class="col-md-5">
-                             <div class="mb-4">
-                                 <label class="form-label fw-bold">2. Mode Selection</label>
-                                 
-                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border mb-2 @(_isStationSetup ? "border-primary shadow-sm" : "")" style="transition: all 0.2s;">
-                                     <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="stationToggle" @bind="_isStationSetup" @bind:after="OnStationToggle" disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))">
-                                     <label class="form-check-label fw-bold @(_isStationSetup ? "text-primary" : "")" for="stationToggle">
-                                         <i class="bi bi-display me-2"></i>Shared / Station Mode
-                                     </label>
-                                     <p class="x-small text-muted mt-2 mb-0 ms-1">
-                                         <i class="bi bi-info-circle me-1"></i> For lobby PCs or shared tablets. Skips device setup for individuals.
-                                     </p>
-                                 </div>
-
-                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border @(_isPinOnlySetup ? "border-warning bg-warning bg-opacity-10 shadow-sm" : "")" style="transition: all 0.2s;">
-                                     <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="pinToggle" @bind="_isPinOnlySetup" @bind:after="OnPinToggle" disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))">
-                                     <label class="form-check-label fw-bold @(_isPinOnlySetup ? "text-warning" : "")" for="pinToggle">
-                                         <i class="bi bi-key-fill me-2"></i>PIN Only (Passcode)
-                                     </label>
-                                     <p class="x-small text-muted mt-2 mb-0 ms-1">
-                                         <i class="bi bi-info-circle me-1"></i> Skips biometric setup. Best for users who only use shared stations.
-                                     </p>
-                                 </div>
-                             </div>
-
-                             <label class="form-label fw-bold">3. Access Generation</label>
-                              <div class="d-grid gap-2">
-                                 <button class="btn btn-warning py-3 fw-bold shadow-sm" 
-                                         @onclick="GenerateQuickInviteLink" 
-                                         disabled="@(_generatingQuickLink || (_quickOnboardUserId == 0 && !_isStationSetup) || (_isPinOnlySetup && _selectedStationId == 0) || (_isStationSetup && string.IsNullOrWhiteSpace(_quickStationName)) || !string.IsNullOrEmpty(_quickGeneratedLink))">
-                                     @if (_generatingQuickLink) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                     else { <i class="bi bi-link-45deg me-2"></i> }
-                                     Generate Access Link
-                                 </button>
-
-                                 <button class="btn btn-primary py-3 fw-bold shadow-sm" 
-                                         @onclick="GenerateSetupCode" 
-                                         disabled="@(_generatingQuickLink || (_quickOnboardUserId == 0 && !_isStationSetup) || (_isPinOnlySetup && _selectedStationId == 0) || (_isStationSetup && string.IsNullOrWhiteSpace(_quickStationName)) || !string.IsNullOrEmpty(_quickGeneratedLink))">
-                                     <i class="bi bi-key-fill me-2"></i> Generate 8-Digit Setup Code
-                                 </button>
-                                
-                                 <button class="btn btn-outline-secondary py-2 small" @onclick="ResetQuickModal" disabled="@(string.IsNullOrEmpty(_quickGeneratedLink))">
-                                    <i class="bi bi-arrow-counterclockwise me-1"></i> Start Over
-                                </button>
-                             </div>
-                        </div>
+            <div class="modal-body p-4 text-dark">
+                @if (string.IsNullOrEmpty(_generatedPairingCode))
+                {
+                    <div class="mb-3 form-check form-switch bg-light p-3 rounded border border-light">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" role="switch" id="curateToggle" @bind="_curateToggle" />
+                        <label class="form-check-label fw-bold" for="curateToggle">
+                            <i class="bi bi-people-fill me-1 text-primary"></i> Curate Staff Shortcut List (Fast Login)
+                        </label>
+                        <div class="form-text ms-4 mt-1">Enable this to pre-select which staff members are displayed in the Fast Login grid on this device. Otherwise, standard login is used.</div>
                     </div>
 
-                    @if (!string.IsNullOrEmpty(_quickGeneratedLink))
+                    @if (_curateToggle)
                     {
-                        <div class="invite-results-container mt-3 p-3 bg-white rounded-4 border shadow-sm animate-entrance">
-                            <div class="row align-items-center">
-                                <div class="col-md-5 text-center border-md-end mb-3 mb-md-0">
-                                    @if (_showQrCode && !string.IsNullOrEmpty(_quickGeneratedLink) && !_quickGeneratedLink.Contains("-"))
-                                    {
-                                        <img src="@($"https://api.qrserver.com/v1/create-qr-code/?size=140x140&data={Uri.EscapeDataString(_quickGeneratedLink)}")" 
-                                             alt="QR Code" width="140" height="140" class="img-fluid rounded border p-1" />
-                                        <div class="x-small text-primary fw-bold mt-1">Scan for Fast Access</div>
-                                    }
-                                    else if (!string.IsNullOrEmpty(_quickSetupCode))
-                                    {
-                                        <div class="setup-code-badge p-2 bg-primary bg-opacity-10 rounded-3 border border-primary border-opacity-25 shadow-sm">
-                                            <div class="x-small fw-bold text-muted text-uppercase">Recovery Setup Code</div>
-                                            <div class="h2 mb-0 fw-black text-primary ls-2" style="font-family: monospace; letter-spacing: 2px;">@_quickSetupCode</div>
-                                            <div class="x-small text-danger mt-1">Expires in 15 mins</div>
-                                        </div>
-                                    }
-                                    else if (_isPinOnlySetup)
-                                    {
-                                        <div class="setup-code-badge p-2 bg-warning bg-opacity-10 rounded-3">
-                                            <div class="x-small fw-bold text-muted">SETUP CODE</div>
-                                            <div class="h3 mb-0 fw-black text-primary ls-1">@(_quickInviteToken?.Substring(0, 8).ToUpper() ?? "--------")</div>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-primary px-3 rounded-pill" @onclick="() => _showQrCode = true">
-                                            <i class="bi bi-qr-code me-3"></i>Show QR Code
-                                        </button>
-                                    }
-                                </div>
-                                <div class="col-md-7">
-                                    <div class="d-flex justify-content-between mb-2">
-                                        <span class="x-small fw-bold text-primary">ACCESS READY</span>
-                                        <span class="badge bg-success x-small fw-normal">Link Valid 24h</span>
+                        <div class="card p-3 border-light bg-light mb-3 animate-fade-in">
+                            <label class="form-label fw-semibold small text-primary mb-2"><i class="bi bi-person-check-fill me-1"></i>Select Authorized Users for Fast Login</label>
+                            <div class="border rounded p-2 bg-white mb-2" style="max-height: 180px; overflow-y: auto;">
+                                @foreach (var u in _users.Where(u => u.IsActive).OrderBy(u => u.Username))
+                                {
+                                    <div class="form-check py-1 border-bottom border-light">
+                                        <input class="form-check-input" type="checkbox" id="authUser_@u.UserId" 
+                                               checked="@_selectedAuthorizedUserIds.Contains(u.UserId)"
+                                               @onclick="() => ToggleAuthorizedUser(u.UserId)" />
+                                        <label class="form-check-label small fw-semibold" for="authUser_@u.UserId">
+                                            @u.Username
+                                        </label>
                                     </div>
-                                    <div class="input-group mb-2">
-                                        <input type="text" class="form-control form-control-sm bg-light border-0" value="@_quickGeneratedLink" readonly />
-                                        <button class="btn btn-sm @(_quickCopied ? "btn-success" : "btn-primary") px-3" @onclick="CopyQuickInviteLink">
-                                            <i class="bi @(_quickCopied ? "bi-check-lg" : "bi-clipboard")"></i>
-                                        </button>
-                                    </div>
-                                    <p class="x-small text-muted mb-0 lh-sm">
-                                        @if (!string.IsNullOrEmpty(_quickSetupCode)) { <text>Enter this code on the blocked machine's <b>Access Shield</b> screen to restore access.</text> }
-                                        else if (_isPinOnlySetup) { <text>Enter the 8-char code at login to set PIN without a link.</text> }
-                                        else if (_isStationSetup) { <text>Open this link on the machine to trust it as a Station.</text> }
-                                        else { <text>Open this link on mobile device to register biometrics.</text> }
-                                    </p>
-                                </div>
+                                }
                             </div>
+                            <div class="form-text x-small text-muted">Selected users will be shown on the fast login screen. Others must use standard manual login.</div>
                         </div>
                     }
 
-                    <div class="alert alert-info border-0 rounded-4 mt-3 mb-0 d-flex align-items-center py-2 x-small opacity-75">
-                        <i class="bi bi-info-circle-fill me-2 text-info"></i>
-                        <div>
-                            A "Trust Token" will be permanently burned into the device upon completion.
-                        </div>
+                    <div class="d-grid mt-4">
+                        <button class="btn btn-primary btn-lg" @onclick="GenerateCode">
+                            <i class="bi bi-qr-code me-2"></i>Generate Onboarding Code
+                        </button>
                     </div>
-                </div>
+                }
+                else
+                {
+                    <div class="text-center py-3">
+                        <p class="text-muted mb-1">Enter this pairing code on the new device's setup screen:</p>
+                        <h2 class="display-4 fw-bold text-primary my-3 tracking-wide" style="letter-spacing: 2px;">@_generatedPairingCode</h2>
+                        
+                        <div class="alert alert-warning border-0 small d-inline-block py-2 px-3">
+                            <i class="bi bi-clock-history me-2"></i>Code expires in <strong>@FormatTime(_secondsRemaining)</strong>
+                        </div>
+
+                        <p class="text-muted x-small mt-3">Once the code is submitted on the device, it will request permission. You will see a request to approve or reject right here.</p>
+
+                        <button class="btn btn-outline-secondary btn-sm mt-3" @onclick="ResetGeneratedCode">
+                            <i class="bi bi-arrow-left me-1"></i> Generate Another Code
+                        </button>
+                    </div>
+                }
             </div>
-            <div class="modal-footer border-top-0 py-2">
-                <button class="btn btn-outline-secondary px-4 btn-sm rounded-pill" @onclick="CloseQuickOnboardModal">Done</button>
+        </div>
+    </div>
+}
+
+@if (_showReTrustModal)
+{
+    <div class="modal-overlay" @onclick="CloseReTrustModal">
+        <div class="modal-container" @onclick:stopPropagation style="max-width: 500px;">
+            <div class="modal-header bg-primary text-white border-0">
+                <h5 class="modal-title fw-bold text-white"><i class="bi bi-key-fill me-2"></i>Re-Trust Workstation</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseReTrustModal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center text-dark">
+                <p class="text-muted mb-1">Enter this recovery code on the blocked screen of <strong class="text-dark">@_reTrustStationName</strong>:</p>
+                <h2 class="display-4 fw-bold text-primary my-3 tracking-wide" style="letter-spacing: 2px;">@_reTrustCode</h2>
+                <p class="text-muted x-small">This code is valid for 15 minutes. Once typed on the device, its access will be restored immediately without needing further approval.</p>
+                <button class="btn btn-secondary btn-sm mt-3" @onclick="CloseReTrustModal">Close</button>
             </div>
         </div>
     </div>
@@ -1035,43 +1006,7 @@
 
 
 
-@* Reset Mobile Setup Confirmation Modal *@
-@if (_showResetMobileConfirm && _quickOnboardUserId != 0)
-{
-    var user = _users.FirstOrDefault(u => u.UserId == _quickOnboardUserId);
-    if (user != null)
-    {
-        <div class="modal-overlay" @onclick="() => _showResetMobileConfirm = false">
-            <div class="modal-container" style="max-width: 450px;" @onclick:stopPropagation>
-                <div class="modal-header border-bottom-0 pb-0">
-                    <h5 class="modal-title text-danger">
-                        <i class="bi bi-exclamation-octagon-fill me-2"></i>Critical Reset
-                    </h5>
-                    <button class="btn-close" @onclick="() => _showResetMobileConfirm = false"></button>
-                </div>
-                <div class="modal-body text-center py-4">
-                    <div class="mb-3">
-                        <i class="bi bi-device-ssd-fill text-danger" style="font-size: 3rem; opacity: 0.5;"></i>
-                    </div>
-                    <h4 class="fw-bold mb-3">Clean Slate Reset?</h4>
-                    <p class="text-muted">
-                        This will permanently delete ALL trusted devices, passkeys, and push subscriptions for <strong>@user.Username</strong>.
-                    </p>
-                    <div class="alert alert-danger py-2 small text-start">
-                        <i class="bi bi-shield-exclamation me-2"></i>
-                        They will be treated as a <strong>completely new user</strong> and will need a new activation link to get back in.
-                    </div>
-                </div>
-                <div class="modal-footer border-top-0 pt-0 d-flex gap-2">
-                    <button class="btn btn-light flex-grow-1 py-2 fw-bold" @onclick="() => _showResetMobileConfirm = false">Keep Access</button>
-                    <button class="btn btn-danger flex-grow-1 py-2 fw-bold" @onclick="ExecuteResetMobile">
-                        <i class="bi bi-trash3-fill me-2"></i>Delete Everything
-                    </button>
-                </div>
-            </div>
-        </div>
-    }
-}
+
 
 @* Delete User Confirmation Modal *@
 @if (_showDeleteUserConfirm && _userToDelete != null)
@@ -1114,6 +1049,8 @@
     private string _searchQuery = "";
     private string _currentTab = "users";
     private bool _loading = true;
+    private SystemSettings? _systemSettings;
+    private bool _savingSettings = false;
 
     // Modals
     private bool _showUserModal = false;
@@ -1121,27 +1058,24 @@
     private bool _showDefaultPermissionsModal = false;
     private int _currentUserId;
 
-    // Unified Quick Onboarding Modal
-    private bool _showQuickOnboardModal = false;
-    private int _quickOnboardUserId = 0;
-    private string _quickGeneratedLink = "";
-    private string _quickInviteToken = "";
-    private bool _generatingQuickLink = false;
-    private bool _quickCopied = false;
-    private bool _showQrCode = false;
-    private bool _resettingMobile = false;
-    private bool _isStationSetup = false;
-    private bool _isPinOnlySetup = false;
-    private string _quickStationName = "";
+    // Simplified Onboarding Modal
+    private bool _showOnboardModal = false;
+    private bool _curateToggle = false;
+    private List<int> _selectedAuthorizedUserIds = new();
+    private string? _generatedPairingCode;
+    private global::System.Threading.Timer? _countdownTimer;
+    private int _secondsRemaining = 900;
+
+    // Re-trust states
+    private bool _showReTrustModal = false;
+    private string? _reTrustCode;
+    private string? _reTrustStationName;
+
+    // Active Sessions & Stations
+    private List<DeviceSessionDto> _sessions = new();
+    private List<DeviceSessionDto> _pendingSessions = new();
     private List<TrustedDevice> _activeStations = new();
-    private int? _selectedStationId = 0;
-    private string _onboardMode = "Mobile";
     private bool _showAdminPasscode = false;
-    private HashSet<int> _selectedAuthorizedUserIds = new();
-    private string? _quickSetupCode;
-    private TrustedDevice? _editingStation;
-    private bool _showEditStationModal = false;
-    private string _editingStationLoginMode = "Standard";
 
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -1161,7 +1095,6 @@
     // Custom Notification Modal
     private bool _showSendNotificationModal = false;
     private CustomNotificationModel _customNotification = new();
-    private bool _showResetMobileConfirm = false;
     private bool _showDeleteUserConfirm = false;
     private UserListItemDto? _userToDelete = null;
     private bool _sendingCustomNotification = false;
@@ -1186,9 +1119,26 @@
         return _users.Any(u => u.MemberId == memberId && u.UserId != (_editingUser?.UserId ?? 0));
     }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "onboard")]
+    public string? OnboardParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        if (TabParam == "stations")
+        {
+            _currentTab = "stations";
+        }
+        if (OnboardParam == "true")
+        {
+            _currentTab = "stations";
+            OpenQuickOnboardModal();
+        }
     }
 
     private async Task LoadData()
@@ -1201,6 +1151,7 @@
                 Task.Run(() => _availableDirectors = UserManagementService.GetEligibleDirectorsForUserCreation()),
                 Task.Run(() => _availableMembers = UserManagementService.GetEligibleMembersForUserCreation()),
                 Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList()),
+                Task.Run(async () => _systemSettings = await SystemSettingsService.GetAsync()),
                 Task.Run(async () => {
                     var authState = await AuthStateProvider.GetAuthenticationStateAsync();
                     var user = authState.User;
@@ -1212,6 +1163,8 @@
                 }),
                 Task.Run(async () => {
                     _activeStations = await DeviceTrustService.GetAllActiveStationsAsync();
+                    _sessions = await DeviceTrustService.GetAllActiveDevicesAsync();
+                    _pendingSessions = await DeviceTrustService.GetPendingPairingRequestsAsync();
                 })
             );
             
@@ -1267,6 +1220,32 @@
         finally
         {
             _savingPrefs = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveSystemSettings()
+    {
+        if (_systemSettings == null) return;
+        
+        _savingSettings = true;
+        StateHasChanged();
+        
+        try
+        {
+            // Always ensure the access mode is Zero-Trust on save
+            _systemSettings.AccessMode = AccessMode.LanOrVpn;
+            
+            await SystemSettingsService.UpdateAsync(_systemSettings);
+            await ToastService.ShowSuccess("Workstation security policies saved successfully.");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save security policies: {ex.Message}");
+        }
+        finally
+        {
+            _savingSettings = false;
             StateHasChanged();
         }
     }
@@ -1526,20 +1505,30 @@
 
             if (_editingUser == null)
             {
-                // 1. Create new user with empty password
-                // Note: PassCode will be set during device activation wizard (Step 1)
+                if (!string.IsNullOrWhiteSpace(_userForm.Password))
+                {
+                    if (_userForm.Password.Length < 6 || !_userForm.Password.All(char.IsDigit))
+                    {
+                        _userModalError = "Passcode must be exactly 6 digits";
+                        _savingUser = false;
+                        return;
+                    }
+                }
+
                 var userId = UserManagementService.CreateUser(
                     _userForm.Username,
                     "", 
                     _userForm.IsAdmin,
                     memberId,
                     _userForm.Notes,
-                    "admin", // TODO: Get current user
+                    "admin", 
                     passwordChangeRequired: true
                 );
 
-                // [REMOVED] Do NOT set PassCode here - it should be set during device activation
-                // Old code: UserManagementService.ChangePassCode(userId, _userForm.Password, clearPasswordChangeRequired: false);
+                if (!string.IsNullOrWhiteSpace(_userForm.Password))
+                {
+                    UserManagementService.ChangePassCode(userId, _userForm.Password, clearPasswordChangeRequired: false);
+                }
             }
             else
             {
@@ -1809,55 +1798,206 @@
 
     private void ResetQuickModal()
     {
-        _quickGeneratedLink = "";
-        _quickInviteToken = "";
-        _showQrCode = false;
-        _isStationSetup = false;
-        _isPinOnlySetup = false;
-        _quickStationName = "";
-        _selectedStationId = 0;
-        _selectedAuthorizedUserIds.Clear();
-        _quickSetupCode = null;
+        _generatedPairingCode = null;
+        StopCountdown();
     }
 
     private void OpenQuickOnboardModal()
     {
-        _showQuickOnboardModal = true;
-        _quickGeneratedLink = "";
-        _quickInviteToken = "";
-        _quickCopied = false;
-        _showQrCode = false;
-        _isStationSetup = false;
-        _isPinOnlySetup = false;
-        _quickStationName = "";
-        _selectedStationId = 0;
+        _generatedPairingCode = null;
+        _showOnboardModal = true;
+        _curateToggle = false;
         _selectedAuthorizedUserIds.Clear();
-        _quickSetupCode = null;
-        // [SAFETY] Default to 0 (Choose a user...) instead of auto-selecting the first user (which might be admin)
-        _quickOnboardUserId = 0; 
-        
-        // Ensure stations are fresh when opening tool
-        _ = RefreshStations();
     }
 
-    private void CloseQuickOnboardModal()
+    private void CloseOnboardModal()
     {
-        _showQuickOnboardModal = false;
+        _showOnboardModal = false;
+        StopCountdown();
     }
 
-    private void OpenEditStationModal(TrustedDevice station)
+    private void ToggleAuthorizedUser(int userId)
     {
-        _editingStation = station;
-        _editingStationLoginMode = !string.IsNullOrEmpty(station.LoginMode) ? station.LoginMode : "Standard";
-        _selectedAuthorizedUserIds.Clear();
-        
-        if (!string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+        if (_selectedAuthorizedUserIds.Contains(userId))
+            _selectedAuthorizedUserIds.Remove(userId);
+        else
+            _selectedAuthorizedUserIds.Add(userId);
+    }
+
+    private async Task GenerateCode()
+    {
+        string? csv = null;
+        if (_curateToggle && _selectedAuthorizedUserIds.Any())
         {
-            var ids = station.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
-            _selectedAuthorizedUserIds = new HashSet<int>(ids);
+            csv = string.Join(",", _selectedAuthorizedUserIds);
         }
-        
-        _showEditStationModal = true;
+
+        _generatedPairingCode = await DeviceTrustService.GeneratePairingCodeAsync(
+            _currentUserId, 
+            "Shared Station", 
+            null, 
+            _curateToggle ? "FastGrid" : "Standard", 
+            csv
+        );
+
+        StartCountdown();
+    }
+
+    private void StartCountdown()
+    {
+        StopCountdown();
+        _secondsRemaining = 900;
+        _countdownTimer = new global::System.Threading.Timer((state) =>
+        {
+            InvokeAsync(() =>
+            {
+                if (_secondsRemaining > 0)
+                {
+                    _secondsRemaining--;
+                    StateHasChanged();
+                }
+                else
+                {
+                    StopCountdown();
+                    _generatedPairingCode = null;
+                    StateHasChanged();
+                }
+            });
+        }, null, 0, 1000);
+    }
+
+    private void StopCountdown()
+    {
+        _countdownTimer?.Dispose();
+        _countdownTimer = null;
+    }
+
+    private string FormatTime(int seconds)
+    {
+        int minutes = seconds / 60;
+        int remainingSeconds = seconds % 60;
+        return $"{minutes:D2}:{remainingSeconds:D2}";
+    }
+
+    private void ResetGeneratedCode()
+    {
+        _generatedPairingCode = null;
+        StopCountdown();
+    }
+
+    private async Task ReTrustStation(DeviceSessionDto session)
+    {
+        _reTrustStationName = session.StationName ?? "Shared Station";
+        _reTrustCode = await DeviceTrustService.GenerateSetupCodeAsync(session.DeviceToken, session.UserId);
+        _showReTrustModal = true;
+    }
+
+    private void CloseReTrustModal()
+    {
+        _showReTrustModal = false;
+        _reTrustCode = null;
+    }
+
+    private async Task ApproveRequest(DeviceSessionDto session)
+    {
+        var success = await DeviceTrustService.ApprovePairingRequestAsync(session.DeviceToken);
+        if (success)
+        {
+            await RefreshWorkstations();
+        }
+    }
+
+    private async Task RejectRequest(DeviceSessionDto session)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to reject and delete this device pairing request?");
+        if (confirmed)
+        {
+            var success = await DeviceTrustService.RejectPairingRequestAsync(session.DeviceToken);
+            if (success)
+            {
+                await RefreshWorkstations();
+            }
+        }
+    }
+
+    private async Task RevokeSession(DeviceSessionDto session)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Revoke access for this {ParseUserAgent(session.UserAgent)} device? The user ({session.Username}) will be logged out on this specific device.");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.RevokeDeviceTokenAsync(session.DeviceToken);
+            await RefreshWorkstations();
+        }
+    }
+
+    private async Task RefreshWorkstations()
+    {
+        try
+        {
+            _sessions = await DeviceTrustService.GetAllActiveDevicesAsync();
+            _pendingSessions = await DeviceTrustService.GetPendingPairingRequestsAsync();
+            _activeStations = await DeviceTrustService.GetAllActiveStationsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError("Failed to sync workstations: " + ex.Message);
+        }
+    }
+
+    private string ParseUserAgent(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "Unknown Device";
+        if (userAgent.Contains("iPhone")) return "iPhone";
+        if (userAgent.Contains("iPad")) return "iPad";
+        if (userAgent.Contains("Android")) return "Android Device";
+        if (userAgent.Contains("Windows")) return "Windows PC";
+        if (userAgent.Contains("Macintosh")) return "Mac";
+        if (userAgent.Contains("Linux")) return "Linux PC";
+        return "Web Browser";
+    }
+
+    private string GetDeviceIcon(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "bi-display";
+        if (userAgent.Contains("iPhone") || userAgent.Contains("Android")) return "bi-phone";
+        if (userAgent.Contains("iPad")) return "bi-tablet";
+        return "bi-laptop";
+    }
+
+    private string GetTimeAgo(DateTime date)
+    {
+        var span = DateTime.UtcNow - date;
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalMinutes < 60) return $"{span.Minutes}m ago";
+        if (span.TotalHours < 24) return $"{span.Hours}h ago";
+        return $"{span.Days}d ago";
+    }
+
+    private TrustedDevice? _editingStation;
+    private bool _showEditStationModal = false;
+    private string _editingStationLoginMode = "Standard";
+
+    private void OpenEditStationModal(DeviceSessionDto session)
+    {
+        _ = Task.Run(async () => {
+            var allStations = await DeviceTrustService.GetAllActiveStationsAsync();
+            _editingStation = allStations.FirstOrDefault(s => s.DeviceToken == session.DeviceToken);
+            if (_editingStation != null)
+            {
+                _editingStationLoginMode = !string.IsNullOrEmpty(_editingStation.LoginMode) ? _editingStation.LoginMode : "Standard";
+                _selectedAuthorizedUserIds.Clear();
+                if (!string.IsNullOrEmpty(_editingStation.AuthorizedUserIdsCsv))
+                {
+                    var ids = _editingStation.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
+                    _selectedAuthorizedUserIds = ids;
+                }
+                _showEditStationModal = true;
+                await InvokeAsync(StateHasChanged);
+            }
+        });
     }
 
     private void CloseEditStationModal()
@@ -1878,7 +2018,7 @@
             await DeviceTrustService.UpdateDeviceAsync(_editingStation);
             await ToastService.ShowSuccess($"Configuration for {_editingStation.StationName} updated.");
             CloseEditStationModal();
-            await RefreshStations();
+            await RefreshWorkstations();
         }
         catch (Exception ex)
         {
@@ -1888,224 +2028,19 @@
 
     private void ToggleStationUser(int userId, bool isChecked)
     {
-        if (isChecked) _selectedAuthorizedUserIds.Add(userId);
-        else _selectedAuthorizedUserIds.Remove(userId);
-    }
-
-    private void OnStationToggle()
-    {
-        if (_isStationSetup)
+        if (isChecked)
         {
-            _isPinOnlySetup = false;
-            _onboardMode = "Station";
-            _selectedStationId = 0;
-            // If turning on station mode, default the user ID to the current admin
-            // This satisfies the backend requirement while hiding the dropdown
-            _quickOnboardUserId = _currentUserId;
+            if (!_selectedAuthorizedUserIds.Contains(userId))
+                _selectedAuthorizedUserIds.Add(userId);
         }
         else
         {
-            _onboardMode = "Mobile";
+            _selectedAuthorizedUserIds.Remove(userId);
         }
     }
 
-    private void OnPinToggle()
+    public void Dispose()
     {
-        if (_isPinOnlySetup)
-        {
-            _isStationSetup = false;
-            _onboardMode = "PIN";
-            _selectedStationId = 0;
-            
-            // Auto-refresh when entering PIN mode
-            _ = RefreshStations();
-        }
-        else
-        {
-            _onboardMode = "Mobile";
-        }
-    }
-
-    private async Task GenerateQuickInviteLink()
-    {
-        if (_quickOnboardUserId == 0 && !_isStationSetup) return;
-        
-        // Final safeguard for station mode
-        var targetUserId = _isStationSetup ? _currentUserId : _quickOnboardUserId;
-        if (targetUserId == 0) return;
-
-        _generatingQuickLink = true;
-        try
-        {
-            // Use station name if it's a PIN invite for a specific station
-            string targetDeviceName = _onboardMode;
-            if (_isStationSetup) {
-                targetDeviceName = _quickStationName;
-            }
-            else if (_isPinOnlySetup && _selectedStationId > 0) {
-                var station = _activeStations.FirstOrDefault(s => s.Id == _selectedStationId);
-                targetDeviceName = station?.StationName ?? "PIN Device";
-            }
-
-            var loginMode = _isStationSetup && _selectedAuthorizedUserIds.Any() ? "FastGrid" : "Standard";
-            var authorizedUsersCsv = _isStationSetup && _selectedAuthorizedUserIds.Any() ? string.Join(",", _selectedAuthorizedUserIds) : null;
-
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 24, _isPinOnlySetup ? _selectedStationId : null, loginMode, authorizedUsersCsv);
-            _quickInviteToken = token;
-            var baseUrl = await UrlHelper.GetBaseUrlAsync();
-            
-            // For stations, we can append a hint to the URL
-            var stationSfx = _isStationSetup ? "&station=true" : "";
-            var pinSfx = _isPinOnlySetup ? "&pinOnly=true" : "";
-            _quickGeneratedLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}{stationSfx}{pinSfx}&native=true";
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError($"Failed to generate link: {ex.Message}");
-        }
-        finally
-        {
-            _generatingQuickLink = false;
-        }
-    }
-
-    private async Task GenerateSetupCode()
-    {
-        if (_quickOnboardUserId == 0 && !_isStationSetup) return;
-        
-        var targetUserId = _isStationSetup ? _currentUserId : _quickOnboardUserId;
-        if (targetUserId == 0) return;
-
-        _generatingQuickLink = true;
-        try
-        {
-            var targetDeviceName = _isStationSetup ? _quickStationName : "PIN";
-            var loginMode = _isStationSetup && _selectedAuthorizedUserIds.Any() ? "FastGrid" : "Standard";
-            var authorizedUsersCsv = _isStationSetup && _selectedAuthorizedUserIds.Any() ? string.Join(",", _selectedAuthorizedUserIds) : null;
-            
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 1, _isPinOnlySetup ? _selectedStationId : null, loginMode, authorizedUsersCsv);
-            
-            _quickSetupCode = await DeviceTrustService.GenerateSetupCodeAsync(token, targetUserId);
-            _quickInviteToken = token;
-            _quickGeneratedLink = _quickSetupCode; 
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError($"Failed to generate code: {ex.Message}");
-        }
-        finally
-        {
-            _generatingQuickLink = false;
-        }
-    }
-
-    private async Task GenerateStationRecoveryCode(TrustedDevice station)
-    {
-        try
-        {
-            _generatingQuickLink = true;
-            
-            // Generate a code for the EXISTING station token
-            _quickSetupCode = await DeviceTrustService.GenerateSetupCodeAsync(station.DeviceToken, _currentUserId);
-            _quickGeneratedLink = _quickSetupCode; // To freeze UI and trigger the results panel
-            _quickStationName = station.StationName;
-            _isStationSetup = true;
-            _isPinOnlySetup = false;
-            
-            // Open the modal to show the code
-            _showQuickOnboardModal = true;
-            _showQrCode = false;
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError($"Failed to generate recovery code: {ex.Message}");
-        }
-        finally
-        {
-            _generatingQuickLink = false;
-        }
-    }
-
-    private async Task ResetQuickMobileSetup()
-    {
-        if (_quickOnboardUserId == 0) return;
-        var user = _users.FirstOrDefault(u => u.UserId == _quickOnboardUserId);
-        if (user == null) return;
-
-        // [SAFETY] Prevent resetting the primary admin account
-        if (user.Username.ToLowerInvariant() == "admin")
-        {
-            await ToastService.ShowWarning("Safety Lock: You cannot reset the environment for the primary 'admin' account.");
-            return;
-        }
-        
-        _showResetMobileConfirm = true;
-    }
-
-    private async Task ExecuteResetMobile()
-    {
-        if (_quickOnboardUserId == 0) return;
-        
-        _resettingMobile = true;
-        _showResetMobileConfirm = false;
-        
-        try
-        {
-            await DeviceTrustService.ResetMobileSetupAsync(_quickOnboardUserId);
-            await ToastService.ShowSuccess("Mobile environment has been completely reset for this user.");
-            _quickGeneratedLink = ""; // Force them to generate new link after reset
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError($"Error resetting mobile setup: {ex.Message}");
-        }
-        finally
-        {
-            _resettingMobile = false;
-        }
-    }
-
-
-    private async Task CopyQuickInviteLink()
-    {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _quickGeneratedLink);
-        _quickCopied = true;
-        StateHasChanged();
-        await Task.Delay(2000);
-        _quickCopied = false;
-        StateHasChanged();
-    }
-
-    private async Task RefreshStations()
-    {
-        try
-        {
-            _activeStations = await DeviceTrustService.GetAllActiveStationsAsync();
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError("Failed to sync stations: " + ex.Message);
-        }
-    }
-
-    private async Task RevokeStation(TrustedDevice station)
-    {
-        if (station == null) return;
-        
-        try
-        {
-            // Update the record to be revoked
-            station.IsRevoked = true;
-            await DeviceTrustService.UpdateDeviceAsync(station);
-            
-            // Immediately sync the UI
-            await RefreshStations();
-            await ToastService.ShowSuccess($"Station '{station.StationName}' has been revoked.");
-        }
-        catch (Exception ex)
-        {
-            await ToastService.ShowError($"Error revoking station: {ex.Message}");
-        }
+        StopCountdown();
     }
 }

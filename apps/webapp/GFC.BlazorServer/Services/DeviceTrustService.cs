@@ -1,4 +1,5 @@
 using GFC.BlazorServer.Data;
+using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,7 @@ public class DeviceTrustService : IDeviceTrustService
     // Stored as TrustedDevice records with IsStation=false, DeviceToken=the real token,
     // StationName used as the lookup key (formatted code), expiry = 15 minutes.
     private const string SetupCodePrefix = "SETUP_CODE:";
+    private static readonly ConcurrentDictionary<string, (int Attempts, DateTime LockoutUntil)> IpLockouts = new();
 
     public DeviceTrustService(
         IDbContextFactory<GfcDbContext> contextFactory,
@@ -720,6 +722,307 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error validating station auto-login for {Username}", username);
             return null;
+        }
+    }
+
+    public async Task<string> GeneratePairingCodeAsync(int userId, string platformType, string? stationName = null, string? loginMode = null, string? authorizedUserIdsCsv = null)
+    {
+        try
+        {
+            var randomBytes = new byte[4];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(randomBytes);
+            var code = (BitConverter.ToUInt32(randomBytes, 0) % 100000000).ToString("D8");
+            var formattedCode = $"{code.Substring(0, 4)}-{code.Substring(4, 4)}";
+
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            // Prune expired setup/invite tokens
+            var expiredCodes = await context.DeviceInviteTokens
+                .Where(d => d.ExpiresAtUtc < DateTime.UtcNow)
+                .ToListAsync();
+            if (expiredCodes.Any()) context.DeviceInviteTokens.RemoveRange(expiredCodes);
+
+            var invite = new DeviceInviteToken
+            {
+                UserId = userId,
+                Token = formattedCode,
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddMinutes(15),
+                IsRevoked = false,
+                TargetDeviceName = platformType,
+                LoginMode = loginMode,
+                AuthorizedUserIdsCsv = authorizedUserIdsCsv
+            };
+
+            context.DeviceInviteTokens.Add(invite);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Generated Pairing Onboarding Code {Code} for user {UserId}", formattedCode, userId);
+            return formattedCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating pairing code for user {UserId}", userId);
+            throw;
+        }
+    }
+
+    public async Task<string?> SubmitPairingCodeAsync(string code, string userAgent, string ipAddress)
+    {
+        if (string.IsNullOrWhiteSpace(ipAddress)) ipAddress = "0.0.0.0";
+
+        // 1. Check IP lockout
+        if (IpLockouts.TryGetValue(ipAddress, out var lockout) && lockout.LockoutUntil > DateTime.UtcNow)
+        {
+            _logger.LogWarning("Pairing code submission blocked. IP {IP} is temporarily locked out until {LockoutTime}.", ipAddress, lockout.LockoutUntil);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(code)) return null;
+
+        var normalized = code.Trim().Replace(" ", "").Replace("-", "");
+        if (normalized.Length != 8) return null;
+        var formattedCode = $"{normalized.Substring(0, 4)}-{normalized.Substring(4, 4)}";
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var invite = await context.DeviceInviteTokens
+                .FirstOrDefaultAsync(d => d.Token == formattedCode && !d.IsRevoked && d.UsedAtUtc == null && d.ExpiresAtUtc > DateTime.UtcNow);
+
+            if (invite == null)
+            {
+                // Increment failure count
+                var attempts = 1;
+                if (IpLockouts.TryGetValue(ipAddress, out var current))
+                {
+                    attempts = current.Attempts + 1;
+                }
+
+                var lockoutTime = DateTime.MinValue;
+                if (attempts >= 5)
+                {
+                    lockoutTime = DateTime.UtcNow.AddMinutes(15);
+                    _logger.LogWarning("IP {IP} locked out for 15 minutes after {Attempts} failed pairing attempts.", ipAddress, attempts);
+                }
+
+                IpLockouts[ipAddress] = (attempts, lockoutTime);
+                _logger.LogWarning("Pairing code submission failed. Code {Code} not found, revoked, or expired. Attempts from IP {IP}: {Attempts}/5", formattedCode, ipAddress, attempts);
+                return null;
+            }
+
+            // Reset failure count on successful submission
+            IpLockouts.TryRemove(ipAddress, out _);
+
+            var tempToken = "PENDING:" + Guid.NewGuid().ToString("N");
+
+            // Mark the invite as used immediately so it cannot be claimed by another device while pending
+            invite.UsedAtUtc = DateTime.UtcNow;
+
+            var device = new TrustedDevice
+            {
+                UserId = invite.UserId,
+                DeviceToken = tempToken,
+                UserAgent = userAgent?.Length > 256 ? userAgent.Substring(0, 256) : userAgent,
+                IpAddress = ipAddress?.Length > 45 ? ipAddress.Substring(0, 45) : ipAddress,
+                LastUsedUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddHours(24),
+                IsRevoked = true, // Revoked/Pending
+                IsStation = true, // All onboarding devices are treated as shared stations
+                StationName = invite.TargetDeviceName ?? "Shared Station",
+                LoginMode = $"PENDING:{invite.Token}", // Keep token here to restore context on approval
+                AuthorizedUserIdsCsv = invite.AuthorizedUserIdsCsv
+            };
+
+            context.TrustedDevices.Add(device);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Pairing code {Code} submitted. Created pending device trust request for user {UserId} with temp token {TempToken}", 
+                formattedCode, invite.UserId, tempToken);
+
+            return tempToken;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error submitting pairing code {Code}", formattedCode);
+            return null;
+        }
+    }
+
+    public async Task<List<DeviceSessionDto>> GetPendingPairingRequestsAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var devices = await context.TrustedDevices
+                .Include(d => d.User)
+                .Where(d => d.DeviceToken.StartsWith("PENDING:") && d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .OrderByDescending(d => d.LastUsedUtc)
+                .ToListAsync();
+
+            var sessions = devices.Select(d => new DeviceSessionDto
+            {
+                UserId = d.UserId,
+                Username = d.User != null ? d.User.Username : "Unknown",
+                DeviceToken = d.DeviceToken,
+                UserAgent = d.UserAgent ?? string.Empty,
+                IpAddress = d.IpAddress ?? string.Empty,
+                LastUsedUtc = d.LastUsedUtc,
+                ExpiresAtUtc = d.ExpiresAtUtc,
+                IsRevoked = d.IsRevoked,
+                IsStation = d.IsStation,
+                StationName = d.StationName
+            }).ToList();
+
+            return sessions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting pending pairing requests");
+            return new List<DeviceSessionDto>();
+        }
+    }
+
+    public async Task<bool> ApprovePairingRequestAsync(string tempToken)
+    {
+        if (string.IsNullOrEmpty(tempToken) || !tempToken.StartsWith("PENDING:")) return false;
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var device = await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == tempToken && d.IsRevoked);
+
+            if (device == null)
+            {
+                _logger.LogWarning("Approve pairing request failed. Temp token {TempToken} not found.", tempToken);
+                return false;
+            }
+
+            // Set IsRevoked to false. On the next client poll, we will swap the temp token for a real token.
+            device.IsRevoked = false;
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Approve pairing request succeeded for temp token {TempToken}.", tempToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error approving pairing request for temp token {TempToken}", tempToken);
+            return false;
+        }
+    }
+
+    public async Task<bool> RejectPairingRequestAsync(string tempToken)
+    {
+        if (string.IsNullOrEmpty(tempToken) || !tempToken.StartsWith("PENDING:")) return false;
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var device = await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == tempToken);
+
+            if (device != null)
+            {
+                context.TrustedDevices.Remove(device);
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Rejected and deleted pairing request for temp token {TempToken}.", tempToken);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error rejecting pairing request for temp token {TempToken}", tempToken);
+            return false;
+        }
+    }
+
+    public async Task<(string Status, string? RealToken)> CheckPairingStatusAsync(string tempToken)
+    {
+        if (string.IsNullOrEmpty(tempToken) || !tempToken.StartsWith("PENDING:")) return ("Rejected", null);
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var device = await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == tempToken);
+
+            if (device == null)
+            {
+                return ("Rejected", null);
+            }
+
+            if (device.IsRevoked)
+            {
+                // Still pending admin approval
+                return ("Pending", null);
+            }
+
+            // Approved! Perform the token swap atomically.
+            var realToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+
+            // Extract invite token info if present
+            string? inviteToken = null;
+            if (device.LoginMode != null && device.LoginMode.StartsWith("PENDING:"))
+            {
+                inviteToken = device.LoginMode.Substring("PENDING:".Length);
+            }
+
+            if (!string.IsNullOrEmpty(inviteToken))
+            {
+                var invite = await context.DeviceInviteTokens
+                    .FirstOrDefaultAsync(i => i.Token == inviteToken);
+
+                if (invite != null)
+                {
+                    device.LoginMode = invite.LoginMode ?? "Standard";
+                    device.AuthorizedUserIdsCsv = invite.AuthorizedUserIdsCsv;
+                }
+                else
+                {
+                    device.LoginMode = "Standard";
+                }
+            }
+            else
+            {
+                device.LoginMode = "Standard";
+            }
+
+            // Update details
+            device.DeviceToken = realToken;
+            device.LastUsedUtc = DateTime.UtcNow;
+
+            var settings = await context.SystemSettings.OrderBy(s => s.Id).FirstOrDefaultAsync(s => s.Id == 1);
+            int durationDays = device.IsStation ? 365 : (settings?.TrustedDeviceDurationDays ?? 30);
+            
+            if (device.IsStation)
+            {
+                device.ExpiresAtUtc = DateTime.UtcNow.AddYears(50); // Station has permanent trust
+            }
+            else
+            {
+                device.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
+            }
+
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Device pairing complete. Swapped temp token {TempToken} with real token.", tempToken);
+
+            return ("Approved", realToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking pairing status for temp token {TempToken}", tempToken);
+            return ("Rejected", null);
         }
     }
 }

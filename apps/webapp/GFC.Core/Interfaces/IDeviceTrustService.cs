@@ -37,4 +37,10 @@ public interface IDeviceTrustService
     Task<string?> GenerateSetupCodeAsync(string deviceToken, int userId);
     Task<string?> ValidateSetupCodeAsync(string code);
     Task<int?> ValidateStationAutoLoginAsync(string stationToken, string username);
+    Task<string> GeneratePairingCodeAsync(int userId, string platformType, string? stationName = null, string? loginMode = null, string? authorizedUserIdsCsv = null);
+    Task<string?> SubmitPairingCodeAsync(string code, string userAgent, string ipAddress);
+    Task<List<GFC.Core.DTOs.DeviceSessionDto>> GetPendingPairingRequestsAsync();
+    Task<bool> ApprovePairingRequestAsync(string tempToken);
+    Task<bool> RejectPairingRequestAsync(string tempToken);
+    Task<(string Status, string? RealToken)> CheckPairingStatusAsync(string tempToken);
 }

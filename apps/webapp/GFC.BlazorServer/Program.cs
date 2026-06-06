@@ -1180,6 +1180,32 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> WARNING: Club Events schema script not found at {clubEventsScriptPath}");
                 }
 
+                // [AUTO-FIX 19] Rename 'Manage Users' to 'Users / Workstations' and deactivate '/admin/users/active-sessions'
+                try
+                {
+                    var pagePermissionsFixSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'AppPages')
+                        BEGIN
+                            UPDATE AppPages SET PageName = 'Users / Workstations' WHERE PageRoute = '/users';
+                            UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/users/active-sessions';
+                            UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/security-settings';
+                            UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/users/live-activity';
+                            PRINT 'Updated AppPages names and active states';
+                        END
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
+                        BEGIN
+                            UPDATE SystemSettings SET AccessMode = 'LanOrVpn', EnableTwoFactorAuth = 0;
+                            PRINT 'Enforced Zero-Trust AccessMode and disabled Two-Factor globally in SystemSettings';
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(pagePermissionsFixSql);
+                    Console.WriteLine(">>> Page permission registrations and Security policies updated (Zero-Trust enforced, Security Settings and Live Activity deactivated).");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error updating AppPages database registrations: {ex.Message}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }

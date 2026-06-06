@@ -78,7 +78,7 @@ namespace GFC.BlazorServer.Middleware
             
             // 3. Device Trust Enforcement
             var settings = await settingsService.GetAsync();
-            var mode = settings?.AccessMode ?? AccessMode.Open;
+            var mode = AccessMode.LanOrVpn; // Always Zero-Trust mode system-wide
             var remoteIp = connectionService.IpAddress ?? "unknown";
 
             // [FIX] RESPECT ACCESS MODE
@@ -152,7 +152,7 @@ namespace GFC.BlazorServer.Middleware
                         <p style='font-size: 0.9rem; color: #666;'>To access the system, an administrator must provide you with a <strong>Secure Setup Link</strong>.</p>
                         
                         <div style='margin: 1.5rem 0;'>
-                            <a href='/setup/recovery' style='display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'>
+                            <a href='https://gfc.lovanow.com/setup/recovery' style='display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'>
                                 <i class='bi bi-key-fill'></i> Restore Access with Setup Code
                             </a>
                         </div>
