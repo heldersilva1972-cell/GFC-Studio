@@ -522,10 +522,11 @@ public class AuthenticationService : IAuthenticationService
         ).ToList();
 
         // [FIX] Allow multiple active sessions to prevent shared stations from logging each other out
-        // Only clean up oldest sessions when they exceed 10 concurrent sessions for this platform
-        if (duplicates.Count >= 10)
+        // Smart cleanup: Limit browsers to 3 concurrent sessions, and mobile to 2 concurrent sessions
+        int maxAllowed = appPlatform == "Browser" ? 3 : 2;
+        if (duplicates.Count >= maxAllowed)
         {
-            var toRevoke = duplicates.OrderByDescending(d => d.LastUsedUtc).Skip(9).ToList();
+            var toRevoke = duplicates.OrderByDescending(d => d.LastUsedUtc).Skip(maxAllowed - 1).ToList();
             foreach (var dev in toRevoke)
             {
                 dev.IsRevoked = true;
