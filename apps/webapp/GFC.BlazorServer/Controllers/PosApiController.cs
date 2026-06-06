@@ -703,9 +703,12 @@ public class PosApiController : ControllerBase
                     {
                         foreach (var i in items)
                         {
-                            if (i.Name.StartsWith("TAB DEPOSIT:"))
+                            if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("REFUND:") || i.Name.StartsWith("BALANCE RETURNED:") || i.Name.StartsWith("RETURNED FUNDS:"))
                             {
-                                summary.TotalDeposited += i.Price;
+                                if (i.Price >= 0)
+                                {
+                                    summary.TotalDeposited += i.Price;
+                                }
                                 summary.Deposits.Add(new BanquetDepositDetailDto
                                 {
                                     Timestamp = sale.Timestamp,

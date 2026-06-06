@@ -6718,8 +6718,7 @@
         // terminal feel instant. The audit and speed-bar updates happen in the background.
         var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
         _selectedActiveEvent = directEvent;
-        ActiveCategory = "BEER"; // Reset default category
-        InvalidateFilteredItems(); // Recompute product list for BEER category
+        InvalidateFilteredItems(); // Recompute product list
         ClearCart();
         _correctingSaleId = null;
         _isTabPayment = false;
@@ -6750,7 +6749,7 @@
                 var printHtml = storedHtml;
                 if (!printHtml.Contains("*** REPRINT ***"))
                 {
-                    printHtml = printHtml.Replace("Z-REPORT SUMMARY", "*** REPRINT ***<br/>Z-REPORT SUMMARY");
+                    printHtml = printHtml.Replace("Z-REPORT SUMMARY", "*** REPRINT ***\nZ-REPORT SUMMARY");
                 }
                 await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("Z-Report re-printing...");
@@ -6789,7 +6788,7 @@
                 var printHtml = storedHtml;
                 if (!printHtml.Contains("*** REPRINT ***"))
                 {
-                    printHtml = printHtml.Replace("X-REPORT SUMMARY", "*** REPRINT ***<br/>X-REPORT SUMMARY");
+                    printHtml = printHtml.Replace("X-REPORT SUMMARY", "*** REPRINT ***\nX-REPORT SUMMARY");
                 }
                 await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("X-Report re-printing...");
@@ -6817,7 +6816,7 @@
                 var printHtml = storedHtml;
                 if (!printHtml.Contains("*** REPRINT ***"))
                 {
-                    printHtml = printHtml.Replace("GFC EVENT RECEIPT", "<div style='text-align:center; font-weight:bold; font-size:14px; border:2px solid #000; padding:4px; margin-bottom:8px;'>*** REPRINT ***</div>GFC EVENT RECEIPT");
+                    printHtml = printHtml.Replace("GFC EVENT RECEIPT", "******************************************\n***            *** REPRINT ***         ***\n******************************************\n\nGFC EVENT RECEIPT");
                 }
                 await PrintReceiptAsync(printHtml);
                 Toast.ShowSuccess("Reprinting last event receipt...");
@@ -7625,7 +7624,8 @@
         var salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(z.SalesSummaryJson) ?? new();
         var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
         var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
-        var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Sum());
+        var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Where(d => d > 0).Sum());
+        var totalPrepaidReturned = banquetSummary.Sum(b => b.Deposits.Where(d => d < 0).Sum());
 
         // Parse Payouts from SalesSummaryJson
         decimal payoutTotal = 0;
@@ -7730,7 +7730,9 @@
         ReceiptFormatter.AppendBlank(sb);
         ReceiptFormatter.AppendLine(sb, "GROSS SALES", $"{z.TotalGrossSales:C}");
         if (totalPrepaidDeposits > 0)
-            ReceiptFormatter.AppendLine(sb, "PREPAID FUNDS ADDED", $"+{totalPrepaidDeposits:C}");
+            ReceiptFormatter.AppendLine(sb, "PREPAID FUNDS DEPOSITED", $"+{totalPrepaidDeposits:C}");
+        if (totalPrepaidReturned < 0)
+            ReceiptFormatter.AppendLine(sb, "PREPAID FUNDS RETURNED", $"-{Math.Abs(totalPrepaidReturned):C}");
         if (tokenCredits > 0)
             ReceiptFormatter.AppendLine(sb, "TOKEN CREDITS", $"-{tokenCredits:C}");
         if (payoutTotal > 0)
@@ -7792,13 +7794,15 @@
                 ReceiptFormatter.AppendBlank(sb);
                 ReceiptFormatter.AppendLeft(sb, $"EVENT: {b.EventName.ToUpper()}");
                 ReceiptFormatter.AppendDivider(sb, '.');
-                if (!isRunningTab && b.Deposits.Any())
+                if (!isRunningTab && b.Deposits.Any(d => d >= 0))
                 {
                     ReceiptFormatter.AppendLeft(sb, "DEPOSITS:");
-                    foreach (var dep in b.Deposits)
+                    for (int i = 0; i < b.Deposits.Count; i++)
                     {
-                        var lbl = dep < 0 ? "  - Correction/Void" : "  - Add Funds";
-                        var amt = dep < 0 ? $"-{Math.Abs(dep):C}" : $"{dep:C}";
+                        var dep = b.Deposits[i];
+                        if (dep < 0) continue;
+                        var lbl = i == 0 ? "  - Initial Deposit" : "  - Add Funds";
+                        var amt = $"{dep:C}";
                         ReceiptFormatter.AppendLine(sb, lbl, amt);
                     }
                 }
@@ -7806,7 +7810,7 @@
                 foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                 {
                     var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                    ReceiptFormatter.AppendLine(sb, $"  {item.Key} (x{item.Value})", $"{itemTotal:C}");
+                    ReceiptFormatter.AppendLine(sb, $"  {item.Value} x {item.Key}", $"{itemTotal:C}");
                 }
                 ReceiptFormatter.AppendDivider(sb, '.');
                 ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
@@ -7962,7 +7966,7 @@
                     foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                     {
                         var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
+                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Value} x {item.Key}</span><span>{itemTotal:C}</span></div>";
                     }
                     
                     banquetRows += $@"
@@ -8544,6 +8548,7 @@
         showBanquetsModal = true;
         _banquetNumpadValue = "0";
         _isFirstKeyAfterFocus = true;
+        _selectedBanquetToAddFunds = null;
         StateHasChanged();
 
         // Refresh data in the background so event list is up to date.
@@ -8635,6 +8640,7 @@
         {
             _newBanquetAmount = 0;
         }
+        _selectedBanquetToAddFunds = null;
     }
 
     private async Task StartBanquet()
@@ -8714,8 +8720,17 @@
                 return;
             }
             
-            var response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
-            if (response.IsSuccessStatusCode)
+            HttpResponseMessage? response = null;
+            try
+            {
+                response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] Failed to start event online: {ex.Message}. Falling back to offline start.");
+            }
+
+            if (response != null && response.IsSuccessStatusCode)
             {
                 var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
                 if (_newBanquetAmount > 0)
@@ -8726,12 +8741,38 @@
                 _newBanquetTemplateId = 0;
                 _newBanquetAmount = 0;
                 _newEventDirectCheckout = false;
+                _selectedBanquetToAddFunds = null;
                 showBanquetsModal = false; // Close the modal cleanly!
                 await RefreshData();
             }
             else
             {
-                Toast.ShowError("Server error starting event");
+                newEvent.Id = new Random().Next(-999999, -1000);
+                if (_cachedMenu != null)
+                {
+                    if (_cachedMenu.ActiveEvents == null) _cachedMenu.ActiveEvents = new();
+                    if (!_cachedMenu.ActiveEvents.Any(e => e.Name == newEvent.Name))
+                    {
+                        _cachedMenu.ActiveEvents.Add(newEvent);
+                    }
+                    await PosService.SaveMenuToVaultAsync(_cachedMenu);
+                }
+
+                var eventKey = $"gfc_pos_vault_event_start_{newEvent.Id}";
+                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", eventKey, newEvent);
+
+                if (_newBanquetAmount > 0)
+                {
+                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
+                }
+
+                Toast.ShowSuccess("Event started offline! Will sync later.");
+                _newBanquetTemplateId = 0;
+                _newBanquetAmount = 0;
+                _newEventDirectCheckout = false;
+                _selectedBanquetToAddFunds = null;
+                showBanquetsModal = false; // Close the modal cleanly!
+                await RefreshData();
             }
         }
         catch (Exception ex)
@@ -8831,7 +8872,7 @@
         var refundAmount = -remainingFunds;
         _closingBanquet.CurrentBalance = 0; // Bring balance to 0
         
-        await LogTabDeposit(_closingBanquet.Name, refundAmount, _closingBanquet.Id, isInitial: false, isCorrection: true);
+        await LogTabDeposit(_closingBanquet.Name, refundAmount, _closingBanquet.Id, isInitial: false, isCorrection: false, isRefund: true);
 
         if (forceTrainingMode)
         {
@@ -8888,7 +8929,6 @@
             {
                 var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
                 _selectedActiveEvent = directEvent;
-                ActiveCategory = "BEER";
             }
             showBanquetsModal = false; // Close the event manager modal
             StateHasChanged();
@@ -8921,8 +8961,8 @@
         {
             var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
             _selectedActiveEvent = directEvent;
-            ActiveCategory = "BEER";
         }
+        _selectedBanquetToAddFunds = null;
         showBanquetsModal = false; // Close the event manager modal
         StateHasChanged();
 
@@ -8988,6 +9028,7 @@
             string eventName = GetEventDisplayName(ev.Name);
             decimal totalDeposited = ev.InitialAmount;
             decimal totalSpent = 0;
+            decimal refundedAmount = 0;
             var items = new Dictionary<string, int>();
             var totals = new Dictionary<string, decimal>();
 
@@ -9015,7 +9056,7 @@
             else if (localB != null)
             {
                 eventName = localB.EventName;
-                totalDeposited = localB.Deposits.Sum();
+                totalDeposited = localB.Deposits.Where(d => d >= 0).Sum();
                 totalSpent = localB.TotalSpent;
                 items = localB.ItemSummary;
                 totals = localB.ItemTotals;
@@ -9086,7 +9127,7 @@
                 // dynamically generate the deposit entries from the initial amount and calculated total deposited.
                 if (totalDeposited > ev.InitialAmount)
                 {
-                    var printedSum = depositsToPrint.Sum(d => d.Amount);
+                    var printedSum = depositsToPrint.Where(d => d.Amount >= 0).Sum(d => d.Amount);
                     if (printedSum < totalDeposited)
                     {
                         if (depositsToPrint.Count <= 1)
@@ -9120,7 +9161,7 @@
                 }
 
                 decimal grossDeposited = 0;
-                decimal refundedAmount = 0;
+                refundedAmount = 0;
                 if (depositsToPrint.Any())
                 {
                     foreach (var dep in depositsToPrint)
@@ -9136,12 +9177,12 @@
                     grossDeposited = ev.InitialAmount;
                 }
 
-                if (depositsToPrint.Any())
+                if (depositsToPrint.Any(d => d.Amount >= 0))
                 {
-                    foreach (var dep in depositsToPrint)
+                    foreach (var dep in depositsToPrint.Where(d => d.Amount >= 0))
                     {
-                        var label = dep.IsInitial ? "INITIAL DEPOSIT" : (dep.Amount < 0 ? "FUNDS CORRECTION" : "ADDED FUNDS");
-                        var amtStr = dep.Amount < 0 ? $"-{Math.Abs(dep.Amount):C}" : $"{dep.Amount:C}";
+                        var label = dep.IsInitial ? "INITIAL DEPOSIT" : "ADDED FUNDS";
+                        var amtStr = $"{dep.Amount:C}";
                         var lineText = $"- {label} ({dep.Timestamp.ToLocalTime():MM/dd h:mm tt})";
                         ReceiptFormatter.AppendLine(sb, lineText, amtStr);
                     }
@@ -9156,7 +9197,7 @@
 
                 if (refundedAmount > 0)
                 {
-                    ReceiptFormatter.AppendLine(sb, "FUNDS RETURNED", $"-{refundedAmount:C}");
+                    ReceiptFormatter.AppendLine(sb, "UNUSED DEPOSIT RETURNED", $"-{refundedAmount:C}");
                 }
             }
 
@@ -9168,7 +9209,7 @@
                 foreach (var item in items.OrderByDescending(x => x.Value))
                 {
                     var itemTotal = totals.ContainsKey(item.Key) ? totals[item.Key] : 0;
-                    ReceiptFormatter.AppendLine(sb, $"{item.Key} (x{item.Value})", $"{itemTotal:C}");
+                    ReceiptFormatter.AppendLine(sb, $"{item.Value} x {item.Key}", $"{itemTotal:C}");
                 }
             }
             else
@@ -9176,7 +9217,7 @@
                 ReceiptFormatter.AppendCenter(sb, "No purchases recorded on tab.");
             }
 
-            var remaining = totalDeposited - totalSpent;
+            var remaining = totalDeposited - refundedAmount - totalSpent;
             ReceiptFormatter.AppendDivider(sb, '-');
 
             if (!isRunningTab)
@@ -9224,33 +9265,48 @@
 
         if (forceTrainingMode)
         {
-            var warningHeader = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-bottom:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
-            var warningFooter = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-top:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
-            
-            if (html.Contains("<body>"))
+            bool isHtmlFormat = html.Contains("<div") || html.Contains("<body") || html.Contains("<html") || html.Contains("<p");
+            if (isHtmlFormat)
             {
-                html = html.Replace("<body>", $"<body>{warningHeader}");
+                var warningHeader = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-bottom:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
+                var warningFooter = "<div style='text-align:center; font-weight:bold; font-size:1.1em; border: 2px dashed #dc2626; color:#dc2626; padding:8px; margin-top:15px; font-family:sans-serif;'>*** TRAINING MODE - NOT A REAL RECEIPT ***</div>";
+                
+                if (html.Contains("<body>"))
+                {
+                    html = html.Replace("<body>", $"<body>{warningHeader}");
+                }
+                else
+                {
+                    html = warningHeader + html;
+                }
+                
+                if (html.Contains("</body>"))
+                {
+                    html = html.Replace("</body>", $"{warningFooter}</body>");
+                }
+                else
+                {
+                    html = html + warningFooter;
+                }
             }
             else
             {
-                html = warningHeader + html;
-            }
-            
-            if (html.Contains("</body>"))
-            {
-                html = html.Replace("</body>", $"{warningFooter}</body>");
-            }
-            else
-            {
-                html = html + warningFooter;
+                // Plain text ESC/POS warning
+                var warningHeader = "******************************************\n" +
+                                    "***   TRAINING MODE - NOT A REAL   ***\n" +
+                                    "******************************************\n\n";
+                var warningFooter = "\n******************************************\n" +
+                                    "***   TRAINING MODE - NOT A REAL   ***\n" +
+                                    "******************************************\n";
+                html = warningHeader + html + warningFooter;
             }
         }
         await PrinterService.PrintReceiptAsync(html);
     }
 
-    private async Task LogTabDeposit(string eventName, decimal amount, int? eventId, bool isInitial = false, bool isCorrection = false)
+    private async Task LogTabDeposit(string eventName, decimal amount, int? eventId, bool isInitial = false, bool isCorrection = false, bool isRefund = false)
     {
-        var label = isInitial ? "INITIAL DEPOSIT" : (isCorrection ? "DEPOSIT CORRECTION" : "TAB DEPOSIT");
+        var label = isInitial ? "INITIAL DEPOSIT" : (isRefund ? "RETURNED FUNDS" : (isCorrection ? "DEPOSIT CORRECTION" : "TAB DEPOSIT"));
         var depositSale = new PosSaleDto
         {
             Id = Guid.NewGuid(),

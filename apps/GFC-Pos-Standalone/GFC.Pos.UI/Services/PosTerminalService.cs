@@ -172,7 +172,8 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 {
                                     bool isDeposit = data.ItemsJson.Contains("TAB DEPOSIT:") || 
                                                      data.ItemsJson.Contains("INITIAL DEPOSIT:") || 
-                                                     data.ItemsJson.Contains("DEPOSIT CORRECTION:");
+                                                     data.ItemsJson.Contains("DEPOSIT CORRECTION:") ||
+                                                     data.ItemsJson.Contains("RETURNED FUNDS:");
                                     
                                     // TRACK TOTALS
                                     if (!isDeposit)
@@ -241,7 +242,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
                                     foreach (var i in flatList)
                                     {
-                                        if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:"))
+                                        if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:") || i.Name.StartsWith("RETURNED FUNDS:"))
                                         {
                                             banquet.Deposits.Add(i.Price);
                                             banquet.EventType = "PrePaid";
@@ -255,7 +256,8 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                                 banquet.EventName = i.Name
                                                     .Replace("TAB DEPOSIT: ", "")
                                                     .Replace("DEPOSIT CORRECTION: ", "")
-                                                    .Replace("INITIAL DEPOSIT: ", "");
+                                                    .Replace("INITIAL DEPOSIT: ", "")
+                                                    .Replace("RETURNED FUNDS: ", "");
                                             }
                                         }
                                         else if (data.PaymentType == "TAB")
