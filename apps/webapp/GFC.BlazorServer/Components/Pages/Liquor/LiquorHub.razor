@@ -63,10 +63,6 @@
                                         </div>
                                         <div class="col-md-3 text-end">
                                             <div class="fw-black text-dark" style="font-size: 0.75rem;">@log.Timestamp.ToLocalTime().ToString("MMM dd, yyyy")</div>
-                                            <div class="extra-small text-muted mt-1">
-                                                By <span class="fw-bold">@(log.User?.Username ?? "Staff")</span>
-                                                <span class="opacity-50 ms-1 px-2 py-0 bg-white rounded-pill border">ID: @log.UserId</span>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -75,10 +71,8 @@
                     }
                 </div>
                 <div class="modal-footer bg-white p-3 border-top d-flex justify-content-between align-items-center">
-                        <div class="small text-muted">
-                        Connected as: <span class="fw-black text-dark">@(_currentUser?.Username ?? "Staff")</span> (ID: #@(_currentUser?.UserId.ToString() ?? "0"))
-                    </div>
-                        <button class="btn btn-primary px-5 rounded-pill fw-black shadow" @onclick="() => _showPriceHistoryModal = false">CLOSE LOG</button>
+                    <div></div>
+                    <button class="btn btn-primary px-5 rounded-pill fw-black shadow" @onclick="() => _showPriceHistoryModal = false">CLOSE LOG</button>
                 </div>
             </div>
         </div>
@@ -2445,7 +2439,7 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="small fw-bold text-muted mb-1">Invoice Number</label>
+                        <label class="small fw-bold text-muted mb-1">Invoice Number (Optional)</label>
                         <input type="text" class="form-control fw-bold" @bind="_receiveInvoiceNumber" @bind:event="oninput" placeholder="INV-0000..." />
                     </div>
                     <div class="col-md-6">
@@ -2480,8 +2474,8 @@
                 <button class="btn btn-light border fw-bold flex-grow-1" @onclick="() => _orderToReceive = null">Cancel</button>
                 <button class="btn btn-success fw-black flex-grow-1 shadow-sm" 
                         @onclick="() => ConfirmReceiptAsync()" 
-                        disabled="@(string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0)">
-                    @((string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) ? "ENTER INVOICE TO CONFIRM" : "CONFIRM RECEIVE")
+                        disabled="@(_receiveTotalDue <= 0)">
+                    @((_receiveTotalDue <= 0) ? "ENTER AMOUNT TO CONFIRM" : "CONFIRM RECEIVE")
                 </button>
             </div>
         </div>
@@ -3840,8 +3834,10 @@
     {
         if (_orderToReceive == null || _currentUser == null) return;
         
-        // Final sanity check for mandatory fields
-        if (string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) return;
+        // Final sanity check for mandatory fields (Invoice number is now optional)
+        if (_receiveTotalDue <= 0) return;
+        
+        var cleanInvoiceNumber = string.IsNullOrWhiteSpace(_receiveInvoiceNumber) ? "N/A" : _receiveInvoiceNumber.Trim();
         
         // Calculate discrepancy (Tax + Fees) on RECEIVED items only
         var receivedItemsTotal = _orderToReceive.OrderItems.Where(i => !i.IsBackordered).Sum(i => i.UnitPriceAtTimeOfOrder * i.Quantity);
@@ -3852,7 +3848,7 @@
         await LiquorService.UpdateOrderItemsBackorderAsync(_orderToReceive.Id, backorderedIds);
 
         // 1. Update order meta
-        await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", _receiveInvoiceNumber, 0, additionalCosts);
+        await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", cleanInvoiceNumber, 0, additionalCosts);
         
         // 2. Process stock arrival (Skips backordered items based on updated DB state)
         await LiquorService.ReceiveOrderAsync(_orderToReceive.Id, _currentUser.UserId);

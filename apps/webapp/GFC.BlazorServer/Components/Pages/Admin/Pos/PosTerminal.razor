@@ -22,6 +22,13 @@
 @inject HttpClient Http
 @implements IDisposable
 @attribute [Authorize]
+
+<HeadContent>
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/app.css" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/pos-terminal.css" />
+    <link rel="stylesheet" href="_content/GFC.Pos.UI/css/pos-terminal-print.css" />
+</HeadContent>
+
 <style>
     /* Sleek physical slate bezel layout for the administrator simulator */
     .pos-container {
@@ -5230,56 +5237,15 @@
             catch { }
         });
         
-        var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
-        if (!string.IsNullOrEmpty(trainingStored)) forceTrainingMode = bool.Parse(trainingStored);
-        
-        var voucherStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_payout_voucher");
-        if (!string.IsNullOrEmpty(voucherStored)) _printPayoutVoucher = bool.Parse(voucherStored);
-
         // HARDENED LOAD: The source of truth is now the Database (Shift Log)
         await UpdateAuditAsync();
         
-        var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
-        if (!string.IsNullOrEmpty(hardwareStored)) allowHardwareInTraining = bool.Parse(hardwareStored);
-
-        // Load Payout Categories
-        try
-        {
-            var payoutCatsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_payout_categories");
-            if (!string.IsNullOrEmpty(payoutCatsStored))
-            {
-                _payoutCategories = JsonSerializer.Deserialize<List<string>>(payoutCatsStored) ?? new();
-            }
-            if (_payoutCategories == null || !_payoutCategories.Any())
-            {
-                _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_payout_categories", JsonSerializer.Serialize(_payoutCategories));
-            }
-        }
-        catch
-        {
-            _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
-        }
-
-
-
         Connectivity.ConnectivityChanged += OnConnectivityChanged;
         PosService.OutboxChanged += OnOutboxChanged;
         PosService.MenuRefreshed += OnMenuRefreshed;
         
         await PosService.GetTotalPendingAsync();
         
-        // Load Idle Settings
-        var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
-        if (int.TryParse(idleStored, out var mins)) _idleTimeoutMinutes = mins;
-
-        // Load Last Sale Bar Setting
-        var lastBarStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_show_last_sale_bar");
-        if (!string.IsNullOrEmpty(lastBarStored)) _showLastSaleBar = bool.Parse(lastBarStored);
-
-        var bannerDurationStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_change_due_banner_duration");
-        if (!string.IsNullOrEmpty(bannerDurationStored) && int.TryParse(bannerDurationStored, out var durVal)) _changeDueBannerDurationSeconds = durVal;
-
         // [AUTO-REFRESH] Background poll for new users and security checks
         _ = StartAuthPolling();
 
@@ -5287,27 +5253,129 @@
         var audit = await PosService.GetShiftAuditAsync();
         _lastSale = audit.LatestSale;
 
-        // Initialize Activity Tracker
-        await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
-
-        // Initialize Card Scanner
-        await JSRuntime.InvokeVoidAsync("GfcCardScanner.initialize", DotNetObjectReference.Create(this));
-
-        // [INSTANT-UPDATE] Check for update immediately on startup
-        _ = Task.Run(async () => {
-            await Task.Delay(2000); 
-            await CheckForUpdatesAsync();
-        });
-
         // Initialize Popular Items for current business day
         _lastResetCheck = DateTime.Now;
         var dayStart = GetBusinessDayStart();
-        var allSales = await PosService.GetShiftAuditAsync(); 
         // For now, we initialize fresh or rely on the shift-persistence.
         UpdateSpeedBar();
+    }
 
-        // Initialize draw audio system early so window.gfcDrawAudio is ready for user gestures
-        await InitializeDrawAudio();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Register fallback implementations for missing scanner/idle tracker if they don't exist
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                if (!window.GfcCardScanner) {
+                    let cardBuffer = '';
+                    let lastKeyTime = 0;
+                    window.GfcCardScanner = {
+                        initialize: (dotnetObj) => {
+                            window.addEventListener('keydown', (e) => {
+                                const now = Date.now();
+                                if (cardBuffer.length > 0 && (now - lastKeyTime) > 250) {
+                                    cardBuffer = ''; 
+                                }
+                                lastKeyTime = now;
+                                if (e.key === 'Enter') {
+                                    if (cardBuffer.length >= 5) { 
+                                        e.preventDefault();
+                                        console.log('[SCANNER] Card Detected:', cardBuffer.length, 'digits');
+                                        dotnetObj.invokeMethodAsync('OnCardScanned', cardBuffer);
+                                    }
+                                    cardBuffer = '';
+                                } else if (e.key.length === 1 && /[0-9]/.test(e.key)) {
+                                    cardBuffer += e.key;
+                                }
+                            }, { passive: false });
+                        }
+                    };
+                }
+                if (!window.GfcIdleTracker) {
+                    window.GfcIdleTracker = {
+                        initialize: (dotnetObj) => {
+                            const reset = () => dotnetObj.invokeMethodAsync('ResetIdleTimer');
+                            ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => 
+                                window.addEventListener(evt, reset, { passive: true })
+                            );
+                        }
+                    };
+                }
+            ");
+
+            var trainingStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_training_mode");
+            if (!string.IsNullOrEmpty(trainingStored)) {
+                forceTrainingMode = bool.Parse(trainingStored);
+                StateHasChanged();
+            }
+            
+            var voucherStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_payout_voucher");
+            if (!string.IsNullOrEmpty(voucherStored)) {
+                _printPayoutVoucher = bool.Parse(voucherStored);
+                StateHasChanged();
+            }
+            
+            var hardwareStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_hardware_practice");
+            if (!string.IsNullOrEmpty(hardwareStored)) {
+                allowHardwareInTraining = bool.Parse(hardwareStored);
+                StateHasChanged();
+            }
+
+            // Load Payout Categories
+            try
+            {
+                var payoutCatsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_payout_categories");
+                if (!string.IsNullOrEmpty(payoutCatsStored))
+                {
+                    _payoutCategories = JsonSerializer.Deserialize<List<string>>(payoutCatsStored) ?? new();
+                }
+                if (_payoutCategories == null || !_payoutCategories.Any())
+                {
+                    _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_payout_categories", JsonSerializer.Serialize(_payoutCategories));
+                }
+            }
+            catch
+            {
+                _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+            }
+            StateHasChanged();
+
+            // Load Idle Settings
+            var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
+            if (int.TryParse(idleStored, out var mins)) {
+                _idleTimeoutMinutes = mins;
+                StateHasChanged();
+            }
+
+            // Load Last Sale Bar Setting
+            var lastBarStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_show_last_sale_bar");
+            if (!string.IsNullOrEmpty(lastBarStored)) {
+                _showLastSaleBar = bool.Parse(lastBarStored);
+                StateHasChanged();
+            }
+
+            var bannerDurationStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_change_due_banner_duration");
+            if (!string.IsNullOrEmpty(bannerDurationStored) && int.TryParse(bannerDurationStored, out var durVal)) {
+                _changeDueBannerDurationSeconds = durVal;
+                StateHasChanged();
+            }
+
+            // Initialize Activity Tracker
+            await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
+
+            // Initialize Card Scanner
+            await JSRuntime.InvokeVoidAsync("GfcCardScanner.initialize", DotNetObjectReference.Create(this));
+
+            // [INSTANT-UPDATE] Check for update immediately on startup
+            _ = Task.Run(async () => {
+                await Task.Delay(2000); 
+                await CheckForUpdatesAsync();
+            });
+
+            // Initialize draw audio system early so window.gfcDrawAudio is ready for user gestures
+            await InitializeDrawAudio();
+        }
     }
     
     [JSInvokable]
