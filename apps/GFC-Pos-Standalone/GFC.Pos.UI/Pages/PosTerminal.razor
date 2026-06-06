@@ -6347,7 +6347,7 @@
             // Fully covered: price becomes 0, no negative credit line clutter
             string cleanName = item.Name.Replace(" (CREDITED)", "");
             string newName = _dynamicTokenMode
-                ? $"{_pendingTokenForCredit.Name.ToUpper()} REDEEMED FOR {cleanName.ToUpper()} (TOKEN REDEEMED)"
+                ? $"{cleanName} ({_pendingTokenForCredit.Name.Replace(" TOKEN", "").Replace(" Token", "")}) (TOKEN REDEEMED)"
                 : $"{cleanName} (TOKEN REDEEMED)";
 
             if (item.Quantity > 1) 
@@ -7632,6 +7632,14 @@
         var payoutLines = new List<(string label, string amount)>();
         var regularSalesSummary = new Dictionary<string, int>(salesSummary);
 
+        // Extract No Sale count
+        int noSaleCount = 0;
+        if (regularSalesSummary.ContainsKey("NO SALE (Drawer Open)"))
+        {
+            noSaleCount = regularSalesSummary["NO SALE (Drawer Open)"];
+            regularSalesSummary.Remove("NO SALE (Drawer Open)");
+        }
+
         foreach (var kvp in salesSummary)
         {
             if (kvp.Key.StartsWith("PAYOUT:"))
@@ -7677,11 +7685,24 @@
             .Select(kvp => {
                 var cleanKey = kvp.Key;
                 if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
+                if (cleanKey.Contains(" (TOKEN SALE)")) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
+                if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
+                
                 var product = DbItems.FirstOrDefault(i => i.Name == cleanKey);
                 var category = product?.Category;
                 if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
+                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN")) category = "TOKENS";
+                
                 decimal price = product?.Price ?? 0;
+                if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
+                {
+                    var token = DbTokens.FirstOrDefault(t => t.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
+                    if (token != null)
+                    {
+                        price = token.SalePrice;
+                    }
+                }
+                
                 if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
                 {
                     var tokenPart = kvp.Key.Substring(2, kvp.Key.IndexOf(" TOKEN CREDIT FOR ") - 2).Trim();
@@ -7714,12 +7735,23 @@
             ReceiptFormatter.AppendLine(sb, "TOKEN CREDITS", $"-{tokenCredits:C}");
         if (payoutTotal > 0)
             ReceiptFormatter.AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
+        if (noSaleCount > 0)
+            ReceiptFormatter.AppendLine(sb, "NO SALE COUNT", noSaleCount.ToString());
         ReceiptFormatter.AppendBlank(sb);
-        ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
-        ReceiptFormatter.AppendLine(sb, "EXPECTED CASH", $"{(z.CashTotal - payoutTotal):C}");
-        ReceiptFormatter.AppendBlank(sb);
-        foreach (var wl in ReceiptFormatter.WrapText("* Expected cash = Cash Sales minus Payouts.", 0))
-            sb.Append(wl).Append('\n');
+        
+        if (payoutTotal > 0)
+        {
+            ReceiptFormatter.AppendLine(sb, "CASH SALES", $"{z.CashTotal:C}");
+            ReceiptFormatter.AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
+            ReceiptFormatter.AppendLine(sb, "EXPECTED CASH IN DRAWER", $"{(z.CashTotal - payoutTotal):C}");
+            ReceiptFormatter.AppendBlank(sb);
+            foreach (var wl in ReceiptFormatter.WrapText("* Expected cash in drawer = Cash Sales minus Payouts.", 0))
+                sb.Append(wl).Append('\n');
+        }
+        else
+        {
+            ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
+        }
 
         // Payouts detail
         if (payoutLines.Any())
@@ -7946,7 +7978,23 @@
                     await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
                 }
                 catch {}
-                await PrintReceiptAsync(html);
+                
+                // Execute print in background
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        if (!forceTrainingMode || allowHardwareInTraining)
+                        {
+                            await PrinterService.KickDrawerAsync();
+                        }
+                        await PrintReceiptAsync(html);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS] Z-Report background print failed: {ex.Message}");
+                    }
+                });
             }
         }
 

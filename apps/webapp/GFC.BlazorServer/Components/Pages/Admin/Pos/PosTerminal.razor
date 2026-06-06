@@ -7322,6 +7322,14 @@
         decimal payoutTotal = 0;
         var payoutRowsList = new List<string>();
         var regularSalesSummary = new Dictionary<string, int>(salesSummary);
+
+        // Extract No Sale count
+        int noSaleCount = 0;
+        if (regularSalesSummary.ContainsKey("NO SALE (Drawer Open)"))
+        {
+            noSaleCount = regularSalesSummary["NO SALE (Drawer Open)"];
+            regularSalesSummary.Remove("NO SALE (Drawer Open)");
+        }
         
         foreach (var kvp in salesSummary)
         {
@@ -7381,13 +7389,23 @@
             .Select(kvp => {
                 var cleanKey = kvp.Key;
                 if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
+                if (cleanKey.Contains(" (TOKEN SALE)")) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
+                if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
                 
                 var product = DbItems.FirstOrDefault(i => i.Name == cleanKey);
                 var category = product?.Category;
                 if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
+                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN")) category = "TOKENS";
                 
                 decimal price = product?.Price ?? 0;
+                if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
+                {
+                    var token = DbTokens.FirstOrDefault(t => t.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
+                    if (token != null)
+                    {
+                        price = token.SalePrice;
+                    }
+                }
                 
                 // Dynamically resolve negative token credit prices for upgrade lines
                 if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
@@ -7507,10 +7525,14 @@
                         <div style='display:flex; justify-content:space-between; font-weight:bold; color: #b45309; margin-top:2px;'>
                             <span>TOTAL PAYOUTS:</span><span>- {payoutTotal:C}</span>
                         </div>" : "")}
+                    {(noSaleCount > 0 ? $@"
+                        <div style='display:flex; justify-content:space-between; font-weight:bold; color: #475569; margin-top:2px;'>
+                            <span>NO SALE COUNT:</span><span>{noSaleCount}</span>
+                        </div>" : "")}
                     <div style='display:flex; justify-content:space-between; font-weight:bold; border-top: 1px solid #000; margin-top:4px; padding-top:4px;'>
-                        <span>EXPECTED CASH:</span><span>{(z.CashTotal - payoutTotal):C}</span>
+                        <span>{(payoutTotal > 0 ? "EXPECTED CASH IN DRAWER:" : "CASH IN DRAWER:")}</span><span>{(z.CashTotal - payoutTotal):C}</span>
                     </div>
-                    <div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Expected cash in drawer equals Cash Sales minus Payouts.</div>
+                    {(payoutTotal > 0 ? "<div style='font-size:0.7em; margin-top:4px; opacity:0.8;'>* Expected cash in drawer equals Cash Sales minus Payouts.</div>" : "")}
                 </div>
 
                 {(payoutRowsList.Any() ? $@"
@@ -7681,7 +7703,23 @@
                     await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
                 }
                 catch {}
-                await PrinterService.PrintReceiptAsync(html);
+
+                // Execute print in background
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        if (!forceTrainingMode || allowHardwareInTraining)
+                        {
+                            await PrinterService.KickDrawerAsync();
+                        }
+                        await PrinterService.PrintReceiptAsync(html);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS] Z-Report background print failed: {ex.Message}");
+                    }
+                });
             }
         }
 
