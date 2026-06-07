@@ -9,6 +9,7 @@
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @inject GFC.BlazorServer.Services.IToastService ToastService
 @inject NavigationManager Navigation
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
 
 <PageTitle>POS Menu Manager | GFC</PageTitle>
 
@@ -795,6 +796,10 @@
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Name</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Retail Price</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Current Cat</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Sold by Unit</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 100px;">Pack Size</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Loose Audit</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 180px;">Inventory Override</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Show in POS</th>
                                             <th class="text-end px-4">Actions</th>
                                         </tr>
@@ -813,7 +818,7 @@
                                                     @item.Name
                                                     @if (!item.IsActive)
                                                     {
-                                                        <span class="badge bg-danger rounded-pill extra-small ms-2" style="font-size: 0.6rem;">INACTIVE IN HUB</span>
+                                                         <span class="badge bg-danger rounded-pill extra-small ms-2" style="font-size: 0.6rem;">INACTIVE IN HUB</span>
                                                     }
                                                 </td>
                                                 <td class="py-2 px-4 text-center">
@@ -834,6 +839,38 @@
                                                 <td class="py-2 px-4 text-center text-muted small">@item.Category</td>
                                                 <td class="py-2 px-4 text-center">
                                                     <div class="form-check form-switch d-flex justify-content-center">
+                                                        <input class="form-check-input" type="checkbox" checked="@item.IsUnitBased" 
+                                                               @onchange="(e) => ToggleIsUnitBased(item, e.Value)" />
+                                                    </div>
+                                                </td>
+                                                <td class="py-2 px-4 text-center fw-bold text-muted small">
+                                                    @item.PackSize
+                                                </td>
+                                                <td class="py-2 px-4 text-center">
+                                                    @if (item.PackSize > 1)
+                                                    {
+                                                        <div class="form-check form-switch d-flex justify-content-center">
+                                                            <input class="form-check-input" type="checkbox" checked="@item.AllowLooseReconciliation" 
+                                                                   @onchange="(e) => ToggleAllowLooseReconciliation(item, e.Value)" />
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted small">N/A</span>
+                                                    }
+                                                </td>
+                                                <td class="py-2 px-4 text-center">
+                                                    <select class="form-select form-select-sm fw-bold border-2" 
+                                                            value="@item.InventoryTrackType" 
+                                                            @onchange="@((e) => UpdateItemInventoryTrackType(item, e.Value))">
+                                                        <option value="0">Inherited</option>
+                                                        <option value="1">None (No Track)</option>
+                                                        <option value="2">Liquor Hub</option>
+                                                        <option value="3">General/Food</option>
+                                                    </select>
+                                                </td>
+                                                <td class="py-2 px-4 text-center">
+                                                    <div class="form-check form-switch d-flex justify-content-center">
                                                         <input class="form-check-input" type="checkbox" checked="@item.ShowInPos" 
                                                                @onchange="(e) => ToggleShowInPos(item, e.Value)" />
                                                     </div>
@@ -841,7 +878,7 @@
                                                 <td class="py-2 px-4 text-end">
                                                     <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => OpenEditItemModal(item)">Edit</button>
                                                 </td>
-                                            </tr>
+                                             </tr>
                                         }
                                     </tbody>
                             </table>
@@ -1027,33 +1064,115 @@
 @if (editingItem != null)
 {
     <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-dialog-centered @(showFullInventoryDetails ? "modal-lg" : "")">
             <div class="modal-content border-0 shadow-lg rounded-4">
                 <div class="modal-header border-0 pb-0">
                     <h5 class="modal-title fw-bold">@(editingItem.Id == 0 ? "Add Item" : "Edit Item")</h5>
                     <button type="button" class="btn-close" @onclick="() => editingItem = null"></button>
                 </div>
                 <div class="modal-body py-4">
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-muted text-uppercase">Item Name</label>
-                        <input type="text" class="form-control rounded-3 border-2" @bind="editingItem.Name" />
+                    <!-- Toggle switch for Minimum vs Full details -->
+                    <div class="form-check form-switch bg-light p-3 rounded-3 border mb-4 d-flex justify-content-between align-items-center">
+                        <label class="form-check-label fw-bold text-dark mb-0" for="fullInventoryDetailsSwitch" style="cursor: pointer;">
+                            <i class="bi bi-list-task text-primary me-2"></i> Show Full Inventory Details
+                        </label>
+                        <input class="form-check-input ms-0" type="checkbox" id="fullInventoryDetailsSwitch" @bind="showFullInventoryDetails" style="width: 40px; height: 20px; cursor: pointer;" />
                     </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase">Retail Price</label>
-                                <div class="input-group">
-                                    <span class="input-group-text">$</span>
-                                    <input type="number" step="0.01" class="form-control" @bind="editingItem.RetailPrice" />
+
+                    @if (!showFullInventoryDetails)
+                    {
+                        <!-- Minimum Details Layout -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-muted text-uppercase">Item Name</label>
+                            <input type="text" class="form-control rounded-3 border-2" @bind="editingItem.Name" />
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-muted text-uppercase">Retail Price</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" step="0.01" class="form-control" @bind="editingItem.RetailPrice" />
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase">Category</label>
-                                <select class="form-select border-2" @bind="editingItem.Category">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-muted text-uppercase">Category</label>
+                                    <select class="form-select border-2" @bind="editingItem.Category">
+                                        <option value="">-- NO CATEGORY --</option>
+                                        @if (categories != null)
+                                        {
+                                            @foreach (var cat in categories)
+                                            {
+                                                <option value="@cat.Name">@cat.Name</option>
+                                            }
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-muted text-uppercase">Inventory Override</label>
+                                    <select class="form-select border-2 fw-bold" @bind="editingItem.InventoryTrackType">
+                                        <option value="0">Inherit Category Setting</option>
+                                        <option value="1">None (Do Not Track)</option>
+                                        <option value="2">Track in Liquor Hub</option>
+                                        <option value="3">Track in General/Food</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="extra-small text-muted mb-3 bg-light p-2 rounded-3 border" style="font-size: 0.75rem; line-height: 1.35;">
+                            <i class="bi bi-info-circle-fill text-primary me-1"></i>
+                            <span>
+                                @if (editingItem.InventoryTrackType == 0)
+                                {
+                                    var matchedCat = categories?.FirstOrDefault(c => c.Name.Equals(editingItem.Category, StringComparison.OrdinalIgnoreCase));
+                                    <text>Currently inheriting default tracking: </text>
+                                    @if (matchedCat == null || matchedCat.InventoryTrackType == 0) { <strong class="text-danger">None (Not Tracked)</strong> }
+                                    else if (matchedCat.InventoryTrackType == 1) { <strong class="text-primary">Liquor Hub</strong> }
+                                    else if (matchedCat.InventoryTrackType == 2) { <strong class="text-success">Food/General Inventory</strong> }
+                                }
+                                else if (editingItem.InventoryTrackType == 1) { <strong class="text-danger">None (Do Not Track)</strong><text> - Excluded from all stock lists.</text> }
+                                else if (editingItem.InventoryTrackType == 2) { <strong class="text-primary">Liquor Hub</strong><text> - Overridden to track in Liquor Hub.</text> }
+                                else if (editingItem.InventoryTrackType == 3) { <strong class="text-success">Food/General</strong><text> - Overridden to track in General Inventory.</text> }
+                            </span>
+                        </div>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="showInPosSwitch" @bind="editingItem.ShowInPos" />
+                            <label class="form-check-label fw-bold small text-muted text-uppercase" for="showInPosSwitch">Show in POS Terminal</label>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- Full Inventory Details Layout (Liquor Hub Style) -->
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="small fw-bold text-muted mb-1">Product Name</label>
+                                <input type="text" class="form-control rounded-pill border-2" @bind="editingItem.Name" placeholder="e.g. Grey Goose" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="small fw-bold text-muted mb-1">Bottle/Can Size</label>
+                                <select class="form-select rounded-pill border-2" @bind="editingItem.BottleSize">
+                                    <option value="">-- Choose Size --</option>
+                                    <option value="50ml">50ml</option>
+                                    <option value="187ml">187ml</option>
+                                    <option value="355ml">355ml</option>
+                                    <option value="375ml">375ml</option>
+                                    <option value="750ml">750ml</option>
+                                    <option value="1L">1L</option>
+                                    <option value="1.75L">1.75L</option>
+                                    <option value="12oz">12oz (Can/Bottle)</option>
+                                    <option value="16oz">16oz (Pint)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Category</label>
+                                <select class="form-select rounded-pill border-2" @bind="editingItem.Category">
                                     <option value="">-- NO CATEGORY --</option>
                                     @if (categories != null)
                                     {
@@ -1064,39 +1183,120 @@
                                     }
                                 </select>
                             </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase">Inventory Override</label>
-                                <select class="form-select border-2 fw-bold" @bind="editingItem.InventoryTrackType">
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Inventory Override</label>
+                                <select class="form-select rounded-pill border-2 fw-bold" @bind="editingItem.InventoryTrackType">
                                     <option value="0">Inherit Category Setting</option>
                                     <option value="1">None (Do Not Track)</option>
                                     <option value="2">Track in Liquor Hub</option>
                                     <option value="3">Track in General/Food</option>
                                 </select>
                             </div>
-                        </div>
-                    </div>
-                    <div class="extra-small text-muted mb-3 bg-light p-2 rounded-3 border" style="font-size: 0.75rem; line-height: 1.35;">
-                        <i class="bi bi-info-circle-fill text-primary me-1"></i>
-                        <span>
-                            @if (editingItem.InventoryTrackType == 0)
+
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Pack Size</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.PackSize" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Primary Vendor</label>
+                                <select class="form-select rounded-pill border-2" @bind="editingItem.VendorId">
+                                    <option value="">-- No Vendor --</option>
+                                    @if (vendors != null)
+                                    {
+                                        @foreach (var v in vendors) { <option value="@v.Id">@v.Name</option> }
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="form-check form-switch bg-light p-3 rounded-pill border ms-0">
+                                    <input class="form-check-input ms-0 me-2" type="checkbox" id="isUnitBasedNew" @bind="editingItem.IsUnitBased">
+                                    <label class="form-check-label fw-bold text-dark small" for="isUnitBasedNew">
+                                        Sold by Unit (e.g., Red Bull, High Noon, Beer)
+                                    </label>
+                                </div>
+                            </div>
+
+                            @if (editingItem.IsUnitBased)
                             {
-                                var matchedCat = categories?.FirstOrDefault(c => c.Name.Equals(editingItem.Category, StringComparison.OrdinalIgnoreCase));
-                                <text>Currently inheriting default tracking: </text>
-                                @if (matchedCat == null || matchedCat.InventoryTrackType == 0) { <strong class="text-danger">None (Not Tracked)</strong> }
-                                else if (matchedCat.InventoryTrackType == 1) { <strong class="text-primary">Liquor Hub</strong> }
-                                else if (matchedCat.InventoryTrackType == 2) { <strong class="text-success">Food/General Inventory</strong> }
+                                <div class="col-12">
+                                     <div class="alert alert-info rounded-4 border-0 d-flex align-items-center gap-3 py-3 mb-2 animate-fade-in shadow-sm">
+                                         <div class="bg-white p-2 rounded-3 text-info shadow-sm">
+                                             <i class="bi bi-box-seam-fill fs-5"></i>
+                                         </div>
+                                         <div>
+                                             <div class="fw-black text-uppercase text-info mb-1" style="font-size: 0.65rem;">Pack Size Required</div>
+                                             <p class="mb-0 text-muted fw-bold" style="font-size: 0.6rem; line-height: 1.2;">Please specify how many individual units come in a case (e.g. 24 for beer cases) in the Pack Size field above.</p>
+                                         </div>
+                                     </div>
+                                </div>
                             }
-                            else if (editingItem.InventoryTrackType == 1) { <strong class="text-danger">None (Do Not Track)</strong><text> - Excluded from all stock lists.</text> }
-                            else if (editingItem.InventoryTrackType == 2) { <strong class="text-primary">Liquor Hub</strong><text> - Overridden to track in Liquor Hub.</text> }
-                            else if (editingItem.InventoryTrackType == 3) { <strong class="text-success">Food/General</strong><text> - Overridden to track in General Inventory.</text> }
-                        </span>
-                    </div>
-                    <div class="form-check form-switch mt-2">
-                        <input class="form-check-input" type="checkbox" id="showInPosSwitch" @bind="editingItem.ShowInPos" />
-                        <label class="form-check-label fw-bold small text-muted text-uppercase" for="showInPosSwitch">Show in POS Terminal</label>
-                    </div>
+
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Min Stock Limit</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.MinStockLimit" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Bottle/Case Cost ($)</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.CurrentPrice" step="0.01" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Min Order Qty</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.MinimumOrderQuantity" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Drink Price (Retail Price) ($)</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.RetailPrice" step="0.01" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Shot oz</label>
+                                <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="editingItem.PourSize" step="0.1" disabled="@editingItem.IsUnitBased" />
+                            </div>
+                            @if (editingItem.PackSize > 1)
+                            {
+                                <div class="col-md-6 d-flex align-items-end">
+                                    <div class="form-check form-switch bg-light p-3 rounded-pill border ms-0 w-100">
+                                        <input class="form-check-input ms-0 me-2" type="checkbox" id="allowLooseNew" @bind="editingItem.AllowLooseReconciliation">
+                                        <label class="form-check-label fw-bold text-dark small" for="allowLooseNew">
+                                            Allow Loose (Bottles) Audit
+                                        </label>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="col-12 mt-2">
+                                <div class="bg-light p-3 rounded-4 border">
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between mb-2">
+                                        <div>
+                                            <h6 class="fw-black text-uppercase mb-0" style="font-size: 0.75rem;">Product is Active</h6>
+                                            <p class="extra-small text-muted mb-0" style="font-size: 0.65rem;">Uncheck to hide from inventory lists</p>
+                                        </div>
+                                        <input class="form-check-input ms-0" type="checkbox" style="width: 40px; height: 20px;" @bind="editingItem.IsActive" id="itemActiveCheckNew">
+                                    </div>
+
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between mb-2">
+                                        <div>
+                                            <h6 class="fw-black text-uppercase mb-0 text-primary" style="font-size: 0.75rem;">Product is Beer</h6>
+                                            <p class="extra-small text-muted mb-0" style="font-size: 0.65rem;">Adds bottle return fee on orders</p>
+                                        </div>
+                                        <input class="form-check-input ms-0" type="checkbox" style="width: 40px; height: 20px;" @bind="editingItem.IsBeer" id="itemBeerCheckNew">
+                                    </div>
+
+                                    <hr class="my-2 opacity-10" />
+
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
+                                        <div>
+                                            <h6 class="fw-black text-uppercase mb-0 text-success" style="font-size: 0.75rem;">Show in POS Terminal</h6>
+                                            <p class="extra-small text-muted mb-0" style="font-size: 0.65rem;">Make visible for sales at the bar</p>
+                                        </div>
+                                        <input class="form-check-input ms-0" type="checkbox" style="width: 40px; height: 20px;" @bind="editingItem.ShowInPos" id="itemPosCheckNew">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer border-0 pt-0">
                     <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => editingItem = null">Cancel</button>
@@ -1838,11 +2038,36 @@
     private string newPayoutCategory = "";
 
     private LiquorItem? editingItem;
+    private bool showFullInventoryDetails = false;
+    private List<LiquorVendor> vendors = new();
+    private SystemSettings? systemSettings;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadProfiles();
         await LoadPayoutCategories();
+        await LoadVendors();
+        try
+        {
+            systemSettings = await SystemSettingsService.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS Menu Manager] Failed to load system settings: {ex.Message}");
+        }
+    }
+
+    private async Task LoadVendors()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            vendors = await db.LiquorVendors.OrderBy(v => v.Name).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to load vendors: {ex.Message}");
+        }
     }
 
     private void GoBack()
@@ -2570,13 +2795,21 @@
 
     private void OpenAddItemModal()
     {
+        decimal globalPour = systemSettings?.GlobalLiquorPourSize ?? 1.5m;
         editingItem = new LiquorItem 
         { 
             Category = selectedCategory?.Name ?? "LIQUOR", 
             IsActive = true,
             ShowInPos = true,
-            Name = ""
+            Name = "",
+            PackSize = 1,
+            MinStockLimit = 2,
+            MinimumOrderQuantity = 1,
+            PourSize = globalPour,
+            IsUnitBased = false,
+            IsBeer = false
         };
+        showFullInventoryDetails = false;
     }
 
     private void OpenEditItemModal(LiquorItem item)
@@ -2586,12 +2819,28 @@
         {
             Id = item.Id,
             Name = item.Name,
-            RetailPrice = item.RetailPrice,
+            Description = item.Description,
+            UpcCode = item.UpcCode,
+            BottleSize = item.BottleSize,
             Category = item.Category,
-            IsActive = true,
+            ImageUrl = item.ImageUrl,
+            VendorId = item.VendorId,
+            CurrentPrice = item.CurrentPrice,
+            CurrentStock = item.CurrentStock,
+            MinStockLimit = item.MinStockLimit,
+            MinimumOrderQuantity = item.MinimumOrderQuantity,
+            PackSize = item.PackSize,
+            RetailPrice = item.RetailPrice,
+            PourSize = item.PourSize,
+            IsUnitBased = item.IsUnitBased,
+            InventoryTrackType = item.InventoryTrackType,
+            IsActive = item.IsActive,
+            IsBeer = item.IsBeer,
             ShowInPos = item.ShowInPos,
-            InventoryTrackType = item.InventoryTrackType
+            AllowLooseReconciliation = item.AllowLooseReconciliation,
+            DisplayOrder = item.DisplayOrder
         };
+        showFullInventoryDetails = false;
     }
 
     private async Task UpdateItemOrder(LiquorItem item, object? val)
@@ -2682,7 +2931,17 @@
             using var db = await DbFactory.CreateDbContextAsync();
             if (editingItem.Id == 0)
             {
-                editingItem.IsActive = true; 
+                if (!showFullInventoryDetails)
+                {
+                    decimal globalPour = systemSettings?.GlobalLiquorPourSize ?? 1.5m;
+                    editingItem.PackSize = 1;
+                    editingItem.MinStockLimit = 2;
+                    editingItem.MinimumOrderQuantity = 1;
+                    editingItem.PourSize = globalPour;
+                    editingItem.IsUnitBased = false;
+                    editingItem.IsActive = true;
+                    editingItem.IsBeer = false;
+                }
                 db.LiquorItems.Add(editingItem);
                 await ToastService.ShowSuccess("Item added successfully.");
             }
@@ -2696,7 +2955,26 @@
                     original.Category = editingItem.Category;
                     original.ShowInPos = editingItem.ShowInPos;
                     original.InventoryTrackType = editingItem.InventoryTrackType;
-                    original.IsActive = true; 
+                    
+                    if (showFullInventoryDetails)
+                    {
+                        original.BottleSize = editingItem.BottleSize;
+                        original.PackSize = editingItem.PackSize;
+                        original.IsUnitBased = editingItem.IsUnitBased;
+                        original.VendorId = editingItem.VendorId;
+                        original.MinStockLimit = editingItem.MinStockLimit;
+                        original.CurrentPrice = editingItem.CurrentPrice;
+                        original.MinimumOrderQuantity = editingItem.MinimumOrderQuantity;
+                        original.PourSize = editingItem.PourSize;
+                        original.IsActive = editingItem.IsActive;
+                        original.IsBeer = editingItem.IsBeer;
+                        original.AllowLooseReconciliation = editingItem.AllowLooseReconciliation;
+                    }
+                    else
+                    {
+                        original.IsActive = true;
+                    }
+                    
                     db.LiquorItems.Update(original);
                 }
                 await ToastService.ShowSuccess("Item updated.");
@@ -2710,6 +2988,81 @@
         catch (Exception ex)
         {
             await ToastService.ShowError($"Failed to save: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateItemInventoryTrackType(LiquorItem item, object? val)
+    {
+        if (val != null && int.TryParse(val.ToString(), out var trackType))
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.InventoryTrackType = trackType;
+                    await db.SaveChangesAsync();
+                    item.InventoryTrackType = trackType;
+                    await ToastService.ShowSuccess($"Inventory override updated for {item.Name}");
+                }
+                await LoadCategories();
+                await ReloadItems(silent: true);
+            }
+            catch (Exception ex)
+            {
+                await ToastService.ShowError($"Error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task ToggleIsUnitBased(LiquorItem item, object? val)
+    {
+        if (val is bool isChecked)
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.IsUnitBased = isChecked;
+                    await db.SaveChangesAsync();
+                    item.IsUnitBased = isChecked;
+                    await ToastService.ShowSuccess($"Sold by unit setting updated for {item.Name}");
+                }
+                await LoadCategories();
+                await ReloadItems(silent: true);
+            }
+            catch (Exception ex)
+            {
+                await ToastService.ShowError($"Error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task ToggleAllowLooseReconciliation(LiquorItem item, object? val)
+    {
+        if (val is bool isChecked)
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.AllowLooseReconciliation = isChecked;
+                    await db.SaveChangesAsync();
+                    item.AllowLooseReconciliation = isChecked;
+                    await ToastService.ShowSuccess($"Loose audit settings updated for {item.Name}");
+                }
+                await LoadCategories();
+                await ReloadItems(silent: true);
+            }
+            catch (Exception ex)
+            {
+                await ToastService.ShowError($"Error: {ex.Message}");
+            }
         }
     }
 
