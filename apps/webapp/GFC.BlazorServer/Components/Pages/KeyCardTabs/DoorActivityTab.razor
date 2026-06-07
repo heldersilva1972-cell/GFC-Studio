@@ -585,12 +585,23 @@
                 Logger.LogInformation("Filtering by DoorId={DoorId}", _selectedDoorId);
             }
             
-            var events = await query
-                .Skip(isAutoRefresh ? 0 : _currentPage * PageSize) // If auto-refreshing, always fetch top page
-                .Take(PageSize) // If auto-refreshing, maybe only fetch page size or current count?
-                .Include(e => e.Controller)
-                .Include(e => e.Door)
-                .ToListAsync();
+            List<ControllerEvent> events;
+            if (_timeRange == "all")
+            {
+                events = await query
+                    .Skip(isAutoRefresh ? 0 : _currentPage * PageSize)
+                    .Take(PageSize)
+                    .Include(e => e.Controller)
+                    .Include(e => e.Door)
+                    .ToListAsync();
+            }
+            else
+            {
+                events = await query
+                    .Include(e => e.Controller)
+                    .Include(e => e.Door)
+                    .ToListAsync();
+            }
             
             Logger.LogInformation("Query returned {Count} events (Page={Page}, PageSize={PageSize})", 
                 events.Count, _currentPage, PageSize);
@@ -680,12 +691,12 @@
                 _activities.AddRange(newActivities);
                 // Reset paging if we did a full top-load
                 _currentPage = 1; 
-                _hasMore = newActivities.Count == PageSize;
+                _hasMore = _timeRange == "all" && events.Count == PageSize;
             }
             else
             {
                 _activities.AddRange(newActivities);
-                _hasMore = newActivities.Count == PageSize;
+                _hasMore = _timeRange == "all" && events.Count == PageSize;
                 _currentPage++;
             }
             _totalCount = _activities.Count; // Approximate
@@ -715,9 +726,16 @@
             "today" => (TimeZoneInfo.ConvertTimeToUtc(clubNow.Date, _systemTimeZone), nowUtc),
             "week" => (TimeZoneInfo.ConvertTimeToUtc(clubNow.Date.AddDays(-(int)clubNow.DayOfWeek), _systemTimeZone), nowUtc),
             "month" => (TimeZoneInfo.ConvertTimeToUtc(new DateTime(clubNow.Year, clubNow.Month, 1), _systemTimeZone), nowUtc),
-            "custom" => (_fromDate?.ToUniversalTime() ?? nowUtc.AddHours(-24), _toDate?.ToUniversalTime() ?? nowUtc),
+            "custom" => (ConvertClubLocalToUtc(_fromDate) ?? nowUtc.AddHours(-24), ConvertClubLocalToUtc(_toDate) ?? nowUtc),
             _ => (nowUtc.AddHours(-24), nowUtc)
         };
+    }
+
+    private DateTime? ConvertClubLocalToUtc(DateTime? localTime)
+    {
+        if (localTime == null) return null;
+        var unspecified = DateTime.SpecifyKind(localTime.Value, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(unspecified, _systemTimeZone);
     }
 
     private DateTime ToClubLocal(DateTime utcTime)

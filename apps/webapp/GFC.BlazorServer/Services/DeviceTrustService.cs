@@ -663,10 +663,10 @@ public class DeviceTrustService : IDeviceTrustService
     {
         if (string.IsNullOrWhiteSpace(code)) return null;
 
-        // Normalize: handle both "53456844" and "5345-6844"
-        var normalized = code.Trim().Replace(" ", "-");
-        if (!normalized.Contains("-") && normalized.Length == 8)
-            normalized = $"{normalized.Substring(0, 4)}-{normalized.Substring(4, 4)}";
+        // Normalize: handle any layout by extracting digits only
+        var digitsOnly = new string(code.Where(char.IsDigit).ToArray());
+        if (digitsOnly.Length != 8) return null;
+        var normalized = $"{digitsOnly.Substring(0, 4)}-{digitsOnly.Substring(4, 4)}";
 
         var lookupKey = $"{SetupCodePrefix}{normalized}";
 

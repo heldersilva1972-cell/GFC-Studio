@@ -1,4 +1,9 @@
 @inject GFC.Mobile.Services.IConnectivityService Connectivity
+@inject GFC.Core.Interfaces.IDeviceTrustService DeviceTrustService
+@inject GFC.Core.Interfaces.IVersionService VersionService
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+@inject NavigationManager Navigation
 @implements IAsyncDisposable
 
 @if (!_isInitialized)
@@ -24,6 +29,58 @@
             100% { transform: scale(1); }
         }
     </style>
+}
+else if (!_deviceAuthorized)
+{
+    @* [ACCESS SHIELD] Displayed when device does not have authorization (Light Theme) *@
+    <div class="d-flex flex-column align-items-center justify-content-center min-vh-100 p-4" style="background: #f8f9fa; color: #333; min-height: 100vh; font-family: sans-serif;">
+        <div class="card border-0 shadow text-center p-4 p-sm-5 rounded-3" style="max-width: 480px; background: white; border-top: 5px solid #dc3545 !important;">
+            <div class="mb-4">
+                <i class="bi bi-shield-lock text-danger" style="font-size: 3rem;"></i>
+            </div>
+            
+            <h2 class="fw-bold mb-3 text-danger" style="letter-spacing: -0.5px;">Access Shield Active</h2>
+            <p class="text-secondary fs-6 mb-4">This device is not registered to access the GFC System.</p>
+            
+            <hr class="my-4" style="border-top: 1px solid #eee;" />
+            
+            <p class="text-muted small mb-3">
+                To authorize this device, obtain a **Re-Trust Code** from an administrator and enter it below:
+            </p>
+
+            @if (!string.IsNullOrEmpty(_redemptionError))
+            {
+                <div class="alert alert-danger py-2 px-3 rounded-3 mb-3 text-start small">
+                    <i class="bi bi-exclamation-circle-fill me-2"></i>@_redemptionError
+                </div>
+            }
+            
+            <div class="mb-4">
+                <div class="input-group">
+                    <input id="setupCodeInput" type="text" @bind="_setupCode" @bind:event="oninput" @onkeyup="HandleKeyUp" class="form-control text-center fw-bold fs-5 border border-secondary border-opacity-25 rounded-start-pill py-2" placeholder="1234-5678" style="background: #fff; color: #333;" disabled="@_isRedeeming" />
+                    <button class="btn btn-primary rounded-end-pill px-4" @onclick="RedeemCodeAsync" disabled="@(string.IsNullOrWhiteSpace(_setupCode) || _isRedeeming)">
+                        @if (_isRedeeming)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <span>Authorize</span>
+                        }
+                    </button>
+                </div>
+            </div>
+            
+            <div class="alert alert-warning py-3 px-3 rounded-3 text-start border" style="background: #fff3f3; color: #856404; font-size: 0.8rem; border-color: #ffeeba !important;">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i><strong>Security Policy:</strong> External devices are restricted by default, even on the local network.
+            </div>
+            
+            <div class="text-start mt-4 pt-3 border-top d-flex justify-content-between text-muted" style="font-size: 0.7rem; border-top: 1px solid #eee !important;">
+                <span>Path: /mobile</span>
+                <span>v.@VersionService.GetRevision()</span>
+            </div>
+        </div>
+    </div>
 }
 else
 {
@@ -66,6 +123,64 @@ else
 
 @code {
     private bool _isInitialized = false;
+    private bool _deviceAuthorized = false;
+    private string _setupCode = "";
+    private string? _redemptionError;
+    private bool _isRedeeming = false;
+
+    private async Task HandleKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_setupCode) && !_isRedeeming)
+        {
+            await RedeemCodeAsync();
+        }
+    }
+
+    private async Task RedeemCodeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_setupCode)) return;
+
+        _isRedeeming = true;
+        _redemptionError = null;
+        StateHasChanged();
+
+        try
+        {
+            // Normalize setup code (extract digits only)
+            var digitsOnly = new string(_setupCode.Where(char.IsDigit).ToArray());
+            if (digitsOnly.Length != 8)
+            {
+                _redemptionError = "Please enter a valid 8-digit code (e.g. 1234-5678).";
+                _isRedeeming = false;
+                StateHasChanged();
+                return;
+            }
+            var formattedCode = $"{digitsOnly.Substring(0, 4)}-{digitsOnly.Substring(4, 4)}";
+
+            var token = await DeviceTrustService.ValidateSetupCodeAsync(formattedCode);
+            if (!string.IsNullOrEmpty(token))
+            {
+                // Save token locally
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
+                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", token, 365); // Save for 365 days
+
+                _deviceAuthorized = true;
+            }
+            else
+            {
+                _redemptionError = "Invalid or expired setup code. Please check and try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _redemptionError = $"Redemption failed: {ex.Message}";
+        }
+        finally
+        {
+            _isRedeeming = false;
+            StateHasChanged();
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -73,6 +188,57 @@ else
         {
             // Initialize core services
             await Connectivity.InitializeAsync();
+            
+            // Validate device trust/authorization
+            try
+            {
+                var currentUri = new Uri(Navigation.Uri);
+                bool isLocal = currentUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || 
+                               currentUri.Host.Equals("127.0.0.1");
+
+                if (isLocal)
+                {
+                    _deviceAuthorized = true;
+                }
+                else
+                {
+                    // Check local storage or cookies
+                    var deviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        var authStateJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+                        if (!string.IsNullOrEmpty(authStateJson))
+                        {
+                            try
+                            {
+                                using var doc = System.Text.Json.JsonDocument.Parse(authStateJson);
+                                if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                                {
+                                    deviceToken = tokenProp.GetString();
+                                }
+                            }
+                            catch {}
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_DeviceTrustToken");
+                    }
+
+                    var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+
+                    bool isDeviceValid = !string.IsNullOrEmpty(deviceToken) && await DeviceTrustService.ValidateTokenAsync(deviceToken);
+                    bool isStationValid = !string.IsNullOrEmpty(stationToken) && await DeviceTrustService.IsStationTokenAsync(stationToken);
+
+                    _deviceAuthorized = isDeviceValid || isStationValid;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AUTH CHECK] Error validating device authorization: {ex.Message}");
+                _deviceAuthorized = false;
+            }
             
             // Give the Auth state a moment to settle from LocalStorage
             await Task.Delay(500); 

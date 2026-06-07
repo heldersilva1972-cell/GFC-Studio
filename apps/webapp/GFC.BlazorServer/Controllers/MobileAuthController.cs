@@ -20,6 +20,7 @@ public class MobileAuthController : ControllerBase
     private readonly IPagePermissionRepository _pagePermissionRepository;
     private readonly ITrustedDeviceRepository _deviceTrustRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IDeviceTrustService _deviceTrustService;
     private readonly ILogger<MobileAuthController> _logger;
 
     public MobileAuthController(
@@ -28,6 +29,7 @@ public class MobileAuthController : ControllerBase
         IPagePermissionRepository pagePermissionRepository,
         ITrustedDeviceRepository deviceTrustRepository,
         IUserRepository userRepository,
+        IDeviceTrustService deviceTrustService,
         ILogger<MobileAuthController> logger)
     {
         _authStateProvider = (CustomAuthenticationStateProvider)authStateProvider;
@@ -35,7 +37,55 @@ public class MobileAuthController : ControllerBase
         _pagePermissionRepository = pagePermissionRepository;
         _deviceTrustRepository = deviceTrustRepository;
         _userRepository = userRepository;
+        _deviceTrustService = deviceTrustService;
         _logger = logger;
+    }
+
+    [HttpGet("validate-device")]
+    [AllowAnonymous]
+    public async Task<ActionResult<object>> ValidateDevice([FromQuery] string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return Ok(new { valid = false });
+        }
+
+        try
+        {
+            bool isValid = await _deviceTrustService.ValidateTokenAsync(token) || 
+                           await _deviceTrustService.IsStationTokenAsync(token);
+            return Ok(new { valid = isValid });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating device token via API");
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
+
+    [HttpPost("redeem-setup-code")]
+    [AllowAnonymous]
+    public async Task<ActionResult<object>> RedeemSetupCode([FromBody] SetupCodeRequest request)
+    {
+        if (request == null || string.IsNullOrEmpty(request.Code))
+        {
+            return BadRequest(new { error = "Setup code is required" });
+        }
+
+        try
+        {
+            var token = await _deviceTrustService.ValidateSetupCodeAsync(request.Code);
+            if (string.IsNullOrEmpty(token))
+            {
+                return BadRequest(new { error = "Invalid or expired setup code" });
+            }
+            return Ok(new { token });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error redeeming setup code via API");
+            return StatusCode(500, "Internal Server Error");
+        }
     }
 
     [HttpGet("users")]
@@ -225,4 +275,9 @@ public class LoginRequest
     public string Password { get; set; } = "";
     public bool RememberDevice { get; set; }
     public string? IpAddress { get; set; }
+}
+
+public class SetupCodeRequest
+{
+    public string Code { get; set; } = "";
 }
