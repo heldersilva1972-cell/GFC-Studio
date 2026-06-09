@@ -2522,6 +2522,10 @@
                         <i class="bi bi-printer fs-5"></i>
                         <span>Thermal Printer</span>
                     </button>
+                    <button class="menu-item @(_activeSettingsTab == "inventory" ? "active" : "")" @onclick='() => _activeSettingsTab = "inventory"'>
+                        <i class="bi bi-box-seam fs-5"></i>
+                        <span>Inventory Print</span>
+                    </button>
                 </div>
                 
                 <div class="sidebar-footer pt-3 border-top" style="border-color: rgba(255,255,255,0.08) !important;">
@@ -2701,6 +2705,58 @@
                     <div class="row g-4 animate__animated animate__fadeIn animate__faster">
                         <div class="col-xl-8 col-lg-10">
                             <PrinterSettings />
+                        </div>
+                    </div>
+                }
+                else if (_activeSettingsTab == "inventory")
+                {
+                    <div class="pane-header mb-4 animate__animated animate__fadeIn animate__faster">
+                        <h2 class="fw-black text-navy mb-1" style="font-size: 2rem; letter-spacing: -0.5px;">Inventory Print Settings</h2>
+                        <p class="text-muted fw-bold small text-uppercase">Select which liquor and beer categories are printed in the liquor inventory report.</p>
+                    </div>
+                    
+                    <div class="row g-4 animate__animated animate__fadeIn animate__faster">
+                        <div class="col-xl-8 col-lg-10">
+                            <div class="card shadow-sm border-0 rounded-4 p-4 mb-4" style="background: white; border-radius: 16px;">
+                                <h4 class="fw-bold mb-3 text-dark" style="font-size: 1.1rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Print Options</h4>
+                                <div class="d-flex align-items-center justify-content-between p-2">
+                                    <div>
+                                        <span class="fw-bold text-dark d-block" style="font-size: 0.95rem;">Print Bottle Size</span>
+                                        <span class="text-muted small">If selected, the item size is printed in the inventory report.</span>
+                                    </div>
+                                    <label class="premium-switch">
+                                        <input type="checkbox" checked="@_printBottleSize" @onchange="TogglePrintBottleSize">
+                                        <span class="slider-track">
+                                            <span class="slider-thumb"></span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="card shadow-sm border-0 rounded-4 p-4 mb-4" style="background: white; border-radius: 16px;">
+                                <h4 class="fw-bold mb-3 text-dark" style="font-size: 1.1rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Active Categories</h4>
+                                <div class="d-flex flex-column gap-2" style="max-height: 400px; overflow-y: auto;">
+                                    @if (_allLiquorCategories == null || !_allLiquorCategories.Any())
+                                    {
+                                        <div class="text-muted small">No active liquor categories found. Make sure items are configured with categories.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var cat in _allLiquorCategories)
+                                        {
+                                            <div class="d-flex align-items-center justify-content-between p-2 border-bottom" style="border-color: #f1f5f9 !important;">
+                                                <span class="fw-bold text-dark" style="font-size: 0.95rem;">@cat</span>
+                                                <label class="premium-switch">
+                                                    <input type="checkbox" checked="@IsCategorySelected(cat)" @onchange="(e) => ToggleLiquorCategory(cat, e.Value)">
+                                                    <span class="slider-track">
+                                                        <span class="slider-thumb"></span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            </div>
                         </div>
                     </div>
                 }
@@ -3022,15 +3078,13 @@
                     }
                     else
                     {
-                        <div class="row row-cols-2 g-3">
+                        <div class="product-grid justify-content-center">
                             @foreach (var mod in ModifierItems)
                             {
-                                <div class="col">
-                                    <button class="btn w-100 h-100 p-3 shadow-sm border" style="background: white; border-radius: 12px;" @onclick="() => AddModifierToCart(mod)" disabled="@(SelectedCartItem == null)">
-                                        <div class="fw-bold mb-1">@mod.Name</div>
-                                        <div class="text-success fw-black small">+$@mod.Price.ToString("N2")</div>
-                                    </button>
-                                </div>
+                                <button class="product-card" @onclick="() => AddModifierToCart(mod)" disabled="@(SelectedCartItem == null)">
+                                    <div class="item-name">@mod.Name</div>
+                                    <div class="item-price text-success">+$@mod.Price.ToString("N2")</div>
+                                </button>
                             }
                         </div>
                     }
@@ -4880,6 +4934,9 @@
     private bool allowHardwareInTraining = false;
     private bool showSettingsModal = false;
     private string _activeSettingsTab = "station";
+    private bool _printBottleSize = true;
+    private List<string> _selectedLiquorCategories = new();
+    private List<string> _allLiquorCategories = new();
     private bool ShowCheckoutOverlay = false;
     private bool showRedeemOverlay = false;
     private bool showSuccessOverlay = false;
@@ -5364,6 +5421,39 @@
                 _changeDueBannerDurationSeconds = durVal;
                 StateHasChanged();
             }
+
+            var sizeStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_bottle_size");
+            if (!string.IsNullOrEmpty(sizeStored))
+            {
+                _printBottleSize = bool.Parse(sizeStored);
+            }
+
+            // Load selected liquor inventory categories
+            try
+            {
+                var catsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_liquor_inventory_categories");
+                if (!string.IsNullOrEmpty(catsStored))
+                {
+                    _selectedLiquorCategories = JsonSerializer.Deserialize<List<string>>(catsStored) ?? new();
+                }
+            }
+            catch {}
+
+            // Populate all liquor categories from cached/local items
+            try
+            {
+                var items = await PosService.GetLiquorInventoryAsync();
+                if (items != null)
+                {
+                    _allLiquorCategories = items
+                        .Where(i => i.IsActive)
+                        .Select(i => string.IsNullOrWhiteSpace(i.Category) ? "UNASSIGNED" : i.Category.Trim().ToUpper())
+                        .Distinct()
+                        .OrderBy(c => c)
+                        .ToList();
+                }
+            }
+            catch {}
 
             // Initialize Activity Tracker
             await JSRuntime.InvokeVoidAsync("GfcIdleTracker.initialize", DotNetObjectReference.Create(this));
@@ -6588,6 +6678,50 @@
         }
     }
 
+    private bool IsCategorySelected(string cat)
+    {
+        if (_selectedLiquorCategories == null || !_selectedLiquorCategories.Any()) return true;
+        return _selectedLiquorCategories.Contains(cat.Trim().ToUpper());
+    }
+
+    private async Task ToggleLiquorCategory(string cat, object? checkedValue)
+    {
+        bool isChecked = checkedValue is bool b && b;
+        if (_selectedLiquorCategories == null) _selectedLiquorCategories = new();
+        
+        var normalizedCat = cat.Trim().ToUpper();
+        
+        if (!_selectedLiquorCategories.Any() && _allLiquorCategories != null)
+        {
+            _selectedLiquorCategories.AddRange(_allLiquorCategories);
+        }
+
+        if (isChecked)
+        {
+            if (!_selectedLiquorCategories.Contains(normalizedCat))
+            {
+                _selectedLiquorCategories.Add(normalizedCat);
+            }
+        }
+        else
+        {
+            _selectedLiquorCategories.Remove(normalizedCat);
+        }
+
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_liquor_inventory_categories", JsonSerializer.Serialize(_selectedLiquorCategories));
+        StateHasChanged();
+    }
+
+    private async Task TogglePrintBottleSize(ChangeEventArgs e)
+    {
+        if (e.Value is bool val)
+        {
+            _printBottleSize = val;
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_print_bottle_size", _printBottleSize.ToString());
+            StateHasChanged();
+        }
+    }
+
     private async Task PrintLiquorInventory()
     {
         showOptionsMenu = false;
@@ -6615,11 +6749,19 @@
 
     private string BuildLiquorInventoryHtml(List<GFC.Core.Models.LiquorItem> items)
     {
-        // Only active items
-        var active = items.Where(i => i.IsActive).ToList();
+        // Update all categories list dynamically
+        _allLiquorCategories = items
+            .Where(i => i.IsActive)
+            .Select(i => string.IsNullOrWhiteSpace(i.Category) ? "UNASSIGNED" : i.Category.Trim().ToUpper())
+            .Distinct()
+            .OrderBy(c => c)
+            .ToList();
 
-        var spirits = active.Where(i => !i.IsBeer).OrderBy(i => i.Category).ThenBy(i => i.Name).ToList();
-        var beer    = active.Where(i => i.IsBeer).OrderBy(i => i.Name).ToList();
+        // Only active and selected category items
+        var active = items
+            .Where(i => i.IsActive)
+            .Where(i => IsCategorySelected(string.IsNullOrWhiteSpace(i.Category) ? "UNASSIGNED" : i.Category.Trim().ToUpper()))
+            .ToList();
 
         string BuildSection(string title, List<GFC.Core.Models.LiquorItem> list)
         {
@@ -6627,14 +6769,29 @@
             var rows = "";
             foreach (var item in list)
             {
-                var size    = string.IsNullOrEmpty(item.BottleSize) ? "" : $" ({item.BottleSize})";
+                var size    = _printBottleSize && !string.IsNullOrEmpty(item.BottleSize) ? $" ({item.BottleSize})" : "";
                 var lowWarn = item.CurrentStock <= item.MinStockLimit ? " &#x26A0;" : "";
+                var qtyStr  = item.AllowLooseReconciliation && item.PackSize > 1
+                    ? $"{(item.CurrentStock / item.PackSize)} cs, {(item.CurrentStock % item.PackSize)} loose"
+                    : item.CurrentStock.ToString();
                 rows += $@"<div style='display:flex; justify-content:space-between; font-size:0.82em; padding:2px 0; border-bottom:1px dotted #ccc;'>
                     <span>{item.Name}{size}{lowWarn}</span>
-                    <span style='font-weight:bold;'>{item.CurrentStock}</span>
+                    <span style='font-weight:bold;'>{qtyStr}</span>
                 </div>";
             }
             return $@"<div style='font-weight:bold; border-bottom:2px solid #000; margin-top:10px; margin-bottom:4px; font-size:0.9em; text-transform:uppercase;'>{title} ({list.Count})</div>{rows}";
+        }
+
+        var groups = active
+            .GroupBy(i => string.IsNullOrWhiteSpace(i.Category) ? "UNASSIGNED" : i.Category.Trim().ToUpper())
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        var sectionsHtml = "";
+        foreach (var group in groups)
+        {
+            var groupItems = group.OrderBy(i => i.Name).ToList();
+            sectionsHtml += BuildSection(group.Key, groupItems);
         }
 
         return $@"<div style='font-family:monospace; width:300px; padding:10px;'>
@@ -6650,8 +6807,7 @@
             <div style='display:flex; justify-content:space-between; font-size:0.75em; font-weight:bold; opacity:0.6; margin-bottom:2px;'>
                 <span>ITEM</span><span>QTY</span>
             </div>
-            {BuildSection("SPIRITS", spirits)}
-            {BuildSection("BEER & COOLERS", beer)}
+            {sectionsHtml}
             <div style='margin-top:12px; border-top:1px solid #000; padding-top:6px; font-size:0.78em; text-align:center;'>
                 Total Active Items: {active.Count} &nbsp;|&nbsp; &#x26A0; = Low Stock
             </div>
@@ -7971,12 +8127,6 @@
     private async Task ConfirmReceiveLiquorOrder()
     {
         if (_selectedLiquorOrder == null) return;
-
-        if (string.IsNullOrWhiteSpace(_invoiceInputString))
-        {
-            Toast.ShowWarning("Please enter an Invoice Number before confirming the delivery.");
-            return;
-        }
 
         try
         {

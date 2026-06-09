@@ -940,8 +940,12 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 }
 
                 if (retryCount >= 5) {
-                    Console.WriteLine($"[SYNC] Skipping poison-pill outbox item {key} due to {retryCount} consecutive server rejections.");
-                    continue;
+                    if (key.StartsWith(VaultPrefixLiquorReceipt)) {
+                        Console.WriteLine($"[SYNC] Retrying previously skipped liquor receipt {key}...");
+                    } else {
+                        Console.WriteLine($"[SYNC] Skipping poison-pill outbox item {key} due to {retryCount} consecutive server rejections.");
+                        continue;
+                    }
                 }
 
                 if (key.StartsWith("gfc_pos_vault_event_start_")) {
@@ -1313,18 +1317,18 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public async Task<List<LiquorOrder>> GetPendingLiquorOrdersAsync(bool force = false)
     {
+        List<LiquorOrder> orders = null;
         bool isOnline = await CheckConnectivityAsync();
         if (isOnline)
         {
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                var orders = await _http.GetFromJsonAsync<List<LiquorOrder>>("api/liquor/orders/pending", cts.Token);
+                orders = await _http.GetFromJsonAsync<List<LiquorOrder>>("api/liquor/orders/pending", cts.Token);
                 if (orders != null)
                 {
                     // Cache locally in IndexedDB
                     await _js.InvokeVoidAsync("window.gfcSetAsync", CachedLiquorOrdersKey, orders);
-                    return orders;
                 }
             }
             catch (Exception ex)
@@ -1333,25 +1337,62 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             }
         }
 
-        // Offline / Fallback
+        if (orders == null)
+        {
+            // Offline / Fallback
+            try
+            {
+                var cachedJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedLiquorOrdersKey);
+                if (!string.IsNullOrEmpty(cachedJson) && cachedJson != "null")
+                {
+                    orders = JsonSerializer.Deserialize<List<LiquorOrder>>(cachedJson, _jsonOptions);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LIQUOR SERVICE CLIENT] Failed to read cached orders: {ex.Message}");
+            }
+        }
+
+        if (orders == null)
+        {
+            orders = new List<LiquorOrder>();
+        }
+
+        // Filter out orders that are in the outbox waiting to sync
         try
         {
-            var cachedJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedLiquorOrdersKey);
-            if (!string.IsNullOrEmpty(cachedJson) && cachedJson != "null")
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
             {
-                var cached = JsonSerializer.Deserialize<List<LiquorOrder>>(cachedJson, _jsonOptions);
-                if (cached != null)
+                var outboxOrderIds = new HashSet<int>();
+                foreach (var item in vaultItems.EnumerateArray())
                 {
-                    return cached;
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(VaultPrefixLiquorReceipt))
+                    {
+                        var part = key.Substring(VaultPrefixLiquorReceipt.Length);
+                        var idx = part.IndexOf('_');
+                        var idStr = idx > 0 ? part.Substring(0, idx) : part;
+                        if (int.TryParse(idStr, out var orderId))
+                        {
+                            outboxOrderIds.Add(orderId);
+                        }
+                    }
+                }
+
+                if (outboxOrderIds.Any())
+                {
+                    orders = orders.Where(o => !outboxOrderIds.Contains(o.Id)).ToList();
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LIQUOR SERVICE CLIENT] Failed to read cached orders: {ex.Message}");
+            Console.WriteLine($"[LIQUOR SERVICE CLIENT] Failed to filter pending orders by outbox: {ex.Message}");
         }
 
-        return new List<LiquorOrder>();
+        return orders;
     }
 
     public async Task<List<LiquorItem>> GetLiquorInventoryAsync(bool force = false)
@@ -1406,10 +1447,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             } catch {}
         });
 
-        // Trigger immediate background sync flush attempt
-        _ = Task.Run(async () => {
+        // Trigger immediate background sync flush attempt (awaited inline to update database before UI refresh)
+        try {
             await FlushAllPendingAsync();
-        });
+        } catch {}
     }
 
     public async Task<int> GetTotalPendingAsync()

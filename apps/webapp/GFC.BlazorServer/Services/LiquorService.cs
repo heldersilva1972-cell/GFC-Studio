@@ -657,7 +657,9 @@ namespace GFC.BlazorServer.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) throw new Exception("Order not found");
-            if (order.Status == "Received") return; // Already processed
+            
+            var alreadyReceived = await db.LiquorTransactions.AnyAsync(t => t.TransactionType == "Restock" && t.Notes.Contains($"Order #{order.Id} Received"));
+            if (alreadyReceived) return; // Already processed
 
             foreach (var orderItem in order.OrderItems)
             {

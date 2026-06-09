@@ -308,8 +308,11 @@ namespace GFC.BlazorServer.Controllers
             try
             {
                 if (receipt == null) return BadRequest("Receipt data is required");
-                if (string.IsNullOrWhiteSpace(receipt.InvoiceNumber)) return BadRequest("Invoice number is required");
-                if (receipt.TotalDue <= 0) return BadRequest("Invoice total must be greater than zero");
+                if (string.IsNullOrWhiteSpace(receipt.InvoiceNumber))
+                {
+                    receipt.InvoiceNumber = "N/A";
+                }
+                if (receipt.TotalDue < 0) return BadRequest("Invoice total cannot be negative");
 
                 var order = await _liquorService.GetOrderByIdAsync(orderId);
                 if (order == null) return NotFound($"Order with ID {orderId} not found");
