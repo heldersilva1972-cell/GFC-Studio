@@ -1070,7 +1070,7 @@
 
 @if (!string.IsNullOrEmpty(CurrentUserName))
 {
-    <div class="pos-container @(forceTrainingMode ? "training-mode" : "")">
+    <div class="pos-container pos-display-@_displayProfile @(forceTrainingMode ? "training-mode" : "")" @onclick="DismissDisplayPopover">
         <header class="pos-header @(_isCorrectionMode ? "correction-mode" : "")">
         <div class="d-flex align-items-center">
             <span class="brand-text" @onclick="HandleBrandTap">GFC</span>
@@ -1093,16 +1093,43 @@
                 </div>
             }
             
-            <div class="user-indicator-pill @(_showUpdateBanner ? "update-active-shift" : "")" @onclick="LockTerminal">
-                <div class="user-avatar">
-                    <i class="bi bi-person-fill"></i>
+            <div class="user-indicator-pill @(_showUpdateBanner ? "update-active-shift" : "")">
+                @* Left side: tap to open display profile popover *@
+                <div class="d-flex align-items-center" style="cursor:pointer;" @onclick="ToggleDisplayPopover" @onclick:stopPropagation="true">
+                    <div class="user-avatar">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="user-role">Display: @(_displayProfile == "normal" ? "Normal" : _displayProfile == "large" ? "Large" : "Accessible")</span>
+                        <span class="user-name">@(string.IsNullOrEmpty(CurrentUserName) ? "SELECT OPERATOR" : CurrentUserName)</span>
+                    </div>
                 </div>
-                <div class="user-details">
-                    <span class="user-name">@(string.IsNullOrEmpty(CurrentUserName) ? "SELECT OPERATOR" : CurrentUserName)</span>
-                </div>
-                <div class="ms-2 ps-2 border-start text-danger" title="Lock Terminal">
+                @* Right side: lock terminal *@
+                <div class="ms-2 ps-2 border-start text-danger" style="cursor:pointer;" title="Lock Terminal" @onclick="LockTerminal">
                     <i class="bi bi-lock-fill"></i>
                 </div>
+                @* Display profile popover *@
+                @if (_showDisplayPopover)
+                {
+                    <div class="display-profile-popover" @onclick:stopPropagation="true">
+                        <div class="popover-title"><i class="bi bi-eye me-1"></i> Display Size</div>
+                        <button class="btn-display-profile @(_displayProfile == "normal" ? "active" : "")" @onclick='() => SaveUserDisplayProfile("normal")'>
+                            <span class="profile-icon">A</span>
+                            <span>Normal</span>
+                            @if (_displayProfile == "normal") { <i class="bi bi-check-lg profile-check"></i> }
+                        </button>
+                        <button class="btn-display-profile @(_displayProfile == "large" ? "active" : "")" @onclick='() => SaveUserDisplayProfile("large")'>
+                            <span class="profile-icon" style="font-size:1.3rem;">A</span>
+                            <span>Large</span>
+                            @if (_displayProfile == "large") { <i class="bi bi-check-lg profile-check"></i> }
+                        </button>
+                        <button class="btn-display-profile @(_displayProfile == "accessible" ? "active" : "")" @onclick='() => SaveUserDisplayProfile("accessible")'>
+                            <span class="profile-icon" style="font-size:1.55rem;">A</span>
+                            <span>Accessible</span>
+                            @if (_displayProfile == "accessible") { <i class="bi bi-check-lg profile-check"></i> }
+                        </button>
+                    </div>
+                }
             </div>
         </div>
         
@@ -3600,9 +3627,9 @@
             </div>
             
             <div class="text-center mt-5 pt-4">
-                <div class="badge bg-white bg-opacity-10 text-white rounded-pill px-4 py-2 border border-white border-opacity-10" style="font-size: 0.8rem; letter-spacing: 1px; cursor: pointer;" @onclick="HandleBrandTap">
-                    GFC STANDALONE POS <span class="opacity-50 mx-2">|</span> v@(VersionService.GetRevision())
-                </div>
+                 <div class="badge bg-white bg-opacity-10 text-white rounded-pill px-4 py-2 border border-white border-opacity-10" style="font-size: 0.8rem; letter-spacing: 1px; cursor: pointer;" @onclick="HandleBrandTap">
+                     GFC STANDALONE POS <span class="opacity-50 mx-2">|</span> v@(VersionService.GetRevision())
+                 </div>
                 @if (_showUpdateBanner)
                 {
                     <div class="mt-4 animate__animated animate__pulse animate__infinite">
@@ -3614,6 +3641,11 @@
                         </button>
                     </div>
                 }
+                <div class="mt-4">
+                    <button class="btn btn-link text-white opacity-40 fw-bold" style="font-size: 0.75rem; letter-spacing: 1px; text-decoration: none;" @onclick="OpenForgotCard">
+                        <i class="bi bi-person-exclamation me-1"></i>FORGOT CARD?
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -3659,6 +3691,54 @@
                         </button>
                     }
                 </div>
+            }
+        </div>
+    </div>
+}
+
+@if (_showForgotCard)
+{
+    <div class="shift-overlay no-backdrop" style="z-index: 40000;">
+        <div class="settings-card shadow-lg animate__animated animate__zoomIn" style="max-width: 420px; background: #f8fafc;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="fw-black mb-0 text-primary"><i class="bi bi-person-exclamation me-2"></i>FORGOT CARD?</h3>
+                <button class="btn btn-light rounded-circle p-2" @onclick="() => _showForgotCard = false">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            @if (_forgotCardLocked)
+            {
+                <div class="alert alert-danger text-center">
+                    <i class="bi bi-lock-fill fs-3 d-block mb-2"></i>
+                    <strong>MANUAL LOGIN LOCKED</strong><br />
+                    <small>You have used all your grace logins.<br />Please scan your card to restore access.</small>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted small mb-3 fw-bold">TYPE YOUR USERNAME EXACTLY AS IT APPEARS WHEN LOGGED IN. MANUAL LOGINS ARE LIMITED — ONCE EXHAUSTED, YOUR CARD IS REQUIRED.</p>
+
+                <input type="text"
+                       class="form-control form-control-lg mb-3 text-center fw-bold text-uppercase"
+                       placeholder="YOUR USERNAME"
+                       @bind="_forgotCardInput"
+                       @bind:event="oninput"
+                       @onkeydown="HandleForgotCardKey"
+                       autocomplete="off"
+                       autocorrect="off"
+                       spellcheck="false" />
+
+                @if (!string.IsNullOrEmpty(_forgotCardError))
+                {
+                    <div class="alert alert-warning small fw-bold text-center py-2">@_forgotCardError</div>
+                }
+
+                <button class="btn btn-primary w-100 fw-black py-3"
+                        @onclick="ForgotCardLogin"
+                        disabled="@string.IsNullOrWhiteSpace(_forgotCardInput)">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>LOG IN
+                </button>
             }
         </div>
     </div>
@@ -3883,10 +3963,10 @@
                       </div>
   
                       <div class="quick-cash-column">
-                          <button class="btn btn-quick-cash" @onclick='() => SetCashReceived(_isCorrectionMode && _isMoneyCollected ? Math.Abs(Subtotal - _originalSaleAmount) : Subtotal)'>EXACT</button>
-                          <button class="btn btn-quick-cash" @onclick="() => SetCashReceived(5)">$5</button>
-                          <button class="btn btn-quick-cash" @onclick="() => SetCashReceived(10)">$10</button>
-                          <button class="btn btn-quick-cash" @onclick="() => SetCashReceived(20)">$20</button>
+                          <button class="btn btn-quick-cash" @onclick="ClearCashReceived">CLEAR</button>
+                          <button class="btn btn-quick-cash" @onclick="() => AddCashReceived(5)">$5</button>
+                          <button class="btn btn-quick-cash" @onclick="() => AddCashReceived(10)">$10</button>
+                          <button class="btn btn-quick-cash" @onclick="() => AddCashReceived(20)">$20</button>
                       </div>
                   </div>
               }
@@ -4830,6 +4910,8 @@
     }
 
     private string CurrentUserName = string.Empty;
+    private string _displayProfile = "normal"; // "normal" | "large" | "accessible"
+    private bool _showDisplayPopover = false;
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
     
@@ -5545,6 +5627,10 @@
         {
             Console.WriteLine($"[POS] CARD AUTH SUCCESS: {user.Username}");
             
+            // Reset forgot-card grace counter — card scan restores full access
+            var graceKey = $"gfc_grace_{user.Username.ToLower().Replace(" ", "_")}";
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", graceKey, "2");
+
             // Show Premium Splash
             _splashUserName = user.Username;
             _showLoginSplash = true;
@@ -5553,6 +5639,7 @@
             // Set operator and reset idle
             CurrentUserName = user.Username;
             _lastActivity = DateTime.Now;
+            await LoadUserDisplayProfile(user.Username);
 
             // Wait and then hide splash
             await Task.Delay(1500);
@@ -5690,6 +5777,12 @@
     private bool _emergencyAuthSuccess = false;
     private string _emergencyPinInput = "";
 
+    // Forgot Card fallback login state
+    private bool _showForgotCard = false;
+    private bool _forgotCardLocked = false;
+    private string _forgotCardInput = "";
+    private string _forgotCardError = "";
+
     private void HandleShieldTap()
     {
         _shieldTapCount++;
@@ -5717,6 +5810,74 @@
         }
     }
 
+    private void OpenForgotCard()
+    {
+        _forgotCardInput = "";
+        _forgotCardError = "";
+        _forgotCardLocked = false;
+        _showForgotCard = true;
+    }
+
+    private async Task HandleForgotCardKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ForgotCardLogin();
+    }
+
+    private async Task ForgotCardLogin()
+    {
+        _forgotCardError = "";
+        var typed = (_forgotCardInput ?? "").Trim();
+        if (string.IsNullOrEmpty(typed)) return;
+
+        // Validate against cached AuthorizedUsers (works offline)
+        var user = AuthorizedUsers.FirstOrDefault(u => u.Username.Equals(typed, StringComparison.OrdinalIgnoreCase));
+        if (user == null)
+        {
+            _forgotCardError = "Username not recognised. Please check spelling and try again.";
+            StateHasChanged();
+            return;
+        }
+
+        // Read grace counter from localStorage
+        var graceKey = $"gfc_grace_{user.Username.ToLower().Replace(" ", "_")}";
+        var stored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", graceKey);
+        int remaining = 2;
+        if (!string.IsNullOrEmpty(stored) && int.TryParse(stored, out var parsed))
+            remaining = parsed;
+
+        if (remaining <= 0)
+        {
+            _forgotCardLocked = true;
+            StateHasChanged();
+            return;
+        }
+
+        // Decrement and persist
+        remaining--;
+        await JSRuntime.InvokeVoidAsync("localStorage.setItem", graceKey, remaining.ToString());
+        Console.WriteLine($"[POS] FORGOT-CARD LOGIN: {user.Username} — {remaining} grace login(s) remaining.");
+
+        _showForgotCard = false;
+
+        // Show login splash and set operator
+        _splashUserName = user.Username;
+        _showLoginSplash = true;
+        StateHasChanged();
+
+        CurrentUserName = user.Username;
+        _lastActivity = DateTime.Now;
+        await LoadUserDisplayProfile(user.Username);
+
+        await Task.Delay(1500);
+        _showLoginSplash = false;
+        StateHasChanged();
+
+        if (remaining == 0)
+            Toast.ShowWarning($"Manual login locked. Please bring your card — scanning it will restore access, {user.Username}.");
+        else
+            Toast.ShowInfo($"Logged in without card. {remaining} grace login{(remaining == 1 ? "" : "s")} remaining.");
+    }
+
     private async Task ManualLogin(UserListItemDto user)
     {
         _showEmergencyLogin = false;
@@ -5729,6 +5890,7 @@
         // Set operator and reset idle
         CurrentUserName = user.Username;
         _lastActivity = DateTime.Now;
+        await LoadUserDisplayProfile(user.Username);
 
         // Wait and then hide splash
         await Task.Delay(1500);
@@ -5837,8 +5999,56 @@
         catch { /* Fallback to standard lock */ }
 
         CurrentUserName = string.Empty;
+        _displayProfile = "normal";
+        _showDisplayPopover = false;
         _ = RefreshData(); // Background update for next operator
     }
+
+    // ─── DISPLAY PROFILE HELPERS ──────────────────────────────────────────
+    // Storage uses direct localStorage — offline-safe, no network calls ever.
+    // CSS class is applied via Blazor state on .pos-container — no JS DOM needed.
+    private async Task LoadUserDisplayProfile(string username)
+    {
+        try
+        {
+            var key = $"gfc-display-{username.ToLower()}";
+            var saved = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", key);
+            _displayProfile = saved is "normal" or "large" or "accessible" ? saved : "normal";
+        }
+        catch
+        {
+            _displayProfile = "normal"; // Safe fallback — never blocks login
+        }
+    }
+
+    private async Task SaveUserDisplayProfile(string value)
+    {
+        _displayProfile = value;
+        _showDisplayPopover = false;
+        StateHasChanged(); // Apply CSS class immediately via Blazor re-render
+        try
+        {
+            // Save independently — if this fails, the visual change still happened
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc-display-{CurrentUserName.ToLower()}", value);
+        }
+        catch { /* Best-effort persistence — visual change already applied */ }
+    }
+
+    private void ToggleDisplayPopover()
+    {
+        _showDisplayPopover = !_showDisplayPopover;
+        StateHasChanged();
+    }
+
+    private void DismissDisplayPopover()
+    {
+        if (_showDisplayPopover)
+        {
+            _showDisplayPopover = false;
+            StateHasChanged();
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     private async Task TriggerNuclearReload()
     {
@@ -6289,10 +6499,30 @@
             return;
         }
 
-        item.Id = -matchedToken.Id;
-        item.Name = $"{matchedToken.Name} ({item.Name}) (TOKEN SALE)";
-        item.Category = "TOKENS";
-        
+        var tokenName = $"{matchedToken.Name} ({item.Name}) (TOKEN SALE)";
+        var tokenId   = -matchedToken.Id;
+
+        if (item.Quantity > 1)
+        {
+            // Split: leave the remaining units as-is, add one new token sale line
+            item.Quantity--;
+            CartItems.Add(new ProductItem
+            {
+                Id       = tokenId,
+                Name     = tokenName,
+                Price    = item.Price,
+                Category = "TOKENS",
+                Quantity = 1
+            });
+        }
+        else
+        {
+            // Only one unit — convert it in place
+            item.Id       = tokenId;
+            item.Name     = tokenName;
+            item.Category = "TOKENS";
+        }
+
         StateHasChanged();
     }
 
@@ -8274,6 +8504,20 @@
         CashReceived = Math.Round(a, 2); 
         CashInputString = CashReceived.Value.ToString("F2"); 
         _isQuickCashInput = true; // Mark as quick-cash for smart replacement
+    }
+
+    private void AddCashReceived(decimal a)
+    {
+        CashReceived = Math.Round((CashReceived ?? 0) + a, 2);
+        CashInputString = CashReceived.Value.ToString("F2");
+        _isQuickCashInput = true;
+    }
+
+    private void ClearCashReceived()
+    {
+        CashReceived = null;
+        CashInputString = string.Empty;
+        _isQuickCashInput = false;
     }
     private async Task SaveTerminalName()
     {
