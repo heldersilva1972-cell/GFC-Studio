@@ -12,4 +12,5 @@ public class DeviceSessionDto
     public bool IsRevoked { get; set; }
     public bool IsStation { get; set; }
     public string? StationName { get; set; }
+    public string? LoginMode { get; set; }
 }

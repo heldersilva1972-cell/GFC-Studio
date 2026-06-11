@@ -93,12 +93,9 @@ public class MobileReportingService : IMobileReportingService
             
             if (serverData == null) serverData = new MobileShiftData { Date = date, ShiftType = shiftType, IsRentalHall = isRental };
 
-            // [CARRYOVER BRIDGE] Even if online, if the server doesn't have the previous shift data (Previous shift not synced yet)
-            // we check the local vault to bridge the gap and ensure math works.
-            if (serverData.PrevDaySales == null || serverData.PrevDaySales == 0)
-            {
-                await PopulatePreviousShiftDataOffline(serverData);
-            }
+            // [CARRYOVER BRIDGE] Check the local vault/drafts to bridge the gap and ensure math works,
+            // prioritizing the local tablet state over the server.
+            await PopulatePreviousShiftDataOffline(serverData);
             
             return serverData;
         }

@@ -228,16 +228,39 @@ else
 
                     var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
 
-                    bool isDeviceValid = !string.IsNullOrEmpty(deviceToken) && await DeviceTrustService.ValidateTokenAsync(deviceToken);
-                    bool isStationValid = !string.IsNullOrEmpty(stationToken) && await DeviceTrustService.IsStationTokenAsync(stationToken);
+                    bool isServerReachable = await Connectivity.CanReachableServerAsync();
+                    if (!isServerReachable)
+                    {
+                        // Offline fail-open: If we have a local token (device or station), trust the device offline.
+                        _deviceAuthorized = !string.IsNullOrEmpty(deviceToken) || !string.IsNullOrEmpty(stationToken);
+                    }
+                    else
+                    {
+                        bool isDeviceValid = !string.IsNullOrEmpty(deviceToken) && await DeviceTrustService.ValidateTokenAsync(deviceToken);
+                        bool isStationValid = !string.IsNullOrEmpty(stationToken) && await DeviceTrustService.IsStationTokenAsync(stationToken);
 
-                    _deviceAuthorized = isDeviceValid || isStationValid;
+                        _deviceAuthorized = isDeviceValid || isStationValid;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[AUTH CHECK] Error validating device authorization: {ex.Message}");
-                _deviceAuthorized = false;
+                // Offline fallback in case of errors during validation
+                try
+                {
+                    var deviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_DeviceTrustToken");
+                    }
+                    var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+                    _deviceAuthorized = !string.IsNullOrEmpty(deviceToken) || !string.IsNullOrEmpty(stationToken);
+                }
+                catch
+                {
+                    _deviceAuthorized = false;
+                }
             }
             
             // Give the Auth state a moment to settle from LocalStorage

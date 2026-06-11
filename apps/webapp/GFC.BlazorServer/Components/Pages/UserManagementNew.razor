@@ -858,8 +858,23 @@
                 <button type="button" class="btn-close btn-close-white" @onclick="CloseOnboardModal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-4 text-dark">
-                @if (string.IsNullOrEmpty(_generatedPairingCode))
+                @if (_isApprovedInModal)
                 {
+                    <div class="text-center py-4">
+                        <i class="bi bi-shield-check text-success" style="font-size: 4rem;"></i>
+                        <h4 class="fw-bold text-success mt-3">Workstation Authorized!</h4>
+                        <p class="text-muted small">The device has been successfully registered and is now active.</p>
+                        <button class="btn btn-primary w-100 mt-3" @onclick="CloseOnboardModal">Done</button>
+                    </div>
+                }
+                else if (string.IsNullOrEmpty(_generatedPairingCode))
+                {
+                    <div class="form-group mb-3">
+                        <label class="form-label fw-bold text-dark"><i class="bi bi-display-fill me-1 text-primary"></i> Station Name</label>
+                        <input type="text" class="form-control text-dark" @bind="_newStationName" placeholder="e.g. Bar POS, Office PC" />
+                        <div class="form-text mt-1 text-muted small">A descriptive name to identify this workstation. Defaults to "Shared Station".</div>
+                    </div>
+
                     <div class="mb-3 form-check form-switch bg-light p-3 rounded border border-light">
                         <input class="form-check-input ms-0 me-2" type="checkbox" role="switch" id="curateToggle" @bind="_curateToggle" />
                         <label class="form-check-label fw-bold" for="curateToggle">
@@ -905,7 +920,26 @@
                             <i class="bi bi-clock-history me-2"></i>Code expires in <strong>@FormatTime(_secondsRemaining)</strong>
                         </div>
 
-                        <p class="text-muted x-small mt-3">Once the code is submitted on the device, it will request permission. You will see a request to approve or reject right here.</p>
+                        @{
+                            var currentPending = _pendingSessions?.FirstOrDefault(s => s.LoginMode == $"PENDING:{_generatedPairingCode}");
+                        }
+                        @if (currentPending != null)
+                        {
+                            <div class="alert alert-success border-0 small d-flex flex-column align-items-center py-3 px-3 my-3">
+                                <div class="fw-bold mb-2"><i class="bi bi-check-circle-fill me-2 text-success"></i>Device Connected!</div>
+                                <div class="x-small text-muted mb-3">IP: @currentPending.IpAddress | @ParseUserAgent(currentPending.UserAgent)</div>
+                                <button class="btn btn-success w-100 fw-bold" @onclick="() => ApproveRequest(currentPending)">
+                                    <i class="bi bi-shield-check me-2"></i>Approve & Register Device
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted x-small mt-3">
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" style="width: 12px; height: 12px; vertical-align: middle;"></span>
+                                Awaiting device connection... Once the code is submitted on the device, you will see a request to approve right here.
+                            </p>
+                        }
 
                         <button class="btn btn-outline-secondary btn-sm mt-3" @onclick="ResetGeneratedCode">
                             <i class="bi bi-arrow-left me-1"></i> Generate Another Code
@@ -950,6 +984,11 @@
                 </button>
             </div>
             <div class="modal-body pt-3">
+                <div class="form-group mb-4">
+                    <label class="form-label fw-bold small text-muted text-uppercase mb-2">Station Name</label>
+                    <input type="text" class="form-control" @bind="_editingStation.StationName" placeholder="e.g. Bar POS, Office PC" />
+                </div>
+
                 <div class="form-group mb-4">
                     <label class="form-label fw-bold small text-muted text-uppercase mb-2">1. Login Experience</label>
                     <div class="d-flex gap-2">
@@ -1065,6 +1104,8 @@
     private string? _generatedPairingCode;
     private global::System.Threading.Timer? _countdownTimer;
     private int _secondsRemaining = 900;
+    private string _newStationName = "";
+    private bool _isApprovedInModal = false;
 
     // Re-trust states
     private bool _showReTrustModal = false;
@@ -1808,12 +1849,15 @@
         _showOnboardModal = true;
         _curateToggle = false;
         _selectedAuthorizedUserIds.Clear();
+        _newStationName = "";
+        _isApprovedInModal = false;
     }
 
     private void CloseOnboardModal()
     {
         _showOnboardModal = false;
         StopCountdown();
+        _ = RefreshWorkstations();
     }
 
     private void ToggleAuthorizedUser(int userId)
@@ -1835,7 +1879,7 @@
         _generatedPairingCode = await DeviceTrustService.GeneratePairingCodeAsync(
             _currentUserId, 
             "Shared Station", 
-            null, 
+            string.IsNullOrWhiteSpace(_newStationName) ? "Shared Station" : _newStationName, 
             _curateToggle ? "FastGrid" : "Standard", 
             csv
         );
@@ -1849,11 +1893,17 @@
         _secondsRemaining = 900;
         _countdownTimer = new global::System.Threading.Timer((state) =>
         {
-            InvokeAsync(() =>
+            InvokeAsync(async () =>
             {
                 if (_secondsRemaining > 0)
                 {
                     _secondsRemaining--;
+                    
+                    if (_secondsRemaining % 3 == 0)
+                    {
+                        await RefreshWorkstations();
+                    }
+                    
                     StateHasChanged();
                 }
                 else
@@ -1903,6 +1953,11 @@
         var success = await DeviceTrustService.ApprovePairingRequestAsync(session.DeviceToken);
         if (success)
         {
+            if (_showOnboardModal && session.LoginMode == $"PENDING:{_generatedPairingCode}")
+            {
+                _isApprovedInModal = true;
+                StopCountdown();
+            }
             await RefreshWorkstations();
         }
     }

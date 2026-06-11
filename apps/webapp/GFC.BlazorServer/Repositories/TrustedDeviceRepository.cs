@@ -82,7 +82,7 @@ namespace GFC.BlazorServer.Repositories
             {
                 await using var context = await _contextFactory.CreateDbContextAsync();
                 return await context.TrustedDevices
-                    .Where(d => d.UserId == userId && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                    .Where(d => d.UserId == userId && !d.IsRevoked && !d.IsStation && d.ExpiresAtUtc > DateTime.UtcNow)
                     .ToListAsync();
             }
             catch (SqlException ex) when (ex.Number == 208)

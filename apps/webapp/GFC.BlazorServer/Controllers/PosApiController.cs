@@ -302,11 +302,12 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var ev = await db.ActiveEvents.FindAsync(id);
-            if (ev != null)
+            if (ev == null)
             {
-                ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
-                await db.SaveChangesAsync();
+                return NotFound($"Event with ID {id} not found.");
             }
+            ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+            await db.SaveChangesAsync();
             return Ok();
         }
         catch (Exception ex)

@@ -82,8 +82,9 @@ public class DeviceTrustService : IDeviceTrustService
             
             // [FIXED] Smart Token Rotation: Revoke existing active tokens of the same type (e.g. Android)
             // This prevents cluttering the "Cast Activity" Feed with multiple entries for the same phone.
+            // Exclude station tokens (!d.IsStation) so shared tablets/kiosks are not auto-revoked during user login.
             var existingTokens = await context.TrustedDevices
-                .Where(d => d.UserId == userId && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .Where(d => d.UserId == userId && !d.IsRevoked && !d.IsStation && d.ExpiresAtUtc > DateTime.UtcNow)
                 .ToListAsync();
 
             if (existingTokens.Any())
@@ -263,7 +264,7 @@ public class DeviceTrustService : IDeviceTrustService
     }
 
     /// <summary>
-    /// Revokes all active device tokens for a specific user.
+    /// Revokes all active device tokens for a specific user. Excludes station devices.
     /// </summary>
     public async Task RevokeAllUserDevicesAsync(int userId)
     {
@@ -271,7 +272,7 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var devices = await context.TrustedDevices
-                .Where(t => t.UserId == userId && !t.IsRevoked)
+                .Where(t => t.UserId == userId && !t.IsRevoked && !t.IsStation)
                 .ToListAsync();
             
             if (devices.Any())
@@ -490,7 +491,8 @@ public class DeviceTrustService : IDeviceTrustService
                 ExpiresAtUtc = d.ExpiresAtUtc,
                 IsRevoked = d.IsRevoked,
                 IsStation = d.IsStation,
-                StationName = d.StationName
+                StationName = d.StationName,
+                LoginMode = d.LoginMode
             }).ToList();
             
             return sessions;
@@ -750,7 +752,7 @@ public class DeviceTrustService : IDeviceTrustService
                 CreatedAtUtc = DateTime.UtcNow,
                 ExpiresAtUtc = DateTime.UtcNow.AddMinutes(15),
                 IsRevoked = false,
-                TargetDeviceName = platformType,
+                TargetDeviceName = !string.IsNullOrWhiteSpace(stationName) ? stationName : platformType,
                 LoginMode = loginMode,
                 AuthorizedUserIdsCsv = authorizedUserIdsCsv
             };
@@ -874,7 +876,8 @@ public class DeviceTrustService : IDeviceTrustService
                 ExpiresAtUtc = d.ExpiresAtUtc,
                 IsRevoked = d.IsRevoked,
                 IsStation = d.IsStation,
-                StationName = d.StationName
+                StationName = d.StationName,
+                LoginMode = d.LoginMode
             }).ToList();
 
             return sessions;

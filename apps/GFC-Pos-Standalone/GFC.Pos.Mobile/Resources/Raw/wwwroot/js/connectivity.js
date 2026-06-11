@@ -8,8 +8,23 @@ window.GfcConnectivity = {
         window.addEventListener('offline', () => this._notify(false));
     },
 
-    isOnline: function () {
-        return navigator.onLine;
+    isOnline: async function () {
+        if (!navigator.onLine) {
+            return false;
+        }
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 2000);
+            await fetch('https://www.google.com/favicon.ico', {
+                mode: 'no-cors',
+                cache: 'no-store',
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return true;
+        } catch (e) {
+            return false;
+        }
     },
 
     // [DIAGNOSTIC] Returns detailed state

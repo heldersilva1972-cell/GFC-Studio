@@ -842,11 +842,27 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             var itemsArray = vaultItems.EnumerateArray().ToList();
             Console.WriteLine($"[SYNC] Found {itemsArray.Count} total items in vault.");
 
+            var remappedIds = new Dictionary<int, int>();
+            try {
+                var persistentRemappedStr = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_pos_remapped_ids");
+                if (!string.IsNullOrEmpty(persistentRemappedStr)) {
+                    var parsed = JsonSerializer.Deserialize<Dictionary<int, int>>(persistentRemappedStr, _jsonOptions);
+                    if (parsed != null) {
+                        foreach (var kvp in parsed) {
+                            remappedIds[kvp.Key] = kvp.Value;
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                Console.WriteLine($"[SYNC] Error loading persistent remapped IDs: {ex.Message}");
+            }
+
             // [LOGICAL ORDERING] Ensure event start requests sync before dependent added funds, closures, or sales
             itemsArray = itemsArray.OrderBy(item => {
                 var k = item.GetProperty("key").GetString() ?? "";
                 if (k.StartsWith("gfc_pos_vault_event_start_")) return 1;
                 if (k.StartsWith("gfc_pos_vault_event_add_funds_")) return 2;
+                if (k.StartsWith("gfc_pos_vault_event_tally_")) return 2.5;
                 if (k.StartsWith("gfc_pos_vault_event_close_")) return 3;
                 if (k.StartsWith(VaultPrefixSales) || k.StartsWith(ShiftLogPrefix)) return 4;
                 if (k.StartsWith("gfc_pos_vault_z_")) return 5;
@@ -867,77 +883,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     }
                 } catch { }
 
-                // [AUTO-HEALING FOR NEGATIVE OFFLINE IDs]
-                // If a pending add-funds or event-close outbox item has a negative ID (offline temp ID),
-                // we lookup the active event from the cached menu to find the real server-generated positive ID.
-                if (key.StartsWith("gfc_pos_vault_event_add_funds_")) {
-                    try {
-                        AddFundsRequest? addReq = null;
-                        var rawData = item.GetProperty("data");
-                        if (rawData.ValueKind == JsonValueKind.String)
-                            addReq = JsonSerializer.Deserialize<AddFundsRequest>(rawData.GetString()!, _jsonOptions);
-                        else
-                            addReq = rawData.Deserialize<AddFundsRequest>(_jsonOptions);
 
-                        if (addReq != null && addReq.Id < 0) {
-                            Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {addReq.Id} in add funds outbox.");
-                            var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
-                            if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
-                                var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
-                                if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
-                                    var matchingEvent = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Type == GFC.Core.Enums.EventTabType.PrePaid && e.Id > 0);
-                                    if (matchingEvent != null) {
-                                        Console.WriteLine($"[SYNC] Auto-healing: Mapped negative Id {addReq.Id} to active prepaid event ID {matchingEvent.Id} ({matchingEvent.Name})");
-                                        addReq.Id = matchingEvent.Id;
-                                        await _js.InvokeVoidAsync("window.gfcSetAsync", key, addReq);
-                                        await _js.InvokeVoidAsync("localStorage.setItem", retryKey, "0");
-                                        retryCount = 0; // Clear retry count to bypass poison-pill skip
-                                    }
-                                }
-                            }
-                        }
-                    } catch {}
-                }
-
-                if (key.StartsWith("gfc_pos_vault_event_close_")) {
-                    try {
-                        int eventId = 0;
-                        var rawData = item.GetProperty("data");
-                        if (rawData.ValueKind == JsonValueKind.Number)
-                            eventId = rawData.GetInt32();
-                        else if (rawData.ValueKind == JsonValueKind.String)
-                            int.TryParse(rawData.GetString(), out eventId);
-
-                        if (eventId < 0) {
-                            Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {eventId} in event close outbox.");
-                            var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
-                            if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
-                                var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
-                                if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
-                                    var matchingEvent = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id > 0);
-                                    if (matchingEvent != null) {
-                                        Console.WriteLine($"[SYNC] Auto-healing: Mapped negative close event Id {eventId} to real ID {matchingEvent.Id}");
-                                        eventId = matchingEvent.Id;
-                                        
-                                        // Delete the negative close outbox key and replace with a positive close key
-                                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                                        var newCloseKey = $"gfc_pos_vault_event_close_{eventId}";
-                                        await _js.InvokeVoidAsync("window.gfcSetAsync", newCloseKey, eventId);
-                                        
-                                        // Reset retries for the new key and old key
-                                        await _js.InvokeVoidAsync("localStorage.removeItem", retryKey);
-                                        await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{newCloseKey}", "0");
-                                        
-                                        // Update local variables so the rest of the loop works with the healed key
-                                        key = newCloseKey;
-                                        retryKey = $"gfc_sync_retry_{newCloseKey}";
-                                        retryCount = 0;
-                                    }
-                                }
-                            }
-                        }
-                    } catch {}
-                }
 
                 if (retryCount >= 5) {
                     if (key.StartsWith(VaultPrefixLiquorReceipt)) {
@@ -982,6 +928,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 var createdEvent = await resp.Content.ReadFromJsonAsync<ActiveEvent>(_jsonOptions, cts.Token);
                                 if (createdEvent != null) {
                                     Console.WriteLine($"[SYNC] Server created event with real ID: {createdEvent.Id}");
+                                     remappedIds[tempId] = createdEvent.Id;
+                                     try {
+                                         await _js.InvokeVoidAsync("localStorage.setItem", "gfc_pos_remapped_ids", JsonSerializer.Serialize(remappedIds));
+                                     } catch {}
                                     
                                     await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                     try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
@@ -1063,6 +1013,24 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                                     }
                                                 } catch {}
                                             }
+
+                                            if (vKey.StartsWith("gfc_pos_vault_event_tally_")) {
+                                                try {
+                                                    UpdateEventTallyRequest? tallyReq = null;
+                                                    var rawData = vItem.GetProperty("data");
+                                                    if (rawData.ValueKind == JsonValueKind.String)
+                                                        tallyReq = JsonSerializer.Deserialize<UpdateEventTallyRequest>(rawData.GetString()!, _jsonOptions);
+                                                    else
+                                                        tallyReq = rawData.Deserialize<UpdateEventTallyRequest>(_jsonOptions);
+
+                                                    if (tallyReq != null && tallyReq.Id == tempId) {
+                                                        tallyReq.Id = createdEvent.Id;
+                                                        await _js.InvokeVoidAsync("window.gfcSetAsync", vKey, tallyReq);
+                                                        await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{vKey}", "0");
+                                                        Console.WriteLine($"[SYNC] Remapped pending event tally {vKey} Id to {createdEvent.Id}");
+                                                    }
+                                                } catch {}
+                                            }
                                         }
                                     }
 
@@ -1117,14 +1085,22 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                         continue;
                     }
                     if (data != null) {
-                        if (data.ActiveEventId < 0) {
-                            // If we still couldn't resolve the offline negative ID, set it to null so the sale can sync successfully
-                            // rather than causing a database foreign key constraint crash (500) and blocking the outbox forever.
-                            Console.WriteLine($"[SYNC] Could not resolve negative ActiveEventId {data.ActiveEventId} for sale {key}. Resetting to null to allow sync.");
-                            data.ActiveEventId = null;
-                            try {
-                                await _js.InvokeVoidAsync("window.gfcSetAsync", key, data);
-                            } catch {}
+                        if (data.ActiveEventId.HasValue && data.ActiveEventId.Value < 0) {
+                            if (remappedIds.TryGetValue(data.ActiveEventId.Value, out var realEventId)) {
+                                Console.WriteLine($"[SYNC] Remapping negative ActiveEventId {data.ActiveEventId} to {realEventId} for sale {key}.");
+                                data.ActiveEventId = realEventId;
+                                try {
+                                    await _js.InvokeVoidAsync("window.gfcSetAsync", key, data);
+                                } catch {}
+                            } else {
+                                // If we still couldn't resolve the offline negative ID, set it to null so the sale can sync successfully
+                                // rather than causing a database foreign key constraint crash (500) and blocking the outbox forever.
+                                Console.WriteLine($"[SYNC] Could not resolve negative ActiveEventId {data.ActiveEventId} for sale {key}. Resetting to null to allow sync.");
+                                data.ActiveEventId = null;
+                                try {
+                                    await _js.InvokeVoidAsync("window.gfcSetAsync", key, data);
+                                } catch {}
+                            }
                         }
 
                         try {
@@ -1203,6 +1179,40 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     } catch {}
 
                     if (eventId != 0) {
+                        if (eventId < 0) {
+                            if (remappedIds.TryGetValue(eventId, out var realEventId)) {
+                                Console.WriteLine($"[SYNC] Remapping negative close event ID {eventId} to {realEventId} using remappedIds.");
+                                eventId = realEventId;
+                                key = $"gfc_pos_vault_event_close_{realEventId}";
+                                retryKey = $"gfc_sync_retry_{key}";
+                            } else {
+                                Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {eventId} in event close outbox. Falling back to cached menu lookup.");
+                                try {
+                                    var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                    if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                        var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                        if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                            var matchingEvent = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id > 0);
+                                            if (matchingEvent != null) {
+                                                Console.WriteLine($"[SYNC] Auto-healing: Mapped negative close event Id {eventId} to real ID {matchingEvent.Id}");
+                                                eventId = matchingEvent.Id;
+                                                
+                                                // Delete the negative close outbox key and replace with a positive close key
+                                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                                key = $"gfc_pos_vault_event_close_{eventId}";
+                                                await _js.InvokeVoidAsync("window.gfcSetAsync", key, eventId);
+                                                
+                                                retryKey = $"gfc_sync_retry_{key}";
+                                                await _js.InvokeVoidAsync("localStorage.removeItem", retryKey);
+                                                await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{key}", "0");
+                                                retryCount = 0;
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
+                        }
+
                         try {
                             Console.WriteLine($"[SYNC] Sending offline event closure for {eventId} to server...");
                             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -1252,6 +1262,36 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     } catch {}
 
                     if (addReq != null) {
+                        if (addReq.Id < 0) {
+                            if (remappedIds.TryGetValue(addReq.Id, out var realEventId)) {
+                                Console.WriteLine($"[SYNC] Remapping negative add funds event ID {addReq.Id} to {realEventId} using remappedIds.");
+                                addReq.Id = realEventId;
+                            } else {
+                                Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {addReq.Id} in add funds outbox. Falling back to cached menu lookup.");
+                                try {
+                                    var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                    if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                        var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                        if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                            var matchingEvent = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Type == GFC.Core.Enums.EventTabType.PrePaid && e.Id > 0);
+                                            if (matchingEvent != null) {
+                                                Console.WriteLine($"[SYNC] Auto-healing: Mapped negative Id {addReq.Id} to active prepaid event ID {matchingEvent.Id} ({matchingEvent.Name})");
+                                                addReq.Id = matchingEvent.Id;
+                                                
+                                                // Update the key in IndexedDB with the corrected ID
+                                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                                key = $"gfc_pos_vault_event_add_funds_{addReq.Id}";
+                                                await _js.InvokeVoidAsync("window.gfcSetAsync", key, addReq);
+                                                retryKey = $"gfc_sync_retry_{key}";
+                                                await _js.InvokeVoidAsync("localStorage.setItem", retryKey, "0");
+                                                retryCount = 0;
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
+                        }
+
                         try {
                             Console.WriteLine($"[SYNC] Sending offline add funds for {addReq.Id} (Amount: {addReq.Amount}) to server...");
                             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -1268,6 +1308,87 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error adding offline funds to event {addReq.Id}: {ex.Message}");
+                        }
+                    }
+                }
+
+                if (key.StartsWith("gfc_pos_vault_event_tally_")) {
+                    Console.WriteLine($"[SYNC] Processing Offline Event Tally Update: {key}");
+                    UpdateEventTallyRequest? tallyReq = null;
+                    try {
+                        var rawData = item.GetProperty("data");
+                        if (rawData.ValueKind == JsonValueKind.String)
+                            tallyReq = JsonSerializer.Deserialize<UpdateEventTallyRequest>(rawData.GetString()!, _jsonOptions);
+                        else
+                            tallyReq = rawData.Deserialize<UpdateEventTallyRequest>(_jsonOptions);
+                    } catch {}
+
+                    if (tallyReq != null) {
+                        if (tallyReq.Id < 0) {
+                            if (remappedIds.TryGetValue(tallyReq.Id, out var realEventId)) {
+                                Console.WriteLine($"[SYNC] Remapping negative event tally ID {tallyReq.Id} to {realEventId} using remappedIds.");
+                                tallyReq.Id = realEventId;
+                            } else {
+                                Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {tallyReq.Id} in event tally outbox. Falling back to cached menu lookup.");
+                                try {
+                                    var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                    if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                        var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                        if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                            var matchingEvent = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id > 0);
+                                            if (matchingEvent != null) {
+                                                Console.WriteLine($"[SYNC] Auto-healing: Mapped negative Id {tallyReq.Id} to active event ID {matchingEvent.Id} ({matchingEvent.Name})");
+                                                tallyReq.Id = matchingEvent.Id;
+                                                
+                                                // Update the key in IndexedDB with the corrected ID
+                                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                                key = $"gfc_pos_vault_event_tally_{tallyReq.Id}";
+                                                await _js.InvokeVoidAsync("window.gfcSetAsync", key, tallyReq);
+                                                retryKey = $"gfc_sync_retry_{key}";
+                                                await _js.InvokeVoidAsync("localStorage.setItem", retryKey, "0");
+                                                retryCount = 0;
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
+                        }
+
+                        try {
+                            Console.WriteLine($"[SYNC] Sending offline event tally update for {tallyReq.Id} to server...");
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                            var resp = await _http.PostAsJsonAsync("api/pos/events/update-tally", tallyReq, cts.Token);
+                            if (resp.IsSuccessStatusCode) {
+                                Console.WriteLine($"[SYNC] Event tally update for event {tallyReq.Id} synced successfully. Removing from outbox.");
+                                await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
+                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
+                                
+                                // Proactively remove the closed event from the local cached menu if CloseEvent is true
+                                if (tallyReq.CloseEvent) {
+                                    try {
+                                        var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
+                                        if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {
+                                            var cachedMenu = JsonSerializer.Deserialize<PosMenuDto>(menuJson, _jsonOptions);
+                                            if (cachedMenu != null && cachedMenu.ActiveEvents != null) {
+                                                var closedEv = cachedMenu.ActiveEvents.FirstOrDefault(e => e.Id == tallyReq.Id);
+                                                if (closedEv != null) {
+                                                    cachedMenu.ActiveEvents.Remove(closedEv);
+                                                    await SaveMenuToVaultAsync(cachedMenu);
+                                                    Console.WriteLine($"[SYNC] Removed closed tally event {tallyReq.Id} from cached menu");
+                                                }
+                                            }
+                                        }
+                                    } catch {}
+                                }
+                                
+                                LastSynced = DateTime.Now;
+                            } else {
+                                Console.WriteLine($"[SYNC] Server REJECTED event tally update {tallyReq.Id}: {resp.StatusCode}");
+                                retryCount++;
+                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine($"[SYNC] Network error syncing offline event tally update to event {tallyReq.Id}: {ex.Message}");
                         }
                     }
                 }
@@ -1466,8 +1587,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     if (key == null) continue;
                     if (key.StartsWith(VaultPrefixSales)) sales++;
                     if (key.StartsWith(VaultPrefixZ)) z++;
+                    if (key.StartsWith("gfc_pos_vault_event_start_")) sales++;
                     if (key.StartsWith("gfc_pos_vault_event_close_")) sales++;
                     if (key.StartsWith("gfc_pos_vault_event_add_funds_")) sales++;
+                    if (key.StartsWith("gfc_pos_vault_event_tally_")) sales++;
                     if (key.StartsWith(VaultPrefixLiquorReceipt)) sales++;
                 }
             }

@@ -227,8 +227,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
 
         _currentUser = null;
         await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", LocalStorageKey);
-        await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-        await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+        // [PERSISTENT TRUST] Do not clear device token or cookie on user logout so the device stays trusted
         
         (_userService as MobileUserManagementService)?.ClearPermissionCache();
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
