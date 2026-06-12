@@ -23,6 +23,8 @@
                                        value="@SessionDate.ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
                             </div>
                         </div>
+
+
                         
                         <!-- Dedicated Session Directory button: Easy tablet tap target size -->
                         <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.65rem; height: 36px;" @onclick="async () => { await LoadSessionHistoryAsync(); _showDirectoryModal = true; }">
@@ -402,6 +404,31 @@
                                                 <div class="p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-10 text-center h-100 d-flex flex-column justify-content-center">
                                                     <span class="extra-small text-uppercase fw-bold text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Additional Cards</span>
                                                     <span class="fw-black text-primary fs-5 mt-1">@AdmissionPacks.Sum(p => p.Sold * (GetAdmitCount(p.Name) - baseCount) / 3)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Payout Scaling Toggle & Manual input inside Admission Modal -->
+                                        <div class="p-3 bg-light rounded-4 border border-light border-opacity-10 mb-3 shadow-sm" @onclick:stopPropagation="true">
+                                            <div class="d-flex align-items-center justify-content-between">
+                                                <div>
+                                                    <span class="extra-small text-uppercase fw-black text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Payout Scaling Mode</span>
+                                                    <span class="extra-small text-muted fw-bold">Select how standard prizes should scale</span>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <select class="form-select form-select-sm fw-black text-primary border bg-white shadow-sm" style="width: 130px; height: 38px; border-radius: 10px; font-size: 0.8rem; cursor: pointer;"
+                                                            value="@_useManualScaling.ToString().ToLower()" @onchange="OnScalingModeChanged">
+                                                        <option value="true">Manual Mode</option>
+                                                        <option value="false">Attendance</option>
+                                                    </select>
+                                                    @if (_useManualScaling)
+                                                    {
+                                                        <div class="input-group input-group-sm" style="width: 95px; height: 38px;">
+                                                            <input type="number" class="form-control text-center fw-black text-primary border shadow-sm" style="border-radius: 10px 0 0 10px; font-size: 0.9rem;"
+                                                                   value="@_payoutPercentage" min="1" max="500" @onchange="OnPayoutPercentageChanged" />
+                                                            <span class="input-group-text bg-white border fw-black text-primary" style="border-radius: 0 10px 10px 0; font-size: 0.8rem;">%</span>
+                                                        </div>
+                                                    }
                                                 </div>
                                             </div>
                                         </div>
@@ -2636,10 +2663,32 @@
     private bool _isSyncing = false;
     private bool _needsSync = false;
     private bool _entryModeIsDollars = true;
+    private bool _useManualScaling = true;
+    private decimal _payoutPercentage = 100m;
     private void ToggleEntryMode(bool isDollars)
     {
         _entryModeIsDollars = isDollars;
         _currentBuffer = ""; // Clear buffer on toggle
+    }
+    private async Task OnScalingModeChanged(ChangeEventArgs e)
+    {
+        if (bool.TryParse(e.Value?.ToString(), out var val))
+        {
+            _useManualScaling = val;
+            RecalculateSheetTotals();
+            _needsSync = true;
+            await SaveDraftAsync();
+        }
+    }
+    private async Task OnPayoutPercentageChanged(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), out var val))
+        {
+            _payoutPercentage = Math.Clamp(val, 1, 500);
+            RecalculateSheetTotals();
+            _needsSync = true;
+            await SaveDraftAsync();
+        }
     }
     private async Task ShowToast(string title, string message, string type = "success")
     {
@@ -3524,6 +3573,8 @@
 
     private decimal GetCurrentPayoutPercentage()
     {
+        if (_useManualScaling) return _payoutPercentage;
+
         if (_bingoSettings.PayoutTiers == null || !_bingoSettings.PayoutTiers.Any()) return 100m;
         
         var admissions = AdmissionCount;
@@ -3625,7 +3676,7 @@
     private async Task SaveDraftAsync()
     {
         var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
-        var data = new BingoDraft { AdmissionPacks = AdmissionPacks, Sheets = Sheets, SessionState = _sessionState };
+        var data = new BingoDraft { AdmissionPacks = AdmissionPacks, Sheets = Sheets, SessionState = _sessionState, UseManualScaling = _useManualScaling, PayoutPercentage = _payoutPercentage };
         await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, data);
         _lastSavedTime = DateTime.Now;
         StateHasChanged();
@@ -3683,6 +3734,8 @@
             if (draft != null)
             {
                 _sessionState = draft.SessionState ?? "NotStarted";
+                _useManualScaling = draft.UseManualScaling;
+                _payoutPercentage = draft.PayoutPercentage > 0 ? draft.PayoutPercentage : 100m;
                 foreach (var dPack in draft.AdmissionPacks)
                 {
                     var p = AdmissionPacks.FirstOrDefault(x => x.Id == dPack.Id);
@@ -3778,6 +3831,8 @@
                 {
                     // FULL RESET FOR BLANK SESSION
                     _sessionState = "NotStarted";
+                    _useManualScaling = true;
+                    _payoutPercentage = 100m;
                     foreach (var p in AdmissionPacks)
                     {
                         p.Sold = 0;
@@ -4029,6 +4084,8 @@
         public List<AdmissionPack> AdmissionPacks { get; set; } = new();
         public List<BingoSheet> Sheets { get; set; } = new();
         public string SessionState { get; set; } = "NotStarted";
+        public bool UseManualScaling { get; set; } = true;
+        public decimal PayoutPercentage { get; set; } = 100m;
     }
 
     private async Task LoadSessionHistoryAsync()
