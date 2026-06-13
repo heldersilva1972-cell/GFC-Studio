@@ -1,0 +1,129 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Finance
+@inject IFinanceService FinanceService
+
+<div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(8px);">
+    <div class="modal-dialog modal-dialog-centered finance-modal-content">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 28px;">
+            <div class="modal-header finance-modal-header d-flex justify-content-between align-items-center">
+                <h5 class="modal-title fw-bold">Record Loan Payment</h5>
+                <button type="button" class="btn-close" @onclick="OnClose"></button>
+            </div>
+            <div class="modal-body finance-modal-body">
+                <div class="p-3 mb-3 bg-light rounded-4 border">
+                    <div class="row text-center">
+                        <div class="col-6 border-end">
+                            <span class="small text-muted fw-bold d-block text-uppercase">Lender</span>
+                            <span class="fw-black text-dark h6">@Loan.LenderName</span>
+                        </div>
+                        <div class="col-6">
+                            <span class="small text-muted fw-bold d-block text-uppercase">Remaining Balance</span>
+                            <span class="fw-black text-danger h5">@Loan.CurrentBalance.ToString("C")</span>
+                        </div>
+                    </div>
+                </div>
+
+                <EditForm Model="this" OnValidSubmit="HandleSubmit">
+                    <div class="row g-3">
+                        <!-- Amount Paid -->
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">Amount Paid</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-end-0">$</span>
+                                <InputNumber @bind-Value="AmountPaid" class="form-control border-start-0" placeholder="0.00" onfocus="this.select()" />
+                            </div>
+                        </div>
+
+                        <!-- Payment Date -->
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">Payment Date</label>
+                            <InputDate @bind-Value="PaymentDate" class="form-control rounded-4 shadow-sm" />
+                        </div>
+
+                        <!-- Payment Method -->
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-muted">Payment Method</label>
+                            <InputSelect @bind-Value="PaymentMethod" class="form-select rounded-4 shadow-sm">
+                                <option value="Bank Transfer">Bank Transfer (ACH)</option>
+                                <option value="Online Bill Pay">Online Bill Pay</option>
+                                <option value="Check">Check</option>
+                                <option value="Debit Card">Debit Card</option>
+                                <option value="Credit Card">Credit Card</option>
+                                <option value="Cash">Cash</option>
+                                <option value="Zelle">Zelle</option>
+                                <option value="Venmo">Venmo</option>
+                                <option value="PayPal">PayPal</option>
+                                <option value="Auto-Pay">Auto-Pay / Auto-Draft</option>
+                                <option value="Other">Other</option>
+                            </InputSelect>
+                        </div>
+
+                        <!-- Notes -->
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-muted">Notes / Reference</label>
+                            <InputText @bind-Value="Notes" class="form-control rounded-4 shadow-sm" placeholder="Check #, Transaction confirmation, etc." />
+                        </div>
+                    </div>
+
+                    <div class="modal-footer border-0 px-0 mt-3 flex-column align-items-stretch">
+                        @if (ValidationError != null)
+                        {
+                            <div class="alert alert-danger py-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm rounded-4">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                <span class="small fw-bold">@ValidationError</span>
+                            </div>
+                        }
+                        <div class="d-flex justify-content-end gap-2 w-100">
+                            <button type="button" class="btn btn-light rounded-pill px-4" @onclick="OnClose">Cancel</button>
+                            <button type="submit" class="btn btn-primary rounded-pill px-4 shadow-sm">Record Payment</button>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FinanceLoan Loan { get; set; } = new();
+    [Parameter] public EventCallback<bool> OnSave { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private decimal? AmountPaid { get; set; }
+    private DateTime PaymentDate { get; set; } = DateTime.Today;
+    private string PaymentMethod { get; set; } = "Bank Transfer";
+    private string Notes { get; set; } = "";
+    private string? ValidationError { get; set; }
+
+    protected override void OnInitialized()
+    {
+        AmountPaid = null;
+    }
+
+    private async Task HandleSubmit()
+    {
+        ValidationError = null;
+
+        if (!AmountPaid.HasValue || AmountPaid.Value <= 0)
+        {
+            ValidationError = "Please enter a payment amount greater than $0.00.";
+            return;
+        }
+
+        if (AmountPaid.Value > Loan.CurrentBalance)
+        {
+            ValidationError = $"Payment amount cannot exceed the remaining loan balance of {Loan.CurrentBalance.ToString("C")}.";
+            return;
+        }
+
+        try
+        {
+            await FinanceService.RecordLoanPaymentAsync(Loan.Id, AmountPaid.Value, PaymentDate, PaymentMethod, Notes);
+            await OnSave.InvokeAsync(true);
+        }
+        catch (Exception ex)
+        {
+            ValidationError = $"Error saving payment: {ex.Message}";
+        }
+    }
+}

@@ -13,6 +13,28 @@
 
 <link href="css/finance-modern.css?v=@(Revision ?? Guid.NewGuid().ToString())" rel="stylesheet" />
 
+<style>
+    /* Direct priority overrides to ensure visibility and bypass file caching */
+    .priority-high {
+        background-color: #dc3545 !important;
+        color: #ffffff !important;
+        border: 1px solid #b21f2d !important;
+        font-weight: 1000 !important;
+    }
+    .priority-medium {
+        background-color: #fd7e14 !important;
+        color: #ffffff !important;
+        border: 1px solid #d96200 !important;
+        font-weight: 1000 !important;
+    }
+    .priority-low {
+        background-color: #475569 !important;
+        color: #ffffff !important;
+        border: 1px solid #334155 !important;
+        font-weight: 1000 !important;
+    }
+</style>
+
 <div class="audit-page-wrapper full-view">
     <!-- Top Bar -->
     <div class="compact-top-bar px-4 py-3 border-bottom d-flex justify-content-between align-items-center bg-white">
@@ -22,13 +44,26 @@
              <div class="badge bg-light text-muted border px-3 py-2 rounded-pill" style="font-size: 0.65rem;">REV @(Revision ?? "2.1.80")</div>
         </div>
         <div class="d-flex gap-3">
-             <div class="btn-group p-1 bg-light rounded-pill border me-3 shadow-sm" style="font-size: 0.75rem;">
-                <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "BILLS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => CurrentView = "BILLS"'>CURRENT BILLS</button>
-                <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "PAYMENTS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => CurrentView = "PAYMENTS"'>PAYMENT HISTORY</button>
-             </div>
-             <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="GoToReport" style="font-size: 0.8rem;">VIEW REPORT</button>
-             <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="() => ShowManageCategories = true" style="font-size: 0.8rem;">CATEGORIES</button>
-             <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddBillModal" style="font-size: 0.8rem;">NEW BILL</button>
+              <div class="btn-group p-1 bg-light rounded-pill border me-3 shadow-sm" style="font-size: 0.75rem;">
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "BILLS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("BILLS")'>CURRENT BILLS</button>
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "PAYMENTS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("PAYMENTS")'>PAYMENT HISTORY</button>
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "VENDORS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("VENDORS")'>VENDORS</button>
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "LOANS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("LOANS")'>LOANS</button>
+              </div>
+              <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="GoToReport" style="font-size: 0.8rem;">VIEW REPORT</button>
+              <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="() => ShowManageCategories = true" style="font-size: 0.8rem;">CATEGORIES</button>
+              @if (CurrentView == "VENDORS")
+              {
+                  <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddVendorModal" style="font-size: 0.8rem;">NEW VENDOR</button>
+              }
+              else if (CurrentView == "LOANS")
+              {
+                  <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddLoanModal" style="font-size: 0.8rem;">NEW LOAN</button>
+              }
+              else
+              {
+                  <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddBillModal" style="font-size: 0.8rem;">NEW BILL</button>
+              }
         </div>
     </div>
 
@@ -58,38 +93,102 @@
                         }
                         else
                         {
-                            @foreach (var bill in DisplayUnpaidBills)
+                            var overdueBills = DisplayUnpaidBills.Where(b => b.IsOverdue).ToList();
+                            var upcomingBills = DisplayUnpaidBills.Where(b => !b.IsOverdue).ToList();
+
+                            @if (overdueBills.Any())
                             {
-                                <div class="bill-row @(bill.IsOverdue ? "overdue" : bill.IsInWarningWindow ? "warning" : "")" @onclick="() => SelectBill(bill)">
-                                    <!-- Section 1: Vendor (Left) -->
-                                    <div class="vendor-info" style="min-width: 180px;">
-                                        <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
-                                        <div class="text-muted small">
-                                            <i class="bi bi-calendar-event me-1"></i> @bill.DueDate.ToString("MM/dd/yy")
-                                        </div>
-                                    </div>
-
-                                    <!-- Section 2: Financials (Center) -->
-                                    <div class="financial-info text-center flex-grow-1">
-                                        <div class="d-flex align-items-center justify-content-center gap-3">
-                                            <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
-                                            <span class="status-badge @(bill.Status == "Partial" ? "status-partial" : (bill.IsOverdue ? "status-overdue" : "status-pending"))">
-                                                @(bill.Status == "Partial" ? "Partial" : (bill.IsOverdue ? "Overdue" : "Pending"))
-                                            </span>
-                                        </div>
-                                        @if (bill.Status == "Partial")
-                                        {
-                                            <div class="text-muted italic mt-1 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 1px;">
-                                                Paid: @bill.TotalPaid.ToString("C") / Total: @bill.OriginalAmount.ToString("C")
-                                            </div>
-                                        }
-                                    </div>
-
-                                    <!-- Section 3: Action (Far Right) -->
-                                    <div class="action-btn text-end" style="min-width: 100px;">
-                                        <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
-                                    </div>
+                                <div class="section-divider-label text-danger fw-black mb-3 d-flex align-items-center gap-2" style="font-size: 0.7rem; letter-spacing: 1.5px; font-weight: 900;">
+                                    <i class="bi bi-exclamation-octagon-fill"></i> OVERDUE & LATE (@overdueBills.Count)
                                 </div>
+                                @foreach (var bill in overdueBills)
+                                {
+                                    <div class="bill-row overdue" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px;">
+                                        <!-- Section 1: Vendor (Left) -->
+                                        <div class="vendor-info" style="min-width: 180px;">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
+                                                @if (bill.Vendor != null)
+                                                {
+                                                    <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.65rem; padding: 3px 8px;">
+                                                        @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
+                                                    </span>
+                                                }
+                                            </div>
+                                            <div class="text-muted small">
+                                                <i class="bi bi-calendar-event me-1"></i> @bill.DueDate.ToString("MM/dd/yy")
+                                            </div>
+                                        </div>
+
+                                        <!-- Section 2: Financials (Center) -->
+                                        <div class="financial-info text-center flex-grow-1">
+                                            <div class="d-flex align-items-center justify-content-center gap-3">
+                                                <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                <span class="status-badge status-overdue px-3 py-1">LATE</span>
+                                            </div>
+                                            @if (bill.Status == "Partial")
+                                            {
+                                                <div class="text-muted italic mt-1 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 1px;">
+                                                    Paid: @bill.TotalPaid.ToString("C") / Total: @bill.OriginalAmount.ToString("C")
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Section 3: Action (Far Right) -->
+                                        <div class="action-btn text-end" style="min-width: 100px;">
+                                            <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
+                                        </div>
+                                    </div>
+                                }
+                                <div class="my-4 border-bottom" style="border-color: rgba(0,0,0,0.08) !important;"></div>
+                            }
+
+                            @if (upcomingBills.Any())
+                            {
+                                <div class="section-divider-label text-muted fw-black mb-3 d-flex align-items-center gap-2" style="font-size: 0.7rem; letter-spacing: 1.5px; font-weight: 900;">
+                                    <i class="bi bi-calendar-check-fill"></i> UPCOMING & CURRENT (@upcomingBills.Count)
+                                </div>
+                                @foreach (var bill in upcomingBills)
+                                {
+                                    <div class="bill-row @(bill.IsInWarningWindow ? "warning" : "")" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px;">
+                                        <!-- Section 1: Vendor (Left) -->
+                                        <div class="vendor-info" style="min-width: 180px;">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
+                                                @if (bill.Vendor != null)
+                                                {
+                                                    <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.65rem; padding: 3px 8px;">
+                                                        @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
+                                                    </span>
+                                                }
+                                            </div>
+                                            <div class="text-muted small">
+                                                <i class="bi bi-calendar-event me-1"></i> @bill.DueDate.ToString("MM/dd/yy")
+                                            </div>
+                                        </div>
+
+                                        <!-- Section 2: Financials (Center) -->
+                                        <div class="financial-info text-center flex-grow-1">
+                                            <div class="d-flex align-items-center justify-content-center gap-3">
+                                                <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                <span class="status-badge @(bill.Status == "Partial" ? "status-partial" : "status-pending")">
+                                                    @(bill.Status == "Partial" ? "Partial" : "Pending")
+                                                </span>
+                                            </div>
+                                            @if (bill.Status == "Partial")
+                                            {
+                                                <div class="text-muted italic mt-1 text-uppercase fw-bold" style="font-size: 0.55rem; letter-spacing: 1px;">
+                                                    Paid: @bill.TotalPaid.ToString("C") / Total: @bill.OriginalAmount.ToString("C")
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Section 3: Action (Far Right) -->
+                                        <div class="action-btn text-end" style="min-width: 100px;">
+                                            <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
+                                        </div>
+                                    </div>
+                                }
                             }
                         }
                     </div>
@@ -137,7 +236,7 @@
                     </div>
                 </div>
             }
-            else
+            else if (CurrentView == "PAYMENTS")
             {
                 <!-- MODERN CARD-BASED TRANSACTION LEDGER -->
                 <div class="audit-list-panel bg-white p-4" style="width: 70%; flex: 0 0 70%;">
@@ -148,13 +247,19 @@
                         </div>
                         <div class="d-flex gap-2 align-items-center">
                             <span class="badge bg-light text-muted border px-3 py-2 rounded-pill" style="font-size: 0.65rem;">SORTED BY: @SortColumn.ToUpper()</span>
-                            <span class="badge bg-primary px-3 py-2 rounded-pill">@Bills.SelectMany(b => b.Payments).Count() TRANSACTIONS</span>
+                            @{
+                                var billPmtsCount = Bills.SelectMany(b => b.Payments).Count();
+                                var loanPmtsCount = AllLoans.SelectMany(l => l.Payments).Count();
+                            }
+                            <span class="badge bg-primary px-3 py-2 rounded-pill">@(billPmtsCount + loanPmtsCount) TRANSACTIONS</span>
                         </div>
                     </div>
 
                     <div class="scroll-container custom-scrollbar px-2">
                         @{
-                            var allPaymentsQuery = Bills.SelectMany(b => b.Payments.Select(p => new { Bill = b, Payment = p }));
+                            var billPayments = Bills.SelectMany(b => b.Payments.Select(p => new { Bill = (FinanceBill?)b, Loan = (FinanceLoan?)null, Payment = p }));
+                            var loanPaymentsForPeriod = AllLoans.SelectMany(l => l.Payments.Select(p => new { Bill = (FinanceBill?)null, Loan = (FinanceLoan?)l, Payment = p }));
+                            var allPaymentsQuery = billPayments.Concat(loanPaymentsForPeriod);
                             
                             if (!IsYearView && CurrentView == "PAYMENTS")
                             {
@@ -165,152 +270,415 @@
                             allPaymentsQuery = SortColumn switch
                             {
                                 "Date" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Payment.PaymentDate) : allPaymentsQuery.OrderByDescending(x => x.Payment.PaymentDate),
-                                "Vendor" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Bill.Vendor?.Name) : allPaymentsQuery.OrderByDescending(x => x.Bill.Vendor?.Name),
-                                "Category" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Bill.Category?.Name) : allPaymentsQuery.OrderByDescending(x => x.Bill.Category?.Name),
+                                "Vendor" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Bill?.Vendor?.Name ?? x.Loan?.LenderName ?? "Unknown") : allPaymentsQuery.OrderByDescending(x => x.Bill?.Vendor?.Name ?? x.Loan?.LenderName ?? "Unknown"),
+                                "Category" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Bill?.Category?.Name ?? "Loan Repayment") : allPaymentsQuery.OrderByDescending(x => x.Bill?.Category?.Name ?? "Loan Repayment"),
                                 "Amount" => SortAscending ? allPaymentsQuery.OrderBy(x => x.Payment.AmountPaid) : allPaymentsQuery.OrderByDescending(x => x.Payment.AmountPaid),
                                 _ => allPaymentsQuery.OrderByDescending(x => x.Payment.PaymentDate)
                             };
 
                             var allPayments = allPaymentsQuery.ToList();
+                        }
 
-                            if (!allPayments.Any())
+                        @if (!allPayments.Any())
+                        {
+                            <div class="text-center py-5 opacity-50">
+                                <i class="bi bi-archive h1 d-block mb-3"></i>
+                                <div class="italic">No transactions found for this period.</div>
+                            </div>
+                        }
+                        else if (GroupBy != "None")
+                        {
+                            var groups = GroupBy switch
                             {
-                                <div class="text-center py-5 opacity-50">
-                                    <i class="bi bi-archive h1 d-block mb-3"></i>
-                                    <div class="italic">No transactions found for this period.</div>
-                                </div>
-                            }
-                            else if (GroupBy != "None")
-                            {
-                                var groups = GroupBy switch
-                                {
-                                    "Category" => allPayments.GroupBy(x => x.Bill.Category?.Name ?? "Uncategorized").OrderBy(g => g.Key),
-                                    "Vendor" => allPayments.GroupBy(x => x.Bill.Vendor?.Name ?? "Unknown").OrderBy(g => g.Key),
-                                    _ => allPayments.GroupBy(x => "All").OrderBy(g => g.Key)
-                                };
+                                "Category" => allPayments.GroupBy(x => x.Bill?.Category?.Name ?? "Loan Repayment").OrderBy(g => g.Key),
+                                "Vendor" => allPayments.GroupBy(x => x.Bill?.Vendor?.Name ?? x.Loan?.LenderName ?? "Unknown").OrderBy(g => g.Key),
+                                _ => allPayments.GroupBy(x => "All").OrderBy(g => g.Key)
+                            };
 
-                                @foreach (var group in groups)
-                                {
-                                    bool isExpanded = ExpandedGroups.Contains(group.Key);
-                                    <div class="history-group-card mb-3 border rounded-4 shadow-sm overflow-hidden @(isExpanded ? "expanded" : "")">
-                                        <!-- GROUP HEADER -->
-                                        @{
-                                            var category = Bills.FirstOrDefault(b => b.Category?.Name == group.Key)?.Category;
-                                            var color = category?.Color ?? "#64748b";
-                                        }
-                                        <div class="group-header p-3 d-flex justify-content-between align-items-center bg-light bg-opacity-50" 
-                                             style="cursor: pointer; border-left: 5px solid @color;" @onclick="() => ToggleGroup(group.Key)">
-                                            <div class="d-flex align-items-center gap-3">
-                                                <i class="bi bi-chevron-@(isExpanded ? "down" : "right")" style="color: @color;"></i>
-                                                <div>
-                                                    <span class="text-muted text-uppercase fw-black" style="font-size: 0.6rem; letter-spacing: 1px;">@GroupBy</span>
-                                                    <h6 class="mb-0 fw-black">@group.Key</h6>
-                                                </div>
-                                            </div>
-                                            <div class="text-end">
-                                                <div class="text-muted small fw-bold mb-1">@group.Count() TRANSACTIONS</div>
-                                                <div class="h5 mb-0 fw-black text-dark">@group.Sum(x => x.Payment.AmountPaid).ToString("C")</div>
+                            @foreach (var group in groups)
+                            {
+                                bool isExpanded = ExpandedGroups.Contains(group.Key);
+                                <div class="history-group-card mb-3 border rounded-4 shadow-sm overflow-hidden @(isExpanded ? "expanded" : "")">
+                                    <!-- GROUP HEADER -->
+                                    @{
+                                        var category = Bills.FirstOrDefault(b => b.Category?.Name == group.Key)?.Category;
+                                        var color = category?.Color ?? "#64748b";
+                                    }
+                                    <div class="group-header p-3 d-flex justify-content-between align-items-center bg-light bg-opacity-50" 
+                                            style="cursor: pointer; border-left: 5px solid @color;" @onclick="() => ToggleGroup(group.Key)">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <i class="bi bi-chevron-@(isExpanded ? "down" : "right")" style="color: @color;"></i>
+                                            <div>
+                                                <span class="text-muted text-uppercase fw-black" style="font-size: 0.6rem; letter-spacing: 1px;">@GroupBy</span>
+                                                <h6 class="mb-0 fw-black">@group.Key</h6>
                                             </div>
                                         </div>
-
-                                        <!-- GROUP TRANSACTIONS -->
-                                        @if (isExpanded)
-                                        {
-                                            <div class="group-content border-top">
-                                                @foreach (var entry in group)
-                                                {
-                                                    <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base">
-                                                        <div class="date-block text-center pe-4 border-end" style="width: 80px;">
-                                                            <div class="fw-black text-primary" style="font-size: 0.9rem;">@entry.Payment.PaymentDate.ToString("dd")</div>
-                                                            <div class="text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("MMM")</div>
-                                                        </div>
-                                                        <div class="ps-4 flex-grow-1">
-                                                            <div class="fw-black">@entry.Bill.Vendor?.Name</div>
-                                                            <div class="small text-muted">@entry.Bill.Description</div>
-                                                        </div>
-                                                        <div class="px-3 text-center">
-                                                            <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-3 py-1">@entry.Payment.PaymentMethod</span>
-                                                        </div>
-                                                        <div class="text-end ps-4" style="min-width: 120px;">
-                                                            <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
-                                                            <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
-                                                        </div>
-                                                    </div>
-                                                }
-                                            </div>
-                                        }
+                                        <div class="text-end">
+                                            <div class="text-muted small fw-bold mb-1">@group.Count() TRANSACTIONS</div>
+                                            <div class="h5 mb-0 fw-black text-dark">@group.Sum(x => x.Payment.AmountPaid).ToString("C")</div>
+                                        </div>
                                     </div>
-                                }
-                            }
-                            else
-                            {
-                                <div class="flat-history-list border rounded-4 overflow-hidden">
-                                    @foreach (var entry in allPayments)
+
+                                    <!-- GROUP TRANSACTIONS -->
+                                    @if (isExpanded)
                                     {
-                                        <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base bg-white">
-                                            <div class="date-block text-center pe-4 border-end" style="width: 80px;">
-                                                <div class="fw-black text-primary" style="font-size: 0.9rem;">@entry.Payment.PaymentDate.ToString("dd")</div>
-                                                <div class="text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("MMM")</div>
-                                            </div>
-                                            <div class="ps-4 flex-grow-1">
-                                                <div class="fw-black">@entry.Bill.Vendor?.Name</div>
-                                                <div class="small text-muted">@entry.Bill.Description</div>
-                                                <span class="badge mt-1" style="font-size: 0.6rem; background-color: @(entry.Bill.Category?.Color ?? "#64748b"); color: white;">@entry.Bill.Category?.Name</span>
-                                            </div>
-                                            <div class="px-3 text-center">
-                                                <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-3 py-1">@entry.Payment.PaymentMethod</span>
-                                            </div>
-                                            <div class="text-end ps-4" style="min-width: 120px;">
-                                                <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
-                                                <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
-                                            </div>
+                                        <div class="group-content border-top">
+                                            @foreach (var entry in group)
+                                            {
+                                                <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base">
+                                                    <div class="date-block text-center pe-4 border-end" style="width: 80px;">
+                                                        <div class="fw-black text-primary" style="font-size: 0.9rem;">@entry.Payment.PaymentDate.ToString("dd")</div>
+                                                        <div class="text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("MMM")</div>
+                                                    </div>
+                                                    <div class="ps-4 flex-grow-1">
+                                                        <div class="fw-black">@(entry.Bill?.Vendor?.Name ?? entry.Loan?.LenderName)</div>
+                                                        <div class="small text-muted">@(entry.Bill?.Description ?? entry.Payment.Note)</div>
+                                                    </div>
+                                                    <div class="px-3 text-center">
+                                                        <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-3 py-1">@entry.Payment.PaymentMethod</span>
+                                                    </div>
+                                                    <div class="text-end ps-4" style="min-width: 120px;">
+                                                        <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
+                                                        <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
+                                                    </div>
+                                                </div>
+                                            }
                                         </div>
                                     }
                                 </div>
                             }
                         }
+                        else
+                        {
+                            <div class="flat-history-list border rounded-4 overflow-hidden shadow-sm">
+                                @foreach (var entry in allPayments)
+                                {
+                                    <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base bg-white">
+                                        <div class="date-block text-center pe-4 border-end" style="width: 80px;">
+                                            <div class="fw-black text-primary" style="font-size: 0.9rem;">@entry.Payment.PaymentDate.ToString("dd")</div>
+                                            <div class="text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("MMM")</div>
+                                        </div>
+                                        <div class="ps-4 flex-grow-1">
+                                            <div class="fw-black">@(entry.Bill?.Vendor?.Name ?? entry.Loan?.LenderName)</div>
+                                            <div class="small text-muted">@(entry.Bill?.Description ?? entry.Payment.Note)</div>
+                                            @if (entry.Bill?.Category != null)
+                                            {
+                                                <span class="badge mt-1" style="font-size: 0.6rem; background-color: @(entry.Bill.Category.Color); color: white;">@entry.Bill.Category.Name</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge mt-1 bg-secondary text-white" style="font-size: 0.6rem;">Loan Repayment</span>
+                                            }
+                                        </div>
+                                        <div class="px-3 text-center">
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-3 py-1">@entry.Payment.PaymentMethod</span>
+                                        </div>
+                                        <div class="text-end ps-4" style="min-width: 120px;">
+                                            <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
+                                            <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             }
+            else if (CurrentView == "VENDORS")
+            {
+                <!-- VENDOR MANAGEMENT DASHBOARD -->
+                <div class="audit-list-panel bg-white p-4" style="width: 70%; flex: 0 0 70%;">
+                    <div class="d-flex justify-content-between align-items-center mb-4 px-2">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-people-fill text-primary h4 mb-0"></i>
+                            <h4 class="mb-0 fw-black text-uppercase letter-spacing-2">VENDORS DIRECTORY</h4>
+                        </div>
+                        <div class="d-flex gap-3 align-items-center">
+                            <input type="text" class="form-control form-control-sm rounded-pill px-3 py-2 border shadow-sm" 
+                                   placeholder="Search vendors..." @bind-value="VendorSearchText" @bind-value:event="oninput" style="font-size: 0.75rem; width: 200px;" />
+                            <div class="form-check form-switch m-0 d-flex align-items-center gap-2">
+                                <input class="form-check-input" type="checkbox" role="switch" id="showInactiveToggle" @bind="ShowInactiveVendors" />
+                                <label class="form-check-label small fw-bold text-muted" for="showInactiveToggle" style="cursor: pointer;">Show Inactive</label>
+                            </div>
+                        </div>
+                    </div>
 
-            <!-- COLUMN 3: Filters & Settings Sidebar -->
-            <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
-                <!-- Financial Totals Section -->
-                <div class="sidebar-section mb-4">
-                    <label class="sidebar-label">@(CurrentView == "BILLS" ? (IsYearView ? "ANNUAL" : "MONTHLY") + " FINANCIALS" : "PAYMENT ANALYSIS")</label>
-                    
-                    @if (CurrentView == "BILLS")
+                    <div class="scroll-container custom-scrollbar px-2">
+                        @{
+                            var filteredVendors = AllVendors
+                                .Where(v => (ShowInactiveVendors || v.IsActive) && 
+                                            (string.IsNullOrWhiteSpace(VendorSearchText) || v.Name.Contains(VendorSearchText, StringComparison.OrdinalIgnoreCase)))
+                                .ToList();
+                        }
+                        @if (!filteredVendors.Any())
+                        {
+                            <div class="text-center py-5 opacity-50">
+                                <i class="bi bi-people h1 d-block mb-3"></i>
+                                <div class="italic">No vendors found.</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="flat-history-list border rounded-4 overflow-hidden">
+                                @foreach (var vendor in filteredVendors)
+                                {
+                                    <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base bg-white @(!vendor.IsActive ? "opacity-60 bg-light" : "")" style="cursor: pointer;" @onclick="() => EditVendor(vendor)">
+                                        <div class="pe-4 border-end text-center" style="width: 100px;">
+                                            <span class="badge rounded-pill px-2 py-1 @GetPriorityBadgeClass(vendor.Priority)" style="font-size: 0.6rem;">
+                                                @GetPriorityName(vendor.Priority).ToUpper() PRIORITY
+                                            </span>
+                                        </div>
+                                        <div class="ps-4 flex-grow-1">
+                                            <div class="fw-black h6 mb-1 d-flex align-items-center gap-2">
+                                                @vendor.Name
+                                                @if (!vendor.IsActive)
+                                                {
+                                                    <span class="badge bg-secondary" style="font-size: 0.55rem;">INACTIVE</span>
+                                                }
+                                            </div>
+                                            <div class="small text-muted d-flex gap-3">
+                                                @if (!string.IsNullOrEmpty(vendor.AccountNumber))
+                                                {
+                                                    <span><i class="bi bi-hash me-1"></i> ACCT: <strong>@vendor.AccountNumber</strong></span>
+                                                }
+                                                @if (!string.IsNullOrEmpty(vendor.Email))
+                                                {
+                                                    <span><i class="bi bi-envelope me-1"></i> @vendor.Email</span>
+                                                }
+                                                @if (!string.IsNullOrEmpty(vendor.Phone))
+                                                {
+                                                    <span><i class="bi bi-telephone me-1"></i> @vendor.Phone</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="px-3 text-center">
+                                            @if (vendor.DefaultCategory != null)
+                                            {
+                                                <span class="badge rounded-pill px-3 py-1" style="font-size: 0.65rem; background-color: @vendor.DefaultCategory.Color; color: white;">
+                                                    <i class="bi @vendor.DefaultCategory.Icon me-1"></i> @vendor.DefaultCategory.Name
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-muted border rounded-pill px-3 py-1" style="font-size: 0.65rem;">No Default Category</span>
+                                            }
+                                        </div>
+                                        <div class="text-end ps-4" style="min-width: 100px;">
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" @onclick:stopPropagation="true" @onclick="() => EditVendor(vendor)">EDIT</button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (CurrentView == "LOANS")
+            {
+                <!-- LOAN MODULE WORKSPACE - Two columns inside the main workspace -->
+                <div class="audit-list-panel" style="width: 38%; flex: 0 0 38%;">
+                    <div class="panel-header">
+                        <span>LOANS REGISTRY</span>
+                        <span class="badge bg-primary rounded-pill">@DisplayLoans.Count</span>
+                    </div>
+                    <div class="scroll-container custom-scrollbar px-3 pt-3">
+                        @if (!DisplayLoans.Any())
+                        {
+                            <div class="p-5 text-center text-muted opacity-50">
+                                <i class="bi bi-wallet2 h1 mb-3 d-block"></i>
+                                <div class="fw-bold text-uppercase letter-spacing-1">NO LOANS FOUND</div>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var loan in DisplayLoans)
+                            {
+                                bool isSelected = SelectedLoan?.Id == loan.Id;
+                                <div class="bill-row @(isSelected ? "selected border-primary border-2 shadow-sm bg-light" : "")" @onclick="() => SelectLoan(loan)" style="cursor: pointer; margin-bottom: 12px; transition: all 0.2s ease;">
+                                    <div class="vendor-info" style="min-width: 140px;">
+                                        <div class="fw-black text-dark h6 mb-1">@loan.LenderName</div>
+                                        <div class="text-muted small">
+                                            Originated: @loan.OriginDate.ToString("MM/dd/yy")
+                                        </div>
+                                    </div>
+                                    <div class="financial-info text-center flex-grow-1">
+                                        <div class="text-danger fw-black h5 mb-0">@loan.CurrentBalance.ToString("C")</div>
+                                        <div class="text-muted small" style="font-size: 0.65rem;">
+                                            of @loan.OriginalBalance.ToString("C")
+                                        </div>
+                                    </div>
+                                    <div class="action-btn text-end" style="min-width: 80px;">
+                                        @if (!loan.IsActive || loan.CurrentBalance <= 0)
+                                        {
+                                            <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.55rem;">PAID OFF</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.55rem;">ACTIVE</span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="audit-list-panel border-start bg-white" style="width: 32%; flex: 0 0 32%;">
+                    @if (SelectedLoan != null)
                     {
-                        <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
-                            <div class="label text-primary">TOTAL DUE @(IsYearView ? "(ANNUAL)" : "(MONTHLY)")</div>
-                            <div class="value text-primary" style="font-size: 2rem;">@DisplayTotalDue.ToString("C")</div>
+                        <div class="panel-header border-bottom">
+                            <span>LOAN DETAILS & HISTORY</span>
+                        </div>
+                        <div class="scroll-container custom-scrollbar p-4" style="height: calc(100% - 50px); overflow-y: auto;">
+                            <!-- Loan stats -->
+                            <div class="p-3 mb-4 bg-light rounded-4 border">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <h5 class="fw-black text-dark mb-0">@SelectedLoan.LenderName</h5>
+                                        <span class="text-muted" style="font-size: 0.65rem;">ORIGINATED: @SelectedLoan.OriginDate.ToString("MM/dd/yyyy")</span>
+                                    </div>
+                                    <div>
+                                        @if (!SelectedLoan.IsActive || SelectedLoan.CurrentBalance <= 0)
+                                        {
+                                            <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.6rem;">PAID OFF</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.6rem;">ACTIVE</span>
+                                        }
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+                                    <div>
+                                        <span class="small text-muted fw-bold d-block text-uppercase" style="font-size: 0.6rem;">Remaining Balance</span>
+                                        <span class="fw-black text-danger h4 mb-0">@SelectedLoan.CurrentBalance.ToString("C")</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <span class="small text-muted fw-bold d-block text-uppercase" style="font-size: 0.6rem;">Original Balance</span>
+                                        <span class="fw-bold text-muted h5 mb-0">@SelectedLoan.OriginalBalance.ToString("C")</span>
+                                    </div>
+                                </div>
+                                
+                                @{
+                                    decimal paidAmount = SelectedLoan.OriginalBalance - SelectedLoan.CurrentBalance;
+                                    decimal progressPercent = SelectedLoan.OriginalBalance > 0 ? (paidAmount / SelectedLoan.OriginalBalance) * 100 : 0;
+                                }
+                                <div class="progress rounded-pill mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-success rounded-pill" role="progressbar" style="width: @(progressPercent.ToString("0.0"))%" aria-valuenow="@progressPercent" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center text-muted mb-3" style="font-size: 0.6rem;">
+                                    <span class="fw-bold text-success">@progressPercent.ToString("0")% PAID OFF</span>
+                                    <span>Total Paid: @paidAmount.ToString("C")</span>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary rounded-pill flex-grow-1 py-2 fw-bold" @onclick="() => EditLoan(SelectedLoan)" style="font-size: 0.75rem;">EDIT LOAN</button>
+                                    @if (SelectedLoan.IsActive && SelectedLoan.CurrentBalance > 0)
+                                    {
+                                        <button class="btn btn-sm btn-success rounded-pill flex-grow-1 py-2 fw-bold" @onclick="() => OpenRecordPaymentModal(SelectedLoan)" style="font-size: 0.75rem;">RECORD PAYMENT</button>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Payments list -->
+                            <div class="d-flex align-items-center gap-2 mb-3">
+                                <i class="bi bi-clock-history text-primary h6 mb-0"></i>
+                                <h6 class="mb-0 fw-black text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;">Payment Logs</h6>
+                                <span class="badge bg-light text-muted border rounded-pill px-2 py-1 ms-auto" style="font-size: 0.6rem;">@SelectedLoan.Payments.Count Payments</span>
+                            </div>
+
+                            <div class="flat-history-list border rounded-4 overflow-hidden bg-white shadow-sm">
+                                @if (!SelectedLoan.Payments.Any())
+                                {
+                                    <div class="p-4 text-center text-muted opacity-50" style="font-size: 0.7rem;">
+                                        No payments recorded yet.
+                                    </div>
+                                }
+                                else
+                                {
+                                    @foreach (var p in SelectedLoan.Payments.OrderByDescending(p => p.PaymentDate))
+                                    {
+                                        <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base bg-white" style="font-size: 0.75rem;">
+                                            <div class="date-block text-center pe-3 border-end" style="width: 60px; min-width: 60px;">
+                                                <div class="fw-black text-primary" style="font-size: 0.85rem;">@p.PaymentDate.ToString("dd")</div>
+                                                <div class="text-muted text-uppercase fw-bold" style="font-size: 0.55rem;">@p.PaymentDate.ToString("MMM")</div>
+                                            </div>
+                                            <div class="ps-3 flex-grow-1 overflow-hidden">
+                                                <div class="fw-bold text-dark text-truncate">@p.PaymentMethod</div>
+                                                @if (!string.IsNullOrEmpty(p.Note))
+                                                {
+                                                    <div class="small text-muted text-truncate" style="font-size: 0.65rem;">@p.Note</div>
+                                                }
+                                            </div>
+                                            <div class="text-end ps-3" style="min-width: 90px;">
+                                                <div class="fw-black text-success mb-0">@p.AmountPaid.ToString("C")</div>
+                                                <div class="text-muted" style="font-size: 0.55rem;">@p.PaymentDate.ToString("yyyy")</div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
                         </div>
                     }
-
-                    <div class="stat-card p-3 shadow-sm border-2 border-success-subtle bg-success-subtle bg-opacity-10">
-                        <div class="label text-success">@(CurrentView == "BILLS" ? "TOTAL PAID" : "TOTAL DISBURSED") @(IsYearView && CurrentView == "PAYMENTS" ? "(ANNUAL)" : "(MONTHLY)")</div>
-                        <div class="value text-success" style="font-size: 2rem;">@DisplayTotalPaid.ToString("C")</div>
-                    </div>
-                    
-                    @if (CurrentView == "PAYMENTS")
+                    else
                     {
-                        <div class="mt-2 text-center">
-                            <span class="badge bg-light text-muted border px-3 py-1 rounded-pill" style="font-size: 0.6rem;">@Bills.SelectMany(b => b.Payments).Count() TOTAL TRANSACTIONS</span>
+                        <div class="h-100 d-flex flex-column align-items-center justify-content-center p-5 text-muted opacity-50">
+                            <i class="bi bi-bank h1 mb-3"></i>
+                            <div class="fw-bold text-uppercase letter-spacing-1">SELECT A LOAN</div>
+                            <div class="small text-center mt-1">Select a loan from the list to view details, payoff progress, and payment history.</div>
                         </div>
                     }
                 </div>
+            }
 
-                <!-- Date Range Selection -->
-                <div class="sidebar-section mb-4">
-                    <label class="sidebar-label">CALENDAR NAVIGATION</label>
-                    <div class="month-selector d-flex justify-content-between align-items-center bg-light rounded-pill px-4 py-3 border mb-3">
-                        <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="PrevMonth"><i class="bi bi-chevron-left h5 mb-0"></i></button>
-                        <span class="fw-black h5 mb-0">@(IsYearView && CurrentView == "PAYMENTS" ? CurrentDate.Year.ToString() : CurrentDate.ToString("MMMM yyyy"))</span>
-                        <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="NextMonth"><i class="bi bi-chevron-right h5 mb-0"></i></button>
+            @if (CurrentView == "BILLS" || CurrentView == "PAYMENTS")
+            {
+                <!-- COLUMN 3: Filters & Settings Sidebar -->
+                <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
+                    <!-- Financial Totals Section -->
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">@(CurrentView == "BILLS" ? (IsYearView ? "ANNUAL" : "MONTHLY") + " FINANCIALS" : "PAYMENT ANALYSIS")</label>
+                        
+                        @if (CurrentView == "BILLS")
+                        {
+                            <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
+                                <div class="label text-primary">TOTAL DUE @(IsYearView ? "(ANNUAL)" : "(MONTHLY)")</div>
+                                <div class="value text-primary" style="font-size: 2rem;">@DisplayTotalDue.ToString("C")</div>
+                            </div>
+                        }
+
+                        <div class="stat-card p-3 shadow-sm border-2 border-success-subtle bg-success-subtle bg-opacity-10 mb-3">
+                            <div class="label text-success">@(CurrentView == "BILLS" ? "TOTAL PAID" : "TOTAL DISBURSED") @(IsYearView && CurrentView == "PAYMENTS" ? "(ANNUAL)" : "(MONTHLY)")</div>
+                            <div class="value text-success" style="font-size: 2rem;">@DisplayTotalPaid.ToString("C")</div>
+                        </div>
+
+                        @if (CurrentView == "BILLS")
+                        {
+                            <div class="stat-card p-3 shadow-sm border-2 border-secondary bg-light" style="cursor: pointer;" @onclick='() => SetView("LOANS")'>
+                                <div class="label text-muted">OUTSTANDING LOANS</div>
+                                <div class="value text-muted" style="font-size: 2rem;">@TotalLoanBalance.ToString("C")</div>
+                            </div>
+                        }
+                        
+                        @if (CurrentView == "PAYMENTS")
+                        {
+                            <div class="mt-2 text-center">
+                                <span class="badge bg-light text-muted border px-3 py-1 rounded-pill" style="font-size: 0.6rem;">@Bills.SelectMany(b => b.Payments).Count() TOTAL TRANSACTIONS</span>
+                            </div>
+                        }
                     </div>
 
-                        <div class="p-3 bg-light rounded-4 border">
+                    <!-- Date Range Selection -->
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">CALENDAR NAVIGATION</label>
+                        <div class="month-selector d-flex justify-content-between align-items-center bg-light rounded-pill px-4 py-3 border mb-3">
+                            <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="PrevMonth"><i class="bi bi-chevron-left h5 mb-0"></i></button>
+                            <span class="fw-black h5 mb-0">@(IsYearView && CurrentView == "PAYMENTS" ? CurrentDate.Year.ToString() : CurrentDate.ToString("MMMM yyyy"))</span>
+                            <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="NextMonth"><i class="bi bi-chevron-right h5 mb-0"></i></button>
+                        </div>
 
+                        <div class="p-3 bg-light rounded-4 border">
                             @if (CurrentView == "PAYMENTS")
                             {
                                 <div class="mt-4 pt-3 border-top">
@@ -323,25 +691,80 @@
                                 </div>
                             }
 
-                        @if (CurrentView == "BILLS")
-                        {
-                            <div class="mt-3 p-3 bg-white rounded-4 border shadow-sm">
-                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                    <label class="fw-black text-dark mb-0" style="font-size: 0.65rem; letter-spacing: 0.5px;">LATE-MONTH PLANNING</label>
-                                    <div class="form-check form-switch m-0 p-0" style="min-height: auto;">
-                                        <input class="form-check-input m-0" type="checkbox" role="switch" @onchange='(e) => { IncludeNextMonth = (bool)e.Value!; UpdateDisplay(); }' checked="@IncludeNextMonth" style="width: 2.2em; height: 1.1em; cursor: pointer;">
-                                    </div>
+                            @if (CurrentView == "BILLS")
+                            {
+                                <div class="mb-3">
+                                    <label class="sidebar-label mb-2">SORT UNPAID BILLS BY</label>
+                                    <select class="form-select rounded-4 border shadow-sm mb-3" @bind="BillSortOrder" @bind:after="UpdateDisplay" style="font-size: 0.75rem; font-weight: 900;">
+                                        <option value="Date">DUE DATE (CHRONOLOGICAL)</option>
+                                        <option value="Priority">VENDOR PRIORITY & DUE DATE</option>
+                                    </select>
                                 </div>
-                                <p class="text-muted mb-0" style="font-size: 0.6rem; line-height: 1.2;">
-                                    Show bills due in the <strong>first 7 days</strong> of the next month to help with planning.
-                                </p>
-                            </div>
-                        }
+
+                                <div class="p-3 bg-white rounded-4 border shadow-sm">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <label class="fw-black text-dark mb-0" style="font-size: 0.65rem; letter-spacing: 0.5px;">LATE-MONTH PLANNING</label>
+                                        <div class="form-check form-switch m-0 p-0" style="min-height: auto;">
+                                            <input class="form-check-input m-0" type="checkbox" role="switch" @onchange='(e) => { IncludeNextMonth = (bool)e.Value!; UpdateDisplay(); }' checked="@IncludeNextMonth" style="width: 2.2em; height: 1.1em; cursor: pointer;">
+                                        </div>
+                                    </div>
+                                    <p class="text-muted mb-0" style="font-size: 0.6rem; line-height: 1.2;">
+                                        Show bills due in the <strong>first 7 days</strong> of the next month to help with planning.
+                                    </p>
+                                </div>
+                            }
+                        </div>
                     </div>
                 </div>
+            }
+            else if (CurrentView == "VENDORS")
+            {
+                <!-- COLUMN 3: Vendors Sidebar -->
+                <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">VENDOR METRICS</label>
+                        <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
+                            <div class="label text-primary">TOTAL ACTIVE VENDORS</div>
+                            <div class="value text-primary" style="font-size: 2rem;">@AllVendors.Count(v => v.IsActive)</div>
+                        </div>
+                        <div class="stat-card p-3 shadow-sm border-2 border-secondary bg-light">
+                            <div class="label text-muted">INACTIVE VENDORS</div>
+                            <div class="value text-muted" style="font-size: 2rem;">@AllVendors.Count(v => !v.IsActive)</div>
+                        </div>
+                    </div>
 
-
-            </div>
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">PRIORITY BREAKDOWN</label>
+                        <div class="p-3 bg-light rounded-4 border">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span class="fw-bold text-danger"><i class="bi bi-flag-fill me-1"></i> High Priority</span>
+                                <span class="badge bg-danger rounded-pill">@AllVendors.Count(v => v.IsActive && v.Priority == 1)</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span class="fw-bold text-warning"><i class="bi bi-flag-fill me-1"></i> Medium Priority</span>
+                                <span class="badge bg-warning text-dark rounded-pill">@AllVendors.Count(v => v.IsActive && v.Priority == 2)</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-secondary"><i class="bi bi-flag-fill me-1"></i> Low Priority</span>
+                                <span class="badge bg-secondary rounded-pill">@AllVendors.Count(v => v.IsActive && v.Priority == 3)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (CurrentView == "LOANS")
+            {
+                <!-- COLUMN 3: Loans Sidebar -->
+                <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">LOANS FINANCIALS</label>
+                        <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
+                            <div class="label text-primary">TOTAL LOAN BALANCE</div>
+                            <div class="value text-primary" style="font-size: 2rem;">@TotalLoanBalance.ToString("C")</div>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 
@@ -359,6 +782,40 @@
     {
         <FinanceManageCategoriesModal OnClose="() => ShowManageCategories = false" OnUpdate="LoadData" />
     }
+
+    @if (ShowVendorModal)
+    {
+        <FinanceVendorModal Vendor="EditingVendor" OnClose="CloseVendorModal" OnSave="HandleVendorSaved" OnDeleteRequested="InitiateDeleteVendor" />
+    }
+
+    @if (ShowDeleteVendorConfirm && VendorToDelete != null)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                    <div class="modal-body p-4 text-center">
+                        <i class="bi bi-exclamation-triangle-fill text-danger display-4 mb-3 d-block"></i>
+                        <h5 class="fw-bold mb-2 text-dark">Delete Vendor?</h5>
+                        <p class="text-muted small mb-4">Are you sure you want to delete <strong>@VendorToDelete.Name</strong>? This will deactivate the vendor and hide them from future bills.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => ShowDeleteVendorConfirm = false">Cancel</button>
+                            <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmDeleteVendor">Yes, Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowLoanModal)
+    {
+        <FinanceLoanModal Loan="EditingLoan" OnClose="CloseLoanModal" OnSave="HandleLoanSaved" />
+    }
+
+    @if (ShowLoanPaymentModal)
+    {
+        <FinanceLoanPaymentModal Loan="PayingLoan" OnClose="CloseLoanPaymentModal" OnSave="HandleLoanPaymentSaved" />
+    }
 </div>
 
 @code {
@@ -366,6 +823,23 @@
     private string? Revision => Config["ApplicationVersion:Revision"];
     private bool ShowManageCategories { get; set; }
     private string CurrentView { get; set; } = "BILLS";
+    private string BillSortOrder { get; set; } = "Priority";
+    private bool ShowVendorModal { get; set; }
+    private FinanceVendor EditingVendor { get; set; } = new();
+    private bool ShowDeleteVendorConfirm { get; set; }
+    private FinanceVendor? VendorToDelete { get; set; }
+    private List<FinanceVendor> AllVendors { get; set; } = new();
+    private string VendorSearchText { get; set; } = "";
+    private bool ShowInactiveVendors { get; set; }
+    private bool ShowLoanModal { get; set; }
+    private FinanceLoan EditingLoan { get; set; } = new();
+    private bool ShowLoanPaymentModal { get; set; }
+    private FinanceLoan PayingLoan { get; set; } = new();
+    private List<FinanceLoan> AllLoans { get; set; } = new();
+    private List<FinanceLoan> DisplayLoans { get; set; } = new();
+    private FinanceLoan? SelectedLoan { get; set; }
+    private bool ShowPaidOffLoans { get; set; }
+    private decimal TotalLoanBalance { get; set; }
     private bool IsYearView { get; set; }
     private string SortColumn { get; set; } = "Date";
     private bool SortAscending { get; set; }
@@ -395,7 +869,17 @@
             var horizon = DateTime.Today.AddDays(14);
             unpaidQuery = unpaidQuery.Where(b => b.DueDate <= horizon);
         }
-        DisplayUnpaidBills = unpaidQuery.OrderBy(b => b.DueDate).ToList();
+        if (BillSortOrder == "Priority")
+        {
+            DisplayUnpaidBills = unpaidQuery
+                .OrderBy(b => b.Vendor != null ? b.Vendor.Priority : 3)
+                .ThenBy(b => b.DueDate)
+                .ToList();
+        }
+        else
+        {
+            DisplayUnpaidBills = unpaidQuery.OrderBy(b => b.DueDate).ToList();
+        }
 
         // Filter for Paid column (Middle) - Optimized to avoid redundant Max() lookups
         DisplayPaidBills = Bills.Select(b => new { Bill = b, LastPaymentDate = b.Payments
@@ -462,6 +946,11 @@
             {
                 Bills = (await FinanceService.GetBillsAsync(CurrentDate.Month, CurrentDate.Year)).ToList();
             }
+            
+            AllVendors = (await FinanceService.GetAllVendorsAsync(includeInactive: true)).ToList();
+            AllLoans = (await FinanceService.GetAllLoansAsync(includeInactive: true)).ToList();
+            UpdateLoansDisplay();
+            
             Console.WriteLine($"[FINANCE_UI] Updating Display...");
             UpdateDisplay();
         }
@@ -560,4 +1049,132 @@
         ShowPaymentModal = false;
         await LoadData();
     }
+
+    private void UpdateLoansDisplay()
+    {
+        var query = AllLoans.AsQueryable();
+        if (!ShowPaidOffLoans)
+        {
+            query = query.Where(l => l.IsActive && l.CurrentBalance > 0);
+        }
+        DisplayLoans = query.OrderByDescending(l => l.OriginDate).ToList();
+
+        // Recalculate total loan balance for active loans
+        TotalLoanBalance = AllLoans.Where(l => l.IsActive).Sum(l => l.CurrentBalance);
+
+        if (SelectedLoan != null)
+        {
+            SelectedLoan = AllLoans.FirstOrDefault(l => l.Id == SelectedLoan.Id);
+        }
+
+        if (SelectedLoan == null && DisplayLoans.Any())
+        {
+            SelectedLoan = DisplayLoans.First();
+        }
+    }
+
+    private void SelectLoan(FinanceLoan loan)
+    {
+        SelectedLoan = loan;
+        StateHasChanged();
+    }
+
+    private void OpenAddLoanModal()
+    {
+        EditingLoan = new FinanceLoan { OriginDate = DateTime.Today, IsActive = true };
+        ShowLoanModal = true;
+    }
+
+    private void EditLoan(FinanceLoan loan)
+    {
+        EditingLoan = loan;
+        ShowLoanModal = true;
+    }
+
+    private void CloseLoanModal() => ShowLoanModal = false;
+
+    private async Task HandleLoanSaved(bool success)
+    {
+        ShowLoanModal = false;
+        await LoadData();
+    }
+
+    private void OpenRecordPaymentModal(FinanceLoan loan)
+    {
+        PayingLoan = loan;
+        ShowLoanPaymentModal = true;
+    }
+
+    private void CloseLoanPaymentModal() => ShowLoanPaymentModal = false;
+
+    private async Task HandleLoanPaymentSaved(bool success)
+    {
+        ShowLoanPaymentModal = false;
+        await LoadData();
+    }
+
+    private void SetView(string view)
+    {
+        CurrentView = view;
+        StateHasChanged();
+    }
+
+    private void OpenAddVendorModal()
+    {
+        EditingVendor = new FinanceVendor { IsActive = true, Priority = 3 };
+        ShowVendorModal = true;
+    }
+
+    private void EditVendor(FinanceVendor vendor)
+    {
+        EditingVendor = vendor;
+        ShowVendorModal = true;
+    }
+
+    private void CloseVendorModal() => ShowVendorModal = false;
+
+    private async Task HandleVendorSaved(bool success)
+    {
+        ShowVendorModal = false;
+        await LoadData();
+    }
+
+    private void InitiateDeleteVendor(FinanceVendor vendor)
+    {
+        ShowVendorModal = false;
+        VendorToDelete = vendor;
+        ShowDeleteVendorConfirm = true;
+    }
+
+    private async Task ConfirmDeleteVendor()
+    {
+        if (VendorToDelete == null) return;
+        try
+        {
+            await FinanceService.DeleteVendorAsync(VendorToDelete.Id);
+            ShowDeleteVendorConfirm = false;
+            VendorToDelete = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting vendor: {ex.Message}");
+        }
+    }
+
+    private string GetPriorityName(int priority) => priority switch
+    {
+        1 => "High",
+        2 => "Medium",
+        3 => "Low",
+        _ => "Low"
+    };
+
+    private string GetPriorityBadgeClass(int priority) => priority switch
+    {
+        1 => "priority-high",
+        2 => "priority-medium",
+        3 => "priority-low",
+        _ => "priority-low"
+    };
 }

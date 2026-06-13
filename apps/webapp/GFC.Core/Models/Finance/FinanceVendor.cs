@@ -26,6 +26,16 @@ namespace GFC.Core.Models.Finance
         [StringLength(500)]
         public string? Website { get; set; }
 
+        [StringLength(100)]
+        public string? AccountNumber { get; set; }
+
+        public int? DefaultCategoryId { get; set; }
+
+        [ForeignKey("DefaultCategoryId")]
+        public virtual FinanceCategory? DefaultCategory { get; set; }
+
+        public int Priority { get; set; } = 3; // 1 = High, 2 = Medium, 3 = Low
+
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
         public bool IsActive { get; set; } = true;

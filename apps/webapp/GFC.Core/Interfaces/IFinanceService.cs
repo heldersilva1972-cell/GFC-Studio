@@ -20,10 +20,19 @@ namespace GFC.Core.Interfaces
 
         // Vendor Management
         Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync();
+        Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync(bool includeInactive);
         Task<FinanceVendor?> GetVendorByIdAsync(int id);
         Task<FinanceVendor> CreateVendorAsync(FinanceVendor vendor);
         Task UpdateVendorAsync(FinanceVendor vendor);
         Task DeleteVendorAsync(int id);
+        Task<string?> GetLastPaymentMethodForVendorAsync(int vendorId);
+
+        // Loan Management
+        Task<IEnumerable<FinanceLoan>> GetAllLoansAsync(bool includeInactive = false);
+        Task<FinanceLoan?> GetLoanByIdAsync(int id);
+        Task<FinanceLoan> CreateLoanAsync(FinanceLoan loan);
+        Task UpdateLoanAsync(FinanceLoan loan);
+        Task RecordLoanPaymentAsync(int loanId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null);
 
         // Category Management
         Task<IEnumerable<FinanceCategory>> GetAllCategoriesAsync();

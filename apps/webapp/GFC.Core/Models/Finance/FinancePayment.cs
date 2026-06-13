@@ -10,11 +10,15 @@ namespace GFC.Core.Models.Finance
         [Key]
         public int Id { get; set; }
 
-        [Required]
-        public int BillId { get; set; }
+        public int? BillId { get; set; }
 
         [ForeignKey("BillId")]
         public virtual FinanceBill? Bill { get; set; }
+
+        public int? LoanId { get; set; }
+
+        [ForeignKey("LoanId")]
+        public virtual FinanceLoan? Loan { get; set; }
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]

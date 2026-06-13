@@ -30,8 +30,7 @@ namespace GFC.BlazorServer.Services
             var startOfMonth = new DateTime(year, month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
-            var today = DateTime.Today;
-            var upcomingLimit = today.AddDays(14);
+            var upcomingLimit = endOfMonth.AddDays(7);
 
             try
             {
@@ -259,20 +258,32 @@ namespace GFC.BlazorServer.Services
 
         #region Vendor Management
 
-        public async Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync()
+        public Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync()
+        {
+            return GetAllVendorsAsync(false);
+        }
+
+        public async Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync(bool includeInactive)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.FinanceVendors
+            var query = db.FinanceVendors
                 .AsNoTracking()
-                .Where(v => v.IsActive)
-                .OrderBy(v => v.Name)
-                .ToListAsync();
+                .Include(v => v.DefaultCategory)
+                .AsQueryable();
+
+            if (!includeInactive)
+            {
+                query = query.Where(v => v.IsActive);
+            }
+
+            return await query.OrderBy(v => v.Name).ToListAsync();
         }
 
         public async Task<FinanceVendor?> GetVendorByIdAsync(int id)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.FinanceVendors
+                .Include(v => v.DefaultCategory)
                 .Include(v => v.Bills.OrderByDescending(b => b.DueDate).Take(10))
                 .FirstOrDefaultAsync(v => v.Id == id);
         }
@@ -305,6 +316,18 @@ namespace GFC.BlazorServer.Services
                 vendor.IsActive = false;
                 await db.SaveChangesAsync();
             }
+        }
+
+        public async Task<string?> GetLastPaymentMethodForVendorAsync(int vendorId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.FinancePayments
+                .AsNoTracking()
+                .Where(p => p.BillId != null && p.Bill != null && p.Bill.VendorId == vendorId)
+                .OrderByDescending(p => p.PaymentDate)
+                .ThenByDescending(p => p.Id)
+                .Select(p => p.PaymentMethod)
+                .FirstOrDefaultAsync();
         }
 
         #endregion
@@ -397,6 +420,86 @@ namespace GFC.BlazorServer.Services
                 .AsNoTracking()
                 .CountAsync(b => b.Status != "Paid" 
                             && b.DueDate.Date <= threshold);
+        }
+
+        #endregion
+
+        #region Loan Management
+
+        public async Task<IEnumerable<FinanceLoan>> GetAllLoansAsync(bool includeInactive = false)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var query = db.FinanceLoans
+                .AsNoTracking()
+                .Include(l => l.Payments)
+                .AsQueryable();
+
+            if (!includeInactive)
+            {
+                query = query.Where(l => l.IsActive);
+            }
+
+            return await query.OrderByDescending(l => l.OriginDate).ToListAsync();
+        }
+
+        public async Task<FinanceLoan?> GetLoanByIdAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.FinanceLoans
+                .AsNoTracking()
+                .Include(l => l.Payments.OrderByDescending(p => p.PaymentDate))
+                .FirstOrDefaultAsync(l => l.Id == id);
+        }
+
+        public async Task<FinanceLoan> CreateLoanAsync(FinanceLoan loan)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            loan.CreatedAt = DateTime.Now;
+            loan.CurrentBalance = loan.OriginalBalance;
+            db.FinanceLoans.Add(loan);
+            await db.SaveChangesAsync();
+            return loan;
+        }
+
+        public async Task UpdateLoanAsync(FinanceLoan loan)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.FinanceLoans.FindAsync(loan.Id);
+            if (existing != null)
+            {
+                loan.CreatedAt = existing.CreatedAt;
+                db.Entry(existing).CurrentValues.SetValues(loan);
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task RecordLoanPaymentAsync(int loanId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var loan = await db.FinanceLoans.FindAsync(loanId);
+            if (loan == null) throw new Exception("Loan not found.");
+
+            var payment = new FinancePayment
+            {
+                LoanId = loanId,
+                BillId = null,
+                AmountPaid = amount,
+                PaymentDate = date,
+                PaymentMethod = method,
+                Note = string.IsNullOrWhiteSpace(note) ? $"Loan Payment: {loan.LenderName}" : $"[Loan Payment: {loan.LenderName}] {note}",
+                ProcessedBy = userId
+            };
+
+            db.FinancePayments.Add(payment);
+            
+            loan.CurrentBalance -= amount;
+            if (loan.CurrentBalance <= 0)
+            {
+                loan.CurrentBalance = 0;
+                loan.IsActive = false;
+            }
+
+            await db.SaveChangesAsync();
         }
 
         #endregion

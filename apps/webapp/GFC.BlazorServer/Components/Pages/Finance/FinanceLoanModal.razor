@@ -1,0 +1,116 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Finance
+@inject IFinanceService FinanceService
+
+<div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(8px);">
+    <div class="modal-dialog modal-dialog-centered finance-modal-content">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 28px;">
+            <div class="modal-header finance-modal-header d-flex justify-content-between align-items-center">
+                <h5 class="modal-title fw-bold">@(Loan.Id == 0 ? "Create New Loan" : "Edit Loan")</h5>
+                <button type="button" class="btn-close" @onclick="OnClose"></button>
+            </div>
+            <div class="modal-body finance-modal-body">
+                <EditForm Model="Loan" OnValidSubmit="HandleSubmit">
+                    <div class="row g-3">
+                        <!-- Lender Name -->
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-muted">Lender Name / Description</label>
+                            <InputText @bind-Value="Loan.LenderName" class="form-control rounded-4 shadow-sm" placeholder="e.g. Bank of America, Member Loan" />
+                        </div>
+
+                        <!-- Origin Date & Original Balance -->
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">Origin Date</label>
+                            <InputDate @bind-Value="Loan.OriginDate" class="form-control rounded-4 shadow-sm" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">Original Balance</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-end-0">$</span>
+                                <InputNumber @bind-Value="Loan.OriginalBalance" class="form-control border-start-0" placeholder="0.00" onfocus="this.select()" disabled="@(Loan.Id > 0)" />
+                            </div>
+                        </div>
+
+                        <!-- Notes -->
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-muted">Notes / Description</label>
+                            <InputTextArea @bind-Value="Loan.Notes" class="form-control rounded-4 shadow-sm" rows="3" placeholder="Additional details..." />
+                        </div>
+
+                        <!-- Active Switch (Only visible when editing) -->
+                        @if (Loan.Id > 0)
+                        {
+                            <div class="col-12">
+                                <div class="recurring-container p-3 rounded-4 d-flex flex-column @(Loan.IsActive ? "active" : "")">
+                                    <div class="form-check form-switch d-flex align-items-center gap-3">
+                                        <InputCheckbox @bind-Value="Loan.IsActive" class="form-check-input ms-0" id="isLoanActiveSwitch" />
+                                        <label class="form-check-label fw-bold mb-0" for="isLoanActiveSwitch" style="cursor:pointer">Active Loan</label>
+                                    </div>
+                                    <small class="text-muted mt-2 d-block">
+                                        <i class="bi bi-info-circle me-1"></i> Marking as inactive will hide this loan from the active view.
+                                    </small>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="modal-footer border-0 px-0 mt-2 flex-column align-items-stretch">
+                        @if (ValidationError != null)
+                        {
+                            <div class="alert alert-danger py-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm rounded-4">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                <span class="small fw-bold">@ValidationError</span>
+                            </div>
+                        }
+                        <div class="d-flex justify-content-end gap-2 w-100">
+                            <button type="button" class="btn btn-light rounded-pill px-4" @onclick="OnClose">Cancel</button>
+                            <button type="submit" class="btn btn-primary rounded-pill px-4 shadow-sm">Save Loan</button>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FinanceLoan Loan { get; set; } = new() { OriginDate = DateTime.Today, IsActive = true };
+    [Parameter] public EventCallback<bool> OnSave { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string? ValidationError { get; set; }
+
+    private async Task HandleSubmit()
+    {
+        ValidationError = null;
+
+        if (string.IsNullOrWhiteSpace(Loan.LenderName))
+        {
+            ValidationError = "Please enter a lender name.";
+            return;
+        }
+
+        if (Loan.OriginalBalance <= 0)
+        {
+            ValidationError = "Please enter an original balance greater than $0.00.";
+            return;
+        }
+
+        try
+        {
+            if (Loan.Id == 0)
+            {
+                await FinanceService.CreateLoanAsync(Loan);
+            }
+            else
+            {
+                await FinanceService.UpdateLoanAsync(Loan);
+            }
+            await OnSave.InvokeAsync(true);
+        }
+        catch (Exception ex)
+        {
+            ValidationError = $"Error saving loan: {ex.Message}";
+        }
+    }
+}
