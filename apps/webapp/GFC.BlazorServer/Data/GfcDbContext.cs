@@ -173,6 +173,9 @@ public class GfcDbContext : DbContext
     public DbSet<BingoLotteryTransaction> BingoLotteryTransactions => Set<BingoLotteryTransaction>();
     public DbSet<BingoActiveLoan> BingoActiveLoans => Set<BingoActiveLoan>();
     public DbSet<BingoReconciliation> BingoReconciliations => Set<BingoReconciliation>();
+    public DbSet<PullTabGameDefinition> PullTabGameDefinitions => Set<PullTabGameDefinition>();
+    public DbSet<PullTabPrizeOption> PullTabPrizeOptions => Set<PullTabPrizeOption>();
+    public DbSet<PullTabGameEntry> PullTabGameEntries => Set<PullTabGameEntry>();
 
 
 
@@ -249,6 +252,29 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<ClubEventTransaction>().ToTable("ClubEventTransactions", "dbo").HasQueryFilter(t => !t.IsDeleted);
         modelBuilder.Entity<BingoActiveLoan>().ToTable("BingoActiveLoans", "dbo").HasQueryFilter(l => !l.IsDeleted);
         modelBuilder.Entity<BingoReconciliation>().ToTable("BingoReconciliations", "dbo").HasQueryFilter(r => !r.IsDeleted);
+
+        modelBuilder.Entity<PullTabGameDefinition>(entity =>
+        {
+            entity.ToTable("PullTabGameDefinitions", "dbo");
+            entity.Property(e => e.TicketPrice).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<PullTabPrizeOption>(entity =>
+        {
+            entity.ToTable("PullTabPrizeOptions", "dbo");
+            entity.Property(e => e.PayoutAmount).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<PullTabGameEntry>(entity =>
+        {
+            entity.ToTable("PullTabGameEntries", "dbo");
+            entity.Property(e => e.PrizesPaid).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.StartingBank).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.CashReceived).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
 
 
 

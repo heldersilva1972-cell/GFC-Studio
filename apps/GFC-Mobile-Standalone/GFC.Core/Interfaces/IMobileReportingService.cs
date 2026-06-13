@@ -28,6 +28,7 @@ public interface IMobileReportingService
     event Action? OutboxChanged;
     Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date);
     Task<bool> CancelBingoSessionAsync(DateTime date);
+    Task<List<PullTabGameDefinition>> GetPullTabGamesAsync();
 }
 
 public class DailyShiftSummary // Revision 2.1.35

@@ -407,6 +407,38 @@ public class MobileReportingService : IMobileReportingService
         return false;
     }
 
+    public async Task<List<PullTabGameDefinition>> GetPullTabGamesAsync()
+    {
+        const string cacheKey = "gfc_pulltab_games_cache";
+        
+        try
+        {
+            if (await _connectivity.GateAsync("GetPullTabGames"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var games = await _http.GetFromJsonAsync<List<PullTabGameDefinition>>("/api/bingo/pulltab-games", cts.Token);
+                if (games != null && games.Any())
+                {
+                    await _js.InvokeVoidAsync("window.gfcSetAsync", cacheKey, games);
+                    return games;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PULLTAB] Server fetch games failed: {ex.Message}");
+        }
+
+        try
+        {
+            var cached = await _js.InvokeAsync<List<PullTabGameDefinition>>("window.gfcGetAsync", cacheKey);
+            if (cached != null) return cached;
+        }
+        catch { }
+
+        return new List<PullTabGameDefinition>();
+    }
+
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {
         try

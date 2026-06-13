@@ -96,4 +96,9 @@ public class MobileReportingService : IMobileReportingService
     {
         return await _http.GetFromJsonAsync<BingoSession>($"api/bingo/session-by-date?date={date:yyyy-MM-dd}");
     }
+
+    public async Task<List<PullTabGameDefinition>> GetPullTabGamesAsync()
+    {
+        return await _http.GetFromJsonAsync<List<PullTabGameDefinition>>("api/bingo/pulltab-games") ?? new List<PullTabGameDefinition>();
+    }
 }

@@ -27,6 +27,7 @@ public interface IMobileReportingService
     Task<BingoSettingsDto> GetBingoSettingsAsync();
     Task<bool> SubmitBingoSessionAsync(BingoSession session, string username);
     Task<BingoSession?> GetBingoSessionByDateAsync(DateTime date);
+    Task<List<PullTabGameDefinition>> GetPullTabGamesAsync();
 }
 
 public class DailyShiftSummary

@@ -34,6 +34,9 @@
                 <button class="btn @(ActiveTab == "Progressives" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Progressives"'>
                     PROGRESSIVES
                 </button>
+                <button class="btn @(ActiveTab == "PullTabs" ? "btn-primary" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "PullTabs"'>
+                    PULL TABS
+                </button>
             </div>
         </div>
     </div>
@@ -542,7 +545,168 @@
             </div>
         </div>
     }
+    else if (ActiveTab == "PullTabs")
+    {
+        <div class="d-flex justify-content-end mb-3">
+            <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold" @onclick="() => OpenPullTabModal()">
+                <i class="bi bi-plus-lg me-2"></i> ADD NEW PULL TAB GAME
+            </button>
+        </div>
+
+        <div class="row g-4">
+            @if (!PullTabGames.Any())
+            {
+                <div class="col-12 text-center py-5">
+                    <div class="text-muted opacity-50 mb-2"><i class="bi bi-ticket-detailed fs-1"></i></div>
+                    <p class="fw-bold text-muted">No Pull Tab games configured. Click "Add New Pull Tab Game" to start.</p>
+                </div>
+            }
+            @foreach (var game in PullTabGames)
+            {
+                <div class="col-md-6 col-lg-4 col-xl-3">
+                    <div class="glass-card h-100 shadow-sm border-top border-4 border-primary">
+                        <div class="p-3">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <div>
+                                    <h5 class="fw-black mb-1 text-uppercase text-dark">@game.GameName</h5>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted border">@game.DefaultTicketCount Tickets</span>
+                                        <span class="badge bg-success-subtle text-success border border-success border-opacity-10">@game.TicketPrice.ToString("C2") / Ticket</span>
+                                        @if (!game.IsActive)
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger border-opacity-10">INACTIVE</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-link text-muted p-0" data-bs-toggle="dropdown">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow border-0" style="z-index: 1050;">
+                                        <li><a class="dropdown-item" @onclick="() => OpenPullTabModal(game)"><i class="bi bi-pencil me-2"></i> Edit</a></li>
+                                        <li><a class="dropdown-item text-danger" @onclick="() => PromptDeletePullTabGame(game)"><i class="bi bi-trash me-2"></i> Delete</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="game-list bg-light rounded-3 p-2 mb-3">
+                                <label class="extra-small fw-black text-muted text-uppercase mb-2 d-block">Winner Options</label>
+                                @if (!game.PrizeOptions.Any(o => !o.IsDeleted))
+                                {
+                                    <div class="text-center py-2 text-muted extra-small italic">No options defined</div>
+                                }
+                                @foreach (var opt in game.PrizeOptions.Where(o => !o.IsDeleted))
+                                {
+                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                        <span class="small fw-bold"><i class="bi bi-dot text-primary"></i> @opt.OptionLabel</span>
+                                        <span class="small fw-black text-success">@opt.PayoutAmount.ToString("C0")</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
 </div>
+
+@if (ShowPullTabModal && EditingPullTabGame != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                <div class="modal-header border-0 p-4 pb-0">
+                    <h5 class="modal-title fw-black">@(EditingPullTabGame.Id == 0 ? "NEW PULL TAB GAME" : "EDIT PULL TAB GAME")</h5>
+                    <button type="button" class="btn-close" @onclick="() => ShowPullTabModal = false"></button>
+                </div>
+                <div class="modal-body p-4 pt-2">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label extra-small fw-black text-muted mb-1 text-uppercase">Game Name</label>
+                            <input type="text" class="form-control fw-bold" @bind="EditingPullTabGame.GameName" placeholder="e.g. Speedball" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label extra-small fw-black text-muted mb-1 text-uppercase">Default Ticket Count</label>
+                            <input type="number" class="form-control fw-bold" @bind="EditingPullTabGame.DefaultTicketCount" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label extra-small fw-black text-muted mb-1 text-uppercase">Ticket Price</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-white fw-bold">$</span>
+                                <input type="number" step="0.01" class="form-control fw-bold" @bind="EditingPullTabGame.TicketPrice" />
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" id="ptActiveSwitch" @bind="EditingPullTabGame.IsActive" />
+                                <label class="form-check-label fw-bold small" for="ptActiveSwitch">Game Active (show on tablet)</label>
+                            </div>
+                        </div>
+
+                        <!-- Winner Options configuration -->
+                        <div class="col-12 mt-4">
+                            <div class="bg-light p-3 rounded-4">
+                                <h6 class="fw-black text-uppercase text-muted mb-3" style="font-size: 0.75rem;">Configure Winner Options</h6>
+                                
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control form-control-sm fw-bold" @bind="NewPrizeOptionLabel" placeholder="Option Label (e.g. 3 Winners @@ $50.00)" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-white fw-bold">$</span>
+                                            <input type="number" step="1" class="form-control fw-bold" @bind="NewPrizeOptionPayout" placeholder="Payout Amount" />
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button class="btn btn-sm btn-dark w-100 rounded-3 fw-bold" @onclick="AddPrizeOptionToEditor">ADD OPTION</button>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive rounded-3 border bg-white">
+                                    <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th class="ps-3">Option Label</th>
+                                                <th style="width: 150px;">Expected Payout</th>
+                                                <th style="width: 80px;" class="text-center">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @if (!EditingPullTabGame.PrizeOptions.Any(o => !o.IsDeleted))
+                                            {
+                                                <tr>
+                                                    <td colspan="3" class="text-center text-muted py-3 italic small">No winner options added yet.</td>
+                                                </tr>
+                                            }
+                                            @foreach (var opt in EditingPullTabGame.PrizeOptions.Where(o => !o.IsDeleted))
+                                            {
+                                                <tr>
+                                                    <td class="ps-3 fw-bold">@opt.OptionLabel</td>
+                                                    <td class="fw-black text-success">@opt.PayoutAmount.ToString("C2")</td>
+                                                    <td class="text-center">
+                                                        <button class="btn btn-sm btn-link text-danger p-0" @onclick="() => opt.IsDeleted = true">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4">
+                    <button class="btn btn-light rounded-pill px-4" @onclick="() => ShowPullTabModal = false">CANCEL</button>
+                    <button class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="SavePullTabGame">SAVE CHANGES</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @if (ShowSheetModal && EditingSheet != null)
 {
@@ -870,6 +1034,7 @@
     private List<BingoSheetDefinition> Sheets { get; set; } = new();
     private List<BingoAdmissionDefinition> Admissions { get; set; } = new();
     private List<BingoPayoutTier> PayoutTiers { get; set; } = new();
+    private List<PullTabGameDefinition> PullTabGames { get; set; } = new();
     private SystemSettings SystemSettings { get; set; } = new();
 
     private Dictionary<int, List<ProgressiveHistoryDto>> _gameHistories = new();
@@ -881,6 +1046,11 @@
     
     private bool ShowAdmissionModal { get; set; }
     private BingoAdmissionDefinition EditingAdmission { get; set; } = new();
+
+    private bool ShowPullTabModal { get; set; }
+    private PullTabGameDefinition EditingPullTabGame { get; set; } = new();
+    private string NewPrizeOptionLabel { get; set; } = "";
+    private decimal NewPrizeOptionPayout { get; set; }
 
     // Confirmation State
     private bool ShowConfirm { get; set; }
@@ -933,6 +1103,11 @@
             PayoutTiers = await DbContext.BingoPayoutTiers
                 .Where(t => !t.IsDeleted)
                 .OrderBy(t => t.MinAdmissions)
+                .ToListAsync();
+
+            PullTabGames = await DbContext.PullTabGameDefinitions
+                .Include(g => g.PrizeOptions)
+                .Where(g => !g.IsDeleted)
                 .ToListAsync();
 
             SystemSettings = await SettingsService.GetAsync();
@@ -1428,6 +1603,138 @@
         {
             await JSRuntime.InvokeVoidAsync("alert", "Error saving override: " + ex.Message);
         }
+    }
+
+    private void OpenPullTabModal(PullTabGameDefinition game = null)
+    {
+        if (game == null)
+        {
+            EditingPullTabGame = new PullTabGameDefinition { IsActive = true };
+        }
+        else
+        {
+            EditingPullTabGame = new PullTabGameDefinition
+            {
+                Id = game.Id,
+                GameName = game.GameName,
+                DefaultTicketCount = game.DefaultTicketCount,
+                TicketPrice = game.TicketPrice,
+                IsActive = game.IsActive,
+                PrizeOptions = game.PrizeOptions.Select(o => new PullTabPrizeOption
+                {
+                    Id = o.Id,
+                    GameDefinitionId = o.GameDefinitionId,
+                    OptionLabel = o.OptionLabel,
+                    PayoutAmount = o.PayoutAmount,
+                    IsActive = o.IsActive,
+                    IsDeleted = o.IsDeleted
+                }).ToList()
+            };
+        }
+        NewPrizeOptionLabel = "";
+        NewPrizeOptionPayout = 0;
+        ShowPullTabModal = true;
+    }
+
+    private void AddPrizeOptionToEditor()
+    {
+        if (string.IsNullOrWhiteSpace(NewPrizeOptionLabel) || NewPrizeOptionPayout <= 0) return;
+        EditingPullTabGame.PrizeOptions.Add(new PullTabPrizeOption
+        {
+            OptionLabel = NewPrizeOptionLabel,
+            PayoutAmount = NewPrizeOptionPayout,
+            IsActive = true
+        });
+        NewPrizeOptionLabel = "";
+        NewPrizeOptionPayout = 0;
+    }
+
+    private async Task SavePullTabGame()
+    {
+        try
+        {
+            if (EditingPullTabGame.Id == 0)
+            {
+                var activeOptions = EditingPullTabGame.PrizeOptions.Where(o => !o.IsDeleted).ToList();
+                EditingPullTabGame.PrizeOptions = activeOptions;
+                DbContext.PullTabGameDefinitions.Add(EditingPullTabGame);
+            }
+            else
+            {
+                var target = await DbContext.PullTabGameDefinitions
+                    .Include(g => g.PrizeOptions)
+                    .FirstOrDefaultAsync(g => g.Id == EditingPullTabGame.Id);
+                if (target != null)
+                {
+                    target.GameName = EditingPullTabGame.GameName;
+                    target.DefaultTicketCount = EditingPullTabGame.DefaultTicketCount;
+                    target.TicketPrice = EditingPullTabGame.TicketPrice;
+                    target.IsActive = EditingPullTabGame.IsActive;
+
+                    // Process options: update existing, add new, and soft-delete deleted ones
+                    foreach (var o in EditingPullTabGame.PrizeOptions)
+                    {
+                        if (o.Id == 0)
+                        {
+                            if (!o.IsDeleted)
+                            {
+                                target.PrizeOptions.Add(new PullTabPrizeOption
+                                {
+                                    OptionLabel = o.OptionLabel,
+                                    PayoutAmount = o.PayoutAmount,
+                                    IsActive = o.IsActive,
+                                    GameDefinitionId = target.Id
+                                });
+                            }
+                        }
+                        else
+                        {
+                            var existingOpt = target.PrizeOptions.FirstOrDefault(x => x.Id == o.Id);
+                            if (existingOpt != null)
+                            {
+                                if (o.IsDeleted)
+                                {
+                                    existingOpt.IsDeleted = true;
+                                }
+                                else
+                                {
+                                    existingOpt.OptionLabel = o.OptionLabel;
+                                    existingOpt.PayoutAmount = o.PayoutAmount;
+                                    existingOpt.IsActive = o.IsActive;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            await DbContext.SaveChangesAsync();
+            ShowPullTabModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Error saving game definition: " + ex.Message + (ex.InnerException != null ? " -> " + ex.InnerException.Message : ""));
+        }
+    }
+
+    private async Task DeletePullTabGame(PullTabGameDefinition game)
+    {
+        var target = await DbContext.PullTabGameDefinitions.FirstOrDefaultAsync(g => g.Id == game.Id);
+        if (target != null)
+        {
+            target.IsDeleted = true;
+            await DbContext.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void PromptDeletePullTabGame(PullTabGameDefinition game)
+    {
+        ConfirmTitle = "Delete Pull Tab Game";
+        ConfirmMessage = $"Are you sure you want to delete '{game.GameName}'?";
+        ConfirmSubMessage = "This configuration will no longer be available for the tablet app.";
+        ConfirmAction = () => DeletePullTabGame(game);
+        ShowConfirm = true;
     }
 
     public class ProgressiveHistoryDto

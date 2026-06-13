@@ -493,10 +493,20 @@ public class MobileReportingService : IMobileReportingService
             }
         }
 
+        if (session.PullTabEntries != null)
+        {
+            foreach (var entry in session.PullTabEntries)
+            {
+                entry.CreatedAt = DateTime.UtcNow;
+                entry.CreatedBy = username;
+            }
+        }
+
         // [DE-DUPE] Check if a session already exists for this date.
         var existing = await db.BingoSessions
             .Include(s => s.GameEntries)
             .Include(s => s.AdmissionEntries)
+            .Include(s => s.PullTabEntries)
             .FirstOrDefaultAsync(s => s.SessionDate.Date == session.SessionDate.Date);
 
         if (existing != null)
@@ -582,6 +592,19 @@ public class MobileReportingService : IMobileReportingService
         return await db.BingoSessions
             .Include(s => s.GameEntries)
             .Include(s => s.AdmissionEntries)
+            .Include(s => s.PullTabEntries)
+                .ThenInclude(p => p.GameDefinition)
+            .Include(s => s.PullTabEntries)
+                .ThenInclude(p => p.SelectedPrizeOption)
             .FirstOrDefaultAsync(s => s.SessionDate.Date == date.Date && !s.IsDeleted);
+    }
+
+    public async Task<List<PullTabGameDefinition>> GetPullTabGamesAsync()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.PullTabGameDefinitions
+            .Include(g => g.PrizeOptions)
+            .Where(g => g.IsActive && !g.IsDeleted)
+            .ToListAsync();
     }
 }

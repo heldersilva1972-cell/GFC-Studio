@@ -18,5 +18,6 @@ namespace GFC.Core.Models
         public string? Notes { get; set; }
         public virtual ICollection<BingoGameEntry> GameEntries { get; set; } = new List<BingoGameEntry>();
         public virtual ICollection<BingoAdmissionEntry> AdmissionEntries { get; set; } = new List<BingoAdmissionEntry>();
+        public virtual ICollection<PullTabGameEntry> PullTabEntries { get; set; } = new List<PullTabGameEntry>();
     }
 }

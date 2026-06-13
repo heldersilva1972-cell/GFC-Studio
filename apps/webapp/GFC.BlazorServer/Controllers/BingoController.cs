@@ -45,6 +45,15 @@ namespace GFC.BlazorServer.Controllers
                 .ToListAsync();
         }
 
+        [HttpGet("pulltab-games")]
+        public async Task<ActionResult<IEnumerable<PullTabGameDefinition>>> GetPullTabGames()
+        {
+            return await _context.PullTabGameDefinitions
+                .Include(g => g.PrizeOptions)
+                .Where(g => g.IsActive && !g.IsDeleted)
+                .ToListAsync();
+        }
+
         [HttpGet("settings")]
         public async Task<ActionResult<BingoSettingsDto>> GetSettings()
         {
@@ -131,6 +140,9 @@ namespace GFC.BlazorServer.Controllers
                     var relatedAdmissions = await _context.BingoAdmissionEntries.Where(a => a.BingoSessionId == existing.Id).ToListAsync();
                     if (relatedAdmissions.Any()) _context.BingoAdmissionEntries.RemoveRange(relatedAdmissions);
 
+                    var relatedPullTabs = await _context.PullTabGameEntries.Where(p => p.SessionId == existing.Id).ToListAsync();
+                    if (relatedPullTabs.Any()) _context.PullTabGameEntries.RemoveRange(relatedPullTabs);
+
                     // 3. Remove the parent session
                     var sessionToRemove = await _context.BingoSessions.FindAsync(existing.Id);
                     if (sessionToRemove != null) _context.BingoSessions.Remove(sessionToRemove);
@@ -145,6 +157,9 @@ namespace GFC.BlazorServer.Controllers
                 }
                 if (session.AdmissionEntries != null) {
                     foreach (var a in session.AdmissionEntries) a.Id = 0;
+                }
+                if (session.PullTabEntries != null) {
+                    foreach (var p in session.PullTabEntries) p.Id = 0;
                 }
 
                 _context.BingoSessions.Add(session);
@@ -289,6 +304,7 @@ namespace GFC.BlazorServer.Controllers
                 var session = await _context.BingoSessions
                     .Include(s => s.GameEntries)
                     .Include(s => s.AdmissionEntries)
+                    .Include(s => s.PullTabEntries)
                     .FirstOrDefaultAsync(s => s.SessionDate.Date == date.Date && !s.IsDeleted);
 
                 if (session == null)
@@ -317,6 +333,16 @@ namespace GFC.BlazorServer.Controllers
                         a.IsDeleted = true;
                         a.ModifiedAt = DateTime.UtcNow;
                         a.ModifiedBy = User.Identity?.Name ?? "Staff";
+                    }
+                }
+
+                if (session.PullTabEntries != null)
+                {
+                    foreach (var p in session.PullTabEntries)
+                    {
+                        p.IsDeleted = true;
+                        p.ModifiedAt = DateTime.UtcNow;
+                        p.ModifiedBy = User.Identity?.Name ?? "Staff";
                     }
                 }
 
