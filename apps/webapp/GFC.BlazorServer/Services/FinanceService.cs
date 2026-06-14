@@ -502,6 +502,137 @@ namespace GFC.BlazorServer.Services
             await db.SaveChangesAsync();
         }
 
+        public async Task<FinancePayment?> GetPaymentByIdAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.FinancePayments
+                .AsNoTracking()
+                .Include(p => p.Bill)
+                .Include(p => p.Loan)
+                .FirstOrDefaultAsync(p => p.Id == id);
+        }
+
+        public async Task UpdatePaymentAsync(FinancePayment payment)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.FinancePayments.FindAsync(payment.Id);
+            if (existing == null) throw new Exception("Payment not found.");
+
+            db.Entry(existing).CurrentValues.SetValues(payment);
+            await db.SaveChangesAsync();
+
+            // Recalculate bill if applicable
+            if (payment.BillId != null)
+            {
+                var bill = await db.FinanceBills
+                    .Include(b => b.Payments)
+                    .FirstOrDefaultAsync(b => b.Id == payment.BillId);
+                if (bill != null)
+                {
+                    var totalPaid = bill.Payments.Sum(p => p.AmountPaid);
+                    if (totalPaid >= bill.OriginalAmount)
+                    {
+                        bill.Status = BillStatus.Paid.ToString();
+                    }
+                    else if (totalPaid > 0)
+                    {
+                        bill.Status = BillStatus.Partial.ToString();
+                    }
+                    else
+                    {
+                        bill.Status = BillStatus.Pending.ToString();
+                    }
+                    bill.UpdatedAt = DateTime.Now;
+                    await db.SaveChangesAsync();
+                }
+            }
+
+            // Recalculate loan if applicable
+            if (payment.LoanId != null)
+            {
+                var loan = await db.FinanceLoans
+                    .Include(l => l.Payments)
+                    .FirstOrDefaultAsync(l => l.Id == payment.LoanId);
+                if (loan != null)
+                {
+                    var totalPaid = loan.Payments.Sum(p => p.AmountPaid);
+                    loan.CurrentBalance = loan.OriginalBalance - totalPaid;
+                    if (loan.CurrentBalance <= 0)
+                    {
+                        loan.CurrentBalance = 0;
+                        loan.IsActive = false;
+                    }
+                    else
+                    {
+                        loan.IsActive = true;
+                    }
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
+        public async Task DeletePaymentAsync(int paymentId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var payment = await db.FinancePayments.FindAsync(paymentId);
+            if (payment == null) return;
+
+            var billId = payment.BillId;
+            var loanId = payment.LoanId;
+
+            db.FinancePayments.Remove(payment);
+            await db.SaveChangesAsync();
+
+            // Recalculate bill status
+            if (billId != null)
+            {
+                var bill = await db.FinanceBills
+                    .Include(b => b.Payments)
+                    .FirstOrDefaultAsync(b => b.Id == billId);
+                if (bill != null)
+                {
+                    var totalPaid = bill.Payments.Sum(p => p.AmountPaid);
+                    if (totalPaid >= bill.OriginalAmount)
+                    {
+                        bill.Status = BillStatus.Paid.ToString();
+                    }
+                    else if (totalPaid > 0)
+                    {
+                        bill.Status = BillStatus.Partial.ToString();
+                    }
+                    else
+                    {
+                        bill.Status = BillStatus.Pending.ToString();
+                    }
+                    bill.UpdatedAt = DateTime.Now;
+                    await db.SaveChangesAsync();
+                }
+            }
+
+            // Recalculate loan balance
+            if (loanId != null)
+            {
+                var loan = await db.FinanceLoans
+                    .Include(l => l.Payments)
+                    .FirstOrDefaultAsync(l => l.Id == loanId);
+                if (loan != null)
+                {
+                    var totalPaid = loan.Payments.Sum(p => p.AmountPaid);
+                    loan.CurrentBalance = loan.OriginalBalance - totalPaid;
+                    if (loan.CurrentBalance <= 0)
+                    {
+                        loan.CurrentBalance = 0;
+                        loan.IsActive = false;
+                    }
+                    else
+                    {
+                        loan.IsActive = true;
+                    }
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
         #endregion
     }
 }

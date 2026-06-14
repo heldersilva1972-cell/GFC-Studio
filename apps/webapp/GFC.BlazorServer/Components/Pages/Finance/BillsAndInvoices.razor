@@ -212,7 +212,7 @@
                         {
                             @foreach (var bill in DisplayPaidBills)
                             {
-                                <div class="bill-row paid-record" @onclick="() => SelectBill(bill)">
+                                <div class="bill-row paid-record">
                                     <!-- Vendor (Left) -->
                                     <div class="vendor-info" style="min-width: 150px;">
                                         <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
@@ -226,9 +226,10 @@
                                         <div class="fw-black text-success h4 mb-0">@bill.Payments.Sum(p => p.AmountPaid).ToString("C")</div>
                                     </div>
 
-                                    <!-- Status (Far Right) -->
-                                    <div class="action-btn text-end" style="min-width: 100px;">
-                                        <span class="status-badge status-paid px-4 py-2">PAID</span>
+                                    <!-- Actions (Far Right) -->
+                                    <div class="action-btn text-end d-flex gap-1 justify-content-end" style="min-width: 140px;">
+                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => SelectBill(bill)">EDIT</button>
+                                        <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => InitiateDeleteBill(bill)">DELETE</button>
                                     </div>
                                 </div>
                             }
@@ -341,6 +342,10 @@
                                                         <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
                                                         <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
                                                     </div>
+                                                    <div class="text-end ps-3 d-flex gap-1" style="min-width: 130px;">
+                                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;" @onclick="() => EditPayment(entry.Payment)">EDIT</button>
+                                                        <button class="btn btn-sm btn-outline-danger rounded-pill px-2 py-1" style="font-size: 0.65rem;" @onclick="() => InitiateDeletePayment(entry.Payment)">DELETE</button>
+                                                    </div>
                                                 </div>
                                             }
                                         </div>
@@ -376,6 +381,10 @@
                                         <div class="text-end ps-4" style="min-width: 120px;">
                                             <div class="fw-black text-success h5 mb-0">@entry.Payment.AmountPaid.ToString("C")</div>
                                             <div class="text-muted" style="font-size: 0.6rem;">@entry.Payment.PaymentDate.ToString("h:mm tt")</div>
+                                        </div>
+                                        <div class="text-end ps-3 d-flex gap-1" style="min-width: 130px;">
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;" @onclick="() => EditPayment(entry.Payment)">EDIT</button>
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-2 py-1" style="font-size: 0.65rem;" @onclick="() => InitiateDeletePayment(entry.Payment)">DELETE</button>
                                         </div>
                                     </div>
                                 }
@@ -615,6 +624,10 @@
                                                 <div class="fw-black text-success mb-0">@p.AmountPaid.ToString("C")</div>
                                                 <div class="text-muted" style="font-size: 0.55rem;">@p.PaymentDate.ToString("yyyy")</div>
                                             </div>
+                                            <div class="text-end ps-2 d-flex gap-1" style="min-width: 100px;">
+                                                <button class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1" style="font-size: 0.55rem;" @onclick="() => EditPayment(p)">EDIT</button>
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-2 py-1" style="font-size: 0.55rem;" @onclick="() => InitiateDeletePayment(p)">DELETE</button>
+                                            </div>
                                         </div>
                                     }
                                 }
@@ -770,7 +783,26 @@
 
     @if (ShowBillModal)
     {
-        <FinanceBillModal Bill="EditingBill" OnClose="CloseModal" OnSave="HandleBillSaved" />
+        <FinanceBillModal Bill="EditingBill" OnClose="CloseModal" OnSave="HandleBillSaved" OnDeleteRequested="InitiateDeleteBill" />
+    }
+
+    @if (ShowDeleteBillConfirm && BillToDelete != null)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                    <div class="modal-body p-4 text-center">
+                        <i class="bi bi-exclamation-triangle-fill text-danger display-4 mb-3 d-block"></i>
+                        <h5 class="fw-bold mb-2 text-dark">Delete Bill?</h5>
+                        <p class="text-muted small mb-4">Are you sure you want to delete this bill from <strong>@(BillToDelete.Vendor?.Name ?? "Unknown Vendor")</strong> for <strong>@BillToDelete.OriginalAmount.ToString("C")</strong>? This will also delete all associated payment logs.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => ShowDeleteBillConfirm = false">Cancel</button>
+                            <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmDeleteBill">Yes, Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 
     @if (ShowPaymentModal)
@@ -816,6 +848,30 @@
     {
         <FinanceLoanPaymentModal Loan="PayingLoan" OnClose="CloseLoanPaymentModal" OnSave="HandleLoanPaymentSaved" />
     }
+
+    @if (ShowEditPaymentModal)
+    {
+        <FinanceEditPaymentModal Payment="EditingPayment" OnClose="CloseEditPaymentModal" OnSave="HandlePaymentUpdated" OnDeleteRequested="InitiateDeletePayment" />
+    }
+
+    @if (ShowDeletePaymentConfirm && PaymentToDelete != null)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                    <div class="modal-body p-4 text-center">
+                        <i class="bi bi-exclamation-triangle-fill text-danger display-4 mb-3 d-block"></i>
+                        <h5 class="fw-bold mb-2 text-dark">Delete Payment?</h5>
+                        <p class="text-muted small mb-4">Are you sure you want to delete this payment of <strong>@PaymentToDelete.AmountPaid.ToString("C")</strong>? This will restore the balance of the corresponding bill or loan.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => ShowDeletePaymentConfirm = false">Cancel</button>
+                            <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmDeletePayment">Yes, Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -828,6 +884,8 @@
     private FinanceVendor EditingVendor { get; set; } = new();
     private bool ShowDeleteVendorConfirm { get; set; }
     private FinanceVendor? VendorToDelete { get; set; }
+    private bool ShowDeleteBillConfirm { get; set; }
+    private FinanceBill? BillToDelete { get; set; }
     private List<FinanceVendor> AllVendors { get; set; } = new();
     private string VendorSearchText { get; set; } = "";
     private bool ShowInactiveVendors { get; set; }
@@ -835,6 +893,10 @@
     private FinanceLoan EditingLoan { get; set; } = new();
     private bool ShowLoanPaymentModal { get; set; }
     private FinanceLoan PayingLoan { get; set; } = new();
+    private bool ShowEditPaymentModal { get; set; }
+    private FinancePayment EditingPayment { get; set; } = new();
+    private bool ShowDeletePaymentConfirm { get; set; }
+    private FinancePayment? PaymentToDelete { get; set; }
     private List<FinanceLoan> AllLoans { get; set; } = new();
     private List<FinanceLoan> DisplayLoans { get; set; } = new();
     private FinanceLoan? SelectedLoan { get; set; }
@@ -987,9 +1049,6 @@
 
     private void SelectBill(FinanceBill bill)
     {
-        // Prevent editing fully paid bills
-        if (bill.Status == "Paid") return;
-
         EditingBill = bill;
         ShowBillModal = true;
     }
@@ -1042,6 +1101,29 @@
     {
         ShowBillModal = false;
         await LoadData();
+    }
+
+    private void InitiateDeleteBill(FinanceBill bill)
+    {
+        ShowBillModal = false;
+        BillToDelete = bill;
+        ShowDeleteBillConfirm = true;
+    }
+
+    private async Task ConfirmDeleteBill()
+    {
+        if (BillToDelete == null) return;
+        try
+        {
+            await FinanceService.DeleteBillAsync(BillToDelete.Id);
+            ShowDeleteBillConfirm = false;
+            BillToDelete = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting bill: {ex.Message}");
+        }
     }
 
     private async Task HandlePaymentSaved(bool success)
@@ -1111,6 +1193,58 @@
     {
         ShowLoanPaymentModal = false;
         await LoadData();
+    }
+
+    private void EditPayment(FinancePayment payment)
+    {
+        var bill = payment.Bill ?? (payment.BillId.HasValue ? Bills.FirstOrDefault(b => b.Id == payment.BillId.Value) : null);
+        var loan = payment.Loan ?? (payment.LoanId.HasValue ? AllLoans.FirstOrDefault(l => l.Id == payment.LoanId.Value) : null);
+
+        EditingPayment = new FinancePayment
+        {
+            Id = payment.Id,
+            BillId = payment.BillId,
+            Bill = bill,
+            LoanId = payment.LoanId,
+            Loan = loan,
+            AmountPaid = payment.AmountPaid,
+            PaymentDate = payment.PaymentDate,
+            PaymentMethod = payment.PaymentMethod,
+            Note = payment.Note,
+            ProcessedBy = payment.ProcessedBy
+        };
+        ShowEditPaymentModal = true;
+    }
+
+    private void CloseEditPaymentModal() => ShowEditPaymentModal = false;
+
+    private async Task HandlePaymentUpdated(bool success)
+    {
+        ShowEditPaymentModal = false;
+        await LoadData();
+    }
+
+    private void InitiateDeletePayment(FinancePayment payment)
+    {
+        ShowEditPaymentModal = false;
+        PaymentToDelete = payment;
+        ShowDeletePaymentConfirm = true;
+    }
+
+    private async Task ConfirmDeletePayment()
+    {
+        if (PaymentToDelete == null) return;
+        try
+        {
+            await FinanceService.DeletePaymentAsync(PaymentToDelete.Id);
+            ShowDeletePaymentConfirm = false;
+            PaymentToDelete = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting payment: {ex.Message}");
+        }
     }
 
     private void SetView(string view)

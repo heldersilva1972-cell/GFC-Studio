@@ -1491,9 +1491,9 @@
 
         try
         {
-            var history = new List<ProgressiveHistoryDto>();
+            var events = new List<ProgressiveHistoryDto>();
 
-            // 1. Get Game Entries from DB
+            // 1. Get ALL Game Entries from DB to trace progression accurately
             var entries = await DbContext.BingoGameEntries
                 .Include(e => e.Session)
                 .Where(e => e.GameName == game.GameName 
@@ -1502,18 +1502,18 @@
                             && e.Session != null 
                             && !e.Session.IsDeleted 
                             && !e.IsDeleted)
-                .OrderByDescending(e => e.Session!.SessionDate)
-                .Take(20)
+                .OrderBy(e => e.Session!.SessionDate)
                 .ToListAsync();
 
             foreach (var e in entries)
             {
-                history.Add(new ProgressiveHistoryDto
+                events.Add(new ProgressiveHistoryDto
                 {
                     Timestamp = e.Session!.SessionDate,
                     Type = "Session Play",
                     Value = e.BallsCalled,
-                    Details = $"Balls pulled: {e.BallsCalled}. Prize paid: {e.PrizePaid:C2}.",
+                    BallsCalled = e.BallsCalled,
+                    PrizePaid = e.PrizePaid,
                     PerformedBy = e.CreatedBy ?? "System"
                 });
             }
@@ -1522,7 +1522,7 @@
             var auditResult = await AuditLogRepository.GetAuditLogsAsync(
                 "Override Progressive Ball Goal",
                 $"'{sheet.ColorName} - {game.GameName}'",
-                null, null, null, 1, 100
+                null, null, null, 1, 500
             );
 
             if (auditResult?.Items != null)
@@ -1536,7 +1536,7 @@
                         goalVal = g;
                     }
 
-                    history.Add(new ProgressiveHistoryDto
+                    events.Add(new ProgressiveHistoryDto
                     {
                         Timestamp = a.TimestampUtc.ToLocalTime(),
                         Type = "Manual Override",
@@ -1547,7 +1547,33 @@
                 }
             }
 
-            _gameHistories[game.Id] = history.OrderByDescending(h => h.Timestamp).Take(25).ToList();
+            int baselineGoal = game.ProgressiveBallGoal;
+            var sortedEvents = events.OrderBy(ev => ev.Timestamp).ToList();
+            int currentGoal = baselineGoal;
+
+            foreach (var ev in sortedEvents)
+            {
+                if (ev.Type == "Manual Override")
+                {
+                    currentGoal = ev.Value;
+                }
+                else if (ev.Type == "Session Play")
+                {
+                    ev.BallGoal = currentGoal;
+                    ev.Details = $"Balls pulled: {ev.BallsCalled}. Ball goal: {ev.BallGoal}. Prize paid: {ev.PrizePaid:C2}.";
+
+                    if (ev.BallsCalled <= currentGoal)
+                    {
+                        currentGoal = baselineGoal;
+                    }
+                    else
+                    {
+                        currentGoal++;
+                    }
+                }
+            }
+
+            _gameHistories[game.Id] = sortedEvents.OrderByDescending(h => h.Timestamp).Take(25).ToList();
         }
         catch (Exception ex)
         {
@@ -1744,5 +1770,8 @@
         public int Value { get; set; }
         public string Details { get; set; } = string.Empty;
         public string PerformedBy { get; set; } = string.Empty;
+        public decimal? PrizePaid { get; set; }
+        public int? BallGoal { get; set; }
+        public int? BallsCalled { get; set; }
     }
 }

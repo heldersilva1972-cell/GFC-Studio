@@ -430,9 +430,9 @@ namespace GFC.BlazorServer.Controllers
         [HttpGet("progressive/history/{gameName}/{sheetColor}")]
         public async Task<ActionResult<IEnumerable<ProgressiveHistoryDto>>> GetProgressiveHistory(string gameName, string sheetColor)
         {
-            var history = new List<ProgressiveHistoryDto>();
+            var events = new List<ProgressiveHistoryDto>();
 
-            // 1. Get Game Entries where balls were recorded
+            // 1. Get ALL Game Entries where balls were recorded to trace progression accurately
             var entries = await _context.BingoGameEntries
                 .Include(e => e.Session)
                 .Where(e => e.GameName == gameName 
@@ -441,36 +441,35 @@ namespace GFC.BlazorServer.Controllers
                             && e.Session != null 
                             && !e.Session.IsDeleted 
                             && !e.IsDeleted)
-                .OrderByDescending(e => e.Session!.SessionDate)
-                .Take(20)
+                .OrderBy(e => e.Session!.SessionDate)
                 .ToListAsync();
 
             foreach (var e in entries)
             {
-                history.Add(new ProgressiveHistoryDto
+                events.Add(new ProgressiveHistoryDto
                 {
                     Timestamp = e.Session!.SessionDate,
                     Type = "Session Play",
                     Value = e.BallsCalled,
-                    Details = $"Balls pulled: {e.BallsCalled}. Prize paid: {e.PrizePaid:C2}.",
+                    BallsCalled = e.BallsCalled,
+                    PrizePaid = e.PrizePaid,
                     PerformedBy = e.CreatedBy ?? "System"
                 });
             }
 
-            // 2. Get Audit logs for this game (max 100 recent)
+            // 2. Get Audit logs for this game (max 500 recent)
             try
             {
                 var auditResult = await _auditLogRepository.GetAuditLogsAsync(
                     "Override Progressive Ball Goal",
                     $"'{sheetColor} - {gameName}'",
-                    null, null, null, 1, 100
+                    null, null, null, 1, 500
                 );
 
                 if (auditResult?.Items != null)
                 {
                     foreach (var a in auditResult.Items)
                     {
-                        // Parse new goal from details: "...Changed current goal from X to Y."
                         int goalVal = 0;
                         var parts = a.Details?.Split("to ");
                         if (parts != null && parts.Length > 1 && int.TryParse(parts[1].TrimEnd('.'), out var g))
@@ -478,7 +477,7 @@ namespace GFC.BlazorServer.Controllers
                             goalVal = g;
                         }
 
-                        history.Add(new ProgressiveHistoryDto
+                        events.Add(new ProgressiveHistoryDto
                         {
                             Timestamp = a.TimestampUtc.ToLocalTime(),
                             Type = "Manual Override",
@@ -494,8 +493,44 @@ namespace GFC.BlazorServer.Controllers
                 Console.WriteLine($"[BINGO] Error fetching audit logs: {ex.Message}");
             }
 
-            // Return sorted by date descending
-            return Ok(history.OrderByDescending(h => h.Timestamp).Take(25));
+            // 3. Get Game definition for baseline goal
+            var gameDef = await _context.BingoGameDefinitions
+                .Include(g => g.Sheet)
+                .FirstOrDefaultAsync(g => g.GameName == gameName 
+                                          && g.Sheet.ColorName == sheetColor 
+                                          && g.IsActive 
+                                          && !g.IsDeleted);
+            int baselineGoal = gameDef?.ProgressiveBallGoal ?? 50;
+
+            // 4. Sort chronologically (oldest to newest) to simulate progression
+            var sortedEvents = events.OrderBy(ev => ev.Timestamp).ToList();
+            int currentGoal = baselineGoal;
+
+            foreach (var ev in sortedEvents)
+            {
+                if (ev.Type == "Manual Override")
+                {
+                    currentGoal = ev.Value;
+                }
+                else if (ev.Type == "Session Play")
+                {
+                    ev.BallGoal = currentGoal;
+                    ev.Details = $"Balls pulled: {ev.BallsCalled}. Ball goal: {ev.BallGoal}. Prize paid: {ev.PrizePaid:C2}.";
+
+                    // Progress the goal for the next game
+                    if (ev.BallsCalled <= currentGoal)
+                    {
+                        currentGoal = baselineGoal; // Won! Reset.
+                    }
+                    else
+                    {
+                        currentGoal++; // Lost. Increment.
+                    }
+                }
+            }
+
+            // Return sorted by date descending, max 25 recent
+            return Ok(sortedEvents.OrderByDescending(h => h.Timestamp).Take(25));
         }
     }
 
@@ -512,5 +547,8 @@ namespace GFC.BlazorServer.Controllers
         public int Value { get; set; }
         public string Details { get; set; } = string.Empty;
         public string PerformedBy { get; set; } = string.Empty;
+        public decimal? PrizePaid { get; set; }
+        public int? BallGoal { get; set; }
+        public int? BallsCalled { get; set; }
     }
 }

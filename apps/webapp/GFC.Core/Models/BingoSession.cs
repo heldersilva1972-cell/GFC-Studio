@@ -36,6 +36,11 @@ namespace GFC.Core.Models
 
         public string? Notes { get; set; }
 
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal DoorPrizeAmount { get; set; }
+
+        public int DoorPrizeCount { get; set; }
+
         // Navigation properties
         public virtual ICollection<BingoGameEntry> GameEntries { get; set; } = new List<BingoGameEntry>();
         public virtual ICollection<BingoAdmissionEntry> AdmissionEntries { get; set; } = new List<BingoAdmissionEntry>();

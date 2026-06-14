@@ -59,7 +59,11 @@
                                 <div class="header-summary-dropdown shadow-lg p-3 bg-dark text-white rounded-4 border border-light border-opacity-10">
                                     <div class="detail-row mb-1"><span>Attendance</span> <span class="fw-black">@AdmissionCount</span></div>
                                     <div class="detail-row mb-1"><span>Gross Revenue</span> <span class="fw-black text-white">@TotalGross.ToString("C2")</span></div>
-                                    <div class="detail-row mb-1 text-danger"><span>Prizes Paid</span> <span class="fw-black">-@TotalPrizes.ToString("C2")</span></div>
+                                    <div class="detail-row mb-1 text-danger"><span>Bingo Prizes</span> <span class="fw-black">-@(Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g))).ToString("C2"))</span></div>
+                                    @if (_doorPrizeAmount > 0 && _doorPrizeCount > 0)
+                                    {
+                                        <div class="detail-row mb-1 text-danger"><span>Door Prizes</span> <span class="fw-black">-@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</span></div>
+                                    }
                                     <div class="detail-row mb-1 text-warning"><span>Lottery Fees</span> <span class="fw-black">-@TotalLotteryTake.ToString("C2")</span></div>
                                     <div class="detail-row mb-1 text-warning"><span>Payout Breakage</span> <span class="fw-black">-@TotalSessionBreakage.ToString("C2")</span></div>
                                     <div class="detail-row @(TotalNetProceeds < 0 ? "text-danger" : "text-success") pt-2 border-top mt-2"><span>@(TotalNetProceeds < 0 ? "TOTAL LOSS" : "TOTAL PROFIT")</span> <span class="fw-black">@TotalNetProceeds.ToString("C2")</span></div>
@@ -268,6 +272,116 @@
                             </div>
                         </div>
 
+                        <!-- PULL TABS SUMMARY BAR -->
+                        <div class="admission-summary-bar mb-4" style="border-color: rgba(139, 92, 246, 0.2);" @onclick="OpenAddPullTabModal">
+                            <div class="summary-left flex-wrap">
+                                <div class="summary-item main">
+                                    <label>TOTAL PULL TAB SALES</label>
+                                    <div class="val text-purple" style="color: #8b5cf6 !important;">@TotalPullTabSales.ToString("C2")</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>TOTAL PULL TAB PRIZES</label>
+                                    <div class="val text-danger">@TotalPullTabPrizes.ToString("C2")</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>PULL TAB CLUB PROFIT</label>
+                                    <div class="val text-success">@TotalPullTabNet.ToString("C2")</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>PULL TAB OVER/SHORT</label>
+                                    <div class="val @(TotalPullTabOverShort < 0 ? "text-danger" : "text-success")">@TotalPullTabOverShort.ToString("C2")</div>
+                                </div>
+                            </div>
+                            <div class="summary-divider"></div>
+                            <div class="summary-right">
+                                <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.65rem; height: 36px; background: #8b5cf6;" @onclick:stopPropagation="true" @onclick="OpenAddPullTabModal">
+                                    <i class="bi bi-plus-circle-fill"></i> ADD PULL TAB GAME
+                                </button>
+                            </div>
+                            <div class="summary-action" style="color: #8b5cf6;">
+                                <i class="bi bi-ticket-detailed-fill"></i>
+                            </div>
+                        </div>
+
+                        <!-- DOOR PRIZES SUMMARY BAR -->
+                        <div class="admission-summary-bar mb-4" style="border-color: rgba(236, 72, 153, 0.2);" @onclick="OpenDoorPrizesEntry">
+                            <div class="summary-left flex-wrap">
+                                <div class="summary-item main">
+                                    <label>DOOR PRIZE AMOUNT</label>
+                                    <div class="val text-pink" style="color: #ec4899 !important;">@_doorPrizeAmount.ToString("C2")</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>DOOR PRIZES COUNT</label>
+                                    <div class="val text-dark">@_doorPrizeCount</div>
+                                </div>
+                                <div class="summary-item main">
+                                    <label>TOTAL PAID</label>
+                                    <div class="val text-danger">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</div>
+                                </div>
+                            </div>
+                            <div class="summary-divider"></div>
+                            <div class="summary-right">
+                                <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.65rem; height: 36px; background: #ec4899;" @onclick:stopPropagation="true" @onclick="OpenDoorPrizesEntry">
+                                    <i class="bi bi-pencil-fill"></i> EDIT DOOR PRIZES
+                                </button>
+                            </div>
+                            <div class="summary-action" style="color: #ec4899;">
+                                <i class="bi bi-gift-fill"></i>
+                            </div>
+                        </div>
+
+                        <!-- DOOR PRIZES MODAL -->
+                        @if (_showDoorPrizesPopup)
+                        {
+                            <div class="admission-modal-overlay @(_showFloatingKeypad ? "keypad-open" : "")" @onclick="CloseEntryModals">
+                                <div class="admission-modal-content shadow-lg" @onclick:stopPropagation>
+                                    <div class="modal-header-compact">
+                                        <h5 class="fw-black mb-0">DOOR PRIZES ENTRY</h5>
+                                        <button class="btn-close-compact" @onclick="CloseEntryModals">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="modal-body-compact p-3">
+                                        <div class="d-flex flex-column gap-3">
+                                            <div class="p-3 bg-light rounded-4 border border-light border-opacity-10 shadow-sm">
+                                                <div class="d-flex align-items-center justify-content-between">
+                                                    <div>
+                                                        <span class="extra-small text-uppercase fw-black text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Door Prize Amount</span>
+                                                        <span class="extra-small text-muted fw-bold">Individual prize amount in dollars</span>
+                                                    </div>
+                                                    <div class="form-control text-end fw-black text-primary border shadow-sm d-flex align-items-center justify-content-end @(_activeField == "DoorPrizeAmount" ? "border-primary bg-light" : "")" 
+                                                         style="width: 140px; height: 42px; border-radius: 10px; font-size: 1rem; cursor: pointer; padding-right: 15px;"
+                                                         @onclick='() => ActivateField("DoorPrizeAmount")'>
+                                                        @_doorPrizeAmount.ToString("C2")
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="p-3 bg-light rounded-4 border border-light border-opacity-10 shadow-sm">
+                                                <div class="d-flex align-items-center justify-content-between">
+                                                    <div>
+                                                        <span class="extra-small text-uppercase fw-black text-muted d-block" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Door Prize Count</span>
+                                                        <span class="extra-small text-muted fw-bold">Number of prizes awarded</span>
+                                                    </div>
+                                                    <div class="form-control text-end fw-black text-primary border shadow-sm d-flex align-items-center justify-content-end @(_activeField == "DoorPrizeCount" ? "border-primary bg-light" : "")" 
+                                                         style="width: 140px; height: 42px; border-radius: 10px; font-size: 1rem; cursor: pointer; padding-right: 15px;"
+                                                         @onclick='() => ActivateField("DoorPrizeCount")'>
+                                                        @_doorPrizeCount
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="mt-4 p-3 rounded-4 text-center" style="background: rgba(13, 110, 253, 0.08); border: 1px solid rgba(13, 110, 253, 0.2) !important;">
+                                             <span class="extra-small text-uppercase fw-black text-primary d-block" style="letter-spacing: 0.05em; font-size: 0.65rem; line-height: 1.2;">Total Door Prize Payout</span>
+                                             <span class="fw-black text-danger fs-4 mt-1 d-block">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</span>
+                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
                         <!-- FLOOR SALES MODAL -->
                         @if (_showFloorSalesPopup)
                         {
@@ -416,7 +530,7 @@
                                                     <span class="extra-small text-muted fw-bold">Select how standard prizes should scale</span>
                                                 </div>
                                                 <div class="d-flex align-items-center gap-2">
-                                                    <select class="form-select form-select-sm fw-black text-primary border bg-white shadow-sm" style="width: 130px; height: 38px; border-radius: 10px; font-size: 0.8rem; cursor: pointer;"
+                                                    <select class="form-select form-select-sm fw-black text-primary border bg-white shadow-sm" style="width: 155px; height: 38px; border-radius: 10px; font-size: 0.8rem; cursor: pointer;"
                                                             value="@_useManualScaling.ToString().ToLower()" @onchange="OnScalingModeChanged">
                                                         <option value="true">Manual Mode</option>
                                                         <option value="false">Attendance</option>
@@ -653,42 +767,11 @@
                             <span>PULL TAB GAMES</span>
                         </div>
 
-                        <!-- PULL TABS SUMMARY BAR -->
-                        <div class="admission-summary-bar mb-3" style="border-color: rgba(139, 92, 246, 0.2);" @onclick="OpenAddPullTabModal">
-                            <div class="summary-left flex-wrap">
-                                <div class="summary-item main">
-                                    <label>TOTAL PULL TAB SALES</label>
-                                    <div class="val text-purple">@TotalPullTabSales.ToString("C2")</div>
-                                </div>
-                                <div class="summary-item main">
-                                    <label>TOTAL PULL TAB PRIZES</label>
-                                    <div class="val text-danger">@TotalPullTabPrizes.ToString("C2")</div>
-                                </div>
-                                <div class="summary-item main">
-                                    <label>PULL TAB NET</label>
-                                    <div class="val text-success">@TotalPullTabNet.ToString("C2")</div>
-                                </div>
-                                <div class="summary-item main">
-                                    <label>PULL TAB OVER/SHORT</label>
-                                    <div class="val @(TotalPullTabOverShort < 0 ? "text-danger" : "text-success")">@TotalPullTabOverShort.ToString("C2")</div>
-                                </div>
-                            </div>
-                            <div class="summary-divider"></div>
-                            <div class="summary-right">
-                                <button class="btn btn-primary rounded-pill px-3 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.65rem; height: 36px; background: #8b5cf6;" @onclick:stopPropagation="true" @onclick="OpenAddPullTabModal">
-                                    <i class="bi bi-plus-circle-fill"></i> ADD PULL TAB GAME
-                                </button>
-                            </div>
-                            <div class="summary-action" style="color: #8b5cf6;">
-                                <i class="bi bi-ticket-detailed-fill"></i>
-                            </div>
-                        </div>
-
-                        <!-- PULL TAB ENTRIES LIST (COMPACT CARDS) -->
-                        <div class="row g-3 mb-4">
+                        <!-- PULL TAB ENTRIES LIST (TILES GRID matching colored sheets) -->
+                        <div class="bingo-tiles-grid">
                             @if (!_pullTabEntries.Any())
                             {
-                                <div class="col-12 text-center py-4 bg-white rounded-4 border border-light">
+                                <div class="w-100 text-center py-4 bg-white rounded-4 border border-light" style="grid-column: 1 / -1;">
                                     <span class="text-muted fw-bold text-uppercase" style="font-size: 0.75rem;">No Pull Tab Games Tracked Today</span>
                                 </div>
                             }
@@ -701,35 +784,86 @@
                                     var gross = GetGrossReceipts(entry);
                                     var net = GetNetCashDue(entry);
                                     var overShort = GetOverShort(entry);
-                                    <div class="col-12 col-sm-6 col-lg-4">
-                                        <div class="kpi-card position-relative border shadow-sm" style="border-color: rgba(139, 92, 246, 0.15); border-radius: 14px; padding: 12px; background: white; cursor: pointer;" @onclick="() => EditPullTab(entry)">
-                                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                                <div>
-                                                    <span class="badge rounded-pill text-white me-1" style="background: #8b5cf6; font-size: 0.6rem;">@(def?.GameName ?? "Unknown")</span>
-                                                    <span class="extra-small text-muted fw-bold" style="font-size: 0.65rem;">SN: @entry.SerialNumber</span>
-                                                </div>
-                                                <button class="btn btn-sm btn-outline-danger border-0 p-0 rounded-circle" style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;" @onclick="() => DeletePullTab(entry)" @onclick:stopPropagation="true">
-                                                    <i class="bi bi-trash3-fill" style="font-size: 0.7rem;"></i>
-                                                </button>
+                                    
+                                    var optLabel = def?.PrizeOptions?.FirstOrDefault(o => o.Id == entry.SelectedPrizeOptionId)?.OptionLabel ?? "";
+                                    var (majorAmt, minorCount, minorAmt) = ParsePrizeStructure(optLabel);
+                                    int minorPaid = 0;
+                                    if (minorCount > 0)
+                                    {
+                                        var remainder = entry.PrizesPaid - majorAmt;
+                                        if (remainder > 0 && minorAmt > 0)
+                                        {
+                                            minorPaid = Math.Min(minorCount, (int)(remainder / minorAmt));
+                                        }
+                                    }
+                                    
+                                    <div class="bingo-tile pulltab-tile" style="--accent-color: #8b5cf6; border: 2px dashed rgba(139, 92, 246, 0.45); cursor: pointer;" @onclick="() => EditPullTab(entry)">
+                                        <div class="tile-accent" style="background: #8b5cf6;"></div>
+                                        <div class="tile-header" style="background: rgba(139, 92, 246, 0.04); padding: 8px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.03);">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <i class="bi bi-ticket-detailed-fill" style="color: #8b5cf6; font-size: 0.95rem;"></i>
+                                                <span class="tile-title" style="color: #8b5cf6;">PULL TAB: @(def?.GameName ?? "Unknown")</span>
                                             </div>
-                                            <h6 class="fw-black text-dark mb-2 text-uppercase" style="font-size: 0.85rem; line-height: 1.1;">@entry.SellerName</h6>
-                                            <div class="row g-1 border-top pt-1 text-center" style="font-size: 0.7rem;">
-                                                <div class="col-3 border-end">
-                                                    <span class="text-muted d-block" style="font-size: 0.55rem; font-weight: 600;">SOLD</span>
-                                                    <span class="fw-bold text-dark">@ticketsSold</span>
+                                            <button class="btn btn-sm btn-outline-danger border-0 p-0 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;" @onclick="() => DeletePullTab(entry)" @onclick:stopPropagation="true">
+                                                <i class="bi bi-trash3-fill" style="font-size: 0.75rem;"></i>
+                                            </button>
+                                        </div>
+                                        <div class="tile-body">
+                                            <div class="tile-stat-multi mb-3">
+                                                <div class="stat-main" style="padding: 6px; flex: 1.15;">
+                                                    <label style="font-size: 0.48rem;">CASH RECEIVED</label>
+                                                    <div class="val text-success" style="font-size: 1.15rem; min-height: 1.4rem;">@entry.CashReceived.ToString("C0")</div>
                                                 </div>
-                                                <div class="col-3 border-end">
-                                                    <span class="text-muted d-block" style="font-size: 0.55rem; font-weight: 600;">GROSS</span>
-                                                    <span class="fw-bold text-dark">@gross.ToString("C0")</span>
+                                                <div class="stat-breakdown" style="flex: 0.85;">
+                                                    <div class="break-item" style="padding: 2px 8px;">
+                                                        <label style="font-size: 0.42rem;">TICKETS</label>
+                                                        <span class="fw-black" style="font-size: 0.75rem;">@ticketsSold</span>
+                                                    </div>
+                                                    <div class="break-item" style="padding: 2px 8px;">
+                                                        <label style="font-size: 0.42rem;">GROSS</label>
+                                                        <span class="fw-black text-dark" style="font-size: 0.75rem;">@gross.ToString("C0")</span>
+                                                    </div>
                                                 </div>
-                                                <div class="col-3 border-end">
-                                                    <span class="text-muted d-block" style="font-size: 0.55rem; font-weight: 600;">PAID</span>
-                                                    <span class="fw-bold text-danger">@entry.PrizesPaid.ToString("C0")</span>
+                                            </div>
+                                            
+                                            <div class="tile-games-list">
+                                                <div class="tile-game-item py-1">
+                                                    <div class="d-flex justify-content-between align-items-center w-100">
+                                                        <span class="game-name" style="font-size: 0.65rem;">Prizes Paid</span>
+                                                        <span class="game-payout text-danger fw-black" style="font-size: 0.75rem;">-@entry.PrizesPaid.ToString("C2")</span>
+                                                    </div>
                                                 </div>
-                                                <div class="col-3">
-                                                    <span class="text-muted d-block" style="font-size: 0.55rem; font-weight: 600;">O/S</span>
-                                                    <span class="fw-black @(overShort < 0 ? "text-danger" : "text-success")">@overShort.ToString("C0")</span>
+                                                @if (minorCount > 0)
+                                                {
+                                                    <div class="tile-game-item py-1">
+                                                        <div class="d-flex justify-content-between align-items-center w-100">
+                                                            <span class="game-name" style="font-size: 0.65rem;">@($"{minorAmt:C0} Prizes Paid")</span>
+                                                            <span class="fw-black text-purple" style="font-size: 0.75rem;">@minorPaid / @minorCount</span>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                <div class="tile-game-item py-1">
+                                                    <div class="d-flex justify-content-between align-items-center w-100">
+                                                        <span class="game-name" style="font-size: 0.65rem;">Seller</span>
+                                                        <span class="fw-black text-dark text-truncate ms-1" style="font-size: 0.75rem; max-width: 140px;">@entry.SellerName</span>
+                                                    </div>
                                                 </div>
+                                                <div class="tile-game-item py-1">
+                                                    <div class="d-flex justify-content-between align-items-center w-100">
+                                                        <span class="game-name" style="font-size: 0.65rem;">Serial Number</span>
+                                                        <span class="fw-black text-muted" style="font-size: 0.75rem;">@entry.SerialNumber</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="tile-footer" style="background: rgba(139, 92, 246, 0.02);">
+                                            <div class="footer-stat">
+                                                <span class="label">CLUB PROFIT</span>
+                                                <span class="value text-success fw-bold">@net.ToString("C2")</span>
+                                            </div>
+                                            <div class="footer-stat text-end">
+                                                <span class="label">OVER/SHORT</span>
+                                                <span class="value @(overShort < 0 ? "text-danger" : "text-success") fw-black">@overShort.ToString("C2")</span>
                                             </div>
                                         </div>
                                     </div>
@@ -2082,6 +2216,14 @@
                                             }
                                         </div>
                                     }
+
+                                    <div class="d-flex justify-content-end mt-2 pt-2 border-top border-primary border-opacity-10">
+                                        <button type="button" class="btn btn-outline-primary rounded-pill px-3 py-1 fw-bold shadow-sm d-flex align-items-center gap-1.5" 
+                                                style="font-size: 0.65rem; border-width: 1.5px; padding: 3px 10px !important;" 
+                                                @onclick="() => LoadProgressiveHistoryAsync(game.Name, _selectedSheet.ColorName)">
+                                            <i class="bi bi-clock-history"></i> HISTORY LOG
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -2281,31 +2423,36 @@
                     <div class="col-lg col-md-4">
                         <div class="kpi-card">
                             <label>TOTAL GROSS RECEIPTS</label>
-                            <div class="val">@TotalGross.ToString("C2")</div>
+                            <div class="val">@((TotalGross + TotalPullTabSales).ToString("C2"))</div>
+                            <span class="text-muted fw-bold" style="font-size: 0.55rem; display: block; margin-top: 2px;">BINGO: @TotalGross.ToString("C2") | PULL TABS: @TotalPullTabSales.ToString("C2")</span>
                         </div>
                     </div>
                     <div class="col-lg col-md-4">
                         <div class="kpi-card">
                             <label>TOTAL PRIZES PAID</label>
-                            <div class="val text-danger">@TotalPrizes.ToString("C2")</div>
+                            <div class="val text-danger">@((TotalPrizes + TotalPullTabPrizes).ToString("C2"))</div>
+                            <span class="text-muted fw-bold" style="font-size: 0.55rem; display: block; margin-top: 2px;">BINGO GAMES: @(Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g))).ToString("C2")) | DOOR PRIZES: @((_doorPrizeAmount * _doorPrizeCount).ToString("C2")) | PULL TABS: @TotalPullTabPrizes.ToString("C2")</span>
                         </div>
                     </div>
                     <div class="col-lg col-md-4">
                         <div class="kpi-card text-muted">
                             <label>TOTAL LOTTERY FEES</label>
                             <div class="val text-muted">@TotalLotteryTake.ToString("C2")</div>
+                            <span class="text-muted fw-bold" style="font-size: 0.55rem; display: block; margin-top: 2px;">BINGO FEES (PULL TABS EXCLUDED)</span>
                         </div>
                     </div>
                     <div class="col-lg col-md-6">
                         <div class="kpi-card text-warning" style="border-color: rgba(245,158,11,0.2); background: rgba(245,158,11,0.03);">
-                            <label class="text-warning">TOTAL BREAKAGE</label>
-                            <div class="val text-warning">@TotalSessionBreakage.ToString("C2")</div>
+                            <label class="text-warning">TOTAL OVER/SHORT & BREAKAGE</label>
+                            <div class="val text-warning">@((TotalSessionBreakage + TotalPullTabOverShort).ToString("C2"))</div>
+                            <span class="text-muted fw-bold" style="font-size: 0.55rem; display: block; margin-top: 2px;">BREAKAGE: @TotalSessionBreakage.ToString("C2") | PULL TABS O/S: @TotalPullTabOverShort.ToString("C2")</span>
                         </div>
                     </div>
                     <div class="col-lg col-md-6">
                         <div class="kpi-card highlight">
                             <label>NET CLUB PROFIT</label>
-                            <div class="val">@TotalClubTake.ToString("C2")</div>
+                            <div class="val">@((TotalClubTake + TotalPullTabNet).ToString("C2"))</div>
+                            <span class="text-white-50 fw-bold" style="font-size: 0.55rem; display: block; margin-top: 2px;">BINGO: @TotalClubTake.ToString("C2") | PULL TABS: @TotalPullTabNet.ToString("C2")</span>
                         </div>
                     </div>
                 </div>
@@ -2479,6 +2626,25 @@
                                                     <td class="text-end fw-black @(sNet >= 0 ? "text-success" : "text-danger")">@sNet.ToString("C2")</td>
                                                 </tr>
                                             }
+
+                                            @if (_doorPrizeAmount > 0 && _doorPrizeCount > 0)
+                                            {
+                                                <tr class="bg-light bg-opacity-25">
+                                                    <td>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <div class="color-dot bg-pink" style="background: #ec4899; width: 10px; height: 10px; border-radius: 50%;"></div>
+                                                            <span class="fw-black text-uppercase text-pink" style="color: #ec4899 !important;">DOOR PRIZES</span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-center"><span class="extra-small fw-bold text-muted">SPECIAL</span></td>
+                                                    <td class="text-center">-</td>
+                                                    <td class="text-center">@_doorPrizeCount</td>
+                                                    <td class="text-center fw-bold">@_doorPrizeCount</td>
+                                                    <td class="text-end fw-bold">-</td>
+                                                    <td class="text-end fw-black text-danger">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</td>
+                                                    <td class="text-end fw-black text-danger">-@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</td>
+                                                </tr>
+                                            }
                                         }
                                     </tbody>
                                     <tfoot>
@@ -2490,6 +2656,73 @@
                                             <th class="text-end">@TotalGross.ToString("C2")</th>
                                             <th class="text-end text-danger">@TotalPrizes.ToString("C2")</th>
                                             <th class="text-end text-success fs-5">@TotalClubTake.ToString("C2")</th>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                            
+                            <div class="section-header-compact mt-4">
+                                <i class="bi bi-ticket-detailed-fill me-2"></i> PULL TAB PERFORMANCE
+                            </div>
+                            <div class="table-responsive bg-white">
+                                <table class="table summary-table-detailed mb-0" style="font-size: 0.75rem;">
+                                    <thead>
+                                        <tr>
+                                            <th class="ps-3">GAME TYPE / SELLER</th>
+                                            <th>SERIAL</th>
+                                            <th class="text-center">SOLD</th>
+                                            <th class="text-end">GROSS</th>
+                                            <th class="text-end">PRIZES</th>
+                                            <th class="text-end">START BANK</th>
+                                            <th class="text-end">CASH RCVD</th>
+                                            <th class="text-end">NET PROFIT</th>
+                                            <th class="text-end">OVER/SHORT</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (!_pullTabEntries.Any())
+                                        {
+                                            <tr>
+                                                <td colspan="9" class="text-center text-muted py-3">No Pull Tab entries recorded for this session.</td>
+                                            </tr>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var entry in _pullTabEntries)
+                                            {
+                                                var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == entry.GameDefinitionId);
+                                                var ticketsSold = GetTicketsSold(entry);
+                                                var gross = GetGrossReceipts(entry);
+                                                var net = GetNetCashDue(entry);
+                                                var overShort = GetOverShort(entry);
+                                                var netProfit = gross - entry.PrizesPaid;
+                                                <tr>
+                                                    <td class="ps-3 py-2">
+                                                        <span class="badge rounded-pill text-white me-2" style="background: #8b5cf6; font-size: 0.6rem;">@(def?.GameName ?? "Unknown")</span>
+                                                        <span class="fw-bold">@entry.SellerName</span>
+                                                    </td>
+                                                    <td class="py-2">@entry.SerialNumber</td>
+                                                    <td class="text-center fw-bold py-2">@ticketsSold <small class="text-muted">(@entry.TicketsIssued/@entry.TicketsReturned)</small></td>
+                                                    <td class="text-end fw-bold py-2">@gross.ToString("C2")</td>
+                                                    <td class="text-end text-danger fw-bold py-2">@entry.PrizesPaid.ToString("C2")</td>
+                                                    <td class="text-end text-muted py-2">@entry.StartingBank.ToString("C2")</td>
+                                                    <td class="text-end py-2">@entry.CashReceived.ToString("C2")</td>
+                                                    <td class="text-end text-success fw-bold py-2">@netProfit.ToString("C2")</td>
+                                                    <td class="text-end fw-black py-2 @(overShort < 0 ? "text-danger" : "text-success")">@overShort.ToString("C2")</td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr class="table-light">
+                                            <th colspan="2" class="ps-3">PULL TAB TOTALS</th>
+                                            <th class="text-center">@_pullTabEntries.Sum(GetTicketsSold)</th>
+                                            <th class="text-end text-purple">@TotalPullTabSales.ToString("C2")</th>
+                                            <th class="text-end text-danger">@TotalPullTabPrizes.ToString("C2")</th>
+                                            <th class="text-end text-muted">@_pullTabEntries.Sum(e => e.StartingBank).ToString("C2")</th>
+                                            <th class="text-end">@_pullTabEntries.Sum(e => e.CashReceived).ToString("C2")</th>
+                                            <th class="text-end text-success">@((TotalPullTabSales - TotalPullTabPrizes).ToString("C2"))</th>
+                                            <th class="text-end fw-black @(TotalPullTabOverShort < 0 ? "text-danger" : "text-success")">@TotalPullTabOverShort.ToString("C2")</th>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -2563,7 +2796,7 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h3 class="fw-black text-uppercase mb-0" style="letter-spacing: -0.02em;">Payout Scaling</h3>
-                    <span class="badge bg-white bg-opacity-20 rounded-pill px-3 py-1 fw-bold text-uppercase" style="font-size: 0.6rem;">Attendance Rules</span>
+                    <span class="badge bg-white bg-opacity-20 rounded-pill px-3 py-1 fw-bold text-uppercase" style="font-size: 0.6rem;">@(_useManualScaling ? "Manual Mode" : "Attendance Rules")</span>
                 </div>
                 <button class="btn btn-link text-white p-0 border-0 fs-3" @onclick="() => _showScalingTiers = false">
                     <i class="bi bi-x-circle-fill"></i>
@@ -2571,42 +2804,79 @@
             </div>
         </div>
         <div class="detail-body p-0">
-            <div class="p-4 bg-light border-bottom text-center">
-                <div class="text-muted fw-bold extra-small text-uppercase mb-1">Current Session Attendance</div>
-                <div class="display-5 fw-black text-primary">@AdmissionCount</div>
-                <div class="fw-bold text-primary opacity-75 small">PLAYERS</div>
-            </div>
-            <div class="p-4" style="background: white;">
-                @foreach (var tier in _bingoSettings.PayoutTiers.OrderBy(t => t.MinAdmissions))
-                {
-                    var isCurrent = tier == GetCurrentTier();
-                    <div class="d-flex justify-content-between align-items-center p-3 mb-2 rounded-4 @(isCurrent ? "bg-primary text-white shadow-lg border-0" : "bg-light border border-light-subtle")" 
+            @if (_useManualScaling)
+            {
+                <div class="p-4 bg-light border-bottom text-center">
+                    <div class="text-muted fw-bold extra-small text-uppercase mb-1">Active Scaling Mode</div>
+                    <div class="h5 fw-black text-danger text-uppercase mb-0">MANUAL OVERRIDE</div>
+                </div>
+                <div class="p-4" style="background: white;">
+                    <div class="d-flex justify-content-between align-items-center p-3 mb-2 rounded-4 bg-danger text-white shadow-lg border-0" 
                          style="transition: all 0.2s;">
                         <div class="d-flex align-items-center gap-3">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center @(isCurrent ? "bg-white text-primary" : "bg-secondary bg-opacity-10 text-secondary")" style="width: 40px; height: 40px;">
-                                <i class="bi @(isCurrent ? "bi-check-lg" : "bi-people-fill") fs-5"></i>
+                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white text-danger" style="width: 40px; height: 40px;">
+                                <i class="bi bi-sliders fs-5"></i>
                             </div>
                             <div>
-                                <div class="fw-black text-uppercase" style="font-size: 0.8rem;">@(tier.MinAdmissions)+ Players</div>
-                                <div class="fw-bold extra-small @(isCurrent ? "text-white-50" : "text-muted")">@(isCurrent ? "CURRENT ACTIVE TIER" : "Minimum Requirement")</div>
+                                <div class="fw-black text-uppercase" style="font-size: 0.8rem;">Manual Rate</div>
+                                <div class="fw-bold extra-small text-white-50">CURRENT ACTIVE OVERRIDE</div>
                             </div>
                         </div>
                         <div class="text-end">
-                            <div class="fs-4 fw-black">@tier.PayoutPercentage.ToString("N0")%</div>
-                            <div class="fw-bold extra-small @(isCurrent ? "text-white-50" : "text-muted")">PRIZE RATE</div>
+                            <div class="fs-4 fw-black">@_payoutPercentage.ToString("N0")%</div>
+                            <div class="fw-bold extra-small text-white-50">PRIZE RATE</div>
                         </div>
                     </div>
-                }
-            </div>
-            <div class="p-4 pt-0">
-                <div class="alert alert-info py-2 rounded-3 border-0 mb-4" style="font-size: 0.65rem;">
-                    <i class="bi bi-info-circle-fill me-1"></i>
-                    Prizes scale automatically based on total admissions sold to ensure session stability.
                 </div>
-                <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showScalingTiers = false">
-                    CLOSE RULES
-                </button>
-            </div>
+                <div class="p-4 pt-0">
+                    <div class="alert alert-warning py-2 rounded-3 border-0 mb-4" style="font-size: 0.65rem;">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                        Prizes are currently scaling by the manually configured rate of @_payoutPercentage% instead of automatic attendance rules.
+                    </div>
+                    <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showScalingTiers = false">
+                        CLOSE RULES
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="p-4 bg-light border-bottom text-center">
+                    <div class="text-muted fw-bold extra-small text-uppercase mb-1">Current Session Attendance</div>
+                    <div class="display-5 fw-black text-primary">@AdmissionCount</div>
+                    <div class="fw-bold text-primary opacity-75 small">PLAYERS</div>
+                </div>
+                <div class="p-4" style="background: white;">
+                    @foreach (var tier in _bingoSettings.PayoutTiers.OrderBy(t => t.MinAdmissions))
+                    {
+                        var isCurrent = tier == GetCurrentTier();
+                        <div class="d-flex justify-content-between align-items-center p-3 mb-2 rounded-4 @(isCurrent ? "bg-primary text-white shadow-lg border-0" : "bg-light border border-light-subtle")" 
+                             style="transition: all 0.2s;">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center @(isCurrent ? "bg-white text-primary" : "bg-secondary bg-opacity-10 text-secondary")" style="width: 40px; height: 40px;">
+                                    <i class="bi @(isCurrent ? "bi-check-lg" : "bi-people-fill") fs-5"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-black text-uppercase" style="font-size: 0.85rem;">@(tier.MinAdmissions)+ Players</div>
+                                    <div class="fw-bold extra-small @(isCurrent ? "text-white-50" : "text-muted")">@(isCurrent ? "CURRENT ACTIVE TIER" : "Minimum Requirement")</div>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="fs-4 fw-black">@tier.PayoutPercentage.ToString("N0")%</div>
+                                <div class="fw-bold extra-small @(isCurrent ? "text-white-50" : "text-muted")">PRIZE RATE</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="p-4 pt-0">
+                    <div class="alert alert-info py-2 rounded-3 border-0 mb-4" style="font-size: 0.65rem;">
+                        <i class="bi bi-info-circle-fill me-1"></i>
+                        Prizes scale automatically based on total admissions sold to ensure session stability.
+                    </div>
+                    <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showScalingTiers = false">
+                        CLOSE RULES
+                    </button>
+                </div>
+            }
         </div>
     </div>
 }
@@ -2657,6 +2927,94 @@
             </p>
             <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="() => _showSessionLockedNotice = false">
                 UNDERSTOOD
+            </button>
+        </div>
+    </div>
+}
+
+@if (_showProgressiveHistoryModal)
+{
+    <div class="modal-backdrop-custom animate-fade-in" style="z-index: 9000;" @onclick="() => _showProgressiveHistoryModal = false"></div>
+    <div class="sheet-detail-modal animate-zoom-in shadow-lg border-top border-primary" style="z-index: 9500; max-width: 550px; border-top-width: 8px !important; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; max-height: 80vh; border-radius: 24px;">
+        <div class="detail-header d-flex justify-content-between align-items-center p-4 border-bottom bg-light" style="border-top-left-radius: 16px; border-top-right-radius: 16px;">
+            <h5 class="fw-black text-uppercase mb-0 d-flex align-items-center gap-2" style="letter-spacing: -0.02em; color: #0f172a !important;">
+                <i class="bi bi-clock-history text-primary fs-4"></i> Progressive History
+            </h5>
+            <button type="button" class="btn-close" @onclick="() => _showProgressiveHistoryModal = false" aria-label="Close"></button>
+        </div>
+        <div class="detail-body p-4 overflow-auto bg-light" style="flex: 1;">
+            <div class="mb-3">
+                <span class="badge text-uppercase font-black border border-primary border-opacity-25 px-3 py-1.5 rounded-pill" style="background: rgba(59, 130, 246, 0.08); color: #3b82f6 !important; font-size: 0.75rem; font-weight: 800;">
+                    @_historySheetColor.ToUpper() - @_historyGameName.ToUpper()
+                </span>
+            </div>
+
+            @if (_historyLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <span class="ms-2 text-muted fw-bold text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.05em;">Loading history...</span>
+                </div>
+            }
+            else if (_historyList == null || !_historyList.Any())
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-folder2-open text-muted" style="font-size: 3rem; opacity: 0.4;"></i>
+                    <p class="text-muted fw-black mt-3 mb-1 text-uppercase" style="font-size: 0.85rem; letter-spacing: 0.05em;">No History Found</p>
+                    <small class="text-muted fw-semibold">No play logs or overrides were found for this game.</small>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive rounded-4 border bg-white shadow-sm overflow-hidden">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.75rem;">
+                        <thead class="bg-light">
+                            <tr class="text-muted fw-black text-uppercase" style="font-size: 0.65rem;">
+                                <th class="ps-3 py-2.5">Date</th>
+                                <th class="py-2.5">Activity</th>
+                                <th class="py-2.5 text-center">Goal</th>
+                                <th class="py-2.5 text-center">Balls</th>
+                                <th class="pe-3 py-2.5 text-end">Prize Paid</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in _historyList)
+                            {
+                                <tr>
+                                    <td class="ps-3 py-2.5 fw-bold text-dark">@log.Timestamp.ToString("MM/dd/yyyy")</td>
+                                    <td class="py-2.5">
+                                        @if (log.Type == "Manual Override")
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-25 px-2 py-0.5 rounded-pill fw-bold" style="font-size: 0.6rem;">
+                                                OVERRIDE
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success border-opacity-25 px-2 py-0.5 rounded-pill fw-bold" style="font-size: 0.6rem;">
+                                                PLAY
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="py-2.5 text-center fw-black text-primary">
+                                        @(log.BallGoal?.ToString() ?? (log.Type == "Manual Override" ? log.Value.ToString() : "-"))
+                                    </td>
+                                    <td class="py-2.5 text-center fw-bold text-dark">
+                                        @(log.BallsCalled?.ToString() ?? "-")
+                                    </td>
+                                    <td class="pe-3 py-2.5 text-end fw-black text-success">
+                                        @(log.PrizePaid.HasValue ? log.PrizePaid.Value.ToString("C0") : "-")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+        <div class="detail-footer p-4 border-top bg-light text-end" style="border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;">
+            <button class="btn btn-dark w-100 py-3 rounded-pill fw-black shadow-lg text-uppercase" style="font-size: 0.85rem; letter-spacing: 0.05em;" @onclick="() => _showProgressiveHistoryModal = false">
+                CLOSE
             </button>
         </div>
     </div>
@@ -2754,18 +3112,18 @@
                 </button>
             </div>
             
-            <div class="modal-body-compact p-4">
+            <div class="modal-body-compact p-3">
                 @if (!string.IsNullOrEmpty(_pullTabValidationError))
                 {
-                    <div class="alert alert-danger py-2 px-3 mb-3 rounded-3 fw-bold small text-center shadow-sm">
+                    <div class="alert alert-danger py-2 px-3 mb-2 rounded-3 fw-bold small text-center shadow-sm">
                         <i class="bi bi-exclamation-triangle-fill me-2"></i>@_pullTabValidationError
                     </div>
                 }
-                <div class="row g-3">
+                <div class="row g-2">
                     <!-- Game Selection -->
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Game Type</label>
-                        <select class="form-select fw-black text-primary border" style="height: 48px; border-radius: 12px;"
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Game Type</label>
+                        <select class="form-select fw-black text-primary border" style="height: 40px; border-radius: 10px; font-size: 0.8rem; padding: 4px 8px;"
                                 value="@_editingPullTab.GameDefinitionId" @onchange="OnPullTabGameChanged">
                             <option value="0">-- SELECT GAME --</option>
                             @foreach (var def in _pullTabDefinitions)
@@ -2776,10 +3134,10 @@
                     </div>
 
                     <!-- Seller Name (Combobox using datalist) -->
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Seller Name</label>
-                        <input type="text" class="form-control fw-black text-dark border" style="height: 48px; border-radius: 12px;"
-                               list="seller-names-list" placeholder="Enter or select seller..."
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Seller Name</label>
+                        <input type="text" class="form-control fw-black text-dark border" style="height: 40px; border-radius: 10px; font-size: 0.8rem; padding: 8px;"
+                               list="seller-names-list" placeholder="Enter name..."
                                @bind="_editingPullTab.SellerName" />
                         <datalist id="seller-names-list">
                             @foreach (var name in _previousSellers)
@@ -2790,88 +3148,88 @@
                     </div>
 
                     <!-- Serial Number -->
-                    <div class="col-12 col-md-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Serial Number</label>
-                        <input type="text" class="form-control fw-black text-dark border" style="height: 48px; border-radius: 12px;"
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Serial Number</label>
+                        <input type="text" class="form-control fw-black text-dark border" style="height: 40px; border-radius: 10px; font-size: 0.8rem; padding: 8px;"
                                @bind="_editingPullTab.SerialNumber" placeholder="e.g. SN12345" />
                     </div>
 
                     <!-- Starting Bank -->
-                    <div class="col-12 col-md-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Starting Bank ($)</label>
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Starting Bank ($)</label>
                         <div class="form-control fw-black text-dark border d-flex align-items-center justify-content-between @(_activeField == "PullTab_StartingBank" ? "border-primary bg-light" : "")" 
-                             style="height: 48px; border-radius: 12px; cursor: pointer; padding: 12px;"
+                             style="height: 40px; border-radius: 10px; cursor: pointer; padding: 8px; font-size: 0.85rem;"
                              @onclick='() => ActivateField("PullTab_StartingBank")'>
-                            <span>
-                                @if (_activeField == "PullTab_StartingBank")
-                                {
-                                    @_currentBuffer
-                                    <span class="cursor-blink">|</span>
-                                }
-                                else
-                                {
-                                    @_editingPullTab.StartingBank.ToString("C2")
-                                }
-                            </span>
-                            @if (_activeField == "PullTab_StartingBank")
-                            {
-                                <i class="bi bi-calculator text-primary small"></i>
-                            }
+                             <span>
+                                 @if (_activeField == "PullTab_StartingBank")
+                                 {
+                                     @_currentBuffer
+                                     <span class="cursor-blink">|</span>
+                                 }
+                                 else
+                                 {
+                                     @_editingPullTab.StartingBank.ToString("C2")
+                                 }
+                             </span>
+                             @if (_activeField == "PullTab_StartingBank")
+                             {
+                                 <i class="bi bi-calculator text-primary small"></i>
+                             }
                         </div>
                     </div>
 
                     <!-- Tickets Issued -->
                     <div class="col-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Tickets Issued</label>
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Tickets Issued</label>
                         <div class="form-control fw-black text-dark border d-flex align-items-center justify-content-between @(_activeField == "PullTab_TicketsIssued" ? "border-primary bg-light" : "")" 
-                             style="height: 48px; border-radius: 12px; cursor: pointer; padding: 12px;"
+                             style="height: 40px; border-radius: 10px; cursor: pointer; padding: 8px; font-size: 0.85rem;"
                              @onclick='() => ActivateField("PullTab_TicketsIssued")'>
-                            <span>
-                                @if (_activeField == "PullTab_TicketsIssued")
-                                {
-                                    @_currentBuffer
-                                    <span class="cursor-blink">|</span>
-                                }
-                                else
-                                {
-                                    @_editingPullTab.TicketsIssued.ToString("N0")
-                                }
-                            </span>
-                            @if (_activeField == "PullTab_TicketsIssued")
-                            {
-                                <i class="bi bi-calculator text-primary small"></i>
-                            }
+                             <span>
+                                 @if (_activeField == "PullTab_TicketsIssued")
+                                 {
+                                     @_currentBuffer
+                                     <span class="cursor-blink">|</span>
+                                 }
+                                 else
+                                 {
+                                     @_editingPullTab.TicketsIssued.ToString("N0")
+                                 }
+                             </span>
+                             @if (_activeField == "PullTab_TicketsIssued")
+                             {
+                                 <i class="bi bi-calculator text-primary small"></i>
+                             }
                         </div>
                     </div>
 
                     <!-- Tickets Returned -->
                     <div class="col-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Tickets Returned</label>
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Tickets Returned</label>
                         <div class="form-control fw-black text-dark border d-flex align-items-center justify-content-between @(_activeField == "PullTab_TicketsReturned" ? "border-primary bg-light" : "")" 
-                             style="height: 48px; border-radius: 12px; cursor: pointer; padding: 12px;"
+                             style="height: 40px; border-radius: 10px; cursor: pointer; padding: 8px; font-size: 0.85rem;"
                              @onclick='() => ActivateField("PullTab_TicketsReturned")'>
-                            <span>
-                                @if (_activeField == "PullTab_TicketsReturned")
-                                {
-                                    @_currentBuffer
-                                    <span class="cursor-blink">|</span>
-                                }
-                                else
-                                {
-                                    @_editingPullTab.TicketsReturned.ToString("N0")
-                                }
-                            </span>
-                            @if (_activeField == "PullTab_TicketsReturned")
-                            {
-                                <i class="bi bi-calculator text-primary small"></i>
-                            }
+                             <span>
+                                 @if (_activeField == "PullTab_TicketsReturned")
+                                 {
+                                     @_currentBuffer
+                                     <span class="cursor-blink">|</span>
+                                 }
+                                 else
+                                 {
+                                     @_editingPullTab.TicketsReturned.ToString("N0")
+                                 }
+                             </span>
+                             @if (_activeField == "PullTab_TicketsReturned")
+                             {
+                                 <i class="bi bi-calculator text-primary small"></i>
+                             }
                         </div>
                     </div>
 
                     <!-- Winner Option Dropdown -->
-                    <div class="col-12 col-md-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Winner Option (Prize)</label>
-                        <select class="form-select fw-black text-primary border" style="height: 48px; border-radius: 12px;"
+                    <div class="col-12">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Winner Option (Prize)</label>
+                        <select class="form-select fw-black text-primary border" style="height: 40px; border-radius: 10px; font-size: 0.8rem; padding: 4px 8px;"
                                 value="@_editingPullTab.SelectedPrizeOptionId" @onchange="OnPullTabPrizeChanged">
                             <option value="">-- SELECT PRIZE --</option>
                             @foreach (var opt in _activePrizeOptions)
@@ -2882,10 +3240,10 @@
                     </div>
 
                     <!-- Prizes Paid (Override) -->
-                    <div class="col-12 col-md-6">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Prizes Paid ($)</label>
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Prizes Paid ($)</label>
                         <div class="form-control fw-black text-danger border d-flex align-items-center justify-content-between @(_activeField == "PullTab_PrizesPaid" ? "border-primary bg-light" : "")" 
-                             style="height: 48px; border-radius: 12px; cursor: pointer; padding: 12px;"
+                             style="height: 40px; border-radius: 10px; cursor: pointer; padding: 8px; font-size: 0.85rem;"
                              @onclick='() => ActivateField("PullTab_PrizesPaid")'>
                             <span>
                                 @if (_activeField == "PullTab_PrizesPaid")
@@ -2905,11 +3263,36 @@
                         </div>
                     </div>
 
+                    @if (_activeMinorCount > 0)
+                    {
+                        <div class="col-12 mt-1">
+                            <div class="p-2 bg-light rounded-4 border border-light shadow-sm">
+                                <h6 class="fw-black text-muted text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.05em;">Prize Payout Breakdown</h6>
+                                
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold text-dark" style="font-size: 0.75rem;">
+                                        Small Winners (@_activeMinorAmt.ToString("C2") ea) Paid:
+                                    </span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button class="btn btn-outline-secondary rounded-circle fw-black d-flex align-items-center justify-content-center border-2" 
+                                                style="width: 28px; height: 28px; font-size: 1rem; padding: 0; line-height: 1;" 
+                                                @onclick="DecrementMinorPrizes" disabled="@(_minorPrizesPaidCount <= 0)" @onclick:preventDefault="true">-</button>
+                                        <span class="fw-black text-dark px-1" style="font-size: 0.95rem; min-width: 20px; text-align: center;">@_minorPrizesPaidCount</span>
+                                        <button class="btn btn-outline-secondary rounded-circle fw-black d-flex align-items-center justify-content-center border-2" 
+                                                style="width: 28px; height: 28px; font-size: 1rem; padding: 0; line-height: 1;" 
+                                                @onclick="IncrementMinorPrizes" disabled="@(_minorPrizesPaidCount >= _activeMinorCount)" @onclick:preventDefault="true">+</button>
+                                        <span class="text-muted fw-bold extra-small">/ @_activeMinorCount</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     <!-- Cash Received -->
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-uppercase text-muted" style="font-size: 0.65rem;">Cash Received ($)</label>
+                    <div class="col-6">
+                        <label class="form-label fw-bold text-uppercase text-muted mb-1" style="font-size: 0.6rem;">Cash Received ($)</label>
                         <div class="form-control fw-black text-success border d-flex align-items-center justify-content-between @(_activeField == "PullTab_CashReceived" ? "border-primary bg-light" : "")" 
-                             style="height: 48px; border-radius: 12px; cursor: pointer; padding: 12px; font-size: 1.2rem;"
+                             style="height: 40px; border-radius: 10px; cursor: pointer; padding: 8px; font-size: 1rem;"
                              @onclick='() => ActivateField("PullTab_CashReceived")'>
                             <span>
                                 @if (_activeField == "PullTab_CashReceived")
@@ -2931,21 +3314,21 @@
 
                     <!-- Math Preview Card -->
                     <div class="col-12">
-                        <div class="p-3 bg-light rounded-4 border border-light">
-                            <h6 class="fw-black text-muted text-uppercase mb-2" style="font-size: 0.6rem; letter-spacing: 0.05em;">Calculations Preview</h6>
-                            <div class="d-flex justify-content-between mb-1" style="font-size: 0.75rem;">
+                        <div class="p-2 bg-light rounded-4 border border-light">
+                            <h6 class="fw-black text-muted text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.05em;">Calculations Preview</h6>
+                            <div class="d-flex justify-content-between mb-0.5" style="font-size: 0.7rem;">
                                 <span class="text-muted fw-bold">Tickets Sold:</span>
                                 <span class="fw-black text-dark">@GetTicketsSold(_editingPullTab)</span>
                             </div>
-                            <div class="d-flex justify-content-between mb-1" style="font-size: 0.75rem;">
+                            <div class="d-flex justify-content-between mb-0.5" style="font-size: 0.7rem;">
                                 <span class="text-muted fw-bold">Gross Receipts:</span>
                                 <span class="fw-black text-dark">@GetGrossReceipts(_editingPullTab).ToString("C2")</span>
                             </div>
-                            <div class="d-flex justify-content-between mb-1" style="font-size: 0.75rem;">
-                                <span class="text-muted fw-bold">Net Cash Due:</span>
+                            <div class="d-flex justify-content-between mb-0.5" style="font-size: 0.7rem;">
+                                <span class="text-muted fw-bold">Club Profit:</span>
                                 <span class="fw-black text-success">@GetNetCashDue(_editingPullTab).ToString("C2")</span>
                             </div>
-                            <div class="d-flex justify-content-between" style="font-size: 0.75rem;">
+                            <div class="d-flex justify-content-between" style="font-size: 0.7rem;">
                                 <span class="text-muted fw-bold">Over/Short:</span>
                                 <span class="fw-black @(GetOverShort(_editingPullTab) < 0 ? "text-danger" : "text-success")">@GetOverShort(_editingPullTab).ToString("C2")</span>
                             </div>
@@ -2982,8 +3365,41 @@
         var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == entry.GameDefinitionId);
         return GetTicketsSold(entry) * (def?.TicketPrice ?? 0);
     }
-    private decimal GetNetCashDue(PullTabGameEntry entry) => GetGrossReceipts(entry) - entry.PrizesPaid;
-    private decimal GetOverShort(PullTabGameEntry entry) => (entry.CashReceived - entry.StartingBank) - GetNetCashDue(entry);
+    private decimal GetExpectedPrize(PullTabGameEntry entry)
+    {
+        if (entry.SelectedPrizeOptionId == null) return 0;
+        var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == entry.GameDefinitionId);
+        var opt = def?.PrizeOptions?.FirstOrDefault(o => o.Id == entry.SelectedPrizeOptionId);
+        return opt?.PayoutAmount ?? 0;
+    }
+    private decimal GetExpectedEnvelopeCash(PullTabGameEntry entry)
+    {
+        var gross = GetGrossReceipts(entry);
+        var expectedPrize = GetExpectedPrize(entry);
+        bool paidFromDrawer = entry.CashReceived < (gross - (expectedPrize / 2));
+        return paidFromDrawer ? (gross - expectedPrize) : gross;
+    }
+    private decimal GetNetCashDue(PullTabGameEntry entry)
+    {
+        var gross = GetGrossReceipts(entry);
+        var expectedPrize = GetExpectedPrize(entry);
+        var overShort = GetOverShort(entry);
+        return (gross - expectedPrize) + overShort;
+    }
+    private decimal GetOverShort(PullTabGameEntry entry)
+    {
+        var gross = GetGrossReceipts(entry);
+        var expectedPrize = GetExpectedPrize(entry);
+        bool paidFromDrawer = entry.CashReceived < (gross - (expectedPrize / 2));
+        if (paidFromDrawer)
+        {
+            return (entry.CashReceived - entry.StartingBank) - (gross - expectedPrize);
+        }
+        else
+        {
+            return (entry.CashReceived - entry.StartingBank) - gross + (expectedPrize - entry.PrizesPaid);
+        }
+    }
 
     private decimal TotalPullTabSales => _pullTabEntries.Sum(GetGrossReceipts);
     private decimal TotalPullTabPrizes => _pullTabEntries.Sum(e => e.PrizesPaid);
@@ -3003,6 +3419,9 @@
     private string _currentBuffer = "";
     private bool _showAdmissionPopup = false;
     private bool _showFloorSalesPopup = false;
+    private bool _showDoorPrizesPopup = false;
+    private decimal _doorPrizeAmount = 0m;
+    private int _doorPrizeCount = 0;
     private bool _showCancelSessionConfirmation = false;
     private bool _hasBlockingOpenSession = false;
     private DateTime? _blockingSessionDate;
@@ -3011,6 +3430,11 @@
     private bool _isOffline = false;
     private bool _isSyncing = false;
     private bool _needsSync = false;
+    private bool _showProgressiveHistoryModal = false;
+    private string _historyGameName = "";
+    private string _historySheetColor = "";
+    private List<ProgressiveHistoryDto> _historyList = new();
+    private bool _historyLoading = false;
     private bool _entryModeIsDollars = true;
     private bool _useManualScaling = true;
     private decimal _payoutPercentage = 100m;
@@ -3127,11 +3551,24 @@
         _selectedSheet = null;
         _showAdmissionPopup = false;
         _showFloorSalesPopup = false;
+        _showDoorPrizesPopup = false;
         _selectedPackDetail = null;
         _showScalingTiers = false;
         _showAdmissionAudit = false;
         _showFloatingKeypad = false;
         _activeField = "";
+    }
+
+    private void OpenDoorPrizesEntry()
+    {
+        if (_sessionState == "Closed")
+        {
+            ShowLockedSessionNotice("Door Prizes");
+            return;
+        }
+        CloseAllModals();
+        _showDoorPrizesPopup = true;
+        StateHasChanged();
     }
 
     private bool _openedFromSummary = false;
@@ -3186,6 +3623,102 @@
         StateHasChanged();
     }
 
+    private int _minorPrizesPaidCount = 0;
+    private decimal _activeMajorAmt = 0;
+    int _activeMinorCount = 0;
+    private decimal _activeMinorAmt = 0;
+
+    private (decimal MajorAmt, int MinorCount, decimal MinorAmt) ParsePrizeStructure(string label)
+    {
+        decimal majorAmt = 0;
+        int minorCount = 0;
+        decimal minorAmt = 0;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(label)) return (0, 0, 0);
+            var atIndex = label.IndexOf("@ $");
+            if (atIndex != -1)
+            {
+                var spaceIndex = label.IndexOf(" ", atIndex + 3);
+                var ampIndex = label.IndexOf("&", atIndex + 3);
+                int endIndex = spaceIndex != -1 ? spaceIndex : (ampIndex != -1 ? ampIndex : label.Length);
+                var majorStr = label.Substring(atIndex + 3, endIndex - (atIndex + 3)).Trim();
+                decimal.TryParse(majorStr, out majorAmt);
+            }
+            var ampIndex2 = label.IndexOf("&");
+            if (ampIndex2 != -1)
+            {
+                var minorPart = label.Substring(ampIndex2 + 1).Trim();
+                var atIndex2 = minorPart.IndexOf("@");
+                if (atIndex2 != -1)
+                {
+                    var countStr = minorPart.Substring(0, atIndex2).Trim();
+                    int.TryParse(countStr, out minorCount);
+                    var cashIndex = minorPart.IndexOf("$", atIndex2);
+                    if (cashIndex != -1)
+                    {
+                        var amtStr = minorPart.Substring(cashIndex + 1).Trim();
+                        decimal.TryParse(amtStr, out minorAmt);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error parsing label: {ex.Message}");
+        }
+        return (majorAmt, minorCount, minorAmt);
+    }
+
+    private void ReconstructPrizeSelections(PullTabGameEntry entry)
+    {
+        var label = _activePrizeOptions.FirstOrDefault(o => o.Id == entry.SelectedPrizeOptionId)?.OptionLabel ?? "";
+        var (majorAmt, minorCount, minorAmt) = ParsePrizeStructure(label);
+        _activeMajorAmt = majorAmt;
+        _activeMinorCount = minorCount;
+        _activeMinorAmt = minorAmt;
+
+        if (minorCount > 0)
+        {
+            var remainder = entry.PrizesPaid - majorAmt;
+            if (remainder > 0 && minorAmt > 0)
+            {
+                _minorPrizesPaidCount = Math.Min(minorCount, (int)(remainder / minorAmt));
+            }
+            else
+            {
+                _minorPrizesPaidCount = 0;
+            }
+        }
+        else
+        {
+            _minorPrizesPaidCount = 0;
+        }
+    }
+
+    private void RecalculatePrizesPaid()
+    {
+        _editingPullTab.PrizesPaid = _activeMajorAmt + (_minorPrizesPaidCount * _activeMinorAmt);
+    }
+
+    private void DecrementMinorPrizes()
+    {
+        if (_minorPrizesPaidCount > 0)
+        {
+            _minorPrizesPaidCount--;
+            RecalculatePrizesPaid();
+        }
+    }
+
+    private void IncrementMinorPrizes()
+    {
+        if (_minorPrizesPaidCount < _activeMinorCount)
+        {
+            _minorPrizesPaidCount++;
+            RecalculatePrizesPaid();
+        }
+    }
+
     private void OpenAddPullTabModal()
     {
         if (_sessionState == "Closed")
@@ -3208,6 +3741,10 @@
             CashReceived = 0
         };
         UpdateActivePrizeOptions();
+        _activeMajorAmt = 0;
+        _activeMinorCount = 0;
+        _activeMinorAmt = 0;
+        _minorPrizesPaidCount = 0;
         _showPullTabModal = true;
     }
 
@@ -3236,6 +3773,7 @@
             CashReceived = entry.CashReceived
         };
         UpdateActivePrizeOptions();
+        ReconstructPrizeSelections(_editingPullTab);
         _showPullTabModal = true;
     }
 
@@ -3262,6 +3800,19 @@
     {
         var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == _editingPullTab.GameDefinitionId);
         _activePrizeOptions = def?.PrizeOptions?.ToList() ?? new List<PullTabPrizeOption>();
+
+        // If there is only one prize option, select it by default
+        if (_activePrizeOptions.Count == 1 && _editingPullTab.SelectedPrizeOptionId == null)
+        {
+            var opt = _activePrizeOptions[0];
+            _editingPullTab.SelectedPrizeOptionId = opt.Id;
+            var (majorAmt, minorCount, minorAmt) = ParsePrizeStructure(opt.OptionLabel);
+            _activeMajorAmt = majorAmt;
+            _activeMinorCount = minorCount;
+            _activeMinorAmt = minorAmt;
+            _minorPrizesPaidCount = 0;
+            _editingPullTab.PrizesPaid = majorAmt;
+        }
     }
 
     private void OnPullTabGameChanged(ChangeEventArgs e)
@@ -3276,6 +3827,10 @@
             }
             _editingPullTab.SelectedPrizeOptionId = null;
             _editingPullTab.PrizesPaid = 0;
+            _activeMajorAmt = 0;
+            _activeMinorCount = 0;
+            _activeMinorAmt = 0;
+            _minorPrizesPaidCount = 0;
             UpdateActivePrizeOptions();
         }
     }
@@ -3288,12 +3843,21 @@
             var opt = _activePrizeOptions.FirstOrDefault(o => o.Id == optId);
             if (opt != null)
             {
-                _editingPullTab.PrizesPaid = opt.PayoutAmount;
+                var (majorAmt, minorCount, minorAmt) = ParsePrizeStructure(opt.OptionLabel);
+                _activeMajorAmt = majorAmt;
+                _activeMinorCount = minorCount;
+                _activeMinorAmt = minorAmt;
+                _minorPrizesPaidCount = 0;
+                _editingPullTab.PrizesPaid = majorAmt;
             }
         }
         else
         {
             _editingPullTab.SelectedPrizeOptionId = null;
+            _activeMajorAmt = 0;
+            _activeMinorCount = 0;
+            _activeMinorAmt = 0;
+            _minorPrizesPaidCount = 0;
         }
     }
 
@@ -3820,7 +4384,31 @@
     {
         if (string.IsNullOrEmpty(_activeField)) return;
 
-        if (_activeField == "PayoutPercentage")
+        if (_activeField == "DoorPrizeAmount")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val))
+            {
+                _doorPrizeAmount = val;
+            }
+            else
+            {
+                _doorPrizeAmount = 0m;
+            }
+            _needsSync = true;
+        }
+        else if (_activeField == "DoorPrizeCount")
+        {
+            if (int.TryParse(_currentBuffer, out var val))
+            {
+                _doorPrizeCount = val;
+            }
+            else
+            {
+                _doorPrizeCount = 0;
+            }
+            _needsSync = true;
+        }
+        else if (_activeField == "PayoutPercentage")
         {
             if (decimal.TryParse(_currentBuffer, out var val))
             {
@@ -3990,6 +4578,17 @@
 
     private void HandleNext()
     {
+        if (_activeField == "DoorPrizeAmount")
+        {
+            ActivateField("DoorPrizeCount");
+            return;
+        }
+        if (_activeField == "DoorPrizeCount")
+        {
+            ActivateField("DoorPrizeAmount");
+            return;
+        }
+
         if (_activeField.StartsWith("Pack_"))
         {
             if (int.TryParse(_activeField.Replace("Pack_", ""), out var id))
@@ -4101,7 +4700,7 @@
     private decimal TotalAdmissionRevenue => AdmissionPacks.Sum(p => p.Sold * p.Price);
     private decimal TotalFloorRevenue => Sheets.Sum(s => s.ManualSold * s.Price);
     private decimal TotalGross => TotalAdmissionRevenue + TotalFloorRevenue;
-    private decimal TotalPrizes => Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)));
+    private decimal TotalPrizes => Sheets.Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g))) + (_doorPrizeAmount * _doorPrizeCount);
     private decimal TotalRoundingAdjustment => Sheets.Sum(s => s.Games.Sum(g => CalculateGameRoundingAdjustment(s, g)));
     
     // The "Standard Program" is the revenue reserved for the Base games ($15 + extra squares)
@@ -4116,7 +4715,7 @@
     private decimal TotalLotteryTake => Sheets.Sum(CalculateLotteryTake);
     
     // Total Club Take is the final bottom line after prizes and lottery
-    private decimal TotalClubTake => Sheets.Sum(CalculateClubTake);
+    private decimal TotalClubTake => Sheets.Sum(CalculateClubTake) - (_doorPrizeAmount * _doorPrizeCount);
     
     private decimal TotalNetProceeds => TotalGross - TotalPrizes - TotalLotteryTake;
 
@@ -4269,7 +4868,16 @@
     private async Task SaveDraftAsync()
     {
         var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
-        var data = new BingoDraft { AdmissionPacks = AdmissionPacks, Sheets = Sheets, SessionState = _sessionState, UseManualScaling = _useManualScaling, PayoutPercentage = _payoutPercentage, PullTabEntries = _pullTabEntries };
+        var data = new BingoDraft {
+            AdmissionPacks = AdmissionPacks,
+            Sheets = Sheets,
+            SessionState = _sessionState,
+            UseManualScaling = _useManualScaling,
+            PayoutPercentage = _payoutPercentage,
+            PullTabEntries = _pullTabEntries,
+            DoorPrizeAmount = _doorPrizeAmount,
+            DoorPrizeCount = _doorPrizeCount
+        };
         await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, data);
         _lastSavedTime = DateTime.Now;
         StateHasChanged();
@@ -4330,6 +4938,8 @@
                 _useManualScaling = draft.UseManualScaling;
                 _payoutPercentage = draft.PayoutPercentage > 0 ? draft.PayoutPercentage : 100m;
                 _pullTabEntries = draft.PullTabEntries ?? new List<PullTabGameEntry>();
+                _doorPrizeAmount = draft.DoorPrizeAmount;
+                _doorPrizeCount = draft.DoorPrizeCount;
                 UpdatePreviousSellers();
                 foreach (var dPack in draft.AdmissionPacks)
                 {
@@ -4367,6 +4977,7 @@
             {
                 // TRY QUERYING SERVER FOR PREVIOUSLY SUBMITTED/SYNCED SESSION
                 BingoSession? serverSession = null;
+                bool serverCallFailed = false;
                 try
                 {
                     serverSession = await ReportingService.GetBingoSessionByDateAsync(SessionDate);
@@ -4374,6 +4985,7 @@
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[BINGO] GetBingoSessionByDateAsync error: {ex.Message}");
+                    serverCallFailed = true;
                 }
 
                 if (serverSession != null)
@@ -4381,6 +4993,8 @@
                     _sessionState = serverSession.Status ?? "Closed";
                     _sessionEntered = true; // Auto-enter to show pre-populated data!
                     _pullTabEntries = serverSession.PullTabEntries?.ToList() ?? new List<PullTabGameEntry>();
+                    _doorPrizeAmount = serverSession.DoorPrizeAmount;
+                    _doorPrizeCount = serverSession.DoorPrizeCount;
                     UpdatePreviousSellers();
                     
                     // 1. Populate AdmissionPacks
@@ -4431,6 +5045,8 @@
                     _useManualScaling = true;
                     _payoutPercentage = 100m;
                     _pullTabEntries = new List<PullTabGameEntry>();
+                    _doorPrizeAmount = 0m;
+                    _doorPrizeCount = 0;
                     UpdatePreviousSellers();
                     foreach (var p in AdmissionPacks)
                     {
@@ -4450,6 +5066,19 @@
                     }
                     RecalculateSheetTotals();
                     _needsSync = false;
+
+                    // Alert user if this is a past date and we couldn't load it
+                    if (SessionDate.Date < DateTime.Today)
+                    {
+                        if (_isOffline || serverCallFailed)
+                        {
+                            await ShowToast("Offline Mode", $"No local draft found for {SessionDate:MM/dd/yyyy}, and server is unreachable.", "warning");
+                        }
+                        else
+                        {
+                            await ShowToast("No Session Found", $"No local draft or server session exists for {SessionDate:MM/dd/yyyy}.", "info");
+                        }
+                    }
                 }
             }
         }
@@ -4538,6 +5167,8 @@
             TotalClubTake = TotalClubTake,
             RoundingAdjustment = TotalRoundingAdjustment,
             Status = "Submitted",
+            DoorPrizeAmount = _doorPrizeAmount,
+            DoorPrizeCount = _doorPrizeCount,
             AdmissionEntries = AdmissionPacks.Where(p => p.Sold > 0).Select(p => new BingoAdmissionEntry
             {
                 AdmissionDefinitionId = p.Id,
@@ -4700,6 +5331,32 @@
         public bool UseManualScaling { get; set; } = true;
         public decimal PayoutPercentage { get; set; } = 100m;
         public List<PullTabGameEntry> PullTabEntries { get; set; } = new();
+        public decimal DoorPrizeAmount { get; set; }
+        public int DoorPrizeCount { get; set; }
+    }
+
+    private async Task LoadProgressiveHistoryAsync(string gameName, string sheetColor)
+    {
+        _historyGameName = gameName;
+        _historySheetColor = sheetColor;
+        _historyLoading = true;
+        _showProgressiveHistoryModal = true;
+        StateHasChanged();
+        
+        try
+        {
+            _historyList = await ReportingService.GetProgressiveHistoryAsync(gameName, sheetColor);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading progressive history in UI: {ex.Message}");
+            _historyList = new();
+        }
+        finally
+        {
+            _historyLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadSessionHistoryAsync()

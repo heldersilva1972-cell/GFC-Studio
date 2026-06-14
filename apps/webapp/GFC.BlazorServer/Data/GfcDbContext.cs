@@ -899,6 +899,7 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.TotalClubTake).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.RoundingAdjustment).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.Category).HasMaxLength(100);
+            entity.Property(e => e.DoorPrizeAmount).HasColumnType("decimal(18, 2)");
         });
 
         modelBuilder.Entity<BingoGameEntry>(entity =>

@@ -439,6 +439,26 @@ public class MobileReportingService : IMobileReportingService
         return new List<PullTabGameDefinition>();
     }
 
+    public async Task<List<ProgressiveHistoryDto>> GetProgressiveHistoryAsync(string gameName, string sheetColor)
+    {
+        try
+        {
+            if (await _connectivity.GateAsync("GetProgressiveHistory"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var url = $"/api/bingo/progressive/history/{Uri.EscapeDataString(gameName)}/{Uri.EscapeDataString(sheetColor)}";
+                var history = await _http.GetFromJsonAsync<List<ProgressiveHistoryDto>>(url, cts.Token);
+                return history ?? new List<ProgressiveHistoryDto>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Server fetch progressive history failed: {ex.Message}");
+        }
+
+        return new List<ProgressiveHistoryDto>();
+    }
+
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {
         try
