@@ -30,7 +30,26 @@ public class MobileAuthenticationHandler : DelegatingHandler
         {
             using var scope = _serviceProvider.CreateScope();
             var js = scope.ServiceProvider.GetRequiredService<IJSRuntime>();
-            var token = await js.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            
+            string? token = null;
+            var authStateJson = await js.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+            if (!string.IsNullOrEmpty(authStateJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(authStateJson);
+                    if (doc.RootElement.TryGetProperty("token", out var tokenProp) || doc.RootElement.TryGetProperty("Token", out tokenProp))
+                    {
+                        token = tokenProp.GetString();
+                    }
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrEmpty(token))
+            {
+                token = await js.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            }
             
             if (!string.IsNullOrEmpty(token) && !request.Headers.Contains("Authorization"))
             {

@@ -638,7 +638,26 @@
     {
         try
         {
-            var token = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_device_token");
+            string? token = null;
+            var authStateJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+            if (!string.IsNullOrEmpty(authStateJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(authStateJson);
+                    if (doc.RootElement.TryGetProperty("token", out var tokenProp) || doc.RootElement.TryGetProperty("Token", out tokenProp))
+                    {
+                        token = tokenProp.GetString();
+                    }
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrEmpty(token))
+            {
+                token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            }
+
             if (string.IsNullOrEmpty(token)) return;
 
             Console.WriteLine($"[HUB] Refreshing permissions for User {userId}...");
@@ -746,10 +765,7 @@
     {
         try
         {
-            var token = await JSRuntime.InvokeAsync<string >("localStorage.getItem", "gfc_device_token");
-            await AuthStateProvider.LogoutAsync(token);
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-            await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+            await AuthStateProvider.LogoutAsync();
             await Task.Delay(100);
             Navigation.NavigateTo("/login");
         }

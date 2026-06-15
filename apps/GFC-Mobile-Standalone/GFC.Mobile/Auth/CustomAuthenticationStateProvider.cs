@@ -201,8 +201,12 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
         
         if (!string.IsNullOrEmpty(result.DeviceToken))
         {
-            await _jsRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
-            await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, 0); 
+            var existingDeviceToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            if (string.IsNullOrEmpty(existingDeviceToken))
+            {
+                await _jsRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
+                await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, 30); // Save for 30 days
+            }
         }
 
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
@@ -212,12 +216,26 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IC
     {
         try
         {
-            var deviceToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-            if (!string.IsNullOrEmpty(deviceToken))
+            var sessionToken = token;
+            if (string.IsNullOrEmpty(sessionToken))
+            {
+                var json = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", LocalStorageKey);
+                if (!string.IsNullOrEmpty(json))
+                {
+                    try
+                    {
+                        var authData = JsonSerializer.Deserialize<AuthData>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        sessionToken = authData?.Token;
+                    }
+                    catch { }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(sessionToken) && sessionToken != "session" && sessionToken != "offline-session")
             {
                 // [FIX] Add a short timeout to prevent logout hangs when offline
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", deviceToken, cts.Token);
+                await _httpClient.PostAsJsonAsync("/api/mobile-auth/logout", sessionToken, cts.Token);
             }
         }
         catch

@@ -3,6 +3,7 @@
 @using Microsoft.EntityFrameworkCore
 @using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Models
 @using global::System.Text.Json
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
@@ -995,6 +996,32 @@
                     </div>
                 </div>
 
+                <!-- POS STATION STATUS / LAST SYNCED -->
+                <div class="sidebar-section mb-3">
+                    <label class="sidebar-label">POS TERMINAL STATUS (LAST SEEN)</label>
+                    <div class="bg-light rounded-4 p-3 border">
+                        @if (TerminalsWithStatus == null || !TerminalsWithStatus.Any())
+                        {
+                            <div class="text-muted small italic text-center">No terminal check-in data.</div>
+                        }
+                        else
+                        {
+                            @foreach (var t in TerminalsWithStatus)
+                            {
+                                <div class="d-flex justify-content-between align-items-center mb-2 last-seen-row" style="font-size: 0.8rem;">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="status-dot @(DateTime.UtcNow.Subtract(t.LastSeenAt).TotalMinutes <= 10 ? "online" : "offline")"></span>
+                                        <span class="fw-bold text-dark">@t.TerminalName</span>
+                                    </div>
+                                    <span class="text-muted fw-bold" style="font-size: 0.72rem;">
+                                        @FormatLastSeen(t.LastSeenAt)
+                                    </span>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
                 <!-- FILTERS -->
                 <div class="sidebar-section mb-4">
                     <label class="sidebar-label">DATE & STATION FILTERS</label>
@@ -1229,6 +1256,29 @@
     input::-webkit-outer-spin-button,
     input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
+
+    /* POS STATION STATUS DOTS */
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .status-dot.online {
+        background-color: #22c55e;
+        box-shadow: 0 0 8px #22c55e;
+    }
+    .status-dot.offline {
+        background-color: #94a3b8;
+    }
+    .last-seen-row {
+        border-bottom: 1px solid rgba(0,0,0,0.04);
+        padding-bottom: 5px;
+    }
+    .last-seen-row:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
 </style>
 
 @if (_showSummaryModal)
@@ -1370,6 +1420,7 @@
     private List<PosZReport> ZReports = new();
     private string FilterTerminal = "";
     private List<string> TerminalList = new();
+    private List<GFC.Core.Models.PosTerminal> TerminalsWithStatus = new();
     private decimal TodayTotal = 0;
     private Dictionary<string, decimal> StationTotals = new();
     private PosSale? SelectedSale = null;
@@ -1784,6 +1835,7 @@
             // Get unique terminal names for the dropdown
             try {
                 TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
+                TerminalsWithStatus = await db.PosTerminals.AsNoTracking().OrderBy(t => t.TerminalName).ToListAsync();
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading TerminalList query 2: " + ex.Message, ex);
             }
@@ -2251,6 +2303,17 @@
             _isLoadingAnalysis = false;
             StateHasChanged();
         }
+    }
+
+    private string FormatLastSeen(DateTime lastSeenUtc)
+    {
+        if (lastSeenUtc == default) return "Never";
+        var localTime = lastSeenUtc.ToLocalTime();
+        var diff = DateTime.Now - localTime;
+        if (diff.TotalMinutes < 1) return "Just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        return localTime.ToString("MMM dd, h:mm tt");
     }
 }
 
