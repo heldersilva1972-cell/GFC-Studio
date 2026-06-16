@@ -202,7 +202,7 @@
                                         <button class="btn btn-primary rounded-pill px-4 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm" style="font-size: 0.75rem; min-height: 38px;" @onclick:stopPropagation="true" @onclick="OpenAdmissionAudit">
                                             <i class="bi bi-graph-up-arrow"></i> SUMMARY
                                         </button>
-                                        <button class="btn btn-secondary rounded-pill px-4 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm text-white ms-2" style="font-size: 0.75rem; min-height: 38px; background: #0f172a;" @onclick:stopPropagation="true" @onclick="OpenBeanoReport">
+                                        <button class="btn btn-warning rounded-pill px-4 py-2 fw-black d-flex align-items-center gap-2 border-0 shadow-sm text-dark ms-2" style="font-size: 0.75rem; min-height: 38px;" @onclick:stopPropagation="true" @onclick="OpenBeanoReport">
                                             <i class="bi bi-file-earmark-spreadsheet-fill"></i> BEANO REPORT
                                         </button>
                                     </div>
@@ -807,9 +807,14 @@
                                                 <i class="bi bi-ticket-detailed-fill" style="color: #8b5cf6; font-size: 0.95rem;"></i>
                                                 <span class="tile-title" style="color: #8b5cf6;">PULL TAB: @(def?.GameName ?? "Unknown")</span>
                                             </div>
-                                            <button class="btn btn-sm btn-outline-danger border-0 p-0 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;" @onclick="() => DeletePullTab(entry)" @onclick:stopPropagation="true">
-                                                <i class="bi bi-trash3-fill" style="font-size: 0.75rem;"></i>
-                                            </button>
+                                            <div class="d-flex align-items-center gap-1">
+                                                <button class="btn btn-sm btn-outline-primary border-0 p-0 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px; color: #8b5cf6;" @onclick="() => EditPullTab(entry)" @onclick:stopPropagation="true">
+                                                    <i class="bi bi-pencil-fill" style="font-size: 0.75rem;"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger border-0 p-0 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;" @onclick="() => DeletePullTab(entry)" @onclick:stopPropagation="true">
+                                                    <i class="bi bi-trash3-fill" style="font-size: 0.75rem;"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="tile-body">
                                             <div class="tile-stat-multi mb-3">
@@ -1670,7 +1675,7 @@
         position: fixed;
         bottom: 20px;
         right: 20px;
-        z-index: 8000;
+        z-index: 9999;
         animation: slide-up 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
@@ -3114,6 +3119,28 @@
             <button type="button" class="btn-close" @onclick="() => _showBeanoReportModal = false" aria-label="Close"></button>
         </div>
         <div class="detail-body p-4 overflow-auto bg-light" style="flex: 1;">
+            @{
+                var unmappedFloorGross = Sheets
+                    .Where(s => (s.ManualSold > 0 || (s.IsIncludedInAdmission && !s.IsAdmissionOnly)) && s.ColorName != _wtaColor && s.ColorName != _progColor)
+                    .Sum(s => s.Sold * s.Price);
+                var wtaObjForTotal = Sheets.FirstOrDefault(s => s.ColorName == _wtaColor);
+                var progObjForTotal = Sheets.FirstOrDefault(s => s.ColorName == _progColor);
+                decimal wGross = wtaObjForTotal != null ? (wtaObjForTotal.Sold * wtaObjForTotal.Price) : 0;
+                decimal pGross = progObjForTotal != null ? (progObjForTotal.Sold * progObjForTotal.Price) : 0;
+                decimal combinedFloorAndSpecialTotal = unmappedFloorGross + wGross + pGross;
+
+                decimal grossBeanoReceipts = StandardProgramRevenue + combinedFloorAndSpecialTotal + _beanoSuppliesSales + _beanoOtherReceipts;
+                decimal taxPaid = grossBeanoReceipts * 0.05m;
+                decimal totalPrizesPaid = TotalPrizes;
+                decimal totalExpenditures = taxPaid + totalPrizesPaid + _beanoOtherExpenses.Sum(e => e.Amount);
+                decimal netProfit = grossBeanoReceipts - totalExpenditures;
+                decimal pullTabNetProceeds = TotalPullTabSales - TotalPullTabPrizes;
+                decimal totalFundsAvailable = _beanoUnexpendedNetProfit + netProfit + pullTabNetProceeds + _beanoInterest + _beanoGameBank + _beanoOthers;
+                decimal totalDisbursements = _beanoDisbursements.Sum(d => d.Amount);
+                decimal finalUnexpended = totalFundsAvailable - totalDisbursements;
+                decimal breakdownSum = _beanoCheckbookBalance + _beanoSavingsBalance + _beanoCdBalance;
+                bool breakdownDiff = Math.Abs(breakdownSum - finalUnexpended) > 0.05m;
+            }
             
             <!-- GENERAL OCCASION INFORMATION -->
             <div class="card border border-light-subtle rounded-4 p-3 shadow-sm mb-4" style="background: white;">
@@ -3129,11 +3156,7 @@
                     </div>
                     <div class="col-4">
                         <label class="form-label fw-bold text-muted small mb-0">Number of Players</label>
-                        <div class="fw-black text-primary fs-5">@AdmissionCount</div>
-                    </div>
-                    <div class="col-12 mt-2">
-                        <label class="form-label fw-bold text-muted small mb-1">Time of Occasion</label>
-                        <input type="text" class="form-control fw-bold border rounded-3" @bind="_beanoOccasionTime" placeholder="e.g. 6:45 PM" />
+                        <div class="mt-1"><span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.85rem;">@AdmissionCount</span></div>
                     </div>
                 </div>
             </div>
@@ -3149,13 +3172,13 @@
                     <!-- 1. Admission Cards -->
                     <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
                         <span class="text-muted">1. Admission Cards:</span>
-                        <span class="fw-bold text-dark">@TotalPacksSold cards @@ @_bingoSettings.BasePrice.ToString("C2") = @((TotalPacksSold * _bingoSettings.BasePrice).ToString("C2"))</span>
+                        <span class="fw-bold text-dark">@TotalPacksSold cards @@ @_bingoSettings.BasePrice.ToString("C2") = <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700;">@((TotalPacksSold * _bingoSettings.BasePrice).ToString("C2"))</span></span>
                     </div>
                     
                     <!-- 2. Extra Regular Cards -->
                     <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
                         <span class="text-muted">2. Extra Regular Cards:</span>
-                        <span class="fw-bold text-dark">@TotalExtraCards cards @@ @_bingoSettings.CardPrice.ToString("C2") = @((TotalExtraCards * _bingoSettings.CardPrice).ToString("C2"))</span>
+                        <span class="fw-bold text-dark">@TotalExtraCards cards @@ @_bingoSettings.CardPrice.ToString("C2") = <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700;">@((TotalExtraCards * _bingoSettings.CardPrice).ToString("C2"))</span></span>
                     </div>
 
                     <!-- 3. Floor Sheets & Special Games Group -->
@@ -3164,14 +3187,15 @@
                             <span class="fw-black text-dark text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.05em;">3. Floor Sheets & Special Games</span>
                         </div>
 
-                        <!-- Floor Sheets (Manual Extra Sales) -->
-                        @foreach (var sheet in Sheets.Where(s => s.ManualSold > 0 && 
+                        <!-- Floor Sheets (Manual Sales & Admission Specials) -->
+                        @foreach (var sheet in Sheets.Where(s => 
+                            (s.ManualSold > 0 || (s.IsIncludedInAdmission && !s.IsAdmissionOnly)) && 
                             s.ColorName != _wtaColor && 
                             s.ColorName != _progColor))
                         {
                             <div class="d-flex justify-content-between align-items-center mb-1 ps-2" style="font-size: 0.8rem;">
                                 <span class="text-muted">Floor Sheets (@sheet.ColorName):</span>
-                                <span class="fw-bold text-dark">@sheet.ManualSold sheets @@ @sheet.Price.ToString("C2") = @((sheet.ManualSold * sheet.Price).ToString("C2"))</span>
+                                <span class="fw-bold text-dark">@sheet.Sold sheets @@ @sheet.Price.ToString("C2") = <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.75rem;">@((sheet.Sold * sheet.Price).ToString("C2"))</span></span>
                             </div>
                         }
 
@@ -3216,23 +3240,20 @@
                                     @{
                                         var w = Sheets.FirstOrDefault(s => s.ColorName == _wtaColor);
                                         var p = Sheets.FirstOrDefault(s => s.ColorName == _progColor);
-
-                                        decimal wGross = w != null ? (w.Sold * w.Price) : 0;
-                                        decimal pGross = p != null ? (p.Sold * p.Price) : 0;
                                     }
                                     <tr>
                                         <td class="fw-bold">W.T.A.</td>
                                         <td>@(w?.ColorName ?? "Unmapped")</td>
                                         <td class="text-center">@(w?.Sold ?? 0)</td>
                                         <td class="text-end">@(w?.Price.ToString("C2") ?? "$0.00")</td>
-                                        <td class="text-end fw-bold">@wGross.ToString("C2")</td>
+                                        <td class="text-end fw-bold"><span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.75rem;">@wGross.ToString("C2")</span></td>
                                     </tr>
                                     <tr>
                                         <td class="fw-bold">Progressive</td>
                                         <td>@(p?.ColorName ?? "Unmapped")</td>
                                         <td class="text-center">@(p?.Sold ?? 0)</td>
                                         <td class="text-end">@(p?.Price.ToString("C2") ?? "$0.00")</td>
-                                        <td class="text-end fw-bold">@pGross.ToString("C2")</td>
+                                        <td class="text-end fw-bold"><span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.75rem;">@pGross.ToString("C2")</span></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -3240,30 +3261,31 @@
                             <!-- Total Row at the bottom -->
                             <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top" style="font-size: 0.85rem;">
                                 <span class="fw-black text-dark text-uppercase">Total Floor & Special Games:</span>
-                                <span class="fw-black text-primary">@TotalFloorRevenue.ToString("C2")</span>
+                                <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 4px 10px; display: inline-block; font-weight: 800; font-size: 0.9rem;">@combinedFloorAndSpecialTotal.ToString("C2")</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 4. Sale of Beano Supplies & 5. Other Receipts -->
-                    <div class="row g-2 mb-2">
-                        <div class="col-6">
-                            <label class="form-label fw-bold text-muted small mb-0">4. Sale of Beano Supplies ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-dark border" @bind="_beanoSuppliesSales" />
+                    <!-- 4. Sale of Beano Supplies -->
+                    <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                        <span class="text-muted small">4. Sale of Beano Supplies ($):</span>
+                        <div style="width: 120px;">
+                            <input type="number" step="0.01" id="input-BeanoSuppliesSales" class="form-control form-control-sm fw-bold border text-end" @onclick='() => ActivateField("BeanoSuppliesSales")' @bind="_beanoSuppliesSales" readonly />
                         </div>
-                        <div class="col-6">
-                            <label class="form-label fw-bold text-muted small mb-0">5. Other Receipts ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold text-dark border" @bind="_beanoOtherReceipts" />
+                    </div>
+
+                    <!-- 5. Other Receipts -->
+                    <div class="d-flex justify-content-between align-items-center mb-3" style="font-size: 0.85rem;">
+                        <span class="text-muted small">5. Other Receipts ($):</span>
+                        <div style="width: 120px;">
+                            <input type="number" step="0.01" id="input-BeanoOtherReceipts" class="form-control form-control-sm fw-bold border text-end" @onclick='() => ActivateField("BeanoOtherReceipts")' @bind="_beanoOtherReceipts" readonly />
                         </div>
                     </div>
 
                     <!-- 6. GROSS BEANO RECEIPTS -->
-                    @{
-                        decimal grossBeanoReceipts = StandardProgramRevenue + TotalFloorRevenue + _beanoSuppliesSales + _beanoOtherReceipts;
-                    }
                     <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
                         <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">6. GROSS BEANO RECEIPTS:</span>
-                        <span class="fw-black text-primary fs-5">@grossBeanoReceipts.ToString("C2")</span>
+                        <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@grossBeanoReceipts.ToString("C2")</span>
                     </div>
                 </div>
 
@@ -3272,29 +3294,15 @@
                     <div class="fw-bold text-uppercase text-secondary mb-2 small" style="letter-spacing: 0.05em;">B. Expenditures</div>
                     
                     <!-- 1. Tax Paid to MSLC -->
-                    @{
-                        decimal taxPaid = grossBeanoReceipts * 0.05m;
-                    }
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <div class="d-flex flex-column">
-                                <span class="text-muted small">1. Tax Paid to M.S.L.C. (5%):</span>
-                                <span class="fw-bold text-dark">@taxPaid.ToString("C2")</span>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label fw-bold text-muted small mb-0">Check # (Tax)</label>
-                            <input type="text" class="form-control form-control-sm fw-bold border" @bind="_beanoTaxCheckNumber" placeholder="Check #" />
-                        </div>
+                    <div class="d-flex justify-content-between align-items-center mb-3" style="font-size: 0.85rem;">
+                        <span class="text-muted small">1. Tax Paid to M.S.L.C. (5%):</span>
+                        <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@taxPaid.ToString("C2")</span>
                     </div>
 
                     <!-- 2. Prizes -->
-                    @{
-                        decimal totalPrizesPaid = TotalPrizes;
-                    }
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <span class="text-muted small">2. Prizes (Schedule 3 Total):</span>
-                        <span class="fw-bold text-danger">@totalPrizesPaid.ToString("C2")</span>
+                        <span class="fw-bold text-danger"><span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@totalPrizesPaid.ToString("C2")</span></span>
                     </div>
 
                     <!-- 3-10. Other Expenses Grid -->
@@ -3325,10 +3333,10 @@
                                             <input type="text" class="form-control form-control-sm small border-0 p-1 bg-light fw-bold" placeholder="Reason" @bind="exp.Description" />
                                         </div>
                                         <div class="col-2">
-                                            <input type="text" class="form-control form-control-sm small border-0 p-1 bg-light fw-bold" placeholder="Ck #" @bind="exp.CheckNumber" />
+                                            <input type="text" id="input-BeanoExpenseCheck_@idx" class="form-control form-control-sm small border-0 p-1 bg-light fw-bold" placeholder="Ck #" @onclick='() => ActivateField($"BeanoExpenseCheck_{idx}")' @bind="exp.CheckNumber" readonly />
                                         </div>
                                         <div class="col-2">
-                                            <input type="number" step="0.01" class="form-control form-control-sm small border-0 p-1 bg-light fw-bold text-end" placeholder="Amount" @bind="exp.Amount" />
+                                            <input type="number" step="0.01" id="input-BeanoExpenseAmount_@idx" class="form-control form-control-sm small border-0 p-1 bg-light fw-bold text-end" placeholder="Amount" @onclick='() => ActivateField($"BeanoExpenseAmount_{idx}")' @bind="exp.Amount" readonly />
                                         </div>
                                         <div class="col-1 text-center">
                                             <button class="btn btn-link text-danger p-0" @onclick="() => { _beanoOtherExpenses.RemoveAt(idx); StateHasChanged(); }">
@@ -3342,22 +3350,16 @@
                     </div>
 
                     <!-- 11. TOTAL BEANO EXPENDITURES -->
-                    @{
-                        decimal totalExpenditures = taxPaid + totalPrizesPaid + _beanoOtherExpenses.Sum(e => e.Amount);
-                    }
                     <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
                         <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">11. TOTAL EXPENDITURES:</span>
-                        <span class="fw-black text-danger fs-5">@totalExpenditures.ToString("C2")</span>
+                        <span style="background: #eff6ff; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@totalExpenditures.ToString("C2")</span>
                     </div>
                 </div>
 
                 <!-- C. NET PROFIT (OR LOSS) -->
-                @{
-                    decimal netProfit = grossBeanoReceipts - totalExpenditures;
-                }
                 <div class="p-3 rounded-4 mt-1 text-center d-flex justify-content-between align-items-center" style="background: @(netProfit >= 0 ? "rgba(22, 163, 74, 0.08)" : "rgba(220, 38, 38, 0.08)"); border: 1px solid @(netProfit >= 0 ? "rgba(22, 163, 74, 0.2)" : "rgba(220, 38, 38, 0.2)") !important;">
                      <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">C. NET PROFIT (OR LOSS):</span>
-                     <span class="fw-black @(netProfit >= 0 ? "text-success" : "text-danger") fs-4">@netProfit.ToString("C2")</span>
+                     <span style="background: @(netProfit >= 0 ? "#ecfdf5" : "#fef2f2"); color: @(netProfit >= 0 ? "#047857" : "#b91c1c"); border: 1px solid @(netProfit >= 0 ? "#a7f3d0" : "#fca5a5"); border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.15rem;">@netProfit.ToString("C2")</span>
                 </div>
             </div>
 
@@ -3365,24 +3367,24 @@
             <div class="card border border-light-subtle rounded-4 p-3 shadow-sm mb-4" style="background: white;">
                 <h6 class="fw-black text-primary text-uppercase mb-3" style="font-size: 0.8rem; letter-spacing: 0.05em;">SCHEDULE 2: DISPOSITION & ACCOUNTING FOR NET PROFITS</h6>
                 
-                <div class="row g-2 mb-3">
-                    <div class="col-6">
-                        <label class="form-label fw-bold text-muted small mb-0">1. Unexpended Net Profit (Previous)</label>
-                        <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoUnexpendedNetProfit" />
-                    </div>
-                    <div class="col-6">
-                        <span class="text-muted small d-block">2. Net Beano Profit (Loss):</span>
-                        <span class="fw-bold text-dark fs-6 d-block mt-1">@netProfit.ToString("C2")</span>
+                <!-- 1. Unexpended Net Profit (Previous) -->
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="text-muted small">1. Unexpended Net Profit (Previous):</span>
+                    <div style="width: 120px;">
+                        <input type="number" step="0.01" id="input-BeanoUnexpendedNetProfit" class="form-control form-control-sm fw-bold border text-end" style="background: #eff6ff; color: #1d4ed8;" @onclick='() => ActivateField("BeanoUnexpendedNetProfit")' @bind="_beanoUnexpendedNetProfit" readonly />
                     </div>
                 </div>
 
+                <!-- 2. Net Beano Profit (Loss) -->
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="text-muted small">2. Net Beano Profit (Loss):</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@netProfit.ToString("C2")</span>
+                </div>
+
                 <!-- 3. Net Proceeds Charity Tickets -->
-                @{
-                    decimal pullTabNetProceeds = TotalPullTabSales - TotalPullTabPrizes;
-                }
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
                     <span class="text-muted small">3. Proceeds from Charity Game Tickets:</span>
-                    <span class="fw-bold text-dark">@pullTabNetProceeds.ToString("C2")</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@pullTabNetProceeds.ToString("C2")</span>
                 </div>
 
                 <!-- 4. Other Income -->
@@ -3391,26 +3393,23 @@
                     <div class="row g-2">
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">4a. Interest ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoInterest" />
+                            <input type="number" step="0.01" id="input-BeanoInterest" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoInterest")' @bind="_beanoInterest" readonly />
                         </div>
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">4b. Game Bank ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoGameBank" />
+                            <input type="number" step="0.01" id="input-BeanoGameBank" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoGameBank")' @bind="_beanoGameBank" readonly />
                         </div>
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">4c. Others ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoOthers" />
+                            <input type="number" step="0.01" id="input-BeanoOthers" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoOthers")' @bind="_beanoOthers" readonly />
                         </div>
                     </div>
                 </div>
 
                 <!-- 5. TOTAL FUNDS AVAILABLE -->
-                @{
-                    decimal totalFundsAvailable = _beanoUnexpendedNetProfit + netProfit + pullTabNetProceeds + _beanoInterest + _beanoGameBank + _beanoOthers;
-                }
                 <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom">
                     <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">5. TOTAL FUNDS AVAILABLE FOR DISBURSEMENT:</span>
-                    <span class="fw-black text-primary fs-5">@totalFundsAvailable.ToString("C2")</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@totalFundsAvailable.ToString("C2")</span>
                 </div>
 
                 <!-- DISBURSEMENTS GRID -->
@@ -3441,10 +3440,10 @@
                                         <input type="text" class="form-control form-control-sm border-0 p-0.5 bg-light fw-bold" style="font-size: 0.7rem;" placeholder="Payee/Reason" @bind="disb.Payee" />
                                     </div>
                                     <div class="col-2">
-                                        <input type="text" class="form-control form-control-sm border-0 p-0.5 bg-light fw-bold" style="font-size: 0.7rem;" placeholder="Ck #" @bind="disb.CheckNumber" />
+                                        <input type="text" id="input-BeanoDisbursementCheck_@idx" class="form-control form-control-sm border-0 p-0.5 bg-light fw-bold" style="font-size: 0.7rem;" placeholder="Ck #" @onclick='() => ActivateField($"BeanoDisbursementCheck_{idx}")' @bind="disb.CheckNumber" readonly />
                                     </div>
                                     <div class="col-3">
-                                        <input type="number" step="0.01" class="form-control form-control-sm border-0 p-0.5 bg-light fw-bold text-end" style="font-size: 0.7rem;" placeholder="Amount" @bind="disb.Amount" />
+                                        <input type="number" step="0.01" id="input-BeanoDisbursementAmount_@idx" class="form-control form-control-sm border-0 p-0.5 bg-light fw-bold text-end" style="font-size: 0.7rem;" placeholder="Amount" @onclick='() => ActivateField($"BeanoDisbursementAmount_{idx}")' @bind="disb.Amount" readonly />
                                     </div>
                                     <div class="col-1 text-center">
                                         <button class="btn btn-link text-danger p-0" @onclick="() => { _beanoDisbursements.RemoveAt(idx); StateHasChanged(); }">
@@ -3458,23 +3457,15 @@
                 </div>
 
                 <!-- 6. TOTAL DISBURSEMENTS -->
-                @{
-                    decimal totalDisbursements = _beanoDisbursements.Sum(d => d.Amount);
-                }
                 <div class="d-flex justify-content-between align-items-center pb-3 mb-3 border-bottom">
                     <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">6. TOTAL DISBURSEMENTS FROM ABOVE:</span>
-                    <span class="fw-black text-danger fs-5">@totalDisbursements.ToString("C2")</span>
+                    <span style="background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@totalDisbursements.ToString("C2")</span>
                 </div>
 
                 <!-- 7. UNEXPENDED NET PROFIT -->
-                @{
-                    decimal finalUnexpended = totalFundsAvailable - totalDisbursements;
-                    decimal breakdownSum = _beanoCheckbookBalance + _beanoSavingsBalance + _beanoCdBalance;
-                    bool breakdownDiff = Math.Abs(breakdownSum - finalUnexpended) > 0.05m;
-                }
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">7. UNEXPENDED NET PROFIT:</span>
-                    <span class="fw-black text-success fs-5">@finalUnexpended.ToString("C2")</span>
+                    <span style="background: @(finalUnexpended >= 0 ? "#ecfdf5" : "#fef2f2"); color: @(finalUnexpended >= 0 ? "#047857" : "#b91c1c"); border: 1px solid @(finalUnexpended >= 0 ? "#a7f3d0" : "#fca5a5"); border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@finalUnexpended.ToString("C2")</span>
                 </div>
 
                 <!-- 7a, 7b, 7c Breakdown -->
@@ -3483,15 +3474,15 @@
                     <div class="row g-2">
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">7a. Checkbook ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoCheckbookBalance" />
+                            <input type="number" step="0.01" id="input-BeanoCheckbookBalance" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoCheckbookBalance")' @bind="_beanoCheckbookBalance" readonly />
                         </div>
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">7b. Savings ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoSavingsBalance" />
+                            <input type="number" step="0.01" id="input-BeanoSavingsBalance" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoSavingsBalance")' @bind="_beanoSavingsBalance" readonly />
                         </div>
                         <div class="col-4">
                             <label class="form-label fw-bold text-muted extra-small mb-0">7c. CD ($)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm fw-bold border" @bind="_beanoCdBalance" />
+                            <input type="number" step="0.01" id="input-BeanoCdBalance" class="form-control form-control-sm fw-bold border" @onclick='() => ActivateField("BeanoCdBalance")' @bind="_beanoCdBalance" readonly />
                         </div>
                     </div>
 
@@ -3501,6 +3492,15 @@
                             <i class="bi bi-exclamation-triangle-fill me-1"></i> Balance warning: Sum of 7a, 7b, 7c (@breakdownSum.ToString("C2")) does not match Line 7 (@finalUnexpended.ToString("C2")).
                         </div>
                     }
+                </div>
+
+                <!-- Total Deposit for this Occasion -->
+                @{
+                    decimal totalDeposit = grossBeanoReceipts + pullTabNetProceeds - totalPrizesPaid;
+                }
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                    <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">TOTAL DEPOSIT FOR THIS OCCASION:</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@totalDeposit.ToString("C2")</span>
                 </div>
             </div>
 
@@ -3518,11 +3518,11 @@
                 }
                 <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
                     <span class="text-muted">Prize Distribution WTA (@(wtaSheetObj?.ColorName ?? "Unmapped")):</span>
-                    <span class="fw-bold text-dark">@wtaPrizes.ToString("C2")</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@wtaPrizes.ToString("C2")</span>
                 </div>
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 0.85rem;">
                     <span class="text-muted">Prize Distribution Progressive (@(progSheetObj?.ColorName ?? "Unmapped")):</span>
-                    <span class="fw-bold text-dark">@progPrizes.ToString("C2")</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@progPrizes.ToString("C2")</span>
                 </div>
 
                 <!-- Standard Games Prizes Grouped by Payout -->
@@ -3534,6 +3534,7 @@
                     
                     var standardGamesGrouped = standardSheets
                         .SelectMany(s => s.Games.Select(g => new { 
+                            SheetColor = s.ColorName,
                             Game = g, 
                             Payout = CalculateGamePayout(s, g) 
                         }))
@@ -3546,10 +3547,22 @@
                 {
                     @foreach (var g in standardGamesGrouped)
                     {
-                        <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
-                            <span class="text-muted">@g.Count() game(s) @@ @g.Key.ToString("C2"):</span>
-                            <span class="fw-bold text-dark">@((g.Count() * g.Key).ToString("C2"))</span>
-                        </div>
+                        @if (g.Count() == 1)
+                        {
+                            var item = g.First();
+                            var gameType = item.Game.PayoutMode == 1 ? "50/50" : (item.Game.PayoutMode == 2 ? "Additive" : "Fixed");
+                            <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                                <span class="text-muted">1 game @@ @g.Key.ToString("C2") (@gameType, @item.SheetColor):</span>
+                                <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@g.Key.ToString("C2")</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                                <span class="text-muted">@g.Count() game(s) @@ @g.Key.ToString("C2"):</span>
+                                <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@((g.Count() * g.Key).ToString("C2"))</span>
+                            </div>
+                        }
                     }
                 }
                 else
@@ -3560,19 +3573,19 @@
                 <!-- Cash Door Prizes -->
                 <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
                     <span class="text-muted">Total Cash Door Prizes (@_doorPrizeCount games):</span>
-                    <span class="fw-bold text-dark">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</span>
                 </div>
 
                 <!-- Payout Breakage -->
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 0.85rem;">
                     <span class="text-muted">Payout Breakage:</span>
-                    <span class="fw-bold text-warning">@TotalSessionBreakage.ToString("C2")</span>
+                    <span style="background: #eff6ff; color: #b45309; border: 1px solid #fde68a; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@TotalSessionBreakage.ToString("C2")</span>
                 </div>
 
                 <!-- Grand Total Prizes -->
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="fw-black text-dark uppercase" style="font-size: 0.8rem;">GRAND TOTAL CASH PRIZES:</span>
-                    <span class="fw-black text-danger fs-5">@totalPrizesPaid.ToString("C2")</span>
+                    <span style="background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 8px; padding: 6px 12px; display: inline-block; font-weight: 900; font-size: 1.05rem;">@totalPrizesPaid.ToString("C2")</span>
                 </div>
             </div>
 
@@ -4119,9 +4132,13 @@
         _showAdmissionAudit = true;
         StateHasChanged();
     }
-    private void OpenBeanoReport()
+    private async Task OpenBeanoReport()
     {
         CloseAllModals();
+        if (_beanoUnexpendedNetProfit == 0m)
+        {
+            await SetPreviousUnexpendedNetProfitAsync();
+        }
         _showBeanoReportModal = true;
         StateHasChanged();
     }
@@ -4876,6 +4893,10 @@
             var idx = parts[2];
             await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('game-row-{color}-{idx}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
         }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('input-{field}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
+        }
     }
 
     private void KeyPressed(string key)
@@ -4910,6 +4931,94 @@
                 _doorPrizeAmount = 0m;
             }
             _needsSync = true;
+        }
+        else if (_activeField == "BeanoUnexpendedNetProfit")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoUnexpendedNetProfit = val;
+            else _beanoUnexpendedNetProfit = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoSuppliesSales")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoSuppliesSales = val;
+            else _beanoSuppliesSales = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoOtherReceipts")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoOtherReceipts = val;
+            else _beanoOtherReceipts = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoInterest")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoInterest = val;
+            else _beanoInterest = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoGameBank")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoGameBank = val;
+            else _beanoGameBank = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoOthers")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoOthers = val;
+            else _beanoOthers = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoCheckbookBalance")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoCheckbookBalance = val;
+            else _beanoCheckbookBalance = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoSavingsBalance")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoSavingsBalance = val;
+            else _beanoSavingsBalance = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField == "BeanoCdBalance")
+        {
+            if (decimal.TryParse(_currentBuffer, out var val)) _beanoCdBalance = val;
+            else _beanoCdBalance = 0m;
+            _needsSync = true;
+        }
+        else if (_activeField.StartsWith("BeanoExpenseAmount_"))
+        {
+            if (int.TryParse(_activeField.Replace("BeanoExpenseAmount_", ""), out var idx) && idx < _beanoOtherExpenses.Count)
+            {
+                if (decimal.TryParse(_currentBuffer, out var val)) _beanoOtherExpenses[idx].Amount = val;
+                else _beanoOtherExpenses[idx].Amount = 0m;
+                _needsSync = true;
+            }
+        }
+        else if (_activeField.StartsWith("BeanoExpenseCheck_"))
+        {
+            if (int.TryParse(_activeField.Replace("BeanoExpenseCheck_", ""), out var idx) && idx < _beanoOtherExpenses.Count)
+            {
+                _beanoOtherExpenses[idx].CheckNumber = _currentBuffer;
+                _needsSync = true;
+            }
+        }
+        else if (_activeField.StartsWith("BeanoDisbursementAmount_"))
+        {
+            if (int.TryParse(_activeField.Replace("BeanoDisbursementAmount_", ""), out var idx) && idx < _beanoDisbursements.Count)
+            {
+                if (decimal.TryParse(_currentBuffer, out var val)) _beanoDisbursements[idx].Amount = val;
+                else _beanoDisbursements[idx].Amount = 0m;
+                _needsSync = true;
+            }
+        }
+        else if (_activeField.StartsWith("BeanoDisbursementCheck_"))
+        {
+            if (int.TryParse(_activeField.Replace("BeanoDisbursementCheck_", ""), out var idx) && idx < _beanoDisbursements.Count)
+            {
+                _beanoDisbursements[idx].CheckNumber = _currentBuffer;
+                _needsSync = true;
+            }
         }
         else if (_activeField == "DoorPrizeCount")
         {
@@ -5603,6 +5712,7 @@
                     _beanoOtherReceipts = 0m;
                     _beanoTaxCheckNumber = "";
                     _beanoUnexpendedNetProfit = 0m;
+                    await SetPreviousUnexpendedNetProfitAsync();
                     _beanoInterest = 0m;
                     _beanoGameBank = 0m;
                     _beanoOthers = 0m;
@@ -5970,6 +6080,178 @@
         {
             _historyLoading = false;
             StateHasChanged();
+        }
+    }
+
+    private decimal CalculateGamePayoutForDraftSheet(BingoSheet sheet, BingoGame game, int prevPacksSold, decimal prevPayoutPercentage, bool prevUseManualScaling)
+    {
+        if (game.CustomPayoutOverride.HasValue) return game.CustomPayoutOverride.Value;
+
+        if (game.IsProgressive)
+        {
+            return (game.BallsCalled == 0 || game.BallsCalled <= game.CurrentBallGoal)
+                ? game.JackpotAmount 
+                : game.ConsolationAmount;
+        }
+
+        var sold = sheet.ManualSold + (sheet.IsIncludedInAdmission && !sheet.IsAdmissionOnly ? prevPacksSold : 0);
+        if (game.PayoutMode == 1 || game.PayoutMode == 2)
+        {
+            var gross = sold * sheet.Price;
+            decimal availableForPrizes;
+            var effectiveLottery = (sheet.IsAdmissionOnly) ? 0m : sheet.LotteryPercentage;
+            var effectiveClub = game.ClubPercentage ?? (game.PayoutMode == 2 ? 0.05m : 0.5m);
+
+            if (game.PayoutMode == 1) // 50/50 Split (Sequential)
+            {
+                var lottery = gross * effectiveLottery;
+                availableForPrizes = (gross - lottery) * (1 - effectiveClub);
+            }
+            else // Mode 2: Additive (Gross %)
+            {
+                var totalDeductionPercent = effectiveLottery + effectiveClub;
+                availableForPrizes = gross * (1 - totalDeductionPercent);
+            }
+
+            var rawShare = (sheet.Games.Count > 0 ? (availableForPrizes / sheet.Games.Count) : availableForPrizes) / game.WinnerCount;
+            var roundedShare = rawShare;
+            if (_bingoSettings.PayoutRoundingMode == 1)
+                roundedShare = Math.Ceiling(rawShare);
+            else if (_bingoSettings.PayoutRoundingMode == 2)
+                roundedShare = Math.Floor(rawShare);
+
+            return roundedShare * game.WinnerCount;
+        }
+
+        // Mode 0: Fixed Prize (Adjusted by attendance)
+        decimal pct = 100m;
+        if (prevUseManualScaling)
+        {
+            pct = prevPayoutPercentage;
+        }
+        else if (_bingoSettings.PayoutTiers != null && _bingoSettings.PayoutTiers.Any())
+        {
+            var tier = _bingoSettings.PayoutTiers
+                .Where(t => t.MinAdmissions <= prevPacksSold)
+                .OrderByDescending(t => t.MinAdmissions)
+                .FirstOrDefault();
+            pct = tier?.PayoutPercentage ?? _bingoSettings.PayoutTiers.Min(t => t.PayoutPercentage);
+        }
+        
+        var rawShareFixed = (game.DefaultPayout * (pct / 100m)) / game.WinnerCount;
+        var roundedShareFixed = rawShareFixed;
+        if (_bingoSettings.PayoutRoundingMode == 1)
+            roundedShareFixed = Math.Ceiling(rawShareFixed);
+        else if (_bingoSettings.PayoutRoundingMode == 2)
+            roundedShareFixed = Math.Floor(rawShareFixed);
+
+        return roundedShareFixed * game.WinnerCount;
+    }
+
+    private decimal CalculateDraftFinalUnexpended(BingoDraft draft)
+    {
+        if (draft == null) return 0m;
+        
+        var prevPacksSold = draft.AdmissionPacks?.Where(p => !IsAdditionalCardsPack(p.Name)).Sum(p => p.Sold) ?? 0;
+        var prevExtraCards = 0;
+        if (draft.AdmissionPacks != null)
+        {
+            foreach (var p in draft.AdmissionPacks)
+            {
+                var admitCount = 9;
+                try 
+                {
+                    var parts = p.Name.Split(' ');
+                    if (int.TryParse(parts.Last(), out var val)) admitCount = val;
+                } 
+                catch {}
+                prevExtraCards += p.Sold * (admitCount - 9) / 3;
+            }
+        }
+        
+        var prevStandardProgramRevenue = (prevPacksSold * _bingoSettings.BasePrice) + (prevExtraCards * _bingoSettings.CardPrice);
+        
+        var prevUnmappedFloorGross = draft.Sheets?
+            .Where(s => (s.ManualSold > 0 || (s.IsIncludedInAdmission && !s.IsAdmissionOnly)) && s.ColorName != draft.WtaColor && s.ColorName != draft.ProgColor)
+            .Sum(s => (s.ManualSold + (s.IsIncludedInAdmission && !s.IsAdmissionOnly ? prevPacksSold : 0)) * s.Price) ?? 0;
+            
+        var wtaObj = draft.Sheets?.FirstOrDefault(s => s.ColorName == draft.WtaColor);
+        var progObj = draft.Sheets?.FirstOrDefault(s => s.ColorName == draft.ProgColor);
+        
+        var wtaGross = wtaObj != null ? ((wtaObj.ManualSold + (wtaObj.IsIncludedInAdmission && !wtaObj.IsAdmissionOnly ? prevPacksSold : 0)) * wtaObj.Price) : 0;
+        var progGross = progObj != null ? ((progObj.ManualSold + (progObj.IsIncludedInAdmission && !progObj.IsAdmissionOnly ? prevPacksSold : 0)) * progObj.Price) : 0;
+        
+        var prevCombinedFloor = prevUnmappedFloorGross + wtaGross + progGross;
+        var prevGrossBeanoReceipts = prevStandardProgramRevenue + prevCombinedFloor + draft.BeanoSuppliesSales + draft.BeanoOtherReceipts;
+        
+        var prevTaxPaid = prevGrossBeanoReceipts * 0.05m;
+        
+        decimal prevSheetPrizes = 0;
+        if (draft.Sheets != null)
+        {
+            foreach (var s in draft.Sheets)
+            {
+                foreach (var g in s.Games)
+                {
+                    prevSheetPrizes += g.CustomPayoutOverride ?? CalculateGamePayoutForDraftSheet(s, g, prevPacksSold, draft.PayoutPercentage, draft.UseManualScaling);
+                }
+            }
+        }
+        var prevTotalPrizesPaid = prevSheetPrizes + (draft.DoorPrizeAmount * draft.DoorPrizeCount);
+        var prevTotalExpenditures = prevTaxPaid + prevTotalPrizesPaid + draft.BeanoOtherExpenses.Sum(e => e.Amount);
+        
+        var prevNetProfit = prevGrossBeanoReceipts - prevTotalExpenditures;
+        
+        var prevPullTabSales = draft.PullTabEntries?.Sum(GetGrossReceipts) ?? 0;
+        var prevPullTabPrizes = draft.PullTabEntries?.Sum(e => e.PrizesPaid) ?? 0;
+        var prevPullTabNetProceeds = prevPullTabSales - prevPullTabPrizes;
+        
+        var prevTotalFundsAvailable = draft.BeanoUnexpendedNetProfit + prevNetProfit + prevPullTabNetProceeds + draft.BeanoInterest + draft.BeanoGameBank + draft.BeanoOthers;
+        var prevTotalDisbursements = draft.BeanoDisbursements?.Sum(d => d.Amount) ?? 0;
+        
+        return prevTotalFundsAvailable - prevTotalDisbursements;
+    }
+
+    private async Task SetPreviousUnexpendedNetProfitAsync()
+    {
+        try
+        {
+            var records = await JSRuntime.InvokeAsync<List<VaultRecord>>("window.gfcGetAllAsync");
+            if (records != null)
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var drafts = new List<(DateTime Date, BingoDraft Draft)>();
+                foreach (var rec in records)
+                {
+                    if (rec.Key != null && rec.Key.StartsWith("gfc_bingo_draft_"))
+                    {
+                        var keySuffix = rec.Key.Replace("gfc_bingo_draft_", "");
+                        if (DateTime.TryParseExact(keySuffix, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var parsedDate))
+                        {
+                            if (parsedDate.Date < SessionDate.Date)
+                            {
+                                var draft = System.Text.Json.JsonSerializer.Deserialize<BingoDraft>(rec.Data.GetRawText(), options);
+                                if (draft != null)
+                                {
+                                    drafts.Add((parsedDate.Date, draft));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (drafts.Any())
+                {
+                    var previousDraft = drafts.OrderByDescending(d => d.Date).First().Draft;
+                    var prevUnexpended = CalculateDraftFinalUnexpended(previousDraft);
+                    _beanoUnexpendedNetProfit = prevUnexpended;
+                    StateHasChanged();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] Error calculating previous unexpended net profit: {ex.Message}");
         }
     }
 
