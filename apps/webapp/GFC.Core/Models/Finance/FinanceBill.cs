@@ -23,6 +23,11 @@ namespace GFC.Core.Models.Finance
         [ForeignKey("CategoryId")]
         public virtual FinanceCategory? Category { get; set; }
 
+        public int? LoanId { get; set; }
+
+        [ForeignKey("LoanId")]
+        public virtual FinanceLoan? Loan { get; set; }
+
         [StringLength(500)]
         public string? Description { get; set; }
 

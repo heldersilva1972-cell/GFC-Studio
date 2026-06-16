@@ -63,15 +63,44 @@ namespace GFC.Core.Models
         public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
 
+        public int? ParentItemId { get; set; }
+        [ForeignKey("ParentItemId")]
+        public virtual LiquorItem? ParentItem { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? PourVolumeOunces { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? BottleVolumeOunces { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal OuncesAccumulator { get; set; } = 0;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         [JsonIgnore]
         public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();
 
         [NotMapped]
-        public string StockSummary => PackSize > 1 
-            ? $"{(CurrentStock / PackSize)} cs, {(CurrentStock % PackSize)} btl" 
-            : $"{CurrentStock} units";
+        public string StockSummary
+        {
+            get
+            {
+                if (PackSize > 1)
+                {
+                    int cases = CurrentStock / PackSize;
+                    int bottles = CurrentStock % PackSize;
+                    string casesLabel = cases == 1 ? "case" : "cases";
+                    string bottlesLabel = bottles == 1 ? "bottle" : "bottles";
+                    return $"{cases} {casesLabel}, {bottles} {bottlesLabel}";
+                }
+                else
+                {
+                    string unitsLabel = CurrentStock == 1 ? "unit" : "units";
+                    return $"{CurrentStock} {unitsLabel}";
+                }
+            }
+        }
     }
 }
 

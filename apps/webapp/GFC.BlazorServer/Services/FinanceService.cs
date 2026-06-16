@@ -157,6 +157,7 @@ namespace GFC.BlazorServer.Services
             var payment = new FinancePayment
             {
                 BillId = billId,
+                LoanId = bill.LoanId,
                 AmountPaid = amount,
                 PaymentDate = date,
                 PaymentMethod = method,
@@ -165,6 +166,25 @@ namespace GFC.BlazorServer.Services
             };
 
             db.FinancePayments.Add(payment);
+
+            if (bill.LoanId != null)
+            {
+                var loan = await db.FinanceLoans.FindAsync(bill.LoanId.Value);
+                if (loan != null)
+                {
+                    if (amount > loan.CurrentBalance)
+                    {
+                        throw new Exception($"Payment amount cannot exceed the remaining loan balance of {loan.CurrentBalance:C}.");
+                    }
+                    loan.CurrentBalance -= amount;
+                    if (loan.CurrentBalance <= 0)
+                    {
+                        loan.CurrentBalance = 0;
+                        loan.IsActive = false;
+                    }
+                }
+            }
+
             await db.SaveChangesAsync();
 
             // Refresh total paid to decide status
@@ -204,6 +224,7 @@ namespace GFC.BlazorServer.Services
                 {
                     VendorId = currentBill.VendorId,
                     CategoryId = currentBill.CategoryId,
+                    LoanId = currentBill.LoanId,
                     Description = currentBill.Description,
                     OriginalAmount = currentBill.OriginalAmount,
                     DueDate = nextDueDate,
@@ -473,11 +494,31 @@ namespace GFC.BlazorServer.Services
             }
         }
 
+        public async Task DeleteLoanAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var loan = await db.FinanceLoans.Include(l => l.Payments).FirstOrDefaultAsync(l => l.Id == id);
+            if (loan != null)
+            {
+                if (loan.Payments != null && loan.Payments.Any())
+                {
+                    db.FinancePayments.RemoveRange(loan.Payments);
+                }
+                db.FinanceLoans.Remove(loan);
+                await db.SaveChangesAsync();
+            }
+        }
+
         public async Task RecordLoanPaymentAsync(int loanId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var loan = await db.FinanceLoans.FindAsync(loanId);
             if (loan == null) throw new Exception("Loan not found.");
+
+            if (amount > loan.CurrentBalance)
+            {
+                throw new Exception($"Payment amount cannot exceed the remaining loan balance of {loan.CurrentBalance:C}.");
+            }
 
             var payment = new FinancePayment
             {

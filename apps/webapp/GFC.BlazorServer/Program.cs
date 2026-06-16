@@ -1206,6 +1206,28 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> Error updating AppPages database registrations: {ex.Message}");
                 }
 
+                // [AUTO-FIX 20] Link Bills to Loans Schema Migration (Direct SQL)
+                try
+                {
+                    var linkBillsLoansSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'FinanceBills')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.FinanceBills') AND name = 'LoanId')
+                            BEGIN
+                                ALTER TABLE dbo.FinanceBills ADD LoanId INT NULL;
+                                ALTER TABLE dbo.FinanceBills ADD CONSTRAINT FK_FinanceBills_FinanceLoans_LoanId FOREIGN KEY (LoanId) REFERENCES dbo.FinanceLoans(Id) ON DELETE SET NULL;
+                                PRINT 'Added LoanId column and foreign key constraint to FinanceBills';
+                            END
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(linkBillsLoansSql);
+                    Console.WriteLine(">>> Link Bills to Loans Schema Migration applied/verified.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error executing direct bills-to-loans schema fix: {ex.Message}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }

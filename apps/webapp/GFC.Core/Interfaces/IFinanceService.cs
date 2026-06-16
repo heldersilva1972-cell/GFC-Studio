@@ -32,6 +32,7 @@ namespace GFC.Core.Interfaces
         Task<FinanceLoan?> GetLoanByIdAsync(int id);
         Task<FinanceLoan> CreateLoanAsync(FinanceLoan loan);
         Task UpdateLoanAsync(FinanceLoan loan);
+        Task DeleteLoanAsync(int id);
         Task RecordLoanPaymentAsync(int loanId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null);
 
         // Payment Management

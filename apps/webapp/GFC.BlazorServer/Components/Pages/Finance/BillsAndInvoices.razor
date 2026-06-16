@@ -486,9 +486,15 @@
             {
                 <!-- LOAN MODULE WORKSPACE - Two columns inside the main workspace -->
                 <div class="audit-list-panel" style="width: 38%; flex: 0 0 38%;">
-                    <div class="panel-header">
-                        <span>LOANS REGISTRY</span>
-                        <span class="badge bg-primary rounded-pill">@DisplayLoans.Count</span>
+                    <div class="panel-header d-flex justify-content-between align-items-center w-100">
+                        <div class="d-flex align-items-center gap-2">
+                            <span>LOANS REGISTRY</span>
+                            <span class="badge bg-primary rounded-pill">@DisplayLoans.Count</span>
+                        </div>
+                        <div class="form-check form-switch mb-0" style="font-size: 0.7rem;">
+                            <input class="form-check-input" type="checkbox" id="showPaidOffSwitch" @bind="ShowPaidOffLoans" @bind:after="UpdateLoansDisplay" style="cursor: pointer;">
+                            <label class="form-check-label text-muted fw-bold" for="showPaidOffSwitch" style="cursor: pointer;">Show Paid Off</label>
+                        </div>
                     </div>
                     <div class="scroll-container custom-scrollbar px-3 pt-3">
                         @if (!DisplayLoans.Any())
@@ -583,6 +589,7 @@
 
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm btn-outline-secondary rounded-pill flex-grow-1 py-2 fw-bold" @onclick="() => EditLoan(SelectedLoan)" style="font-size: 0.75rem;">EDIT LOAN</button>
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill flex-grow-1 py-2 fw-bold" @onclick="() => InitiateDeleteLoan(SelectedLoan)" style="font-size: 0.75rem;">DELETE LOAN</button>
                                     @if (SelectedLoan.IsActive && SelectedLoan.CurrentBalance > 0)
                                     {
                                         <button class="btn btn-sm btn-success rounded-pill flex-grow-1 py-2 fw-bold" @onclick="() => OpenRecordPaymentModal(SelectedLoan)" style="font-size: 0.75rem;">RECORD PAYMENT</button>
@@ -872,6 +879,25 @@
             </div>
         </div>
     }
+
+    @if (ShowDeleteLoanConfirm && LoanToDelete != null)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                    <div class="modal-body p-4 text-center">
+                        <i class="bi bi-exclamation-triangle-fill text-danger display-4 mb-3 d-block"></i>
+                        <h5 class="fw-bold mb-2 text-dark">Delete Loan?</h5>
+                        <p class="text-muted small mb-4">Are you sure you want to delete the loan from <strong>@LoanToDelete.LenderName</strong>? This will also delete all associated payment records and cannot be undone.</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => ShowDeleteLoanConfirm = false">Cancel</button>
+                            <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmDeleteLoan">Yes, Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -897,6 +923,8 @@
     private FinancePayment EditingPayment { get; set; } = new();
     private bool ShowDeletePaymentConfirm { get; set; }
     private FinancePayment? PaymentToDelete { get; set; }
+    private bool ShowDeleteLoanConfirm { get; set; }
+    private FinanceLoan? LoanToDelete { get; set; }
     private List<FinanceLoan> AllLoans { get; set; } = new();
     private List<FinanceLoan> DisplayLoans { get; set; } = new();
     private FinanceLoan? SelectedLoan { get; set; }
@@ -1293,6 +1321,33 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error deleting vendor: {ex.Message}");
+        }
+    }
+
+    private void InitiateDeleteLoan(FinanceLoan loan)
+    {
+        ShowLoanModal = false;
+        LoanToDelete = loan;
+        ShowDeleteLoanConfirm = true;
+    }
+
+    private async Task ConfirmDeleteLoan()
+    {
+        if (LoanToDelete == null) return;
+        try
+        {
+            await FinanceService.DeleteLoanAsync(LoanToDelete.Id);
+            ShowDeleteLoanConfirm = false;
+            if (SelectedLoan?.Id == LoanToDelete.Id)
+            {
+                SelectedLoan = null;
+            }
+            LoanToDelete = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting loan: {ex.Message}");
         }
     }
 

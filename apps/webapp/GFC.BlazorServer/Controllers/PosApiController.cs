@@ -142,6 +142,11 @@ public class PosApiController : ControllerBase
                 : new List<PosMenuOverride>();
 
             var overrideMap = overrides.ToDictionary(o => o.LiquorItemId);
+            var parentIdsWithChildren = liquorItems
+                .Where(x => x.ParentItemId.HasValue && x.IsActive && x.ShowInPos)
+                .Select(x => x.ParentItemId.Value)
+                .ToHashSet();
+
             var items = new List<PosItemDto>();
 
             foreach (var i in liquorItems)
@@ -173,10 +178,16 @@ public class PosApiController : ControllerBase
 
                 if (showInPos)
                 {
+                    string displayName = i.Name;
+                    if (category.Trim().ToUpper() == "WINE" && parentIdsWithChildren.Contains(i.Id))
+                    {
+                        displayName = i.Name + " (Bottle)";
+                    }
+
                     items.Add(new PosItemDto 
                     {
                         Id = i.Id,
-                        Name = i.Name,
+                        Name = displayName,
                         Price = price,
                         Category = category.Trim().ToUpper(),
                         DisplayOrder = displayOrder
@@ -386,7 +397,39 @@ public class PosApiController : ControllerBase
                         if (parent.Id > 0)
                         {
                             try {
-                                await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
+                                var liquorItem = await db.LiquorItems.FindAsync(parent.Id);
+                                if (liquorItem != null)
+                                {
+                                    if (liquorItem.ParentItemId.HasValue)
+                                    {
+                                        var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
+                                        if (parentItem != null)
+                                        {
+                                            decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
+                                            decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
+                                            
+                                            parentItem.OuncesAccumulator += (parent.Quantity * pourSize);
+                                            
+                                            int bottlesToDeduct = 0;
+                                            if (bottleVolume > 0)
+                                            {
+                                                bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
+                                                parentItem.OuncesAccumulator %= bottleVolume;
+                                            }
+                                            
+                                            await db.SaveChangesAsync();
+                                            
+                                            if (bottlesToDeduct > 0)
+                                            {
+                                                await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale: {parent.Quantity}x {parent.Name} (Accumulated depletion)");
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
+                                    }
+                                }
                             } catch (Exception invEx) {
                                 _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
                             }
@@ -397,9 +440,40 @@ public class PosApiController : ControllerBase
                             foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
                             {
                                 try {
-                                    // Total deduction is parent quantity * modifier quantity
                                     int totalModQty = parent.Quantity * mod.Quantity;
-                                    await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                    var liquorItem = await db.LiquorItems.FindAsync(mod.Id);
+                                    if (liquorItem != null)
+                                    {
+                                        if (liquorItem.ParentItemId.HasValue)
+                                        {
+                                            var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
+                                            if (parentItem != null)
+                                            {
+                                                decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
+                                                decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
+                                                
+                                                parentItem.OuncesAccumulator += (totalModQty * pourSize);
+                                                
+                                                int bottlesToDeduct = 0;
+                                                if (bottleVolume > 0)
+                                                {
+                                                    bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
+                                                    parentItem.OuncesAccumulator %= bottleVolume;
+                                                }
+                                                
+                                                await db.SaveChangesAsync();
+                                                
+                                                if (bottlesToDeduct > 0)
+                                                {
+                                                    await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale (Add-on): {totalModQty}x {mod.Name} (for {parent.Name}) (Accumulated depletion)");
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                        }
+                                    }
                                 } catch (Exception invEx) {
                                     _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
                                 }

@@ -910,7 +910,7 @@
                                                 <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded-4 border shadow-sm">
                                                     <div>
                                                         <div class="fw-black text-dark">@d.Item.Name</div>
-                                                        <div class="extra-small text-muted fw-bold">Exp: @d.Item.CurrentStock | Actual: @d.Actual</div>
+                                                        <div class="extra-small text-muted fw-bold">Expected: @d.Item.CurrentStock | Actual: @d.Actual</div>
                                                     </div>
                                                     <div class="variance-badge @(diff < 0 ? "missing" : "over") px-3 py-2 fs-6">
                                                         @(diff > 0 ? "+" : "")@diff Units
@@ -1038,13 +1038,16 @@
                                                                <div class="qty-display d-flex flex-column align-items-center justify-content-center" style="min-width: 65px; line-height: 1;">
                                                                    @if (item.PackSize > 1)
                                                                    {
-                                                                       <span class="fw-black text-primary" style="font-size: 1rem;">@(GetCartQuantity(item.Id) / item.PackSize) cs</span>
-                                                                       <span class="extra-small text-muted" style="font-size: 0.55rem;">(@GetCartQuantity(item.Id) units)</span>
+                                                                       {
+                                                                           var casesVal = GetCartQuantity(item.Id) / item.PackSize;
+                                                                           <span class="fw-black text-primary" style="font-size: 1rem;">@casesVal @(casesVal == 1 ? "case" : "cases")</span>
+                                                                           <span class="extra-small text-muted" style="font-size: 0.55rem;">(@GetCartQuantity(item.Id) units)</span>
+                                                                       }
                                                                    }
                                                                    else
                                                                    {
                                                                        <span class="fw-black text-dark" style="font-size: 1.1rem;">@GetCartQuantity(item.Id)</span>
-                                                                       <span class="extra-small text-muted" style="font-size: 0.55rem;">units</span>
+                                                                        <span class="extra-small text-muted" style="font-size: 0.55rem;">@(GetCartQuantity(item.Id) == 1 ? "unit" : "units")</span>
                                                                    }
                                                                </div>
                                                               <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
@@ -1115,13 +1118,14 @@
                                                                        <div class="qty-display d-flex flex-column align-items-center justify-content-center" style="min-width: 65px; line-height: 1;">
                                                                            @if (item.PackSize > 1)
                                                                            {
-                                                                               <span class="fw-black text-primary" style="font-size: 1rem;">@(GetCartQuantity(item.Id) / item.PackSize) cs</span>
+                                                                               var casesVal = GetCartQuantity(item.Id) / item.PackSize;
+                                                                               <span class="fw-black text-primary" style="font-size: 1rem;">@casesVal @(casesVal == 1 ? "case" : "cases")</span>
                                                                                <span class="extra-small text-muted" style="font-size: 0.55rem;">(@GetCartQuantity(item.Id) units)</span>
                                                                            }
                                                                            else
                                                                            {
                                                                                <span class="fw-black text-dark" style="font-size: 1.1rem;">@GetCartQuantity(item.Id)</span>
-                                                                               <span class="extra-small text-muted" style="font-size: 0.55rem;">units</span>
+                                                                               <span class="extra-small text-muted" style="font-size: 0.55rem;">@(GetCartQuantity(item.Id) == 1 ? "unit" : "units")</span>
                                                                            }
                                                                        </div>
                                                                       <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
@@ -1194,7 +1198,7 @@
                                                             var lineTotal = (purchaseQty * x.Item.CurrentPrice) + (x.Item.IsBeer ? 0.05m * x.Qty : 0);
                                                             <div class="d-flex justify-content-between align-items-center mb-1">
                                                                 <div class="small text-muted flex-grow-1">
-                                                                    <span class="fw-bold text-dark">@(x.Item.PackSize > 1 ? purchaseQty : x.Qty) @(x.Item.PackSize > 1 ? "cs" : "×")</span> @x.Item.Name
+                                                                    <span class="fw-bold text-dark">@(x.Item.PackSize > 1 ? purchaseQty : x.Qty) @(x.Item.PackSize > 1 ? (purchaseQty == 1 ? "case" : "cases") : (x.Qty == 1 ? "unit" : "units"))</span> @x.Item.Name
                                                                 </div>
                                                                 <div class="small fw-bold">@lineTotal.ToString("C")</div>
                                                             </div>
@@ -1352,7 +1356,7 @@
                                                         
                                                         <div class="list-group-item px-0 py-1 border-0 bg-transparent d-flex justify-content-between">
                                                             <span class="small">
-                                                                <span class="fw-bold">@(packSize > 1 ? purchaseQty : oi.Quantity) @(packSize > 1 ? "cs" : "×")</span> @oi.LiquorItem?.Name
+                                                                <span class="fw-bold">@(packSize > 1 ? purchaseQty : oi.Quantity) @(packSize > 1 ? (purchaseQty == 1 ? "case" : "cases") : (oi.Quantity == 1 ? "unit" : "units"))</span> @oi.LiquorItem?.Name
                                                             </span>
                                                             <span class="extra-small text-muted">@lineTotal.ToString("C")</span>
                                                         </div>
@@ -1838,8 +1842,18 @@
                                             int unitsPerMainUnit;
                                             decimal marginPercent;
                                             decimal profitPerDrink;
+                                            var childGlass = _childItems.FirstOrDefault(c => c.ParentItemId == item.Id);
+                                            var pourVolume = item.PourVolumeOunces ?? childGlass?.PourVolumeOunces;
+                                            bool isWineByGlass = childGlass != null && item.BottleVolumeOunces.HasValue && pourVolume.HasValue && pourVolume.Value > 0;
 
-                                            if (item.IsUnitBased)
+                                            if (isWineByGlass)
+                                            {
+                                                unitsPerMainUnit = (int)(item.BottleVolumeOunces.Value / pourVolume.Value);
+                                                costPerPurSellUnit = (item.CurrentPrice / item.BottleVolumeOunces.Value) * pourVolume.Value;
+                                                profitPerDrink = childGlass.RetailPrice - costPerPurSellUnit;
+                                                marginPercent = childGlass.RetailPrice > 0 ? (profitPerDrink / childGlass.RetailPrice) * 100 : 0;
+                                            }
+                                            else if (item.IsUnitBased)
                                             {
                                                 unitsPerMainUnit = item.PackSize;
                                                 costPerPurSellUnit = item.PackSize > 0 ? (item.CurrentPrice / item.PackSize) : 0;
@@ -1861,20 +1875,36 @@
                                                  <td class="ps-3 text-muted" style="font-size: 0.65rem;">@item.Id</td>
                                                  <td>
                                                     <div class="fw-bold text-dark small">@item.Name</div>
-                                                    <div class="extra-small text-muted" style="font-size: 0.6rem;">@(item.IsUnitBased ? "Unit" : item.BottleSize) • @item.CurrentStock @(item.CurrentStock == 1 ? "btl" : "btls")</div>
+                                                    @if (isWineByGlass)
+                                                    {
+                                                        <div class="extra-small text-muted" style="font-size: 0.6rem;">Wine (Glass: @pourVolume.Value ounces) • @item.CurrentStock @(item.CurrentStock == 1 ? "bottle" : "bottles")</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="extra-small text-muted" style="font-size: 0.6rem;">@(item.IsUnitBased ? "Unit" : item.BottleSize) • @item.CurrentStock @(item.CurrentStock == 1 ? "bottle" : "bottles")</div>
+                                                    }
                                                 </td>
                                                 <td class="text-center small">@costPerPurSellUnit.ToString("C2")</td>
-                                                <td class="text-center fw-bold small">@item.RetailPrice.ToString("C2")</td>
+                                                <td class="text-center fw-bold small">@(isWineByGlass ? childGlass.RetailPrice.ToString("C2") : item.RetailPrice.ToString("C2"))</td>
                                                 <td class="text-center text-success fw-bold small">@profitPerDrink.ToString("C2")</td>
                                                 <td class="text-center">
                                                      <div class="badge bg-light text-dark border rounded-pill px-2" style="font-size: 0.6rem;">
-                                                         <i class="bi bi-graph-up-arrow text-primary me-1" style="font-size: 0.5rem;"></i>
+                                                         <i class="bi bi-graph-up-arrow text-primary me-1" style="font-size: 0.55rem;"></i>
                                                          @(_itemOrderCounts.ContainsKey(item.Id) ? _itemOrderCounts[item.Id] : 0)
                                                      </div>
                                                  </td>
-                                                 <td class="text-center extra-small fw-bold text-muted">@unitsPerMainUnit @(item.IsUnitBased ? "ut" : "oz")</td>
+                                                 <td class="text-center extra-small fw-bold text-muted">
+                                                     @if (isWineByGlass)
+                                                     {
+                                                         <span>@unitsPerMainUnit glasses</span>
+                                                     }
+                                                     else
+                                                     {
+                                                         <span>@unitsPerMainUnit @(item.IsUnitBased ? "units" : "ounces")</span>
+                                                     }
+                                                 </td>
                                                 <td class="text-end pe-3">
-                                                    @if (item.RetailPrice == 0)
+                                                    @if (item.RetailPrice == 0 && !isWineByGlass)
                                                     {
                                                         <span class="badge bg-light text-muted border" style="font-size: 0.6rem;">N/A</span>
                                                     }
@@ -2033,67 +2063,77 @@
                                             <tbody>
                                                 @foreach (var item in _items.OrderBy(i => i.Name))
                                                 {
+                                                    var childGlassItem = _childItems.FirstOrDefault(c => c.ParentItemId == item.Id);
                                                     <tr>
-                                                        <td class="text-muted fw-bold">@item.Id</td>
-                                                        <td>
-                                                             <div class="fw-bold">@item.Name</div>
-                                                             <div class="d-flex align-items-center gap-2 mt-1">
-                                                                 <span class="extra-small text-muted">@item.BottleSize</span>
-                                                                 @if (item.PackSize > 1)
-                                                                 {
-                                                                     @if (item.AllowLooseReconciliation)
-                                                                     {
-                                                                         <span class="badge bg-success bg-opacity-10 text-success fw-bold border border-success border-opacity-25" style="font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;"><i class="bi bi-check2-circle me-1"></i>LOOSE AUDIT</span>
-                                                                     }
-                                                                     else
-                                                                     {
-                                                                         <span class="badge bg-secondary bg-opacity-10 text-secondary fw-bold border border-secondary border-opacity-25" style="font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;"><i class="bi bi-box-seam me-1"></i>CASE ONLY</span>
-                                                                     }
-                                                                 }
-                                                             </div>
+                                                         <td class="text-muted fw-bold">@item.Id</td>
+                                                         <td>
+                                                              <div class="fw-bold">@item.Name</div>
+                                                              <div class="d-flex align-items-center gap-2 mt-1">
+                                                                  <span class="extra-small text-muted">@item.BottleSize</span>
+                                                                  @if (childGlassItem != null)
+                                                                  {
+                                                                      var pourOz = item.PourVolumeOunces ?? childGlassItem.PourVolumeOunces ?? 5.0m;
+                                                                      <span class="badge fw-bold border" style="color: #db2777 !important; background-color: rgba(219, 39, 119, 0.1) !important; border-color: rgba(219, 39, 119, 0.25) !important; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;"><i class="bi bi-glass-slate me-1"></i>BY THE GLASS (@pourOz.ToString("F1") oz)</span>
+                                                                  }
+                                                                  @if (item.PackSize > 1)
+                                                                  {
+                                                                      @if (item.AllowLooseReconciliation)
+                                                                      {
+                                                                          <span class="badge bg-success bg-opacity-10 text-success fw-bold border border-success border-opacity-25" style="font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;"><i class="bi bi-check2-circle me-1"></i>LOOSE AUDIT</span>
+                                                                      }
+                                                                      else
+                                                                      {
+                                                                          <span class="badge bg-secondary bg-opacity-10 text-secondary fw-bold border border-secondary border-opacity-25" style="font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;"><i class="bi bi-box-seam me-1"></i>CASE ONLY</span>
+                                                                      }
+                                                                  }
+                                                              </div>
+                                                          </td>
+                                                         <td>
+                                                             <select class="form-select form-select-sm border-0 bg-light rounded-3 fw-bold" 
+                                                                     style="font-size: 0.75rem;"
+                                                                     @onchange="e => UpdateItemVendor(item, e.Value)">
+                                                                 <option value="">-- No Vendor --</option>
+                                                                 @foreach(var v in _vendors) { <option value="@v.Id" selected="@(item.VendorId == v.Id)">@v.Name</option> }
+                                                             </select>
                                                          </td>
-                                                        <td>
-                                                            <select class="form-select form-select-sm border-0 bg-light rounded-3 fw-bold" 
-                                                                    style="font-size: 0.75rem;"
-                                                                    @onchange="e => UpdateItemVendor(item, e.Value)">
-                                                                <option value="">-- No Vendor --</option>
-                                                                @foreach(var v in _vendors) { <option value="@v.Id" selected="@(item.VendorId == v.Id)">@v.Name</option> }
-                                                            </select>
-                                                        </td>
-                                                        <td class="text-center">
-                                                            <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 text-center fw-bold mx-auto" 
-                                                                   style="width: 60px; font-size: 0.75rem;"
-                                                                   onfocus="this.select();"
-                                                                   @bind="item.MinStockLimit" @bind:event="oninput" />
-                                                        </td>
-                                                        <td class="text-center">
-                                                             <div class="input-group input-group-sm justify-content-center">
-                                                                <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
-                                                                <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
-                                                                       style="max-width: 80px;"
-                                                                       onfocus="this.select();"
-                                                                       @bind="item.CurrentPrice" @bind:event="oninput" step="0.01" />
-                                                             </div>
-                                                        </td>
-                                                        <td class="text-center">
-                                                             <div class="input-group input-group-sm justify-content-center">
-                                                                <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
-                                                                <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
-                                                                       style="max-width: 80px;"
-                                                                       onfocus="this.select();"
-                                                                       @bind="item.RetailPrice" @bind:event="oninput" step="0.01" />
-                                                             </div>
-                                                        </td>
-                                                        <td class="text-center">
-                                                            @if (item.IsUnitBased)
-                                                            {
-                                                                <span class="badge rounded-pill fw-black px-3 py-2" style="background: #f1f5f9; color: #475569; font-size: 0.65rem; letter-spacing: 0.5px;">UNIT</span>
-                                                            }
-                                                            else
-                                                            {
-                                                                <span class="badge rounded-pill fw-black px-3 py-2 border" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd !important; font-size: 0.65rem; letter-spacing: 0.5px;">GLOBAL</span>
-                                                            }
-                                                        </td>
+                                                         <td class="text-center">
+                                                             <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 text-center fw-bold mx-auto" 
+                                                                    style="width: 60px; font-size: 0.75rem;"
+                                                                    onfocus="this.select();"
+                                                                    @bind="item.MinStockLimit" @bind:event="oninput" />
+                                                         </td>
+                                                         <td class="text-center">
+                                                              <div class="input-group input-group-sm justify-content-center">
+                                                                 <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
+                                                                 <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
+                                                                        style="max-width: 80px;"
+                                                                        onfocus="this.select();"
+                                                                        @bind="item.CurrentPrice" @bind:event="oninput" step="0.01" />
+                                                              </div>
+                                                         </td>
+                                                         <td class="text-center">
+                                                              <div class="input-group input-group-sm justify-content-center">
+                                                                 <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
+                                                                 <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
+                                                                        style="max-width: 80px;"
+                                                                        onfocus="this.select();"
+                                                                        @bind="item.RetailPrice" @bind:event="oninput" step="0.01" />
+                                                              </div>
+                                                         </td>
+                                                         <td class="text-center">
+                                                             @if (childGlassItem != null)
+                                                             {
+                                                                 <span class="badge rounded-pill fw-black px-3 py-2 border" style="background: #fdf2f8; color: #db2777; border-color: #fbcfe8 !important; font-size: 0.65rem; letter-spacing: 0.5px;">BY GLASS</span>
+                                                             }
+                                                             else if (item.IsUnitBased)
+                                                             {
+                                                                 <span class="badge rounded-pill fw-black px-3 py-2" style="background: #f1f5f9; color: #475569; font-size: 0.65rem; letter-spacing: 0.5px;">UNIT</span>
+                                                             }
+                                                             else
+                                                             {
+                                                                 <span class="badge rounded-pill fw-black px-3 py-2 border" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd !important; font-size: 0.65rem; letter-spacing: 0.5px;">GLOBAL</span>
+                                                             }
+                                                         </td>
                                                         <td class="text-end pe-4">
                                                             <button class="btn btn-sm btn-icon text-info border-0 me-2" title="Edit Product Settings" @onclick="() => OpenEditModal(item)">
                                                                 <i class="bi bi-pencil-square"></i>
@@ -3154,6 +3194,7 @@
     private string _activeSetupTab = "email";
     private string _statSortMode = "performance";
     private List<LiquorItem> _items = new();
+    private List<LiquorItem> _childItems = new();
     private List<PosCategory> _categories = new();
     private List<LiquorVendor> _vendors = new();
     private List<LiquorOrder> _pendingOrders = new();
@@ -3404,6 +3445,7 @@
         using (var db = await DbFactory.CreateDbContextAsync())
         {
             _categories = await db.PosCategories.ToListAsync();
+            _childItems = await db.LiquorItems.Where(i => i.IsActive && i.ParentItemId.HasValue).ToListAsync();
         }
         var allItems = (await itemsTask).ToList();
         _items = allItems.Where(i => IsLiquorInventoryItem(i)).ToList();
@@ -3462,6 +3504,7 @@
 
     private bool IsLiquorInventoryItem(LiquorItem item)
     {
+        if (item.ParentItemId.HasValue) return false; // Exclude child glass items
         if (item.InventoryTrackType == 2) return true; // Force Liquor Hub
         if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false; // Exclude or Force General
         
@@ -4093,6 +4136,12 @@
     }
 
     private decimal GetProfitPerDrink(LiquorItem i) {
+        var childGlass = _childItems.FirstOrDefault(c => c.ParentItemId == i.Id);
+        var pourVolume = i.PourVolumeOunces ?? childGlass?.PourVolumeOunces;
+        if (childGlass != null && i.BottleVolumeOunces.HasValue && pourVolume.HasValue && pourVolume.Value > 0) {
+            var costPerPurSellUnit = (i.CurrentPrice / i.BottleVolumeOunces.Value) * pourVolume.Value;
+            return childGlass.RetailPrice - costPerPurSellUnit;
+        }
         if (i.RetailPrice <= 0) return 0;
         if (i.IsUnitBased) {
             var unitCost = i.PackSize > 0 ? i.CurrentPrice / i.PackSize : 0;

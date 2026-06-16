@@ -31,7 +31,7 @@ namespace GFC.BlazorServer.Services
             return await db.LiquorItems
                 .AsNoTracking()
                 .Include(i => i.Vendor)
-                .Where(i => i.IsActive)
+                .Where(i => i.IsActive && !i.ParentItemId.HasValue)
                 .OrderBy(i => i.Name)
                 .ToListAsync();
         }
