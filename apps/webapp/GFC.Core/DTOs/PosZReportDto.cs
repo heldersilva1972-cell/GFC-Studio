@@ -14,4 +14,7 @@ public class PosZReportDto
     public string SalesSummaryJson { get; set; } = "";
     public string BanquetSummaryJson { get; set; } = "[]";
     public decimal TokenCredits { get; set; }
+    public decimal? HoursWorked { get; set; }
+    public string? ShiftType { get; set; }
+    public bool RecordSalesToBar { get; set; }
 }

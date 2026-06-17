@@ -7,6 +7,7 @@
 @inject IUserManagementService UserService
 @inject IShiftComplianceService ShiftComplianceService
 @inject IJSRuntime JSRuntime
+@inject ILiquorService LiquorService
 @using GFC.Mobile.Components.Shared
 @attribute [Authorize]
 
@@ -82,20 +83,6 @@
                     }
 
 
-                    @if (HasAccessTo("liquor hub mobile"))
-                    {
-                        <div class="app-card animate-entrance stagger-2" @onclick='() => NavigateTo("/mobile/liquor/hub")'>
-                            <div class="card-icon-box" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
-                                <i class="bi bi-truck-flatbed"></i>
-                            </div>
-                            <div style="flex-grow: 1;">
-                                <h6 class="fw-bold mb-0">Liquor HUB (Mobile)</h6>
-                                <p class="small text-muted mb-0">Ordering, Receiving & Counting</p>
-                            </div>
-                            <i class="bi bi-chevron-right text-muted opacity-50"></i>
-                        </div>
-                    }
-
                     @if (HasAccessTo("Inventory Check (Mobile)"))
                     {
                         <div class="app-card animate-entrance stagger-2" @onclick='() => NavigateTo("/mobile/liquor/hub/count")'>
@@ -117,7 +104,13 @@
                                 <i class="bi bi-cart3"></i>
                             </div>
                             <div style="flex-grow: 1;">
-                                <h6 class="fw-bold mb-0">Ordering List</h6>
+                                <div class="d-flex align-items-center gap-2">
+                                    <h6 class="fw-bold mb-0">Ordering List</h6>
+                                    @if (_lowStockCount > 0)
+                                    {
+                                        <span class="badge bg-danger rounded-pill px-2" style="font-size: 0.65rem;">@_lowStockCount Low</span>
+                                    }
+                                </div>
                                 <p class="small text-muted mb-0">Place and manage product orders</p>
                             </div>
                             <i class="bi bi-chevron-right text-muted opacity-50"></i>
@@ -386,6 +379,41 @@
 
     private bool IsRefreshing { get; set; }
 
+    private int _lowStockCount = 0;
+
+    private bool IsLiquorInventoryItem(LiquorItem item, IEnumerable<PosCategory> categories)
+    {
+        if (item.ParentItemId.HasValue) return false;
+        if (item.InventoryTrackType == 2) return true;
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false;
+
+        if (string.IsNullOrEmpty(item.Category)) return true;
+        var cat = categories.FirstOrDefault(c => string.Equals(c.Name, item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 1;
+        }
+        return true;
+    }
+
+    private async Task LoadLowStockCountAsync()
+    {
+        try
+        {
+            if (HasAccessTo("Ordering List (Mobile)"))
+            {
+                var items = await LiquorService.GetAllItemsAsync();
+                var categories = await LiquorService.GetAllCategoriesAsync();
+                if (items != null && categories != null)
+                {
+                    _lowStockCount = items.Where(i => IsLiquorInventoryItem(i, categories)).Count(i => i.CurrentStock <= i.MinStockLimit);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch { }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // 1. Instant check for current state
@@ -417,6 +445,7 @@
             
             _isCircutAlive = true;
             IsLoading = false; 
+            _ = LoadLowStockCountAsync();
         }
 
         // 2. Background refresh to catch any recent permission changes
@@ -450,6 +479,8 @@
                     await LoadDismissedShifts();
                     _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
                 }
+                
+                await LoadLowStockCountAsync();
             }
         }
         catch (Exception ex)

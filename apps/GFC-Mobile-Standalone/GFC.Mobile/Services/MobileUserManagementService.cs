@@ -183,7 +183,14 @@ public class MobileUserManagementService : IUserManagementService
 
     public async Task<AppUser?> GetUserAsync(int userId)
     {
-        return await _http.GetFromJsonAsync<AppUser>($"api/mobile-users-mgmt/user/{userId}");
+        try
+        {
+            return await _http.GetFromJsonAsync<AppUser>($"api/mobile-users-mgmt/user/{userId}");
+        }
+        catch
+        {
+            return null;
+        }
     }
     public AppUser? GetUser(int userId) => null;
 

@@ -31,6 +31,13 @@ namespace GFC.BlazorServer.Data.Entities
         
         public string? BanquetSummaryJson { get; set; } = "[]";
 
+        public decimal? HoursWorked { get; set; }
+        
+        [MaxLength(50)]
+        public string? ShiftType { get; set; }
+
+        public bool RecordSalesToBar { get; set; } = false;
+
         public bool IsSynced { get; set; } = false;
     }
 }

@@ -536,10 +536,68 @@ public class PosApiController : ControllerBase
                 SalesSummaryJson = reportDto.SalesSummaryJson,
                 BanquetSummaryJson = reportDto.BanquetSummaryJson,
                 TokenCredits = reportDto.TokenCredits,
+                HoursWorked = reportDto.HoursWorked,
+                ShiftType = reportDto.ShiftType,
+                RecordSalesToBar = reportDto.RecordSalesToBar,
                 IsSynced = true
             };
 
             db.PosZReports.Add(report);
+
+            // Sync with BarSaleEntries if hours are provided OR record sales is enabled
+            if (reportDto.HoursWorked.HasValue || reportDto.RecordSalesToBar)
+            {
+                var localTime = reportDto.Timestamp;
+                var localHour = localTime.Hour;
+                DateTime targetDate = localTime.Date;
+                string targetShift = "Day";
+
+                if (localHour >= 0 && localHour < 5)
+                {
+                    targetDate = targetDate.AddDays(-1);
+                    targetShift = "Night";
+                }
+                else if (localHour >= 5 && localHour < 19)
+                {
+                    targetShift = "Day";
+                }
+                else
+                {
+                    targetShift = "Night";
+                }
+
+                var barEntry = await db.BarSaleEntries
+                    .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == targetDate && e.Shift == targetShift && e.IsRentalHall == false);
+
+                if (barEntry == null)
+                {
+                    barEntry = new BarSaleEntry
+                    {
+                        SaleDate = targetDate,
+                        AdjustedSaleDate = targetDate,
+                        Shift = targetShift,
+                        IsRentalHall = false,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedBy = reportDto.BartenderName,
+                        Status = "Draft"
+                    };
+                    db.BarSaleEntries.Add(barEntry);
+                }
+
+                if (reportDto.HoursWorked.HasValue)
+                {
+                    barEntry.TotalHours = reportDto.HoursWorked.Value;
+                }
+
+                if (reportDto.RecordSalesToBar)
+                {
+                    barEntry.TotalSales = reportDto.TotalGrossSales;
+                }
+
+                barEntry.ModifiedAt = DateTime.UtcNow;
+                barEntry.ModifiedBy = reportDto.BartenderName;
+                barEntry.EmployeeUsername = reportDto.BartenderName;
+            }
 
             // Handle Inventory Pulls
             if (!string.IsNullOrEmpty(reportDto.InventoryPullsJson))

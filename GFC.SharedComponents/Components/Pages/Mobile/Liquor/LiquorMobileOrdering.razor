@@ -182,9 +182,25 @@
 @code {
     private List<LiquorItem>? _items;
     private List<LiquorVendor> _vendors = new();
+    private List<PosCategory> _categories = new();
     private List<LiquorOrderItem> _currentOrderItems = new();
     private string _searchTerm = "";
     private bool _showFinalizeModal = false;
+
+    private bool IsLiquorInventoryItem(LiquorItem item)
+    {
+        if (item.ParentItemId.HasValue) return false;
+        if (item.InventoryTrackType == 2) return true;
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false;
+
+        if (string.IsNullOrEmpty(item.Category)) return true;
+        var cat = _categories.FirstOrDefault(c => string.Equals(c.Name, item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 1;
+        }
+        return true;
+    }
 
     private List<LiquorItem>? _searchResults => _items?
         .Where(i => !string.IsNullOrWhiteSpace(_searchTerm) && i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
@@ -192,8 +208,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var categoriesList = await LiquorService.GetAllCategoriesAsync();
+        _categories = categoriesList.ToList();
+
         var all = await LiquorService.GetAllItemsAsync();
-        _items = all.ToList();
+        _items = all.Where(i => IsLiquorInventoryItem(i)).ToList();
         var vendors = await LiquorService.GetAllVendorsAsync();
         _vendors = vendors.ToList();
 

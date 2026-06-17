@@ -455,5 +455,10 @@ namespace GFC.Mobile.Services
         {
             return await GetCachedOrFetchAsync<List<ProductTrendDTO>>(TrendsCacheKey, $"api/liquor/trends?daysLookback={daysLookback}", new List<ProductTrendDTO>());
         }
+
+        public async Task<IEnumerable<PosCategory>> GetAllCategoriesAsync()
+        {
+            return await GetCachedOrFetchAsync<List<PosCategory>>("gfc_liquor_categories", "api/liquor/categories", new List<PosCategory>());
+        }
     }
 }

@@ -976,6 +976,12 @@ namespace GFC.BlazorServer.Services
 
             return trends;
         }
+
+        public async Task<IEnumerable<PosCategory>> GetAllCategoriesAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.PosCategories.AsNoTracking().ToListAsync();
+        }
     }
 }
 

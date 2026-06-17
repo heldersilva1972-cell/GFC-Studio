@@ -62,6 +62,10 @@ namespace GFC.Core.Models
         public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
 
+        public int? ParentItemId { get; set; }
+        [ForeignKey("ParentItemId")]
+        public virtual LiquorItem? ParentItem { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();

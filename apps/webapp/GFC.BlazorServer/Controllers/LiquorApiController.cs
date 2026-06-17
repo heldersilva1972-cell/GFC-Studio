@@ -52,6 +52,8 @@ namespace GFC.BlazorServer.Controllers
                         ShowInPos = item.ShowInPos,
                         AllowLooseReconciliation = item.AllowLooseReconciliation,
                         DisplayOrder = item.DisplayOrder,
+                        ParentItemId = item.ParentItemId,
+                        InventoryTrackType = item.InventoryTrackType,
                         CreatedAt = item.CreatedAt,
                         Vendor = null, // Break EF circular reference cycle
                         OrderHistory = new List<LiquorOrderItem>() // Break cycle
@@ -281,6 +283,8 @@ namespace GFC.BlazorServer.Controllers
                                         IsBeer = dbItem.LiquorItem.IsBeer,
                                         ShowInPos = dbItem.LiquorItem.ShowInPos,
                                         DisplayOrder = dbItem.LiquorItem.DisplayOrder,
+                                        ParentItemId = dbItem.LiquorItem.ParentItemId,
+                                        InventoryTrackType = dbItem.LiquorItem.InventoryTrackType,
                                         CreatedAt = dbItem.LiquorItem.CreatedAt,
                                         OrderHistory = new List<LiquorOrderItem>(),
                                         Vendor = null // Break cycle
@@ -344,6 +348,21 @@ namespace GFC.BlazorServer.Controllers
             {
                 _logger.LogError(ex, "Error processing liquor order receipt for Order {OrderId}", orderId);
                 return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpGet("categories")]
+        public async Task<IActionResult> GetCategories()
+        {
+            try
+            {
+                var categories = await _liquorService.GetAllCategoriesAsync();
+                return Ok(categories);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching liquor categories");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
             }
         }
     }

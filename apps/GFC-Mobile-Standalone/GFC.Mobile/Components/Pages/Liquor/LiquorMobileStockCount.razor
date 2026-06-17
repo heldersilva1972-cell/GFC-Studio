@@ -246,6 +246,7 @@
 
 @code {
     private List<LiquorItem>? _items;
+    private List<PosCategory> _categories = new();
     private List<LiquorItem>? _filteredItems => _items?
         .Where(i => string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
         .OrderBy(i => i.Name)
@@ -256,10 +257,28 @@
     private string _currentEntry = "0";
     private Dictionary<int, int> _counts = new();
 
+    private bool IsLiquorInventoryItem(LiquorItem item)
+    {
+        if (item.ParentItemId.HasValue) return false;
+        if (item.InventoryTrackType == 2) return true;
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false;
+
+        if (string.IsNullOrEmpty(item.Category)) return true;
+        var cat = _categories.FirstOrDefault(c => string.Equals(c.Name, item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 1;
+        }
+        return true;
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        var categoriesList = await LiquorService.GetAllCategoriesAsync();
+        _categories = categoriesList.ToList();
+
         var all = await LiquorService.GetAllItemsAsync();
-        _items = all.ToList();
+        _items = all.Where(i => IsLiquorInventoryItem(i)).ToList();
     }
 
     private void SelectItem(LiquorItem item)

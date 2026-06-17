@@ -51,5 +51,8 @@ namespace GFC.Core.Interfaces
 
         // Analytics
         Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30);
+
+        // Categories
+        Task<IEnumerable<PosCategory>> GetAllCategoriesAsync();
     }
 }

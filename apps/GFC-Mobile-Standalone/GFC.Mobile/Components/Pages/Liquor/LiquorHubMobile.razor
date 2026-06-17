@@ -2474,7 +2474,24 @@
     private SystemSettings _settings = new();
     private List<LiquorItem> _items = new();
     private List<LiquorVendor> _vendors = new();
+    private List<PosCategory> _categories = new();
     private int _unpaidCount = 0;
+
+    private bool IsLiquorInventoryItem(LiquorItem item)
+    {
+        if (item.ParentItemId.HasValue) return false; // Exclude child glass items
+        if (item.InventoryTrackType == 2) return true; // Force Liquor Hub
+        if (item.InventoryTrackType == 1 || item.InventoryTrackType == 3) return false; // Exclude or Force General
+        
+        // Inherit Category Default
+        if (string.IsNullOrEmpty(item.Category)) return true; // Default fallback to track in Liquor Hub
+        var cat = _categories.FirstOrDefault(c => string.Equals(c.Name, item.Category, StringComparison.OrdinalIgnoreCase));
+        if (cat != null)
+        {
+            return cat.InventoryTrackType == 1; // 1 represents Liquor Hub destination
+        }
+        return true; // Default fallback
+    }
 
     // Feature state mirrored from desktop hub for logic parity
     private Dictionary<int, int> _cart = new(); 
@@ -2597,8 +2614,12 @@
         try 
         {
             _isLoading = true;
+            
+            var categoriesList = await LiquorService.GetAllCategoriesAsync();
+            _categories = categoriesList.ToList();
+            
             var allItems = await LiquorService.GetAllItemsAsync();
-            _items = allItems.ToList();
+            _items = allItems.Where(i => IsLiquorInventoryItem(i)).ToList();
             
             var allVendors = await LiquorService.GetAllVendorsAsync();
             _vendors = allVendors.ToList();
