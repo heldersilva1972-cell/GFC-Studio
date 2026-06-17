@@ -235,6 +235,27 @@
                             </div>
                         </div>
 
+                        <!-- Dashboard Break-Even Indicator -->
+                        @{
+                            var requiredScalePct = CalculateRequiredStandardPayoutScale();
+                        }
+                        @if (requiredScalePct < 100m)
+                        {
+                            <div class="alert alert-danger border-0 rounded-4 p-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm" style="font-size: 0.75rem;">
+                                <i class="bi bi-exclamation-triangle-fill text-danger animate-pulse"></i>
+                                <span class="fw-semibold text-muted text-uppercase" style="font-size: 0.6rem;">Standard Payout Scale:</span>
+                                <span class="fw-black text-danger text-uppercase" style="font-size: 0.65rem;">To break even on the session, scale standard games to @requiredScalePct.ToString("N0")%.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-success border-0 rounded-4 p-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm" style="font-size: 0.75rem;">
+                                <i class="bi bi-check-circle-fill text-success"></i>
+                                <span class="fw-semibold text-muted text-uppercase" style="font-size: 0.6rem;">Standard Payout Scale:</span>
+                                <span class="fw-black text-success text-uppercase" style="font-size: 0.65rem;">Session target met: 100% of standard games can be paid out.</span>
+                            </div>
+                        }
+
                         <div class="section-divider mb-3">
                             <span>ADDITIONAL SALES TRACKING</span>
                         </div>
@@ -524,6 +545,35 @@
                                                 </div>
                                             </div>
                                         </div>
+
+                                         <!-- Break-Even Payout Indicator -->
+                                         @{
+                                             var modalRequiredScalePct = CalculateRequiredStandardPayoutScale();
+                                         }
+                                         @if (modalRequiredScalePct < 100m)
+                                         {
+                                             <div class="alert alert-danger border-0 rounded-4 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                                                 <div class="rounded-circle bg-danger bg-opacity-10 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; min-width: 38px;">
+                                                     <i class="bi bi-exclamation-triangle-fill text-danger fs-5 animate-pulse"></i>
+                                                 </div>
+                                                 <div>
+                                                     <span class="d-block extra-small text-uppercase fw-bold text-muted" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Standard Payout Scale</span>
+                                                     <span class="fw-black text-danger fs-6">To break even on the session, scale standard games to @modalRequiredScalePct.ToString("N0")%.</span>
+                                                 </div>
+                                             </div>
+                                         }
+                                         else
+                                         {
+                                             <div class="alert alert-success border-0 rounded-4 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                                                 <div class="rounded-circle bg-success bg-opacity-10 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; min-width: 38px;">
+                                                     <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                                                 </div>
+                                                 <div>
+                                                     <span class="d-block extra-small text-uppercase fw-bold text-muted" style="letter-spacing: 0.05em; font-size: 0.55rem; line-height: 1.2;">Standard Payout Scale</span>
+                                                     <span class="fw-black text-success fs-6">Session target met: 100% of standard games can be paid out.</span>
+                                                 </div>
+                                             </div>
+                                         }
 
                                         <!-- Payout Scaling Toggle & Manual input inside Admission Modal -->
                                         <div class="p-3 bg-light rounded-4 border border-light border-opacity-10 mb-3 shadow-sm" @onclick:stopPropagation="true">
@@ -1980,7 +2030,7 @@
             <!-- GAME PAYOUTS -->
             <div class="d-flex justify-content-between align-items-end mb-2 px-1">
                 <label class="math-label mb-0">Game Payout Details</label>
-                @if (GetCurrentPayoutPercentage() < 100m)
+                @if (_selectedSheet.IsAdmissionOnly && GetCurrentPayoutPercentage() < 100m)
                 {
                     <button class="btn btn-link p-0 text-primary fw-bold extra-small" style="text-decoration: none; font-size: 0.6rem;" @onclick="() => _showScalingTiers = true">
                         <i class="bi bi-diagram-3-fill me-1"></i>VIEW TIERS
@@ -1988,7 +2038,7 @@
                 }
             </div>
 
-            @if (GetCurrentPayoutPercentage() < 100m)
+            @if (_selectedSheet.IsAdmissionOnly && GetCurrentPayoutPercentage() < 100m)
             {
                 <div class="p-2 mb-2 rounded-4 bg-warning bg-opacity-10 border border-warning border-opacity-25" style="font-size: 0.7rem;">
                     <div class="d-flex align-items-start gap-2">
@@ -2032,7 +2082,7 @@
                                     }
                                     else if (!game.IsProgressive)
                                     {
-                                        var pct = GetCurrentPayoutPercentage();
+                                        var pct = _selectedSheet.IsAdmissionOnly ? GetCurrentPayoutPercentage() : 100m;
                                         if (pct < 100m)
                                         {
                                             <span class="text-primary" style="font-size: 0.55rem;">@($"{pct:N1}% OF {game.DefaultPayout:C2} BASE")</span>
@@ -5415,6 +5465,16 @@
         return tier?.PayoutPercentage ?? _bingoSettings.PayoutTiers.Min(t => t.PayoutPercentage);
     }
 
+    private decimal CalculateRequiredStandardPayoutScale()
+    {
+        var specialPayouts = Sheets.Where(s => !s.IsAdmissionOnly).Sum(s => s.Games.Sum(g => CalculateGamePayout(s, g)));
+        var netAvailableForStandard = (TotalGross * 0.95m) - (_doorPrizeAmount * _doorPrizeCount) - specialPayouts;
+        var standardBasePayouts = Sheets.Where(s => s.IsAdmissionOnly).Sum(s => s.Games.Sum(g => g.DefaultPayout));
+        if (standardBasePayouts == 0) return 100m;
+        return Math.Round((netAvailableForStandard / standardBasePayouts) * 100m, 0);
+    }
+
+
 
 
     private decimal CalculateGamePayoutRawShare(BingoSheet sheet, BingoGame game)
@@ -5496,8 +5556,8 @@
             return sheet.Games.Count > 0 ? (availableForPrizes / sheet.Games.Count) : availableForPrizes;
         }
 
-        // Mode 0: Fixed Prize (Adjusted by attendance)
-        var pct = GetCurrentPayoutPercentage() / 100m;
+        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets only)
+        var pct = sheet.IsAdmissionOnly ? (GetCurrentPayoutPercentage() / 100m) : 1.0m;
         return game.DefaultPayout * pct;
     }
 
@@ -6136,19 +6196,22 @@
             return roundedShare * game.WinnerCount;
         }
 
-        // Mode 0: Fixed Prize (Adjusted by attendance)
+        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets only)
         decimal pct = 100m;
-        if (prevUseManualScaling)
+        if (sheet.IsAdmissionOnly)
         {
-            pct = prevPayoutPercentage;
-        }
-        else if (_bingoSettings.PayoutTiers != null && _bingoSettings.PayoutTiers.Any())
-        {
-            var tier = _bingoSettings.PayoutTiers
-                .Where(t => t.MinAdmissions <= prevPacksSold)
-                .OrderByDescending(t => t.MinAdmissions)
-                .FirstOrDefault();
-            pct = tier?.PayoutPercentage ?? _bingoSettings.PayoutTiers.Min(t => t.PayoutPercentage);
+            if (prevUseManualScaling)
+            {
+                pct = prevPayoutPercentage;
+            }
+            else if (_bingoSettings.PayoutTiers != null && _bingoSettings.PayoutTiers.Any())
+            {
+                var tier = _bingoSettings.PayoutTiers
+                    .Where(t => t.MinAdmissions <= prevPacksSold)
+                    .OrderByDescending(t => t.MinAdmissions)
+                    .FirstOrDefault();
+                pct = tier?.PayoutPercentage ?? _bingoSettings.PayoutTiers.Min(t => t.PayoutPercentage);
+            }
         }
         
         var rawShareFixed = (game.DefaultPayout * (pct / 100m)) / game.WinnerCount;
