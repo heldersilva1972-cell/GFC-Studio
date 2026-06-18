@@ -170,29 +170,41 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                 var context = _httpContextAccessor.HttpContext;
                 string? token = null;
                 bool isCookieToken = false;
+                bool isSharedStation = false;
+                bool jsAvailable = false;
 
-                // [STATION DETECTION]
-                bool isSharedStation = context?.Request != null && context.Request.Cookies.ContainsKey("GFC_StationIdentity");
-                
-                // 1. Try Cookies (Reliable for Initial SSR/Prerender)
-                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
+                // 1. Try JS first (if interactive / browser connection active)
+                try
                 {
-                    isCookieToken = true;
+                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", cts.Token, "gfc_device_token");
+                    isSharedStation = await _jsRuntime.InvokeAsync<bool>("window.verifyCookie", cts.Token, "GFC_StationIdentity");
+                    jsAvailable = true;
                 }
-                else 
+                catch (InvalidOperationException)
                 {
-                    // 2. Try LocalStorage (Interactive circuit reconnect / PWA state)
-                    try 
+                    // JS not ready yet (prerendering phase)
+                    jsAvailable = false;
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogWarning("JS auth storage lookup timed out. Failing closed to prevent hang.");
+                    jsAvailable = true; // JS is supported but timed out
+                }
+                catch
+                {
+                    jsAvailable = false;
+                }
+
+                // 2. Fallback to HttpContext cookies only during initial Prerender (when JS is unavailable)
+                if (!jsAvailable && context != null)
+                {
+                    isSharedStation = context.Request.Cookies.ContainsKey("GFC_StationIdentity");
+                    if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var cookieToken) && !string.IsNullOrEmpty(cookieToken))
                     {
-                        // [FIX] Add strict safety timeout to JS interop to prevent circuit lockups if SignalR is busy
-                        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
-                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", cts.Token, "gfc_device_token");
+                        token = cookieToken;
+                        isCookieToken = true;
                     }
-                    catch (OperationCanceledException)
-                    {
-                        _logger.LogWarning("JS localStorage call timed out during auth resolution. Failing closed to prevent UI hang.");
-                    }
-                    catch { /* JS not ready */ }
                 }
 
                 if (!string.IsNullOrEmpty(token))
@@ -203,16 +215,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     
                     bool shouldRestore = false;
                     
-                    if (context != null)
+                    if (jsAvailable)
                     {
                         if (isSharedStation)
                         {
-                            // [SECURITY HARDENING]
                             // On shared stations, we only restore the session if:
-                            // 1. It's a genuine cookie token (not a forced localStorage fallback)
-                            // 2. The browser says our specific window session is active (gfc_session_active)
+                            // 1. We have a token
+                            // 2. The session cookie is present (we verify it by checking if it exists in document.cookie)
+                            // 3. The browser says our specific window session is active (gfc_session_active)
                             // This ensures that closing the browser wipes the session, while F5 (Refresh) keeps it.
-                            
                             bool isInstanceActive = false;
                             try {
                                 using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -220,21 +231,28 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                                 isInstanceActive = !string.IsNullOrEmpty(flag);
                             } catch { }
 
-                            shouldRestore = isCookieToken && isInstanceActive;
+                            bool hasCookie = false;
+                            try {
+                                hasCookie = await _jsRuntime.InvokeAsync<bool>("window.verifyCookie", "GFC_DeviceTrustToken");
+                            } catch { }
+
+                            shouldRestore = hasCookie && isInstanceActive;
                         }
                         else
                         {
                             shouldRestore = true;
                         }
                     }
-                    else
+                    else if (context != null)
                     {
-                         // [FALLBACK] Interactive circuit re-eval without SSR context
-                         try {
-                            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(1));
-                            var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token", cts.Token);
-                            shouldRestore = !string.IsNullOrEmpty(intentToken) && intentToken == token;
-                         } catch { }
+                        if (isSharedStation)
+                        {
+                            shouldRestore = isCookieToken;
+                        }
+                        else
+                        {
+                            shouldRestore = true;
+                        }
                     }
 
                     if (shouldRestore)
@@ -246,7 +264,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                         {
                             var user = cachedData.User;
                             _currentUser = user;
-                            _currentPrincipal = BuildPrincipal(user);
+                            _currentPrincipal = BuildPrincipal(user, isSharedStation);
                             _currentToken = token; // Mark it as restored
                             
                             // Propagate login to persistence service in background
@@ -261,7 +279,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                             {
                                 var updatedUser = result.User;
                                 _currentUser = updatedUser;
-                                _currentPrincipal = BuildPrincipal(updatedUser);
+                                _currentPrincipal = BuildPrincipal(updatedUser, isSharedStation);
                                 _userSessionService.SetLoginTime(DateTime.UtcNow);
                                 
                                 // Cache for 1 hour to prevent DB thrashing on refreshes
@@ -285,7 +303,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         return new AuthenticationState(_currentPrincipal);
     }
 
-    private ClaimsPrincipal BuildPrincipal(AppUser user)
+    private ClaimsPrincipal BuildPrincipal(AppUser user, bool isStation)
     {
         var claims = new List<Claim>
         {
@@ -295,9 +313,8 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             new Claim("IsAdmin", user.IsAdmin ? "true" : "false")
         };
  
-        // [NEW] Carry station identity in claims to avoid redundant JS checks in MainLayout
-        var httpContext = _httpContextAccessor.HttpContext;
-        if (httpContext?.Request != null && httpContext.Request.Cookies.ContainsKey("GFC_StationIdentity"))
+        // Carry station identity in claims to avoid redundant JS checks in MainLayout
+        if (isStation)
         {
             claims.Add(new Claim("IsStation", "true"));
         }
@@ -493,7 +510,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             if (stateChanged)
             {
                 _currentUser = serviceUser;
-                _currentPrincipal = BuildPrincipal(serviceUser);
+                bool isStation = _currentPrincipal.HasClaim("IsStation", "true") || 
+                                 (_httpContextAccessor.HttpContext?.Request?.Cookies?.ContainsKey("GFC_StationIdentity") == true);
+                _currentPrincipal = BuildPrincipal(serviceUser, isStation);
             }
             return;
         }
