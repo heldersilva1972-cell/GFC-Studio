@@ -79,9 +79,16 @@
             {
                 <!-- COLUMN 1: Bills Due -->
                 <div class="audit-list-panel" style="width: 35%; flex: 0 0 35%;">
-                    <div class="panel-header">
-                        <span>BILLS DUE (UNPAID)</span>
-                        <span class="badge bg-danger rounded-pill">@DisplayUnpaidBills.Count()</span>
+                    <div class="panel-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <span>BILLS DUE (UNPAID)</span>
+                            <span class="badge bg-danger rounded-pill">@DisplayUnpaidBills.Count()</span>
+                        </div>
+                        <div class="btn-group p-0.5 bg-light rounded-pill border" style="font-size: 0.65rem;">
+                            <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "Month" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => { SelectedTimeFilter = "Month"; UpdateDisplay(); }'>Month</button>
+                            <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "7Days" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => { SelectedTimeFilter = "7Days"; UpdateDisplay(); }'>7 Days</button>
+                            <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "14Days" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => { SelectedTimeFilter = "14Days"; UpdateDisplay(); }'>14 Days</button>
+                        </div>
                     </div>
                     <div class="scroll-container custom-scrollbar px-3 pt-3">
                         @if (!DisplayUnpaidBills.Any())
@@ -103,12 +110,18 @@
                                 </div>
                                 @foreach (var bill in overdueBills)
                                 {
-                                    <div class="bill-row overdue" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px;">
+                                    <div class="bill-row overdue" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px; @(bill.Id < 0 ? "border-left: 4px solid #3b82f6;" : "")">
                                         <!-- Section 1: Vendor (Left) -->
                                         <div class="vendor-info" style="min-width: 180px;">
                                             <div class="d-flex align-items-center gap-2 mb-1">
                                                 <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
-                                                @if (bill.Vendor != null)
+                                                @if (bill.Id < 0)
+                                                {
+                                                    <span class="badge rounded-pill bg-primary" style="font-size: 0.65rem; padding: 3px 8px;">
+                                                        LOAN REPAYMENT
+                                                    </span>
+                                                }
+                                                else if (bill.Vendor != null)
                                                 {
                                                     <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.65rem; padding: 3px 8px;">
                                                         @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
@@ -118,12 +131,40 @@
                                             <div class="text-muted small">
                                                 <i class="bi bi-calendar-event me-1"></i> @bill.DueDate.ToString("MM/dd/yy")
                                             </div>
+                                            @if (bill.Id >= 0 && bill.Vendor?.DefaultPaymentType != null)
+                                            {
+                                                <div class="mt-1">
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-2 py-1" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-credit-card me-1"></i>@bill.Vendor.DefaultPaymentType.Name
+                                                    </span>
+                                                </div>
+                                            }
+                                            @if (bill.Id >= 0 && !string.IsNullOrEmpty(bill.Vendor?.Website))
+                                            {
+                                                <div class="mt-1">
+                                                    <a href="@(bill.Vendor.Website.StartsWith("http") ? bill.Vendor.Website : "https://" + bill.Vendor.Website)"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       @onclick:stopPropagation="true"
+                                                       class="text-decoration-none"
+                                                       style="font-size: 0.6rem; color: #0ea5e9;">
+                                                        <i class="bi bi-globe me-1"></i>@bill.Vendor.Website
+                                                    </a>
+                                                </div>
+                                            }
                                         </div>
 
                                         <!-- Section 2: Financials (Center) -->
                                         <div class="financial-info text-center flex-grow-1">
                                             <div class="d-flex align-items-center justify-content-center gap-3">
-                                                <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                @if (bill.Id < 0 && bill.WarningDays == 999)
+                                                {
+                                                    <div class="text-primary fw-black h6 mb-0">FLEXIBLE TARGET</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                }
                                                 <span class="status-badge status-overdue px-3 py-1">LATE</span>
                                             </div>
                                             @if (bill.Status == "Partial")
@@ -132,11 +173,21 @@
                                                     Paid: @bill.TotalPaid.ToString("C") / Total: @bill.OriginalAmount.ToString("C")
                                                 </div>
                                             }
+                                            @if (bill.Id < 0 && !string.IsNullOrEmpty(bill.Description))
+                                            {
+                                                <div class="text-muted small mt-1 italic" style="font-size: 0.6rem;">
+                                                    @bill.Description
+                                                </div>
+                                            }
                                         </div>
 
                                         <!-- Section 3: Action (Far Right) -->
-                                        <div class="action-btn text-end" style="min-width: 100px;">
+                                        <div class="action-btn text-end d-flex flex-column align-items-end gap-1" style="min-width: 100px;">
                                             <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
+                                            @if (bill.Id < 0)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => SkipLoanMonth(bill.LoanId!.Value)">SKIP</button>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -150,12 +201,18 @@
                                 </div>
                                 @foreach (var bill in upcomingBills)
                                 {
-                                    <div class="bill-row @(bill.IsInWarningWindow ? "warning" : "")" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px;">
+                                    <div class="bill-row @(bill.IsInWarningWindow ? "warning" : "")" @onclick="() => SelectBill(bill)" style="cursor: pointer; margin-bottom: 12px; @(bill.Id < 0 ? "border-left: 4px solid #3b82f6;" : "")">
                                         <!-- Section 1: Vendor (Left) -->
                                         <div class="vendor-info" style="min-width: 180px;">
                                             <div class="d-flex align-items-center gap-2 mb-1">
                                                 <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
-                                                @if (bill.Vendor != null)
+                                                @if (bill.Id < 0)
+                                                {
+                                                    <span class="badge rounded-pill bg-primary" style="font-size: 0.65rem; padding: 3px 8px;">
+                                                        LOAN REPAYMENT
+                                                    </span>
+                                                }
+                                                else if (bill.Vendor != null)
                                                 {
                                                     <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.65rem; padding: 3px 8px;">
                                                         @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
@@ -165,12 +222,40 @@
                                             <div class="text-muted small">
                                                 <i class="bi bi-calendar-event me-1"></i> @bill.DueDate.ToString("MM/dd/yy")
                                             </div>
+                                            @if (bill.Id >= 0 && bill.Vendor?.DefaultPaymentType != null)
+                                            {
+                                                <div class="mt-1">
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-2 py-1" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-credit-card me-1"></i>@bill.Vendor.DefaultPaymentType.Name
+                                                    </span>
+                                                </div>
+                                            }
+                                            @if (bill.Id >= 0 && !string.IsNullOrEmpty(bill.Vendor?.Website))
+                                            {
+                                                <div class="mt-1">
+                                                    <a href="@(bill.Vendor.Website.StartsWith("http") ? bill.Vendor.Website : "https://" + bill.Vendor.Website)"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       @onclick:stopPropagation="true"
+                                                       class="text-decoration-none"
+                                                       style="font-size: 0.6rem; color: #0ea5e9;">
+                                                        <i class="bi bi-globe me-1"></i>@bill.Vendor.Website
+                                                    </a>
+                                                </div>
+                                            }
                                         </div>
 
                                         <!-- Section 2: Financials (Center) -->
                                         <div class="financial-info text-center flex-grow-1">
                                             <div class="d-flex align-items-center justify-content-center gap-3">
-                                                <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                @if (bill.Id < 0 && bill.WarningDays == 999)
+                                                {
+                                                    <div class="text-primary fw-black h6 mb-0">FLEXIBLE TARGET</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-danger fw-black h4 mb-0">@bill.BalanceRemaining.ToString("C")</div>
+                                                }
                                                 <span class="status-badge @(bill.Status == "Partial" ? "status-partial" : "status-pending")">
                                                     @(bill.Status == "Partial" ? "Partial" : "Pending")
                                                 </span>
@@ -181,11 +266,21 @@
                                                     Paid: @bill.TotalPaid.ToString("C") / Total: @bill.OriginalAmount.ToString("C")
                                                 </div>
                                             }
+                                            @if (bill.Id < 0 && !string.IsNullOrEmpty(bill.Description))
+                                            {
+                                                <div class="text-muted small mt-1 italic" style="font-size: 0.6rem;">
+                                                    @bill.Description
+                                                </div>
+                                            }
                                         </div>
 
                                         <!-- Section 3: Action (Far Right) -->
-                                        <div class="action-btn text-end" style="min-width: 100px;">
+                                        <div class="action-btn text-end d-flex flex-column align-items-end gap-1" style="min-width: 100px;">
                                             <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
+                                            @if (bill.Id < 0)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => SkipLoanMonth(bill.LoanId!.Value)">SKIP</button>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -212,10 +307,18 @@
                         {
                             @foreach (var bill in DisplayPaidBills)
                             {
-                                <div class="bill-row paid-record">
+                                <div class="bill-row paid-record" style="@(bill.Id < 0 ? "border-left: 4px solid #10b981;" : "")">
                                     <!-- Vendor (Left) -->
                                     <div class="vendor-info" style="min-width: 150px;">
-                                        <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <div class="fw-black text-dark h6 mb-0">@bill.Vendor?.Name</div>
+                                            @if (bill.Id < 0)
+                                            {
+                                                <span class="badge rounded-pill bg-success" style="font-size: 0.55rem; padding: 2px 6px;">
+                                                    LOAN
+                                                </span>
+                                            }
+                                        </div>
                                         <div class="text-muted small">
                                             <i class="bi bi-check-circle-fill text-success me-1"></i> @bill.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault()?.PaymentDate.ToString("MM/dd/yy")
                                         </div>
@@ -228,8 +331,15 @@
 
                                     <!-- Actions (Far Right) -->
                                     <div class="action-btn text-end d-flex gap-1 justify-content-end" style="min-width: 140px;">
-                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => SelectBill(bill)">EDIT</button>
-                                        <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => InitiateDeleteBill(bill)">DELETE</button>
+                                        @if (bill.Id < 0)
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick='() => { CurrentView = "LOANS"; SelectedLoan = bill.Loan; }'>VIEW LOAN</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => SelectBill(bill)">EDIT</button>
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold" style="font-size: 0.65rem;" @onclick="() => InitiateDeleteBill(bill)">DELETE</button>
+                                        }
                                     </div>
                                 </div>
                             }
@@ -460,7 +570,7 @@
                                                 }
                                             </div>
                                         </div>
-                                        <div class="px-3 text-center">
+                                        <div class="px-3 text-center d-flex flex-column gap-1 align-items-center">
                                             @if (vendor.DefaultCategory != null)
                                             {
                                                 <span class="badge rounded-pill px-3 py-1" style="font-size: 0.65rem; background-color: @vendor.DefaultCategory.Color; color: white;">
@@ -470,6 +580,16 @@
                                             else
                                             {
                                                 <span class="badge bg-light text-muted border rounded-pill px-3 py-1" style="font-size: 0.65rem;">No Default Category</span>
+                                            }
+                                            @if (vendor.DefaultPaymentType != null)
+                                            {
+                                                <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-3 py-1" style="font-size: 0.65rem;">
+                                                    <i class="bi bi-credit-card me-1"></i> @vendor.DefaultPaymentType.Name
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-muted border rounded-pill px-3 py-1" style="font-size: 0.65rem;">No Payment Type</span>
                                             }
                                         </div>
                                         <div class="text-end ps-4" style="min-width: 100px;">
@@ -491,18 +611,98 @@
                             <span>LOANS REGISTRY</span>
                             <span class="badge bg-primary rounded-pill">@DisplayLoans.Count</span>
                         </div>
-                        <div class="form-check form-switch mb-0" style="font-size: 0.7rem;">
-                            <input class="form-check-input" type="checkbox" id="showPaidOffSwitch" @bind="ShowPaidOffLoans" @bind:after="UpdateLoansDisplay" style="cursor: pointer;">
-                            <label class="form-check-label text-muted fw-bold" for="showPaidOffSwitch" style="cursor: pointer;">Show Paid Off</label>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="form-check form-switch mb-0" style="font-size: 0.7rem;">
+                                <input class="form-check-input" type="checkbox" id="groupLoansSwitch" @onchange="OnGroupLoansChanged" checked="@GroupLoans" style="cursor: pointer;">
+                                <label class="form-check-label text-muted fw-bold" for="groupLoansSwitch" style="cursor: pointer;">Group</label>
+                            </div>
+                            <div class="form-check form-switch mb-0" style="font-size: 0.7rem;">
+                                <input class="form-check-input" type="checkbox" id="showPaidOffSwitch" @bind="ShowPaidOffLoans" @bind:after="UpdateLoansDisplay" style="cursor: pointer;">
+                                <label class="form-check-label text-muted fw-bold" for="showPaidOffSwitch" style="cursor: pointer;">Show Paid Off</label>
+                            </div>
                         </div>
                     </div>
                     <div class="scroll-container custom-scrollbar px-3 pt-3">
+                        <!-- Grouping and Repayment instruction alert -->
+                        <div class="alert alert-info py-3 px-3 mb-3 rounded-4 shadow-sm border-0" style="font-size: 0.7rem; background-color: #f0fdf4; border-left: 4px solid #10b981 !important; color: #065f46; line-height: 1.45;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <i class="bi bi-info-circle-fill text-success" style="font-size: 1.1rem;"></i>
+                                <h6 class="fw-bold text-success mb-0">LOAN REGISTRY GUIDE</h6>
+                            </div>
+                            <div class="mb-2">
+                                <strong class="text-success d-block mb-1">🏷️ Grouping Loans:</strong>
+                                Edit a loan and assign a <strong>Group Label</strong>. Toggle the <strong>Group</strong> switch in the header above to organize loans under their respective headers.
+                            </div>
+                            <div>
+                                <strong class="text-success d-block mb-1">📅 Dashboard Repayment Reminders:</strong>
+                                Edit a loan and specify a <strong>Payment Due Day</strong> (1-31) and optionally a <strong>Monthly Repayment Target</strong>:
+                                <ul class="mb-0 ps-3 mt-1 text-muted" style="font-size: 0.65rem;">
+                                    <li>If you set a repayment amount, a virtual bill reminder with that target will project onto your <strong>Bills Due</strong> dashboard.</li>
+                                    <li>If you leave it empty or `$0`, it creates a <strong>Flexible Target</strong> reminder where you choose what you pay each month.</li>
+                                    <li>If you skip a month using the **SKIP** button on the card, it moves to Paid as "Skipped" and keeps track of your **Last Payment** age.</li>
+                                </ul>
+                            </div>
+                        </div>
                         @if (!DisplayLoans.Any())
                         {
                             <div class="p-5 text-center text-muted opacity-50">
                                 <i class="bi bi-wallet2 h1 mb-3 d-block"></i>
                                 <div class="fw-bold text-uppercase letter-spacing-1">NO LOANS FOUND</div>
                             </div>
+                        }
+                        else if (GroupLoans)
+                        {
+                            @foreach (var group in DisplayLoans
+                                .GroupBy(l => string.IsNullOrWhiteSpace(l.GroupName) ? null : l.GroupName)
+                                .OrderBy(g => g.Key == null ? 1 : 0)
+                                .ThenBy(g => g.Key))
+                            {
+                                var groupKey = group.Key ?? "Ungrouped";
+                                var groupTotal = group.Sum(l => l.CurrentBalance);
+                                var groupOriginal = group.Sum(l => l.OriginalBalance);
+                                var groupCount = group.Count();
+
+                                <!-- Group header strip -->
+                                <div class="d-flex align-items-center justify-content-between px-3 py-2 mb-1 rounded-3"
+                                     style="background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); border-left: 4px solid #6366f1;">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-folder2-open text-primary" style="font-size:0.75rem;"></i>
+                                        <span class="text-uppercase fw-black text-primary" style="font-size:0.7rem; letter-spacing:0.8px;">@groupKey</span>
+                                        <span class="badge bg-primary rounded-pill" style="font-size:0.5rem;">@groupCount loan@(groupCount == 1 ? "" : "s")</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-black text-danger" style="font-size:0.8rem;">@groupTotal.ToString("C")</div>
+                                        <div class="text-muted" style="font-size:0.55rem;">of @groupOriginal.ToString("C")</div>
+                                    </div>
+                                </div>
+
+                                <!-- Loans in this group -->
+                                @foreach (var loan in group)
+                                {
+                                    bool isSelected = SelectedLoan?.Id == loan.Id;
+                                    <div class="bill-row @(isSelected ? "selected border-primary border-2 shadow-sm bg-light" : "")" @onclick="() => SelectLoan(loan)" style="cursor: pointer; margin-bottom: 6px; margin-left: 6px; transition: all 0.2s ease;">
+                                        <div class="vendor-info" style="min-width: 140px;">
+                                            <div class="fw-black text-dark h6 mb-1">@loan.LenderName</div>
+                                            <div class="text-muted small">Originated: @loan.OriginDate.ToString("MM/dd/yy")</div>
+                                        </div>
+                                        <div class="financial-info text-center flex-grow-1">
+                                            <div class="text-danger fw-black h5 mb-0">@loan.CurrentBalance.ToString("C")</div>
+                                            <div class="text-muted small" style="font-size: 0.65rem;">of @loan.OriginalBalance.ToString("C")</div>
+                                        </div>
+                                        <div class="action-btn text-end" style="min-width: 80px;">
+                                            @if (!loan.IsActive || loan.CurrentBalance <= 0)
+                                            {
+                                                <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.55rem;">PAID OFF</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.55rem;">ACTIVE</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                <div class="mb-3"></div>
+                            }
                         }
                         else
                         {
@@ -690,14 +890,27 @@
                     </div>
 
                     <!-- Date Range Selection -->
-                    <div class="sidebar-section mb-4">
+                    <div class="sidebar-section mb-4" style="@(SelectedTimeFilter != "Month" ? "opacity: 0.6; pointer-events: none;" : "")">
                         <label class="sidebar-label">CALENDAR NAVIGATION</label>
-                        <div class="month-selector d-flex justify-content-between align-items-center bg-light rounded-pill px-4 py-3 border mb-3">
-                            <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="PrevMonth"><i class="bi bi-chevron-left h5 mb-0"></i></button>
-                            <span class="fw-black h5 mb-0">@(IsYearView && CurrentView == "PAYMENTS" ? CurrentDate.Year.ToString() : CurrentDate.ToString("MMMM yyyy"))</span>
-                            <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="NextMonth"><i class="bi bi-chevron-right h5 mb-0"></i></button>
-                        </div>
+                        @if (SelectedTimeFilter == "Month")
+                        {
+                            <div class="month-selector d-flex justify-content-between align-items-center bg-light rounded-pill px-4 py-3 border mb-3">
+                                <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="PrevMonth"><i class="bi bi-chevron-left h5 mb-0"></i></button>
+                                <span class="fw-black h5 mb-0">@(IsYearView && CurrentView == "PAYMENTS" ? CurrentDate.Year.ToString() : CurrentDate.ToString("MMMM yyyy"))</span>
+                                <button class="btn btn-link btn-sm p-0 text-decoration-none text-dark" @onclick="NextMonth"><i class="bi bi-chevron-right h5 mb-0"></i></button>
+                            </div>
+                        }
+                        else
+                        {
+                            var days = SelectedTimeFilter == "7Days" ? 7 : 14;
+                            <div class="month-selector d-flex align-items-center justify-content-center bg-secondary-subtle rounded-pill px-4 py-3 border mb-3 text-muted">
+                                <i class="bi bi-clock-history me-2"></i>
+                                <span class="fw-black h6 mb-0 text-uppercase" style="font-size: 0.65rem; letter-spacing: 0.5px;">Next @days Days (Rolling)</span>
+                            </div>
+                        }
+                    </div>
 
+                    <div class="sidebar-section mb-4">
                         <div class="p-3 bg-light rounded-4 border">
                             @if (CurrentView == "PAYMENTS")
                             {
@@ -782,6 +995,26 @@
                             <div class="label text-primary">TOTAL LOAN BALANCE</div>
                             <div class="value text-primary" style="font-size: 2rem;">@TotalLoanBalance.ToString("C")</div>
                         </div>
+
+                        @if (GroupLoans)
+                        {
+                            var activeLoans = AllLoans.Where(l => l.IsActive).ToList();
+                            var grouped = activeLoans
+                                .GroupBy(l => string.IsNullOrWhiteSpace(l.GroupName) ? "Ungrouped" : l.GroupName)
+                                .OrderBy(g => g.Key == "Ungrouped" ? 1 : 0)
+                                .ThenBy(g => g.Key);
+
+                            @foreach (var g in grouped)
+                            {
+                                var grpRemaining = g.Sum(l => l.CurrentBalance);
+                                var grpOriginal = g.Sum(l => l.OriginalBalance);
+                                <div class="stat-card mb-2 p-3 shadow-sm border-1 bg-light" style="border-left: 3px solid #6366f1; min-height: auto;">
+                                    <div class="label fw-black text-primary" style="font-size:0.6rem; letter-spacing:0.5px; text-transform: uppercase;">@g.Key</div>
+                                    <div class="value text-dark" style="font-size: 1.25rem;">@grpRemaining.ToString("C")</div>
+                                    <div class="text-muted" style="font-size:0.6rem;">of @grpOriginal.ToString("C") original (@g.Count() active loan@(g.Count() == 1 ? "" : "s"))</div>
+                                </div>
+                            }
+                        }
                     </div>
                 </div>
             }
@@ -824,7 +1057,7 @@
 
     @if (ShowVendorModal)
     {
-        <FinanceVendorModal Vendor="EditingVendor" OnClose="CloseVendorModal" OnSave="HandleVendorSaved" OnDeleteRequested="InitiateDeleteVendor" />
+        <FinanceVendorModal Vendor="EditingVendor" OnClose="CloseVendorModal" OnSave="HandleVendorSaved" OnDeleteRequested="InitiateDeleteVendor" PaymentTypes="AllPaymentTypes" />
     }
 
     @if (ShowDeleteVendorConfirm && VendorToDelete != null)
@@ -848,7 +1081,7 @@
 
     @if (ShowLoanModal)
     {
-        <FinanceLoanModal Loan="EditingLoan" OnClose="CloseLoanModal" OnSave="HandleLoanSaved" />
+        <FinanceLoanModal Loan="EditingLoan" OnClose="CloseLoanModal" OnSave="HandleLoanSaved" ExistingGroups="ExistingLoanGroups" />
     }
 
     @if (ShowLoanPaymentModal)
@@ -913,6 +1146,7 @@
     private bool ShowDeleteBillConfirm { get; set; }
     private FinanceBill? BillToDelete { get; set; }
     private List<FinanceVendor> AllVendors { get; set; } = new();
+    private List<FinancePaymentType> AllPaymentTypes { get; set; } = new();
     private string VendorSearchText { get; set; } = "";
     private bool ShowInactiveVendors { get; set; }
     private bool ShowLoanModal { get; set; }
@@ -929,6 +1163,13 @@
     private List<FinanceLoan> DisplayLoans { get; set; } = new();
     private FinanceLoan? SelectedLoan { get; set; }
     private bool ShowPaidOffLoans { get; set; }
+    private bool GroupLoans { get; set; }
+    private List<string> ExistingLoanGroups =>
+        AllLoans.Where(l => !string.IsNullOrWhiteSpace(l.GroupName))
+                .Select(l => l.GroupName!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g)
+                .ToList();
     private decimal TotalLoanBalance { get; set; }
     private bool IsYearView { get; set; }
     private string SortColumn { get; set; } = "Date";
@@ -948,39 +1189,245 @@
     {
         var sw = Stopwatch.StartNew();
         var today = DateTime.Today;
-        var endOfMonth = new DateTime(CurrentDate.Year, CurrentDate.Month, 1).AddMonths(1).AddDays(-1);
+        var startOfMonth = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
+        var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
         // Filter for Unpaid column (Left)
         var unpaidQuery = Bills.Where(b => b.Status != "Paid");
-        if (!IncludeNextMonth) unpaidQuery = unpaidQuery.Where(b => b.DueDate <= endOfMonth);
         
-        if (SelectedTimeFilter == "Upcoming")
+        if (SelectedTimeFilter == "7Days")
         {
-            var horizon = DateTime.Today.AddDays(14);
+            var horizon = today.AddDays(7);
             unpaidQuery = unpaidQuery.Where(b => b.DueDate <= horizon);
         }
+        else if (SelectedTimeFilter == "14Days")
+        {
+            var horizon = today.AddDays(14);
+            unpaidQuery = unpaidQuery.Where(b => b.DueDate <= horizon);
+        }
+        else // "Month"
+        {
+            if (!IncludeNextMonth) 
+            {
+                unpaidQuery = unpaidQuery.Where(b => b.DueDate <= endOfMonth);
+            }
+        }
+        
+        var unpaidList = unpaidQuery.ToList();
+
+        // Dynamically inject Virtual Bills for active loans configured with a PaymentDueDay (can have 0 or positive MonthlyPaymentAmount)
+        var activeRepaymentLoans = AllLoans.Where(l => l.IsActive && l.PaymentDueDay.HasValue).ToList();
+        
+        foreach (var loan in activeRepaymentLoans)
+        {
+            var targetAmount = loan.MonthlyPaymentAmount ?? 0;
+            var currentMonthKey = CurrentDate.ToString("yyyy-MM");
+            var isSkipped = !string.IsNullOrWhiteSpace(loan.SkippedMonths) && 
+                            loan.SkippedMonths.Split(',').Contains(currentMonthKey);
+
+            // Determine due date for this loan in the current viewed month context
+            int day = Math.Min(loan.PaymentDueDay!.Value, DateTime.DaysInMonth(CurrentDate.Year, CurrentDate.Month));
+            var loanDueDate = new DateTime(CurrentDate.Year, CurrentDate.Month, day);
+
+            // Filter virtual loan bills inside selected range
+            bool includeLoan = false;
+            if (SelectedTimeFilter == "7Days")
+            {
+                var horizon = today.AddDays(7);
+                includeLoan = loanDueDate <= horizon;
+            }
+            else if (SelectedTimeFilter == "14Days")
+            {
+                var horizon = today.AddDays(14);
+                includeLoan = loanDueDate <= horizon;
+            }
+            else // "Month"
+            {
+                includeLoan = true;
+            }
+
+            if (includeLoan)
+            {
+                // Check if payment exists for this loan in this month/repayment period
+                var monthPayments = loan.Payments.Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year).ToList();
+                var totalMonthPaid = monthPayments.Sum(p => p.AmountPaid);
+
+                // Fetch most recent historical payment
+                var lastPmt = loan.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault();
+                string lastPmtText = "";
+                if (lastPmt != null)
+                {
+                    var daysAgo = (today - lastPmt.PaymentDate.Date).Days;
+                    lastPmtText = $"Last payment: {lastPmt.AmountPaid:C} on {lastPmt.PaymentDate:MM/dd/yy} ({daysAgo} days ago)";
+                }
+                else
+                {
+                    lastPmtText = "No previous payments logged";
+                }
+
+                // If not skipped and (we haven't met target OR it's a flexible payment and we haven't paid anything this month)
+                bool needsPayment = false;
+                if (targetAmount > 0)
+                {
+                    needsPayment = totalMonthPaid < targetAmount;
+                }
+                else // Flexible target ($0 / empty)
+                {
+                    needsPayment = totalMonthPaid == 0;
+                }
+
+                if (!isSkipped && needsPayment)
+                {
+                    // Create virtual unpaid bill
+                    var virtualBill = new FinanceBill
+                    {
+                        Id = -loan.Id, // negative ID to distinguish virtual entries
+                        LoanId = loan.Id,
+                        Loan = loan,
+                        OriginalAmount = targetAmount,
+                        DueDate = loanDueDate,
+                        Status = totalMonthPaid > 0 ? "Partial" : "Pending",
+                        Description = lastPmtText, // Stash last payment details in description
+                        WarningDays = targetAmount == 0 ? 999 : 7, // Custom indicator for flexible targets
+                        Vendor = new FinanceVendor { Name = loan.LenderName, Priority = 1 } // Priority high for repayments
+                    };
+                    
+                    // Add existing payments to virtual bill
+                    foreach (var p in monthPayments)
+                    {
+                        virtualBill.Payments.Add(p);
+                    }
+
+                    unpaidList.Add(virtualBill);
+                }
+            }
+        }
+
         if (BillSortOrder == "Priority")
         {
-            DisplayUnpaidBills = unpaidQuery
+            DisplayUnpaidBills = unpaidList
                 .OrderBy(b => b.Vendor != null ? b.Vendor.Priority : 3)
                 .ThenBy(b => b.DueDate)
                 .ToList();
         }
         else
         {
-            DisplayUnpaidBills = unpaidQuery.OrderBy(b => b.DueDate).ToList();
+            DisplayUnpaidBills = unpaidList.OrderBy(b => b.DueDate).ToList();
         }
 
-        // Filter for Paid column (Middle) - Optimized to avoid redundant Max() lookups
-        DisplayPaidBills = Bills.Select(b => new { Bill = b, LastPaymentDate = b.Payments
-                .Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year)
-                .Select(p => p.PaymentDate)
-                .DefaultIfEmpty(DateTime.MinValue)
-                .Max() })
-            .Where(x => x.LastPaymentDate > DateTime.MinValue)
-            .OrderByDescending(x => x.LastPaymentDate)
-            .Select(x => x.Bill)
-            .ToList();
+        // Filter for Paid column (Middle)
+        var paidList = new List<FinanceBill>();
+        if (SelectedTimeFilter == "7Days")
+        {
+            var sevenDaysAgo = today.AddDays(-7);
+            paidList = Bills.Select(b => new { Bill = b, LastPaymentDate = b.Payments
+                    .Where(p => p.PaymentDate >= sevenDaysAgo && p.PaymentDate <= today)
+                    .Select(p => p.PaymentDate)
+                    .DefaultIfEmpty(DateTime.MinValue)
+                    .Max() })
+                .Where(x => x.LastPaymentDate > DateTime.MinValue)
+                .OrderByDescending(x => x.LastPaymentDate)
+                .Select(x => x.Bill)
+                .ToList();
+        }
+        else if (SelectedTimeFilter == "14Days")
+        {
+            var fourteenDaysAgo = today.AddDays(-14);
+            paidList = Bills.Select(b => new { Bill = b, LastPaymentDate = b.Payments
+                    .Where(p => p.PaymentDate >= fourteenDaysAgo && p.PaymentDate <= today)
+                    .Select(p => p.PaymentDate)
+                    .DefaultIfEmpty(DateTime.MinValue)
+                    .Max() })
+                .Where(x => x.LastPaymentDate > DateTime.MinValue)
+                .OrderByDescending(x => x.LastPaymentDate)
+                .Select(x => x.Bill)
+                .ToList();
+        }
+        else // "Month"
+        {
+            paidList = Bills.Select(b => new { Bill = b, LastPaymentDate = b.Payments
+                    .Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year)
+                    .Select(p => p.PaymentDate)
+                    .DefaultIfEmpty(DateTime.MinValue)
+                    .Max() })
+                .Where(x => x.LastPaymentDate > DateTime.MinValue)
+                .OrderByDescending(x => x.LastPaymentDate)
+                .Select(x => x.Bill)
+                .ToList();
+        }
+
+        // Add virtual fully paid/skipped loans to paidList
+        foreach (var loan in activeRepaymentLoans)
+        {
+            var targetAmount = loan.MonthlyPaymentAmount ?? 0;
+            var currentMonthKey = CurrentDate.ToString("yyyy-MM");
+            var isSkipped = !string.IsNullOrWhiteSpace(loan.SkippedMonths) && 
+                            loan.SkippedMonths.Split(',').Contains(currentMonthKey);
+
+            int day = Math.Min(loan.PaymentDueDay!.Value, DateTime.DaysInMonth(CurrentDate.Year, CurrentDate.Month));
+            var loanDueDate = new DateTime(CurrentDate.Year, CurrentDate.Month, day);
+
+            var monthPayments = loan.Payments.Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year).ToList();
+            var totalMonthPaid = monthPayments.Sum(p => p.AmountPaid);
+
+            bool isPaid = false;
+            if (targetAmount > 0)
+            {
+                isPaid = totalMonthPaid >= targetAmount;
+            }
+            else // Flexible target
+            {
+                isPaid = totalMonthPaid > 0;
+            }
+
+            if (isSkipped || isPaid)
+            {
+                // Determine transaction date for rolling range matching
+                DateTime referenceDate = loanDueDate;
+                if (!isSkipped && monthPayments.Any())
+                {
+                    referenceDate = monthPayments.OrderByDescending(p => p.PaymentDate).First().PaymentDate;
+                }
+
+                // Check date filters for rolling views
+                bool includePaidLoan = false;
+                if (SelectedTimeFilter == "7Days")
+                {
+                    var sevenDaysAgo = today.AddDays(-7);
+                    includePaidLoan = referenceDate >= sevenDaysAgo && referenceDate <= today;
+                }
+                else if (SelectedTimeFilter == "14Days")
+                {
+                    var fourteenDaysAgo = today.AddDays(-14);
+                    includePaidLoan = referenceDate >= fourteenDaysAgo && referenceDate <= today;
+                }
+                else // "Month"
+                {
+                    includePaidLoan = true;
+                }
+
+                if (includePaidLoan)
+                {
+                    var virtualBill = new FinanceBill
+                    {
+                        Id = -loan.Id,
+                        LoanId = loan.Id,
+                        Loan = loan,
+                        OriginalAmount = targetAmount,
+                        DueDate = loanDueDate,
+                        Status = isSkipped ? "Skipped" : "Paid",
+                        Description = isSkipped ? "Repayment skipped this month" : $"Monthly Repayment for {loan.LenderName}",
+                        Vendor = new FinanceVendor { Name = loan.LenderName }
+                    };
+                    foreach (var p in monthPayments)
+                    {
+                        virtualBill.Payments.Add(p);
+                    }
+                    paidList.Add(virtualBill);
+                }
+            }
+        }
+        DisplayPaidBills = paidList;
 
         // Totals
         if (IsYearView && CurrentView == "PAYMENTS")
@@ -991,9 +1438,41 @@
         else
         {
             DisplayTotalDue = DisplayUnpaidBills.Sum(b => b.BalanceRemaining);
-            DisplayTotalPaid = Bills.SelectMany(b => b.Payments)
-                .Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year)
-                .Sum(p => p.AmountPaid);
+            
+            decimal loanPaymentsSum = 0;
+            if (SelectedTimeFilter == "7Days")
+            {
+                var sevenDaysAgo = today.AddDays(-7);
+                DisplayTotalPaid = Bills.SelectMany(b => b.Payments)
+                    .Where(p => p.PaymentDate >= sevenDaysAgo && p.PaymentDate <= today)
+                    .Sum(p => p.AmountPaid);
+
+                loanPaymentsSum = activeRepaymentLoans.SelectMany(l => l.Payments)
+                    .Where(p => p.PaymentDate >= sevenDaysAgo && p.PaymentDate <= today)
+                    .Sum(p => p.AmountPaid);
+            }
+            else if (SelectedTimeFilter == "14Days")
+            {
+                var fourteenDaysAgo = today.AddDays(-14);
+                DisplayTotalPaid = Bills.SelectMany(b => b.Payments)
+                    .Where(p => p.PaymentDate >= fourteenDaysAgo && p.PaymentDate <= today)
+                    .Sum(p => p.AmountPaid);
+
+                loanPaymentsSum = activeRepaymentLoans.SelectMany(l => l.Payments)
+                    .Where(p => p.PaymentDate >= fourteenDaysAgo && p.PaymentDate <= today)
+                    .Sum(p => p.AmountPaid);
+            }
+            else // "Month"
+            {
+                DisplayTotalPaid = Bills.SelectMany(b => b.Payments)
+                    .Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year)
+                    .Sum(p => p.AmountPaid);
+
+                loanPaymentsSum = activeRepaymentLoans.SelectMany(l => l.Payments)
+                    .Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year)
+                    .Sum(p => p.AmountPaid);
+            }
+            DisplayTotalPaid += loanPaymentsSum;
         }
         
         sw.Stop();
@@ -1002,7 +1481,7 @@
 
     private DateTime CurrentDate { get; set; } = DateTime.Now;
     private List<FinanceBill> Bills { get; set; } = new();
-    private string SelectedTimeFilter { get; set; } = "All";
+    private string SelectedTimeFilter { get; set; } = "Month";
     private bool IncludeNextMonth { get; set; } = true;
     private bool ShowBillModal { get; set; }
     private FinanceBill EditingBill { get; set; } = new();
@@ -1012,6 +1491,44 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var val = await JS.InvokeAsync<string>("sessionStorage.getItem", "finance_group_loans");
+                if (!string.IsNullOrEmpty(val) && bool.TryParse(val, out var groupPreference))
+                {
+                    GroupLoans = groupPreference;
+                    UpdateLoansDisplay();
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving GroupLoans setting: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task OnGroupLoansChanged(ChangeEventArgs e)
+    {
+        if (e.Value is bool val)
+        {
+            GroupLoans = val;
+            UpdateLoansDisplay();
+            try
+            {
+                await JS.InvokeVoidAsync("sessionStorage.setItem", "finance_group_loans", val.ToString().ToLower());
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error storing GroupLoans setting: {ex.Message}");
+            }
+        }
     }
 
     private void GoToReport()
@@ -1039,6 +1556,7 @@
             
             AllVendors = (await FinanceService.GetAllVendorsAsync(includeInactive: true)).ToList();
             AllLoans = (await FinanceService.GetAllLoansAsync(includeInactive: true)).ToList();
+            AllPaymentTypes = (await FinanceService.GetAllPaymentTypesAsync()).ToList();
             UpdateLoansDisplay();
             
             Console.WriteLine($"[FINANCE_UI] Updating Display...");
@@ -1077,14 +1595,44 @@
 
     private void SelectBill(FinanceBill bill)
     {
-        EditingBill = bill;
-        ShowBillModal = true;
+        if (bill.Id < 0 && bill.Loan != null)
+        {
+            EditingLoan = bill.Loan;
+            ShowLoanModal = true;
+        }
+        else
+        {
+            EditingBill = bill;
+            ShowBillModal = true;
+        }
     }
 
     private void MarkAsPaid(FinanceBill bill)
     {
-        PayingBill = bill;
-        ShowPaymentModal = true;
+        if (bill.Id < 0 && bill.Loan != null)
+        {
+            PayingLoan = bill.Loan;
+            ShowLoanPaymentModal = true;
+        }
+        else
+        {
+            PayingBill = bill;
+            ShowPaymentModal = true;
+        }
+    }
+
+    private async Task SkipLoanMonth(int loanId)
+    {
+        var yearMonth = CurrentDate.ToString("yyyy-MM");
+        try
+        {
+            await FinanceService.SkipLoanMonthAsync(loanId, yearMonth);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error skipping loan month: {ex.Message}");
+        }
     }
 
     private async Task ToggleYearView(bool yearView)

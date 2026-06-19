@@ -34,6 +34,8 @@ namespace GFC.Core.Interfaces
         Task UpdateLoanAsync(FinanceLoan loan);
         Task DeleteLoanAsync(int id);
         Task RecordLoanPaymentAsync(int loanId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null);
+        Task SkipLoanMonthAsync(int loanId, string yearMonth);
+        Task UnskipLoanMonthAsync(int loanId, string yearMonth);
 
         // Payment Management
         Task<FinancePayment?> GetPaymentByIdAsync(int id);
@@ -45,6 +47,12 @@ namespace GFC.Core.Interfaces
         Task<FinanceCategory> CreateCategoryAsync(FinanceCategory category);
         Task UpdateCategoryAsync(FinanceCategory category);
         Task DeleteCategoryAsync(int id);
+
+        // Payment Type Management
+        Task<IEnumerable<FinancePaymentType>> GetAllPaymentTypesAsync();
+        Task<FinancePaymentType> CreatePaymentTypeAsync(FinancePaymentType type);
+        Task UpdatePaymentTypeAsync(FinancePaymentType type);
+        Task DeletePaymentTypeAsync(int id);
 
         // Analytics
         Task<decimal> GetTotalDueForMonthAsync(int month, int year);

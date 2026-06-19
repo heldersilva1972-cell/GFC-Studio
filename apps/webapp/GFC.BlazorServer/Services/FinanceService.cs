@@ -38,6 +38,7 @@ namespace GFC.BlazorServer.Services
                     .AsNoTracking()
                     .AsSplitQuery() // [OPTIMIZATION] Prevents slow Cartesian product joins
                     .Include(b => b.Vendor)
+                        .ThenInclude(v => v!.DefaultPaymentType)
                     .Include(b => b.Category)
                     .Include(b => b.Payments)
                     .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
@@ -68,6 +69,7 @@ namespace GFC.BlazorServer.Services
                 .AsNoTracking()
                 .AsSplitQuery() // [OPTIMIZATION]
                 .Include(b => b.Vendor)
+                    .ThenInclude(v => v!.DefaultPaymentType)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
                 .Where(b => b.DueDate >= startOfYear && b.DueDate <= endOfYear)
@@ -91,6 +93,7 @@ namespace GFC.BlazorServer.Services
                 .AsNoTracking()
                 .AsSplitQuery()
                 .Include(b => b.Vendor)
+                    .ThenInclude(v => v!.DefaultPaymentType)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
                 .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
@@ -109,6 +112,7 @@ namespace GFC.BlazorServer.Services
             return await db.FinanceBills
                 .AsNoTracking()
                 .Include(b => b.Vendor)
+                    .ThenInclude(v => v!.DefaultPaymentType)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
                 .FirstOrDefaultAsync(b => b.Id == id);
@@ -290,6 +294,7 @@ namespace GFC.BlazorServer.Services
             var query = db.FinanceVendors
                 .AsNoTracking()
                 .Include(v => v.DefaultCategory)
+                .Include(v => v.DefaultPaymentType)
                 .AsQueryable();
 
             if (!includeInactive)
@@ -391,6 +396,51 @@ namespace GFC.BlazorServer.Services
             if (category != null)
             {
                 category.IsActive = false;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        #endregion
+
+        #region Payment Type Management
+
+        public async Task<IEnumerable<FinancePaymentType>> GetAllPaymentTypesAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.FinancePaymentTypes
+                .AsNoTracking()
+                .Where(pt => pt.IsActive)
+                .OrderBy(pt => pt.Name)
+                .ToListAsync();
+        }
+
+        public async Task<FinancePaymentType> CreatePaymentTypeAsync(FinancePaymentType type)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            type.CreatedAt = DateTime.Now;
+            db.FinancePaymentTypes.Add(type);
+            await db.SaveChangesAsync();
+            return type;
+        }
+
+        public async Task UpdatePaymentTypeAsync(FinancePaymentType type)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.FinancePaymentTypes.FindAsync(type.Id);
+            if (existing != null)
+            {
+                existing.Name = type.Name.Trim();
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task DeletePaymentTypeAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var pt = await db.FinancePaymentTypes.FindAsync(id);
+            if (pt != null)
+            {
+                pt.IsActive = false;
                 await db.SaveChangesAsync();
             }
         }
@@ -541,6 +591,44 @@ namespace GFC.BlazorServer.Services
             }
 
             await db.SaveChangesAsync();
+        }
+
+        public async Task SkipLoanMonthAsync(int loanId, string yearMonth)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var loan = await db.FinanceLoans.FindAsync(loanId);
+            if (loan != null)
+            {
+                var skipped = string.IsNullOrWhiteSpace(loan.SkippedMonths) 
+                    ? new List<string>() 
+                    : loan.SkippedMonths.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+                if (!skipped.Contains(yearMonth))
+                {
+                    skipped.Add(yearMonth);
+                    loan.SkippedMonths = string.Join(",", skipped);
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
+        public async Task UnskipLoanMonthAsync(int loanId, string yearMonth)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var loan = await db.FinanceLoans.FindAsync(loanId);
+            if (loan != null)
+            {
+                var skipped = string.IsNullOrWhiteSpace(loan.SkippedMonths)
+                    ? new List<string>()
+                    : loan.SkippedMonths.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+                if (skipped.Contains(yearMonth))
+                {
+                    skipped.Remove(yearMonth);
+                    loan.SkippedMonths = skipped.Count == 0 ? null : string.Join(",", skipped);
+                    await db.SaveChangesAsync();
+                }
+            }
         }
 
         public async Task<FinancePayment?> GetPaymentByIdAsync(int id)

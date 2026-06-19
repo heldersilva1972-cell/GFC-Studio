@@ -28,6 +28,16 @@ namespace GFC.Core.Models.Finance
 
         public string? Notes { get; set; }
 
+        [StringLength(100)]
+        public string? GroupName { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? MonthlyPaymentAmount { get; set; }
+
+        public int? PaymentDueDay { get; set; }
+
+        public string? SkippedMonths { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;

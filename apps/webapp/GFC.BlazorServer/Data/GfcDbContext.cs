@@ -160,6 +160,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Finance.FinanceCategory> FinanceCategories => Set<GFC.Core.Models.Finance.FinanceCategory>();
     public DbSet<GFC.Core.Models.Finance.FinancePayment> FinancePayments => Set<GFC.Core.Models.Finance.FinancePayment>();
     public DbSet<GFC.Core.Models.Finance.FinanceLoan> FinanceLoans => Set<GFC.Core.Models.Finance.FinanceLoan>();
+    public DbSet<GFC.Core.Models.Finance.FinancePaymentType> FinancePaymentTypes => Set<GFC.Core.Models.Finance.FinancePaymentType>();
 
     // BINGO
     public DbSet<BingoSession> BingoSessions => Set<BingoSession>();
@@ -1036,6 +1037,17 @@ public class GfcDbContext : DbContext
             entity.ToTable("FinanceVendors");
             entity.HasKey(v => v.Id);
             entity.HasIndex(v => v.Name);
+            entity.HasOne(v => v.DefaultPaymentType)
+                .WithMany()
+                .HasForeignKey(v => v.DefaultPaymentTypeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Finance.FinancePaymentType>(entity =>
+        {
+            entity.ToTable("FinancePaymentTypes");
+            entity.HasKey(pt => pt.Id);
+            entity.HasIndex(pt => pt.Name).IsUnique();
         });
 
         modelBuilder.Entity<GFC.Core.Models.Finance.FinanceCategory>(entity =>

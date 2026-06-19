@@ -34,6 +34,11 @@ namespace GFC.Core.Models.Finance
         [ForeignKey("DefaultCategoryId")]
         public virtual FinanceCategory? DefaultCategory { get; set; }
 
+        public int? DefaultPaymentTypeId { get; set; }
+
+        [ForeignKey("DefaultPaymentTypeId")]
+        public virtual FinancePaymentType? DefaultPaymentType { get; set; }
+
         public int Priority { get; set; } = 3; // 1 = High, 2 = Medium, 3 = Low
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
