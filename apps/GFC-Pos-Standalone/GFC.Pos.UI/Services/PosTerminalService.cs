@@ -604,6 +604,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 if (menu != null)
                 {
                     Console.WriteLine($"[PosTerminalService] RefreshMenuCacheAsync: Server returned {menu.Items.Count} items, {menu.Tokens.Count} tokens.");
+                    LastSynced = DateTime.Now;
                     
                     // We only save to vault if there's actually something to show
                     if (menu.Items.Any() || menu.Tokens.Any() || menu.Categories.Any())

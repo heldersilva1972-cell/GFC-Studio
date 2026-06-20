@@ -142,8 +142,19 @@ public class PosApiController : ControllerBase
                 : new List<PosMenuOverride>();
 
             var overrideMap = overrides.ToDictionary(o => o.LiquorItemId);
+            var resolvedVisibility = new Dictionary<int, bool>();
+            foreach (var i in liquorItems)
+            {
+                bool showInPos = i.ShowInPos && i.IsActive;
+                if (overrideMap.TryGetValue(i.Id, out var o) && o.IsVisible.HasValue)
+                {
+                    showInPos = o.IsVisible.Value;
+                }
+                resolvedVisibility[i.Id] = showInPos;
+            }
+
             var parentIdsWithChildren = liquorItems
-                .Where(x => x.ParentItemId.HasValue && x.IsActive && x.ShowInPos)
+                .Where(x => x.ParentItemId.HasValue && resolvedVisibility.TryGetValue(x.Id, out var cv) && cv && resolvedVisibility.TryGetValue(x.ParentItemId.Value, out var pv) && pv)
                 .Select(x => x.ParentItemId.Value)
                 .ToHashSet();
 
@@ -151,17 +162,23 @@ public class PosApiController : ControllerBase
 
             foreach (var i in liquorItems)
             {
-                bool showInPos = i.ShowInPos;
+                bool showInPos = resolvedVisibility[i.Id];
+                if (i.ParentItemId.HasValue)
+                {
+                    // Cascade visibility: hide child if parent is hidden
+                    bool parentVisible = resolvedVisibility.TryGetValue(i.ParentItemId.Value, out var pv) && pv;
+                    if (!parentVisible)
+                    {
+                        showInPos = false;
+                    }
+                }
+
                 decimal price = i.RetailPrice;
                 string category = i.Category ?? "MISC";
                 int displayOrder = i.DisplayOrder;
 
                 if (overrideMap.TryGetValue(i.Id, out var o))
                 {
-                    if (o.IsVisible.HasValue)
-                    {
-                        showInPos = o.IsVisible.Value;
-                    }
                     if (o.OverridePrice.HasValue)
                     {
                         price = o.OverridePrice.Value;
@@ -195,7 +212,33 @@ public class PosApiController : ControllerBase
                 }
             }
 
-            items = items.OrderBy(x => x.DisplayOrder).ToList();
+            var resolvedDisplayOrders = new Dictionary<int, int>();
+            foreach (var i in liquorItems)
+            {
+                int order = i.DisplayOrder;
+                if (overrideMap.TryGetValue(i.Id, out var o) && o.DisplayOrder.HasValue)
+                {
+                    order = o.DisplayOrder.Value;
+                }
+                resolvedDisplayOrders[i.Id] = order;
+            }
+
+            var parentIdLookup = liquorItems
+                .Where(x => x.ParentItemId.HasValue)
+                .ToDictionary(x => x.Id, x => x.ParentItemId!.Value);
+
+            items = items
+                .OrderBy(x => {
+                    if (parentIdLookup.TryGetValue(x.Id, out var parentId))
+                    {
+                        return resolvedDisplayOrders.TryGetValue(parentId, out var parentOrder) ? parentOrder : x.DisplayOrder;
+                    }
+                    return x.DisplayOrder;
+                })
+                .ThenBy(x => parentIdLookup.TryGetValue(x.Id, out var parentId) ? parentId : x.Id)
+                .ThenBy(x => parentIdLookup.ContainsKey(x.Id) ? 1 : 0)
+                .ThenBy(x => x.Id)
+                .ToList();
 
             if (!categories.Contains("TOKENS")) categories.Add("TOKENS");
 
