@@ -47,6 +47,18 @@ namespace GFC.Core.Models
         public int PackSize { get; set; } = 1;
 
         [Column(TypeName = "decimal(18,2)")]
+        public decimal? CasePrice { get; set; }
+
+        public bool OrderByCaseOnly { get; set; } = false;
+
+        public int? BulkDiscountThreshold { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? BulkDiscountPrice { get; set; }
+
+        public int? MinOrderCases { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
         public decimal RetailPrice { get; set; } = 0;
 
         [Column(TypeName = "decimal(18,2)")]

@@ -44,6 +44,11 @@ namespace GFC.BlazorServer.Controllers
                         MinStockLimit = item.MinStockLimit,
                         MinimumOrderQuantity = item.MinimumOrderQuantity,
                         PackSize = item.PackSize,
+                        CasePrice = item.CasePrice,
+                        OrderByCaseOnly = item.OrderByCaseOnly,
+                        BulkDiscountThreshold = item.BulkDiscountThreshold,
+                        BulkDiscountPrice = item.BulkDiscountPrice,
+                        MinOrderCases = item.MinOrderCases,
                         RetailPrice = item.RetailPrice,
                         PourSize = item.PourSize,
                         IsUnitBased = item.IsUnitBased,
@@ -276,6 +281,11 @@ namespace GFC.BlazorServer.Controllers
                                         MinStockLimit = dbItem.LiquorItem.MinStockLimit,
                                         MinimumOrderQuantity = dbItem.LiquorItem.MinimumOrderQuantity,
                                         PackSize = dbItem.LiquorItem.PackSize,
+                                        CasePrice = dbItem.LiquorItem.CasePrice,
+                                        OrderByCaseOnly = dbItem.LiquorItem.OrderByCaseOnly,
+                                        BulkDiscountThreshold = dbItem.LiquorItem.BulkDiscountThreshold,
+                                        BulkDiscountPrice = dbItem.LiquorItem.BulkDiscountPrice,
+                                        MinOrderCases = dbItem.LiquorItem.MinOrderCases,
                                         RetailPrice = dbItem.LiquorItem.RetailPrice,
                                         PourSize = dbItem.LiquorItem.PourSize,
                                         IsUnitBased = dbItem.LiquorItem.IsUnitBased,
@@ -303,6 +313,143 @@ namespace GFC.BlazorServer.Controllers
             {
                 _logger.LogError(ex, "Error fetching pending liquor orders for POS");
                 return StatusCode(500, $"Internal server error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        [HttpGet("orders")]
+        public async Task<IActionResult> GetOrders()
+        {
+            try
+            {
+                var dbOrders = await _liquorService.GetAllOrdersAsync();
+                var cleanOrders = new List<LiquorOrder>();
+                foreach (var dbOrder in dbOrders)
+                {
+                    var cleanOrder = new LiquorOrder
+                    {
+                        Id = dbOrder.Id,
+                        VendorId = dbOrder.VendorId,
+                        OrderDate = dbOrder.OrderDate,
+                        Status = dbOrder.Status,
+                        ItemsTotal = dbOrder.ItemsTotal,
+                        TaxAmount = dbOrder.TaxAmount,
+                        AdditionalCosts = dbOrder.AdditionalCosts,
+                        TotalCost = dbOrder.TotalCost,
+                        InvoiceNumber = dbOrder.InvoiceNumber,
+                        IsPaid = dbOrder.IsPaid,
+                        PaidDate = dbOrder.PaidDate,
+                        ActualPaidAmount = dbOrder.ActualPaidAmount,
+                        PaidByUserId = dbOrder.PaidByUserId,
+                        UserId = dbOrder.UserId,
+                        IsEmailed = dbOrder.IsEmailed,
+                        LastEmailedDate = dbOrder.LastEmailedDate,
+                        SpecialInstructions = dbOrder.SpecialInstructions,
+                        Vendor = dbOrder.Vendor == null ? null : new LiquorVendor
+                        {
+                            Id = dbOrder.Vendor.Id,
+                            Name = dbOrder.Vendor.Name,
+                            ContactName = dbOrder.Vendor.ContactName,
+                            MinimumOrderAmount = dbOrder.Vendor.MinimumOrderAmount,
+                            PhoneNumber = dbOrder.Vendor.PhoneNumber,
+                            Email = dbOrder.Vendor.Email,
+                            Website = dbOrder.Vendor.Website,
+                            Items = new List<LiquorItem>(),
+                            Orders = new List<LiquorOrder>()
+                        },
+                        OrderItems = new List<LiquorOrderItem>()
+                    };
+
+                    if (dbOrder.OrderItems != null)
+                    {
+                        foreach (var dbItem in dbOrder.OrderItems)
+                        {
+                            cleanOrder.OrderItems.Add(new LiquorOrderItem
+                            {
+                                Id = dbItem.Id,
+                                OrderId = dbItem.OrderId,
+                                LiquorItemId = dbItem.LiquorItemId,
+                                Quantity = dbItem.Quantity,
+                                UnitPriceAtTimeOfOrder = dbItem.UnitPriceAtTimeOfOrder,
+                                BottleFeeAtTimeOfOrder = dbItem.BottleFeeAtTimeOfOrder,
+                                IsBackordered = dbItem.IsBackordered,
+                                IsResolved = dbItem.IsResolved,
+                                LiquorItem = dbItem.LiquorItem == null ? null : new LiquorItem
+                                {
+                                    Id = dbItem.LiquorItem.Id,
+                                    Name = dbItem.LiquorItem.Name,
+                                    BottleSize = dbItem.LiquorItem.BottleSize,
+                                    CurrentPrice = dbItem.LiquorItem.CurrentPrice,
+                                    CurrentStock = dbItem.LiquorItem.CurrentStock,
+                                    PackSize = dbItem.LiquorItem.PackSize,
+                                    CasePrice = dbItem.LiquorItem.CasePrice,
+                                    OrderByCaseOnly = dbItem.LiquorItem.OrderByCaseOnly,
+                                    BulkDiscountThreshold = dbItem.LiquorItem.BulkDiscountThreshold,
+                                    BulkDiscountPrice = dbItem.LiquorItem.BulkDiscountPrice,
+                                    MinOrderCases = dbItem.LiquorItem.MinOrderCases,
+                                    IsUnitBased = dbItem.LiquorItem.IsUnitBased
+                                }
+                            });
+                        }
+                    }
+
+                    cleanOrders.Add(cleanOrder);
+                }
+                return Ok(cleanOrders);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching all liquor orders for API");
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        [HttpPost("orders")]
+        public async Task<IActionResult> CreateOrder([FromBody] LiquorOrder order, [FromQuery] bool sendEmail = false)
+        {
+            try
+            {
+                if (order == null) return BadRequest("Order data is required");
+                
+                // Clear temporary client-side negative IDs
+                order.Id = 0;
+                if (order.OrderItems != null)
+                {
+                    foreach (var item in order.OrderItems)
+                    {
+                        item.Id = 0;
+                        item.OrderId = 0;
+                    }
+                }
+                
+                var dbOrder = await _liquorService.CreateOrderAsync(order, sendEmail);
+                
+                var cleanOrder = new LiquorOrder
+                {
+                    Id = dbOrder.Id,
+                    VendorId = dbOrder.VendorId,
+                    OrderDate = dbOrder.OrderDate,
+                    Status = dbOrder.Status,
+                    ItemsTotal = dbOrder.ItemsTotal,
+                    TaxAmount = dbOrder.TaxAmount,
+                    AdditionalCosts = dbOrder.AdditionalCosts,
+                    TotalCost = dbOrder.TotalCost,
+                    InvoiceNumber = dbOrder.InvoiceNumber,
+                    IsPaid = dbOrder.IsPaid,
+                    PaidDate = dbOrder.PaidDate,
+                    ActualPaidAmount = dbOrder.ActualPaidAmount,
+                    PaidByUserId = dbOrder.PaidByUserId,
+                    UserId = dbOrder.UserId,
+                    IsEmailed = dbOrder.IsEmailed,
+                    LastEmailedDate = dbOrder.LastEmailedDate,
+                    SpecialInstructions = dbOrder.SpecialInstructions
+                };
+                
+                return Ok(cleanOrder);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error creating liquor order from API");
+                return BadRequest(ex.Message);
             }
         }
 

@@ -53,6 +53,18 @@ namespace GFC.BlazorServer.Services
 
         public async Task<LiquorItem> CreateItemAsync(LiquorItem item, int? userId)
         {
+            if (item.OrderByCaseOnly)
+            {
+                if ((!item.CasePrice.HasValue || item.CasePrice.Value == 0) && item.CurrentPrice > 0)
+                {
+                    item.CasePrice = item.CurrentPrice;
+                }
+                else if (item.CasePrice.HasValue && item.CasePrice.Value > 0)
+                {
+                    item.CurrentPrice = item.CasePrice.Value;
+                }
+            }
+
             using var db = await _dbFactory.CreateDbContextAsync();
             
             // Check for duplicate UPC
@@ -106,6 +118,19 @@ namespace GFC.BlazorServer.Services
 
             foreach (var item in items)
             {
+                // structural sync: ensure case-only products keep their prices aligned
+                if (item.OrderByCaseOnly)
+                {
+                    if ((!item.CasePrice.HasValue || item.CasePrice.Value == 0) && item.CurrentPrice > 0)
+                    {
+                        item.CasePrice = item.CurrentPrice;
+                    }
+                    else if (item.CasePrice.HasValue && item.CasePrice.Value > 0)
+                    {
+                        item.CurrentPrice = item.CasePrice.Value;
+                    }
+                }
+
                 var existing = await db.LiquorItems.AsNoTracking().OrderBy(i => i.Id).FirstOrDefaultAsync(i => i.Id == item.Id);
                 if (existing == null) continue;
 
@@ -124,10 +149,16 @@ namespace GFC.BlazorServer.Services
                 bool packChanged = existing.PackSize != item.PackSize;
                 bool pourChanged = existing.PourSize != item.PourSize;
                 bool minOrderChanged = existing.MinimumOrderQuantity != item.MinimumOrderQuantity;
+                bool casePriceChanged = existing.CasePrice != item.CasePrice;
+                bool orderByCaseOnlyChanged = existing.OrderByCaseOnly != item.OrderByCaseOnly;
+                bool bulkDiscountThresholdChanged = existing.BulkDiscountThreshold != item.BulkDiscountThreshold;
+                bool bulkDiscountPriceChanged = existing.BulkDiscountPrice != item.BulkDiscountPrice;
+                bool minOrderCasesChanged = existing.MinOrderCases != item.MinOrderCases;
 
                 if (!costChanged && !priceChanged && !minStockChanged && !vendorChanged && !nameChanged && !sizeChanged &&
                     !looseChanged && !unitChanged && !activeChanged && !beerChanged && !posChanged && !packChanged &&
-                    !pourChanged && !minOrderChanged) continue;
+                    !pourChanged && !minOrderChanged && !casePriceChanged && !orderByCaseOnlyChanged && 
+                    !bulkDiscountThresholdChanged && !bulkDiscountPriceChanged && !minOrderCasesChanged) continue;
 
                 try
                 {
@@ -146,6 +177,10 @@ namespace GFC.BlazorServer.Services
                         if (activeChanged) auditNotes.Add($"Active: {existing.IsActive} -> {item.IsActive}");
                         if (beerChanged) auditNotes.Add($"Beer: {existing.IsBeer} -> {item.IsBeer}");
                         if (posChanged) auditNotes.Add($"Show in POS: {existing.ShowInPos} -> {item.ShowInPos}");
+                        if (casePriceChanged) auditNotes.Add($"Case Price: {existing.CasePrice:C} -> {item.CasePrice:C}");
+                        if (orderByCaseOnlyChanged) auditNotes.Add($"Case Only: {existing.OrderByCaseOnly} -> {item.OrderByCaseOnly}");
+                        if (bulkDiscountThresholdChanged || bulkDiscountPriceChanged) auditNotes.Add($"Bulk Discount: {existing.BulkDiscountPrice:C} @ {existing.BulkDiscountThreshold} -> {item.BulkDiscountPrice:C} @ {item.BulkDiscountThreshold}");
+                        if (minOrderCasesChanged) auditNotes.Add($"Min Cases: {existing.MinOrderCases} -> {item.MinOrderCases}");
 
                         if (auditNotes.Any())
                         {
@@ -414,64 +449,49 @@ namespace GFC.BlazorServer.Services
 
             if (sendEmail)
             {
-                _ = Task.Run(async () => {
-                    try {
-                        var settings = await _settingsService.GetAsync();
+                try {
+                    var settings = await _settingsService.GetAsync();
+                    var vendor = await db.LiquorVendors.FindAsync(order.VendorId);
+                    
+                    if (vendor != null && !string.IsNullOrEmpty(vendor.Email))
+                    {
+                        var subject = $"Liquor Order #{order.Id} - GFC System";
                         
-                        // Use a fresh DB context inside the background task to avoid "Disposed" errors
-                        using var taskDb = await _dbFactory.CreateDbContextAsync();
-                        var vendor = await taskDb.LiquorVendors.FindAsync(order.VendorId);
-                        
-                        if (vendor != null && !string.IsNullOrEmpty(vendor.Email))
-                        {
-                            var subject = $"Liquor Order #{order.Id} - GFC System";
-                            
-                            // Re-fetch order with items for email body
-                            var fullOrder = await taskDb.LiquorOrders
-                                .Include(o => o.OrderItems)
-                                    .ThenInclude(oi => oi.LiquorItem)
-                                .FirstOrDefaultAsync(o => o.Id == order.Id);
+                        // Re-fetch order with items for email body
+                        var fullOrder = await db.LiquorOrders
+                            .Include(o => o.OrderItems)
+                                .ThenInclude(oi => oi.LiquorItem)
+                            .FirstOrDefaultAsync(o => o.Id == order.Id);
 
-                            if (fullOrder != null)
+                        if (fullOrder != null)
+                        {
+                            var body = GetOrderEmailHtmlBody(fullOrder, vendor, settings);
+                            var result = await _emailService.SendEmailAsync(vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
+                            
+                            if (result.Success)
                             {
-                                var body = GetOrderEmailHtmlBody(fullOrder, vendor, settings);
-                                var result = await _emailService.SendEmailAsync(vendor.Email, subject, body, ccEmail: settings.LiquorEmailCc);
-                                
-                                if (result.Success)
-                                {
-                                    // Mark as emailed ONLY if successful
-                                    fullOrder.IsEmailed = true;
-                                    fullOrder.LastEmailedDate = DateTime.UtcNow;
-                                    await taskDb.SaveChangesAsync();
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"[LiquorService] Email delivery failed for Order #{order.Id}: {result.ErrorMessage}");
-                                }
+                                // Mark as emailed ONLY if successful
+                                fullOrder.IsEmailed = true;
+                                fullOrder.LastEmailedDate = DateTime.UtcNow;
+                                order.IsEmailed = true;
+                                order.LastEmailedDate = fullOrder.LastEmailedDate;
+                                await db.SaveChangesAsync();
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[LiquorService] Email delivery failed for Order #{order.Id}: {result.ErrorMessage}");
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[LiquorService] Async emailing failed for Order #{order.Id}: {ex}");
-                        
-                        // Revert the intent flag if it failed completely
-                        try {
-                            using var errorDb = await _dbFactory.CreateDbContextAsync();
-                            var o = await errorDb.LiquorOrders.FindAsync(order.Id);
-                            if (o != null)
-                            {
-                                o.IsEmailed = false;
-                                await errorDb.SaveChangesAsync();
-                            }
-                        } catch { /* Silent fail on revert attempt */ }
-                    }
-                });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[LiquorService] Emailing failed for Order #{order.Id}: {ex}");
+                }
             }
 
             return order;
         }
-
         private string GetOrderEmailHtmlBody(LiquorOrder order, LiquorVendor vendor, SystemSettings settings)
         {
             var sb = new System.Text.StringBuilder();
@@ -507,11 +527,17 @@ namespace GFC.BlazorServer.Services
             sb.AppendLine("</tr>");
             sb.AppendLine("</table>");
 
-            if (!string.IsNullOrEmpty(order.SpecialInstructions))
+            var cleanInstructions = order.SpecialInstructions;
+            if (!string.IsNullOrEmpty(cleanInstructions))
+            {
+                cleanInstructions = cleanInstructions.Replace("Placed via Mobile", "").Trim().Trim(',', ';', ' ').Trim();
+            }
+
+            if (!string.IsNullOrEmpty(cleanInstructions))
             {
                 sb.AppendLine("<div style='background-color: #fff9db; border-left: 4px solid #fcc419; padding: 15px; border-radius: 4px; margin-bottom: 30px;'>");
                 sb.AppendLine("<div style='font-size: 11px; font-weight: bold; color: #856404; text-transform: uppercase; margin-bottom: 5px;'>Delivery Instructions:</div>");
-                sb.AppendLine($"<div style='font-size: 14px; color: #2c3e50;'>{order.SpecialInstructions}</div>");
+                sb.AppendLine($"<div style='font-size: 14px; color: #2c3e50;'>{cleanInstructions}</div>");
                 sb.AppendLine("</div>");
             }
 
@@ -521,6 +547,7 @@ namespace GFC.BlazorServer.Services
             sb.AppendLine("<th style='padding: 12px 5px; text-align: left; font-size: 12px; color: #718096; text-transform: uppercase;'>Qty</th>");
             sb.AppendLine("<th style='padding: 12px 5px; text-align: left; font-size: 12px; color: #718096; text-transform: uppercase;'>Product Description</th>");
             sb.AppendLine("<th style='padding: 12px 5px; text-align: right; font-size: 12px; color: #718096; text-transform: uppercase;'>Unit Price</th>");
+            sb.AppendLine("<th style='padding: 12px 5px; text-align: right; font-size: 12px; color: #718096; text-transform: uppercase;'>Deposit/Fee</th>");
             sb.AppendLine("<th style='padding: 12px 5px; text-align: right; font-size: 12px; color: #718096; text-transform: uppercase;'>Subtotal</th>");
             sb.AppendLine("</tr></thead><tbody>");
 
@@ -529,9 +556,10 @@ namespace GFC.BlazorServer.Services
                 var packSize = item.LiquorItem?.PackSize ?? 1;
                 var isCase = packSize > 1;
                 var displayUnits = isCase ? (decimal)item.Quantity / packSize : item.Quantity;
-                var unitLabel = isCase ? (displayUnits == 1 ? "Case" : "Cases") : (displayUnits == 1 ? "Unit" : "Units");
+                var unitLabel = isCase ? (displayUnits == 1 ? "Case" : "Cases") : (displayUnits == 1 ? "Bottle" : "Bottles");
                 
-                var subtotal = (displayUnits * item.UnitPriceAtTimeOfOrder) + (item.BottleFeeAtTimeOfOrder * item.Quantity);
+                var depositFee = item.BottleFeeAtTimeOfOrder * item.Quantity;
+                var subtotal = (displayUnits * item.UnitPriceAtTimeOfOrder) + depositFee;
 
                 sb.AppendLine("<tr style='border-bottom: 1px solid #edf2f7;'>");
                 sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; font-weight: bold; color: #1a1a1a; white-space: nowrap;'>{displayUnits:G29} {unitLabel}</td>");
@@ -540,6 +568,7 @@ namespace GFC.BlazorServer.Services
                 sb.AppendLine($"<div style='font-size: 12px; color: #718096; margin-top: 2px;'>{item.LiquorItem?.BottleSize}</div>");
                 sb.AppendLine("</td>");
                 sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; text-align: right; color: #4a5568;'>{item.UnitPriceAtTimeOfOrder:C}</td>");
+                sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; text-align: right; color: #4a5568;'>{(depositFee > 0 ? depositFee.ToString("C") : "-")}</td>");
                 sb.AppendLine($"<td style='padding: 15px 5px; vertical-align: top; text-align: right; font-weight: bold; color: #1a1a1a;'>{subtotal:C}</td>");
                 sb.AppendLine("</tr>");
             }

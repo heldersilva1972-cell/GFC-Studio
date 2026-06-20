@@ -8,6 +8,7 @@ public class MemberDrawStatusDto
     public int MemberId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+    public string? Suffix { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public bool DuesPaid { get; set; }
@@ -34,6 +35,7 @@ public class MemberDrawPoolItemDto
     public int MemberId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+    public string? Suffix { get; set; }
     public bool IsEligible { get; set; }
 }
 

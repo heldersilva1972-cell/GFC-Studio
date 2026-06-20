@@ -457,6 +457,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
                 MemberId = m.UserId,
                 FirstName = m.Username,
                 LastName = "",
+                Suffix = "",
                 IsEligible = true
             }).ToList();
 
@@ -475,6 +476,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
                 MemberId = memberId,
                 FirstName = "John",
                 LastName = "Doe",
+                Suffix = "Jr",
                 Status = "Active",
                 IsActive = true,
                 DuesPaid = true,

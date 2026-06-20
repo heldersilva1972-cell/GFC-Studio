@@ -969,6 +969,7 @@ public class PosApiController : ControllerBase
                     MemberId = m.MemberID,
                     FirstName = m.FirstName ?? string.Empty,
                     LastName = m.LastName ?? string.Empty,
+                    Suffix = m.Suffix,
                     IsEligible = isEligible
                 });
             }
@@ -1059,6 +1060,7 @@ public class PosApiController : ControllerBase
                 MemberId = member.MemberID,
                 FirstName = member.FirstName,
                 LastName = member.LastName,
+                Suffix = member.Suffix,
                 Status = member.Status,
                 IsActive = isActive,
                 DuesPaid = isDuesPaid,

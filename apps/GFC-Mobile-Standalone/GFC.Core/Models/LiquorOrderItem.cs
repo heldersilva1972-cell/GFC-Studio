@@ -30,6 +30,9 @@ namespace GFC.Core.Models
         public decimal UnitPriceAtTimeOfOrder { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
+        public decimal? CasePriceAtTimeOfOrder { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
         public decimal BottleFeeAtTimeOfOrder { get; set; } = 0;
 
         public bool IsBackordered { get; set; } = false;

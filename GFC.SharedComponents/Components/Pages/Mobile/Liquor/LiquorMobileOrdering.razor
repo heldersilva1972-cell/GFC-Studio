@@ -76,7 +76,22 @@
                         </div>
                         <div class="d-flex align-items-center gap-2">
                              <button class="btn btn-icon-sm bg-light" @onclick="() => UpdateQty(oi, -1)">-</button>
-                             <span class="fw-black px-2">@oi.Quantity</span>
+                             @if (oi.LiquorItem?.PackSize > 1)
+                             {
+                                 var casesVal = oi.Quantity / oi.LiquorItem.PackSize;
+                                 <span class="fw-black px-2">@casesVal @(casesVal == 1 ? "case" : "cases")</span>
+                             }
+                             else
+                             {
+                                 @if (oi.LiquorItem?.OrderByCaseOnly == true)
+                                 {
+                                     <span class="fw-black px-2">@oi.Quantity @(oi.Quantity == 1 ? "case" : "cases")</span>
+                                 }
+                                 else
+                                 {
+                                     <span class="fw-black px-2">@oi.Quantity @(oi.Quantity == 1 ? "bottle" : "bottles")</span>
+                                 }
+                             }
                              <button class="btn btn-icon-sm bg-light" @onclick="() => UpdateQty(oi, 1)">+</button>
                         </div>
                     </div>
@@ -229,20 +244,22 @@
     private void AddToOrder(LiquorItem item)
     {
         var existing = _currentOrderItems.FirstOrDefault(oi => oi.LiquorItemId == item.Id);
+        int step = item.PackSize > 1 ? item.PackSize : 1;
         if (existing != null)
         {
-            existing.Quantity++;
+            existing.Quantity += step;
         }
         else
         {
-            _currentOrderItems.Add(new LiquorOrderItem { LiquorItemId = item.Id, LiquorItem = item, Quantity = 1 });
+            _currentOrderItems.Add(new LiquorOrderItem { LiquorItemId = item.Id, LiquorItem = item, Quantity = step });
         }
         _searchTerm = "";
     }
 
     private void UpdateQty(LiquorOrderItem oi, int delta)
     {
-        oi.Quantity += delta;
+        int step = (oi.LiquorItem != null && oi.LiquorItem.PackSize > 1) ? oi.LiquorItem.PackSize : 1;
+        oi.Quantity += delta * step;
         if (oi.Quantity <= 0) _currentOrderItems.Remove(oi);
     }
 
@@ -253,7 +270,48 @@
 
     private async Task SubmitOrderBatch(int vendorId)
     {
-        if (!_currentOrderItems.Any()) return;
+        var vendorItems = _currentOrderItems.Where(x => x.LiquorItem?.VendorId == vendorId).ToList();
+        if (!vendorItems.Any()) return;
+        
+        decimal itemsTotal = 0;
+        foreach (var oi in vendorItems)
+        {
+            var item = oi.LiquorItem;
+            if (item != null)
+            {
+                decimal lineTotal = 0;
+                decimal casePrice = (item.CasePrice.HasValue && item.CasePrice.Value > 0) 
+                    ? item.CasePrice.Value 
+                    : item.CurrentPrice;
+
+                decimal bottlePrice = (item.CasePrice.HasValue && item.CasePrice.Value > 0)
+                    ? item.CurrentPrice
+                    : (item.PackSize > 0 ? (item.CurrentPrice / item.PackSize) : item.CurrentPrice);
+
+                decimal effectiveCasePrice = casePrice;
+                if (item.PackSize > 1)
+                {
+                    int cases = oi.Quantity / item.PackSize;
+                    int bottles = oi.Quantity % item.PackSize;
+                    if (item.BulkDiscountThreshold.HasValue && item.BulkDiscountPrice.HasValue && cases >= item.BulkDiscountThreshold.Value)
+                    {
+                        effectiveCasePrice = item.BulkDiscountPrice.Value;
+                    }
+                    lineTotal = (cases * effectiveCasePrice) + (bottles * bottlePrice);
+                }
+                else
+                {
+                    lineTotal = item.CurrentPrice * oi.Quantity;
+                    effectiveCasePrice = item.CurrentPrice;
+                }
+                if (item.IsBeer) lineTotal += 0.05m * oi.Quantity;
+                itemsTotal += lineTotal;
+                
+                oi.UnitPriceAtTimeOfOrder = item.CurrentPrice;
+                oi.CasePriceAtTimeOfOrder = effectiveCasePrice;
+                oi.BottleFeeAtTimeOfOrder = item.IsBeer ? 0.05m : 0;
+            }
+        }
 
         var order = new LiquorOrder
         {
@@ -261,14 +319,20 @@
             UserId = 1, // Default mobile user ID
             OrderDate = DateTime.Now,
             Status = "Placed",
-            OrderItems = _currentOrderItems.Select(oi => new LiquorOrderItem 
+            ItemsTotal = itemsTotal,
+            TotalCost = itemsTotal,
+            OrderItems = vendorItems.Select(oi => new LiquorOrderItem 
             { 
                 LiquorItemId = oi.LiquorItemId, 
-                Quantity = oi.Quantity 
-            }).ToList()
+                Quantity = oi.Quantity,
+                UnitPriceAtTimeOfOrder = oi.UnitPriceAtTimeOfOrder,
+                CasePriceAtTimeOfOrder = oi.CasePriceAtTimeOfOrder,
+                BottleFeeAtTimeOfOrder = oi.BottleFeeAtTimeOfOrder
+            }).ToList(),
+            SpecialInstructions = "Placed via Mobile"
         };
-
-        var created = await LiquorService.CreateOrderAsync(order);
-        Navigation.NavigateTo("/mobile/liquor/receiving");
+        var created = await LiquorService.CreateOrderAsync(order, sendEmail: true);
+        _currentOrderItems.RemoveAll(x => x.LiquorItem?.VendorId == vendorId);
+        Navigation.NavigateTo("/mobile/liquor/hub");
     }
 }

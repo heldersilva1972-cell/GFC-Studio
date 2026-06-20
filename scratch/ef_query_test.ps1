@@ -1,4 +1,4 @@
-$ProjectDir = "c:\Users\hnsil\Documents\GFC\cursor files\GFC-System\GFC-Studio V2\apps\webapp\GFC.BlazorServer"
+$ProjectDir = "c:\Users\hnsil\Documents\GFC\GFC-Studio V2\apps\webapp\GFC.BlazorServer"
 $BinDir = "$ProjectDir\bin\Debug\net10.0"
 
 if (-not (Test-Path "$BinDir\GFC.BlazorServer.dll")) {
