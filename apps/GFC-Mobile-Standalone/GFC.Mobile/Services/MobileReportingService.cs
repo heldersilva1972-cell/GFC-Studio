@@ -337,7 +337,10 @@ public class MobileReportingService : IMobileReportingService
     public async Task<bool> SubmitBingoSessionAsync(BingoSession session, string username)
     {
         session.CreatedBy = username;
-        session.Status = "Submitted";
+        if (string.IsNullOrEmpty(session.Status) || session.Status == "Draft")
+        {
+            session.Status = "Submitted";
+        }
 
         // Save to Vault (Predictable Key for deduplication)
         var vaultKey = $"gfc_bingo_outbox_{session.SessionDate:yyyy-MM-dd}";
@@ -458,6 +461,25 @@ public class MobileReportingService : IMobileReportingService
 
         return new List<ProgressiveHistoryDto>();
     }
+
+    public async Task<List<BingoSession>> GetBingoSessionHistoryAsync()
+    {
+        try
+        {
+            if (await _connectivity.GateAsync("GetBingoSessionHistory"))
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var history = await _http.GetFromJsonAsync<List<BingoSession>>("/api/bingo/history", cts.Token);
+                return history ?? new List<BingoSession>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO] GetBingoSessionHistoryAsync server fetch failed: {ex.Message}");
+        }
+        return new List<BingoSession>();
+    }
+
 
     public async Task<LotteryCommissionRate> GetLotteryRateAsync(int year)
     {

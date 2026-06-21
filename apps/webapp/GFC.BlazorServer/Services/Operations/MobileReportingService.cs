@@ -469,7 +469,10 @@ public class MobileReportingService : IMobileReportingService
         
         session.CreatedAt = DateTime.UtcNow;
         session.CreatedBy = username;
-        session.Status = "Submitted";
+        if (string.IsNullOrEmpty(session.Status) || session.Status == "Draft")
+        {
+            session.Status = "Submitted";
+        }
 
         // Enforce session-level totals calculated directly from the actual game-level entries
         if (session.GameEntries != null && session.GameEntries.Any())
@@ -605,6 +608,16 @@ public class MobileReportingService : IMobileReportingService
         return await db.PullTabGameDefinitions
             .Include(g => g.PrizeOptions)
             .Where(g => g.IsActive && !g.IsDeleted)
+            .ToListAsync();
+    }
+
+    public async Task<List<BingoSession>> GetBingoSessionHistoryAsync()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.BingoSessions
+            .Where(s => !s.IsDeleted)
+            .OrderByDescending(s => s.SessionDate)
+            .Take(20)
             .ToListAsync();
     }
 }

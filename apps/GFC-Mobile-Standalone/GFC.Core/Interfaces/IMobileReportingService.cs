@@ -30,6 +30,7 @@ public interface IMobileReportingService
     Task<bool> CancelBingoSessionAsync(DateTime date);
     Task<List<PullTabGameDefinition>> GetPullTabGamesAsync();
     Task<List<ProgressiveHistoryDto>> GetProgressiveHistoryAsync(string gameName, string sheetColor);
+    Task<List<BingoSession>> GetBingoSessionHistoryAsync();
 }
 
 public class DailyShiftSummary // Revision 2.1.35

@@ -3283,13 +3283,13 @@
                                 <div>
                                     <div class="fw-black text-dark fs-6">@item.Date.ToString("dddd, MMMM dd, yyyy")</div>
                                     <div class="d-flex align-items-center gap-2 mt-1">
-                                        @if (item.SessionState == "Open")
+                                        @if (item.SessionState == "Open" || item.SessionState == "Partial")
                                         {
                                             <span class="badge bg-success bg-opacity-10 text-success fw-black border border-success border-opacity-25 px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
                                                 <i class="bi bi-play-circle-fill me-1 animate-pulse"></i> ACTIVE TRACKING
                                             </span>
                                         }
-                                        else if (item.SessionState == "Closed")
+                                        else if (item.SessionState == "Closed" || item.SessionState == "Submitted")
                                         {
                                             <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 fw-black text-dark px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
                                                 <i class="bi bi-lock-fill me-1"></i> CLOSED & LOCKED
@@ -5955,6 +5955,32 @@
                     }
                 }
             }
+
+            // Check server sessions for open/partial tracking
+            try
+            {
+                var serverHistory = await ReportingService.GetBingoSessionHistoryAsync();
+                if (serverHistory != null)
+                {
+                    foreach (var s in serverHistory)
+                    {
+                        if (s.SessionDate.Date == SessionDate.Date)
+                        {
+                            continue;
+                        }
+                        if (s.Status == "Partial" || s.Status == "Open" || s.Status == "Draft")
+                        {
+                            _hasBlockingOpenSession = true;
+                            _blockingSessionDate = s.SessionDate;
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[BINGO] Error checking server for blocking sessions: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
@@ -6051,7 +6077,7 @@
 
                 if (serverSession != null)
                 {
-                    _sessionState = serverSession.Status ?? "Closed";
+                    _sessionState = (serverSession.Status == "Submitted" || serverSession.Status == "Closed") ? "Closed" : "Open";
                     _sessionEntered = true; // Auto-enter to show pre-populated data!
                     _pullTabEntries = serverSession.PullTabEntries?.ToList() ?? new List<PullTabGameEntry>();
                     _doorPrizeAmount = serverSession.DoorPrizeAmount;
@@ -6771,6 +6797,36 @@
                     }
                 }
             }
+
+            // Try fetching server-side session history to populate database-saved sessions not in IndexedDB
+            try
+            {
+                var serverHistory = await ReportingService.GetBingoSessionHistoryAsync();
+                if (serverHistory != null)
+                {
+                    foreach (var s in serverHistory)
+                    {
+                        // Check if we already have this date in history from IndexedDB drafts
+                        if (!_historyItems.Any(i => i.Date.Date == s.SessionDate.Date))
+                        {
+                            _historyItems.Add(new SessionHistoryItem
+                            {
+                                Date = s.SessionDate,
+                                SessionState = (s.Status == "Submitted" || s.Status == "Closed") ? "Closed" : "Open",
+                                AdmissionCount = s.AdmissionCount,
+                                TotalGross = s.TotalGrossReceipts,
+                                TotalPrizes = s.TotalPrizesPaid,
+                                TotalNet = s.TotalGrossReceipts - s.TotalPrizesPaid - s.TotalLotteryTake
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching server history in directory: {ex.Message}");
+            }
+
             // Ensure the active in-memory session (whether saved, new, or modified) is always present and up-to-the-second accurate
             _historyItems.RemoveAll(i => i.Date.Date == SessionDate.Date);
             _historyItems.Add(new SessionHistoryItem
@@ -6847,6 +6903,10 @@
         SessionDate = date;
         _sessionEntered = false;
         await LoadDraftAsync();
+        if (_sessionState != "NotStarted")
+        {
+            _sessionEntered = true;
+        }
         _showDirectoryModal = false;
         StateHasChanged();
     }

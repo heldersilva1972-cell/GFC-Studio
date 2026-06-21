@@ -101,4 +101,9 @@ public class MobileReportingService : IMobileReportingService
     {
         return await _http.GetFromJsonAsync<List<PullTabGameDefinition>>("api/bingo/pulltab-games") ?? new List<PullTabGameDefinition>();
     }
+
+    public async Task<List<BingoSession>> GetBingoSessionHistoryAsync()
+    {
+        return await _http.GetFromJsonAsync<List<BingoSession>>("api/bingo/history") ?? new List<BingoSession>();
+    }
 }
