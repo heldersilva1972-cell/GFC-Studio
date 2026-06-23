@@ -2345,8 +2345,7 @@
 
                                         @if (_newBanquetTemplateId > 0)
                                         {
-                                            <button class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow-sm mt-auto animate__animated animate__fadeIn text-white" style="background-color: #198754; border-color: #198754;" @onclick="StartBanquet" 
-                                                    disabled="@(IsPrePaidSelected && _newBanquetAmount <= 0)">
+                                            <button class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow-sm mt-auto animate__animated animate__fadeIn text-white" style="background-color: #198754; border-color: #198754;" @onclick="StartBanquet">
                                                 <i class="bi bi-play-circle-fill me-2"></i> START EVENT
                                             </button>
                                         }
@@ -4091,6 +4090,32 @@
                 </button>
                 <button class="btn btn-outline-secondary w-100 py-3 rounded-pill fw-bold" @onclick="() => { _showBanquetRefundPrompt = false; _closingBanquet = null; }">
                     CANCEL CLOSE
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showPrepaidDepositWarningModal)
+{
+    <div class="shift-overlay no-backdrop" style="z-index: 9999;">
+        <div class="notice-modal animate__animated animate__fadeInUp" style="max-width: 480px; border: 3px solid #dc2626;">
+            <div class="notice-icon-circle" style="background-color: #dc2626 !important; color: white;">
+                <i class="bi bi-exclamation-triangle-fill" style="font-size: 2.2rem;"></i>
+            </div>
+            <h3 class="text-danger fw-black">Deposit Required</h3>
+            <p class="mb-3 text-muted">
+                Prepaid events require a starting cash deposit before they can be opened.
+            </p>
+            <div class="alert alert-danger d-flex align-items-center gap-3 text-start mb-4 py-3" style="background-color: #fef2f2; border-color: #fca5a5; color: #991b1b;">
+                <i class="bi bi-info-circle-fill fs-4 text-danger"></i>
+                <div class="small fw-bold">
+                    Please enter the starting cash amount received from the customer using the keypad to initialize the event balance.
+                </div>
+            </div>
+            <div class="d-grid">
+                <button class="btn btn-danger w-100 py-3 rounded-pill fw-black shadow-sm" style="background-color: #dc2626; border-color: #dc2626; color: white;" @onclick="() => _showPrepaidDepositWarningModal = false">
+                    OK, UNDERSTOOD
                 </button>
             </div>
         </div>
@@ -9131,10 +9156,30 @@
         if (_newBanquetTemplateId == 0) return;
         var template = DbEventTemplates.FirstOrDefault(t => t.Id == _newBanquetTemplateId);
         if (template == null) return;
-        if (template.DefaultType == GFC.Core.Enums.EventTabType.PrePaid && _newBanquetAmount <= 0) return;
+        if (template.DefaultType == GFC.Core.Enums.EventTabType.PrePaid && _newBanquetAmount <= 0)
+        {
+            _showPrepaidDepositWarningModal = true;
+            StateHasChanged();
+            return;
+        }
 
         try
         {
+            if (_newBanquetAmount > 0)
+            {
+                try
+                {
+                    if (!forceTrainingMode || allowHardwareInTraining)
+                    {
+                        await PrinterService.KickDrawerAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] StartBanquet KickDrawerAsync failed: {ex.Message}");
+                }
+            }
+
             var cleanName = template.Name;
             if (cleanName.EndsWith(" [Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 9);
             else if (cleanName.EndsWith("[Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 8);
@@ -9270,6 +9315,21 @@
     {
         if (_selectedBanquetToAddFunds == null || _addFundsAmount <= 0) return;
 
+        if (!_isDeductFundsMode && _addFundsAmount > 0)
+        {
+            try
+            {
+                if (!forceTrainingMode || allowHardwareInTraining)
+                {
+                    await PrinterService.KickDrawerAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] ConfirmAddFunds KickDrawerAsync failed: {ex.Message}");
+            }
+        }
+
         var actualAmount = _isDeductFundsMode ? -_addFundsAmount : _addFundsAmount;
 
         // 1. INSTANT LOCAL UPDATE
@@ -9328,6 +9388,7 @@
     }
 
     private bool _showBanquetCloseModal = false;
+    private bool _showPrepaidDepositWarningModal = false;
     private bool _showBanquetRefundPrompt = false;
     private bool _showBanquetRefundSuccessConfirm = false;
     private decimal _refundedAmount = 0;
@@ -9352,6 +9413,21 @@
         if (_closingBanquet == null) return;
         
         var remainingFunds = _closingBanquet.CurrentBalance;
+        if (remainingFunds > 0)
+        {
+            try
+            {
+                if (!forceTrainingMode || allowHardwareInTraining)
+                {
+                    await PrinterService.KickDrawerAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] ConfirmBanquetRefund KickDrawerAsync failed: {ex.Message}");
+            }
+        }
+
         _refundedAmount = remainingFunds;
         
         // Log the negative deposit correction to reduce the event balance to 0 and reduce shift expected cash
