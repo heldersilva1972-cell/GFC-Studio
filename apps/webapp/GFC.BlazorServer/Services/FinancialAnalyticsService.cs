@@ -348,7 +348,156 @@ namespace GFC.BlazorServer.Services
 
                 Console.WriteLine($"[FinancialService] Found {lottoShifts.Count} lottoShifts.");
 
+                // Fetch POS Sales and LiquorItems to calculate portion costs and product breakdowns
+                currentStep = "Fetching POS Sales for Cost calculation";
+                var posSales = await db.PosSales
+                    .AsNoTracking()
+                    .Where(s => s.Timestamp >= start && s.Timestamp < end.AddDays(1))
+                    .ToListAsync();
 
+                currentStep = "Fetching LiquorItems for Cost calculation";
+                var liquorItems = await db.LiquorItems.AsNoTracking().ToListAsync();
+                var itemCostMap = liquorItems.ToDictionary(i => i.Id);
+
+                var salesWithShift = new Dictionary<(DateTime Date, string Shift), (decimal TotalCost, List<ShiftItemBreakdownDto> Items)>();
+
+                foreach (var s in posSales)
+                {
+                    if (s.TerminalName != null && s.TerminalName.Contains("(TRAINING)")) continue;
+
+                    var localTime = s.Timestamp;
+                    var localHour = localTime.Hour;
+                    DateTime targetDate = localTime.Date;
+                    string targetShift = "Day";
+
+                    if (s.ActiveEventId.HasValue && s.ActiveEventId.Value > 0)
+                    {
+                        targetShift = "Hall";
+                    }
+                    else if (localHour >= 0 && localHour < 5)
+                    {
+                        targetDate = targetDate.AddDays(-1);
+                        targetShift = "Night";
+                    }
+                    else if (localHour >= 5 && localHour < 19)
+                    {
+                        targetShift = "Day";
+                    }
+                    else
+                    {
+                        targetShift = "Night";
+                    }
+
+                    var key = (Date: targetDate, Shift: targetShift);
+                    if (!salesWithShift.ContainsKey(key))
+                    {
+                        salesWithShift[key] = (0m, new List<ShiftItemBreakdownDto>());
+                    }
+
+                    var currentVal = salesWithShift[key];
+                    decimal saleCost = 0m;
+                    var saleItems = new List<ShiftItemBreakdownDto>();
+
+                    if (!string.IsNullOrEmpty(s.ItemsJson))
+                    {
+                        try
+                        {
+                            var items = System.Text.Json.JsonSerializer.Deserialize<List<PosSaleItemDto>>(s.ItemsJson);
+                            if (items != null)
+                            {
+                                foreach (var item in items)
+                                {
+                                    decimal itemUnitCost = 0m;
+                                    LiquorItem? liquor = null;
+                                    if (item.Id > 0 && itemCostMap.TryGetValue(item.Id, out liquor))
+                                    {
+                                        if (liquor.IsUnitBased || liquor.IsBeer || (liquor.Category != null && liquor.Category.Trim().ToUpper() == "BEER"))
+                                        {
+                                            itemUnitCost = liquor.PackSize > 0 ? (liquor.CurrentPrice / liquor.PackSize) : liquor.CurrentPrice;
+                                        }
+                                        else
+                                        {
+                                            decimal vol = liquor.BottleVolumeOunces ?? 25.4m;
+                                            decimal pour = liquor.PourVolumeOunces ?? liquor.PourSize;
+                                            if (pour == 0) pour = 1.5m;
+                                            itemUnitCost = vol > 0 ? (liquor.CurrentPrice / vol) * pour : 0m;
+                                        }
+                                    }
+
+                                    decimal itemTotalCost = item.Quantity * itemUnitCost;
+                                    decimal itemTotalRev = item.Quantity * item.Price;
+                                    saleCost += itemTotalCost;
+
+                                    saleItems.Add(new ShiftItemBreakdownDto
+                                    {
+                                        Name = item.Name,
+                                        Quantity = item.Quantity,
+                                        Revenue = itemTotalRev,
+                                        Cost = itemTotalCost,
+                                        Category = (liquor != null && !string.IsNullOrEmpty(liquor.Category)) ? liquor.Category.Trim() : "Uncategorized"
+                                    });
+
+                                    if (item.Modifiers != null)
+                                    {
+                                        foreach (var mod in item.Modifiers)
+                                        {
+                                            decimal modUnitCost = 0m;
+                                            LiquorItem? modLiquor = null;
+                                            if (mod.Id > 0 && itemCostMap.TryGetValue(mod.Id, out modLiquor))
+                                            {
+                                                if (modLiquor.IsUnitBased || modLiquor.IsBeer || (modLiquor.Category != null && modLiquor.Category.Trim().ToUpper() == "BEER"))
+                                                {
+                                                    modUnitCost = modLiquor.PackSize > 0 ? (modLiquor.CurrentPrice / modLiquor.PackSize) : modLiquor.CurrentPrice;
+                                                }
+                                                else
+                                                {
+                                                    decimal vol = modLiquor.BottleVolumeOunces ?? 25.4m;
+                                                    decimal pour = modLiquor.PourVolumeOunces ?? modLiquor.PourSize;
+                                                    if (pour == 0) pour = 1.5m;
+                                                    modUnitCost = vol > 0 ? (modLiquor.CurrentPrice / vol) * pour : 0m;
+                                                }
+                                            }
+
+                                            decimal modTotalCost = item.Quantity * mod.Quantity * modUnitCost;
+                                            decimal modTotalRev = item.Quantity * mod.Quantity * mod.Price;
+                                            saleCost += modTotalCost;
+
+                                            saleItems.Add(new ShiftItemBreakdownDto
+                                            {
+                                                Name = $"{item.Name} (+ {mod.Name})",
+                                                Quantity = item.Quantity * mod.Quantity,
+                                                Revenue = modTotalRev,
+                                                Cost = modTotalCost,
+                                                Category = (modLiquor != null && !string.IsNullOrEmpty(modLiquor.Category)) ? modLiquor.Category.Trim() : 
+                                                           ((liquor != null && !string.IsNullOrEmpty(liquor.Category)) ? liquor.Category.Trim() : "Modifiers")
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch { /* Ignored */ }
+                    }
+
+                    // Group accumulated items by Name to prevent duplicates
+                    var mergedItems = currentVal.Items;
+                    foreach (var newItem in saleItems)
+                    {
+                        var existing = mergedItems.FirstOrDefault(i => i.Name.Trim().ToLower() == newItem.Name.Trim().ToLower());
+                        if (existing != null)
+                        {
+                            existing.Quantity += newItem.Quantity;
+                            existing.Revenue += newItem.Revenue;
+                            existing.Cost += newItem.Cost;
+                        }
+                        else
+                        {
+                            mergedItems.Add(newItem);
+                        }
+                    }
+
+                    salesWithShift[key] = (currentVal.TotalCost + saleCost, mergedItems);
+                }
 
             // 3. Group and Aggregate
             var dates = barEntries.Select(e => e.Date)
@@ -454,7 +603,9 @@ namespace GFC.BlazorServer.Services
                                          (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : 
                                          (!string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : "Unknown")),
                              CreatedAt = dayBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
-                             HourlyRate = dayBar?.HourlyRate
+                             HourlyRate = dayBar?.HourlyRate,
+                             ProductCost = salesWithShift.TryGetValue((date, "Day"), out var dayData) ? dayData.TotalCost : 0m,
+                             SoldItems = salesWithShift.TryGetValue((date, "Day"), out var dayData2) ? dayData2.Items.OrderByDescending(i => i.Revenue).ToList() : new List<ShiftItemBreakdownDto>()
                         });
                     }
 
@@ -531,7 +682,9 @@ namespace GFC.BlazorServer.Services
                                          (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : 
                                          (!string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : "Unknown")),
                              CreatedAt = nightBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
-                             HourlyRate = nightBar?.HourlyRate
+                             HourlyRate = nightBar?.HourlyRate,
+                             ProductCost = salesWithShift.TryGetValue((date, "Night"), out var nightData) ? nightData.TotalCost : 0m,
+                             SoldItems = salesWithShift.TryGetValue((date, "Night"), out var nightData2) ? nightData2.Items.OrderByDescending(i => i.Revenue).ToList() : new List<ShiftItemBreakdownDto>()
                         });
                     }
 
@@ -547,6 +700,8 @@ namespace GFC.BlazorServer.Services
                             CreatedBy = hallBar.CreatedBy,
                             CreatedAt = hallBar.CreatedAt,
                             HourlyRate = hallBar.HourlyRate,
+                            ProductCost = salesWithShift.TryGetValue((date, "Hall"), out var hallData) ? hallData.TotalCost : 0m,
+                            SoldItems = salesWithShift.TryGetValue((date, "Hall"), out var hallData2) ? hallData2.Items.OrderByDescending(i => i.Revenue).ToList() : new List<ShiftItemBreakdownDto>(),
                             // Explicitly zero out lottery fields to prevent variance leakage
                             Variance = 0,
                             ExpectedCash = 0,

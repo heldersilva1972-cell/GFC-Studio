@@ -25,11 +25,63 @@
                         </div>
                         <div>
                             <h1 class="h5 fw-black text-dark mb-0">BAR SALES</h1>
-                            <p class="text-muted extra-small uppercase-tracking mb-0">Profit & Labor Analytics</p>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="text-muted extra-small uppercase-tracking">Profit & Labor Analytics</span>
+                                <span class="text-muted extra-small opacity-50">•</span>
+                                <div class="d-flex align-items-center gap-2" style="font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    @if (_showProductCosts)
+                                    {
+                                        <span class="text-muted opacity-75">Combined Cost:</span>
+                                        <span class="text-success"><i class="bi bi-circle-fill me-1" style="font-size: 0.45rem;"></i>&lt;40% Optimal</span>
+                                        <span class="text-dark"><i class="bi bi-circle-fill me-1" style="font-size: 0.45rem;"></i>40-50% Target</span>
+                                        <span class="text-danger"><i class="bi bi-circle-fill me-1" style="font-size: 0.45rem;"></i>&gt;50% High</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted opacity-75">Labor Cost:</span>
+                                        <span class="text-dark"><i class="bi bi-circle-fill me-1" style="font-size: 0.45rem;"></i>&le;35% Target</span>
+                                        <span class="text-danger"><i class="bi bi-circle-fill me-1" style="font-size: 0.45rem;"></i>&gt;35% High</span>
+                                    }
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <div class="d-flex align-items-center gap-3">
+                        <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
+                            <input class="form-check-input" type="checkbox" id="productCostsToggle" @bind="_showProductCosts" style="cursor: pointer;" />
+                            <label class="form-check-label small fw-bold text-muted text-uppercase mb-0" for="productCostsToggle" style="cursor: pointer; font-size: 0.65rem;">Product Costs</label>
+                        </div>
+
+                        @if (_showProductCosts && _availableCategories.Any())
+                        {
+                            <div class="position-relative">
+                                <button class="btn btn-outline-secondary btn-xs rounded-pill px-3 fw-bold d-flex align-items-center gap-1" @onclick="ToggleCategoryDropdown" style="font-size: 0.65rem; height: 26px;">
+                                    <i class="bi bi-filter"></i> Categories (@_selectedCategories.Count)
+                                </button>
+                                @if (_showCategoryDropdown)
+                                    {
+                                    <div class="position-absolute bg-white border rounded-3 shadow p-3 mt-1" style="z-index: 1000; min-width: 200px; right: 0;">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-muted extra-small">FILTER CATEGORIES</span>
+                                            <button class="btn btn-link text-decoration-none p-0 extra-small fw-bold text-primary" @onclick="SelectAllCategories">Reset</button>
+                                        </div>
+                                        <div class="d-flex flex-column gap-2" style="max-height: 200px; overflow-y: auto;">
+                                            @foreach (var cat in _availableCategories)
+                                                {
+                                                <div class="form-check mb-0">
+                                                    <input class="form-check-input" type="checkbox" id="cat-@cat" 
+                                                           checked="@_selectedCategories.Contains(cat)" 
+                                                           @onchange="(e) => ToggleCategory(cat, e.Value)" />
+                                                    <label class="form-check-label small text-dark" for="cat-@cat">@cat</label>
+                                                </div>
+                                                }
+                                        </div>
+                                    </div>
+                                    }
+                            </div>
+                        }
+                        
                         <div class="location-toggle-group bg-light rounded-pill p-1 border shadow-sm">
                             <button class="btn @(_selectedLocation == "Downstairs" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none") btn-xs rounded-pill px-3 fw-bold" @onclick='() => _selectedLocation = "Downstairs"'>Downstairs</button>
                             <button class="btn @(_selectedLocation == "Upstairs" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none") btn-xs rounded-pill px-3 fw-bold" @onclick='() => _selectedLocation = "Upstairs"'>Upstairs</button>
@@ -102,25 +154,42 @@
 
                         var periodTotalSales = filteredShiftsAll.Sum(s => s.BarSales);
                         var periodTotalLabor = filteredShiftsAll.Sum(s => s.IsRentalHall ? 0m : (s.TotalHours ?? 0) * (s.HourlyRate ?? 0));
-                        var periodTotalProfit = periodTotalSales - periodTotalLabor;
+                        var periodTotalProductCost = filteredShiftsAll.Sum(s => GetFilteredProductCost(s));
+                        var periodTotalProfit = periodTotalSales - periodTotalLabor - (_showProductCosts ? periodTotalProductCost : 0m);
                         var periodLaborPercent = periodTotalSales > 0 ? (periodTotalLabor / periodTotalSales) * 100 : 0;
+                        var periodCombinedCostPercent = periodTotalSales > 0 ? ((periodTotalLabor + (_showProductCosts ? periodTotalProductCost : 0m)) / periodTotalSales) * 100 : 0;
                     }
                     <div class="row align-items-center g-0">
-                        <div class="col-md-3 text-center border-end">
+                        <div class="col text-center border-end">
                             <div class="text-muted extra-small uppercase-tracking fw-bold mb-0">Total Sales</div>
                             <div class="h5 fw-black text-dark mb-0">@periodTotalSales.ToString("C2")</div>
                         </div>
-                        <div class="col-md-3 text-center border-end">
+                        <div class="col text-center border-end">
                             <div class="text-muted extra-small uppercase-tracking fw-bold mb-0">Labor Cost</div>
                             <div class="h5 fw-bold text-dark mb-0">@periodTotalLabor.ToString("C2")</div>
                         </div>
-                        <div class="col-md-3 text-center border-end">
+                        @if (_showProductCosts)
+                        {
+                            <div class="col text-center border-end">
+                                <div class="text-muted extra-small uppercase-tracking fw-bold mb-0">Product Cost</div>
+                                <div class="h5 fw-bold text-dark mb-0">@periodTotalProductCost.ToString("C2")</div>
+                            </div>
+                        }
+                        <div class="col text-center border-end">
                             <div class="text-muted extra-small uppercase-tracking fw-bold mb-0 text-success">Net Profit</div>
                             <div class="h5 fw-black text-success mb-0">@periodTotalProfit.ToString("C2")</div>
                         </div>
-                        <div class="col-md-3 text-center">
-                            <div class="text-muted extra-small uppercase-tracking fw-bold">Labor %</div>
-                            <div class="h5 fw-black @(periodLaborPercent > 35 ? "text-danger" : "text-dark") mb-0">@periodLaborPercent.ToString("N1")%</div>
+                        <div class="col text-center">
+                            @if (_showProductCosts)
+                            {
+                                <div class="text-muted extra-small uppercase-tracking fw-bold">Combined Cost %</div>
+                                <div class="h5 fw-black @(periodCombinedCostPercent > 50 ? "text-danger" : (periodCombinedCostPercent < 40 ? "text-success" : "text-dark")) mb-0">@periodCombinedCostPercent.ToString("N1")%</div>
+                            }
+                            else
+                            {
+                                <div class="text-muted extra-small uppercase-tracking fw-bold">Labor %</div>
+                                <div class="h5 fw-black @(periodLaborPercent > 35 ? "text-danger" : "text-dark") mb-0">@periodLaborPercent.ToString("N1")%</div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -152,22 +221,32 @@
                                     </div>
                                 </div>
                                 <div class="d-flex align-items-center gap-3">
+                                    @{
+                                        var dayLaborCost = filteredShifts.Sum(s => s.IsRentalHall ? 0m : (s.TotalHours ?? 0) * (s.HourlyRate ?? 0));
+                                        var dayProductCost = filteredShifts.Sum(s => GetFilteredProductCost(s));
+                                        var dayProfit = dayTotal - dayLaborCost - (_showProductCosts ? dayProductCost : 0m);
+                                        var dayCostPct = dayTotal > 0 
+                                            ? ((dayLaborCost + (_showProductCosts ? dayProductCost : 0m)) / dayTotal) * 100 
+                                            : 0;
+                                    }
                                     <div class="text-end">
                                         <div class="text-muted extra-small uppercase-tracking fw-bold">Sales</div>
                                         <div class="fw-bold text-dark small">@dayTotal.ToString("C2")</div>
                                     </div>
+                                    @if (_showProductCosts)
+                                    {
+                                        <div class="text-end border-start ps-3">
+                                            <div class="text-muted extra-small uppercase-tracking fw-bold">Product Cost</div>
+                                            <div class="fw-bold text-dark small text-danger">@dayProductCost.ToString("C2")</div>
+                                        </div>
+                                    }
                                     <div class="text-end border-start ps-3">
-                                        @{
-                                            var dayLaborCost = filteredShifts.Sum(s => s.IsRentalHall ? 0m : (s.TotalHours ?? 0) * (s.HourlyRate ?? 0));
-                                            var dayProfit = dayTotal - dayLaborCost;
-                                            var dayLaborPct = dayTotal > 0 ? (dayLaborCost / dayTotal) * 100 : 0;
-                                        }
                                         <div class="text-muted extra-small uppercase-tracking fw-bold text-success">Net Profit</div>
                                         <div class="fw-black text-success small">@dayProfit.ToString("C2")</div>
                                     </div>
                                     <div class="text-end border-start ps-3">
-                                        <div class="text-muted extra-small uppercase-tracking fw-bold">Labor %</div>
-                                        <div class="fw-bold @(dayLaborPct > 35 ? "text-danger" : "text-dark") small">@dayLaborPct.ToString("N1")%</div>
+                                        <div class="text-muted extra-small uppercase-tracking fw-bold">@(_showProductCosts ? "Cost %" : "Labor %")</div>
+                                        <div class="fw-bold @(_showProductCosts ? (dayCostPct > 50 ? "text-danger" : (dayCostPct < 40 ? "text-success" : "text-dark")) : (dayCostPct > 35 ? "text-danger" : "text-dark")) small">@dayCostPct.ToString("N1")%</div>
                                     </div>
                                 </div>
                             </div>
@@ -183,22 +262,34 @@
                                                     <th class="text-center py-1 extra-small">BARTENDER</th>
                                                     <th class="text-center py-1 extra-small">HOURS</th>
                                                     <th class="text-end py-1 extra-small">REVENUE</th>
+                                                    @if (_showProductCosts)
+                                                    {
+                                                        <th class="text-end py-1 extra-small">LABOR COST</th>
+                                                        <th class="text-end py-1 extra-small">PRODUCT COST</th>
+                                                    }
                                                     <th class="text-end py-1 extra-small">PROFIT</th>
-                                                    <th class="text-end pe-4 py-1 extra-small">LABOR %</th>
+                                                    <th class="text-end pe-4 py-1 extra-small">@(_showProductCosts ? "COST %" : "LABOR %")</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 @foreach (var shift in filteredShifts)
                                                 {
                                                     var laborCost = shift.IsRentalHall ? 0m : (shift.TotalHours ?? 0) * (shift.HourlyRate ?? 0);
-                                                    var netProfit = shift.BarSales - laborCost;
-                                                    var laborWaitPercentage = shift.BarSales > 0 ? (laborCost / shift.BarSales) * 100 : 0;
+                                                    var productCost = GetFilteredProductCost(shift);
+                                                    var netProfit = shift.BarSales - laborCost - (_showProductCosts ? productCost : 0m);
+                                                    var costPercentage = shift.BarSales > 0 
+                                                        ? ((laborCost + (_showProductCosts ? productCost : 0m)) / shift.BarSales) * 100 
+                                                        : 0;
+                                                    var shiftKey = $"{day.Date:yyyyMMdd}-{shift.ShiftType}-{shift.IsRentalHall}";
 
-                                                    <tr style="font-size: 0.82rem;">
+                                                    <tr style="font-size: 0.82rem; cursor: pointer;" @onclick="() => ToggleShift(shiftKey)">
                                                         <td class="ps-3 py-2">
                                                             <div class="d-flex align-items-center gap-2">
                                                                 <span class="shift-indicator @(shift.IsRentalHall ? "hall" : shift.ShiftType?.ToLower())"></span>
-                                                                <div class="fw-bold">@(shift.IsRentalHall ? "HALL" : shift.ShiftType?.ToUpper())</div>
+                                                                <div class="fw-bold">
+                                                                    <i class="bi @(_expandedShifts.Contains(shiftKey) ? "bi-chevron-down" : "bi-chevron-right") me-1 small text-muted"></i>
+                                                                    @(shift.IsRentalHall ? "HALL" : shift.ShiftType?.ToUpper())
+                                                                </div>
                                                             </div>
                                                         </td>
                                                         <td class="text-center fw-bold py-2">@shift.CreatedBy</td>
@@ -206,11 +297,72 @@
                                                             @if (!shift.IsRentalHall) { @(shift.TotalHours?.ToString("N2") ?? "0.00") } else { <span class="opacity-50">-</span> }
                                                         </td>
                                                         <td class="text-end fw-bold py-2">@shift.BarSales.ToString("C2")</td>
+                                                        @if (_showProductCosts)
+                                                        {
+                                                            <td class="text-end fw-bold py-2">@laborCost.ToString("C2")</td>
+                                                            <td class="text-end fw-bold py-2 text-danger">@productCost.ToString("C2")</td>
+                                                        }
                                                         <td class="text-end fw-bold text-success py-2">@netProfit.ToString("C2")</td>
-                                                        <td class="text-end pe-4 fw-black py-2 @(laborWaitPercentage > 30 ? "text-danger" : "text-muted")">
-                                                            @laborWaitPercentage.ToString("N1")%
-                                                        </td>
+                                                        <td class="text-end pe-4 fw-black py-2 @(_showProductCosts ? (costPercentage > 50 ? "text-danger" : (costPercentage < 40 ? "text-success" : "text-muted")) : (costPercentage > 35 ? "text-danger" : "text-muted"))">
+                                                             @costPercentage.ToString("N1")%
+                                                         </td>
                                                     </tr>
+
+                                                    @if (_expandedShifts.Contains(shiftKey))
+                                                    {
+                                                        <tr>
+                                                            <td colspan="@(_showProductCosts ? 8 : 6)" class="p-3 bg-light">
+                                                                <div class="card border border-light-subtle shadow-sm mx-3 my-2">
+                                                                    <div class="card-header bg-light py-1 px-3 d-flex justify-content-between align-items-center border-bottom">
+                                                                        <span class="fw-bold text-secondary text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.5px;">Items Sold Breakdown</span>
+                                                                        @{
+                                                                            var filteredItems = shift.SoldItems?.Where(i => !_showProductCosts || _selectedCategories.Contains(i.Category)).ToList() ?? new List<ShiftItemBreakdownDto>();
+                                                                        }
+                                                                        <span class="badge bg-secondary" style="font-size: 0.65rem;">@filteredItems.Count Items</span>
+                                                                    </div>
+                                                                    <div class="table-responsive">
+                                                                        <table class="table table-sm table-hover mb-0 align-middle" style="font-size: 0.78rem;">
+                                                                            <thead>
+                                                                                <tr class="text-muted border-bottom" style="font-size: 0.7rem; font-weight: 700; background-color: #f8fafc;">
+                                                                                    <th class="ps-3 text-start py-2">ITEM NAME</th>
+                                                                                    <th class="text-center py-2">QTY</th>
+                                                                                    <th class="text-end py-2">REVENUE</th>
+                                                                                    <th class="text-end py-2">COST</th>
+                                                                                    <th class="text-end py-2">PROFIT</th>
+                                                                                    <th class="text-end pe-3 py-2">MARGIN %</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                @if (filteredItems.Any())
+                                                                                {
+                                                                                    foreach (var item in filteredItems)
+                                                                                    {
+                                                                                        <tr>
+                                                                                            <td class="ps-3 text-start fw-bold py-2">
+                                                                                                @item.Name
+                                                                                                <span class="badge bg-light text-muted fw-normal ms-1 border" style="font-size: 0.6rem;">@item.Category</span>
+                                                                                            </td>
+                                                                                            <td class="text-center py-2">@item.Quantity</td>
+                                                                                            <td class="text-end py-2">@item.Revenue.ToString("C2")</td>
+                                                                                            <td class="text-end text-danger py-2">@item.Cost.ToString("C2")</td>
+                                                                                            <td class="text-end text-success fw-bold py-2">@item.Profit.ToString("C2")</td>
+                                                                                            <td class="text-end pe-3 fw-bold py-2">@item.MarginPercent.ToString("N1")%</td>
+                                                                                        </tr>
+                                                                                    }
+                                                                                }
+                                                                                else
+                                                                                {
+                                                                                    <tr>
+                                                                                        <td colspan="6" class="text-center py-3 text-muted">No POS items sold matching the selected categories.</td>
+                                                                                    </tr>
+                                                                                }
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    }
                                                 }
                                             </tbody>
                                         </table>
@@ -364,8 +516,114 @@
     private bool _loading = true;
     private bool _hasAccess = false;
     private bool _showDetails = false;
+    private bool _showProductCosts = false;
     private string _statusMessage = "Authenticating...";
     private List<DailySalesReportDto> _days = new();
+    private HashSet<string> _expandedShifts = new();
+    private List<string> _availableCategories = new();
+    private HashSet<string> _selectedCategories = new();
+    private bool _showCategoryDropdown = false;
+    private HashSet<string>? _persistedSelectedCategories = null;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var storedToggle = await JS.InvokeAsync<string>("localStorage.getItem", "bar_sales_show_product_costs");
+                if (!string.IsNullOrEmpty(storedToggle) && bool.TryParse(storedToggle, out var showCosts))
+                {
+                    _showProductCosts = showCosts;
+                }
+
+                var storedCats = await JS.InvokeAsync<string>("localStorage.getItem", "bar_sales_selected_categories");
+                if (!string.IsNullOrEmpty(storedCats))
+                {
+                    var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(storedCats);
+                    if (list != null)
+                    {
+                        _persistedSelectedCategories = new HashSet<string>(list);
+                        if (_availableCategories.Any())
+                        {
+                            _selectedCategories = new HashSet<string>(_availableCategories.Intersect(_persistedSelectedCategories));
+                        }
+                    }
+                }
+                StateHasChanged();
+            }
+            catch { /* Interop failure ignored during prerendering */ }
+        }
+    }
+
+    private async Task SaveShowProductCosts()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "bar_sales_show_product_costs", _showProductCosts.ToString());
+        }
+        catch { }
+    }
+
+    private async Task SavePersistedCategories()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(_selectedCategories.ToList());
+            await JS.InvokeVoidAsync("localStorage.setItem", "bar_sales_selected_categories", json);
+        }
+        catch { }
+    }
+
+    private void ToggleCategoryDropdown()
+    {
+        _showCategoryDropdown = !_showCategoryDropdown;
+    }
+
+    private async Task ToggleCategory(string category, object? checkedValue)
+    {
+        bool isChecked = checkedValue is bool val && val;
+        if (isChecked)
+        {
+            _selectedCategories.Add(category);
+        }
+        else
+        {
+            _selectedCategories.Remove(category);
+        }
+        _persistedSelectedCategories = new HashSet<string>(_selectedCategories);
+        await SavePersistedCategories();
+        StateHasChanged();
+    }
+
+    private async Task SelectAllCategories()
+    {
+        _selectedCategories = new HashSet<string>(_availableCategories);
+        _persistedSelectedCategories = new HashSet<string>(_selectedCategories);
+        await SavePersistedCategories();
+        StateHasChanged();
+    }
+
+    private decimal GetFilteredProductCost(ShiftReportDto shift)
+    {
+        if (!_showProductCosts) return 0m;
+        if (shift.SoldItems == null) return 0m;
+        return shift.SoldItems
+            .Where(item => _selectedCategories.Contains(item.Category))
+            .Sum(item => item.Cost);
+    }
+
+    private void ToggleShift(string shiftKey)
+    {
+        if (_expandedShifts.Contains(shiftKey))
+        {
+            _expandedShifts.Remove(shiftKey);
+        }
+        else
+        {
+            _expandedShifts.Add(shiftKey);
+        }
+    }
 
     private async Task OnMonthYearChanged()
     {
@@ -411,6 +669,7 @@
         if (!_hasAccess) return;
         
         _loading = true;
+        _expandedShifts.Clear();
         _statusMessage = "Analyzing Bar Records...";
         StateHasChanged();
 
@@ -418,6 +677,23 @@
         {
             var result = await FinancialService.GetDailySalesReportsAsync(_startDate, _endDate);
             _days = result.Data;
+            _availableCategories = _days
+                .SelectMany(d => d.Shifts)
+                .SelectMany(s => s.SoldItems)
+                .Select(i => i.Category)
+                .Where(c => !string.IsNullOrEmpty(c))
+                .Distinct()
+                .OrderBy(c => c)
+                .ToList();
+            if (_persistedSelectedCategories != null)
+            {
+                _selectedCategories = new HashSet<string>(_availableCategories.Intersect(_persistedSelectedCategories));
+            }
+            else
+            {
+                _selectedCategories = new HashSet<string>(_availableCategories);
+            }
+            _showCategoryDropdown = false;
         }
         catch (Exception ex)
         {

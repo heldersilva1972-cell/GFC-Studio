@@ -58,6 +58,7 @@ namespace GFC.Core.DTOs
         public decimal BarSales { get; set; }
         public decimal? TotalHours { get; set; }
         public decimal? HourlyRate { get; set; }
+        public decimal? ProductCost { get; set; }
         
         // Lottery Info (Raw Machine Readings - Cumulative for Night Shift)
         public decimal LottoSales { get; set; }
@@ -90,5 +91,17 @@ namespace GFC.Core.DTOs
         public string? CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; }
         public string? Status { get; set; }
+        public List<ShiftItemBreakdownDto> SoldItems { get; set; } = new List<ShiftItemBreakdownDto>();
+    }
+
+    public class ShiftItemBreakdownDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+        public decimal Revenue { get; set; }
+        public decimal Cost { get; set; }
+        public decimal Profit => Revenue - Cost;
+        public decimal MarginPercent => Revenue > 0 ? (Profit / Revenue) * 100 : 0;
     }
 }

@@ -231,6 +231,8 @@ public class PosApiController : ControllerBase
                 .Where(x => x.ParentItemId.HasValue)
                 .ToDictionary(x => x.Id, x => x.ParentItemId!.Value);
 
+            var liquorItemMap = liquorItems.ToDictionary(x => x.Id);
+
             items = items
                 .OrderBy(x => {
                     if (parentIdLookup.TryGetValue(x.Id, out var parentId))
@@ -239,8 +241,15 @@ public class PosApiController : ControllerBase
                     }
                     return x.DisplayOrder;
                 })
-                .ThenBy(x => parentIdLookup.TryGetValue(x.Id, out var parentId) ? parentId : x.Id)
+                .ThenBy(x => {
+                    if (parentIdLookup.TryGetValue(x.Id, out var parentId) && liquorItemMap.TryGetValue(parentId, out var parent))
+                    {
+                        return parent.Name;
+                    }
+                    return x.Name;
+                })
                 .ThenBy(x => parentIdLookup.ContainsKey(x.Id) ? 1 : 0)
+                .ThenBy(x => x.Name)
                 .ThenBy(x => x.Id)
                 .ToList();
 
