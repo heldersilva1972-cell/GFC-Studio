@@ -83,6 +83,10 @@ public class PosApiController : ControllerBase
                 }
                 else
                 {
+                    if (terminal.IsDeleted)
+                    {
+                        terminal.IsDeleted = false;
+                    }
                     terminal.LastSeenAt = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                 }
