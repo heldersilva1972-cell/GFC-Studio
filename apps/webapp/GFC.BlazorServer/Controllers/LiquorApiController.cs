@@ -478,7 +478,20 @@ namespace GFC.BlazorServer.Controllers
                 {
                     if (!receipt.BackorderedOrderItemIds.Contains(item.Id))
                     {
-                        receivedItemsTotal += item.UnitPriceAtTimeOfOrder * item.Quantity;
+                        var packSize = item.LiquorItem?.PackSize ?? 1;
+                        if (packSize > 1)
+                        {
+                            var cases = item.Quantity / packSize;
+                            var bottles = item.Quantity % packSize;
+                            var casePrice = item.CasePriceAtTimeOfOrder ?? (item.UnitPriceAtTimeOfOrder * packSize);
+                            var bottlePrice = item.CasePriceAtTimeOfOrder.HasValue ? item.UnitPriceAtTimeOfOrder : (item.UnitPriceAtTimeOfOrder / packSize);
+                            receivedItemsTotal += (cases * casePrice) + (bottles * bottlePrice);
+                        }
+                        else
+                        {
+                            receivedItemsTotal += item.UnitPriceAtTimeOfOrder * item.Quantity;
+                        }
+                        receivedItemsTotal += item.BottleFeeAtTimeOfOrder * item.Quantity;
                     }
                 }
                 var additionalCosts = receipt.TotalDue - receivedItemsTotal;

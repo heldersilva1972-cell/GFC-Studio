@@ -74,6 +74,7 @@ namespace GFC.Core.Models
         public bool ShowInPos { get; set; } = false;
         public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
+        public bool ExcludeFromPredictions { get; set; } = false;
 
         public int? ParentItemId { get; set; }
         [ForeignKey("ParentItemId")]

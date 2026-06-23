@@ -4,6 +4,7 @@ window.sessionMonitor = {
     lastActivityTime: 0,
 
     init: function (dotNetReference, idleMinutes, warningMinutes) {
+        this.cleanup();
         this.dotNetRef = dotNetReference;
         this.idleTimeout = idleMinutes * 60 * 1000;
         this.warningTimeout = warningMinutes * 60 * 1000;

@@ -470,12 +470,20 @@
                                         <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_newItem.IsBeer" id="itemBeerCheckNew">
                                     </div>
 
-                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between mb-1">
                                         <div>
                                             <h6 class="fw-bold mb-0 text-success" style="font-size: 0.7rem;">SHOW IN POS</h6>
                                             <span class="text-muted" style="font-size: 0.6rem; line-height: 1; display: block;">Display on Point-of-Sale screen.</span>
                                         </div>
                                         <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_newItem.ShowInPos" id="itemPosCheckNew">
+                                    </div>
+
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
+                                        <div>
+                                            <h6 class="fw-bold mb-0 text-danger" style="font-size: 0.7rem;">EXCLUDE FROM PREDICTIONS</h6>
+                                            <span class="text-muted" style="font-size: 0.6rem; line-height: 1; display: block;">Do not recommend ordering in Smart Assistant.</span>
+                                        </div>
+                                        <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_newItem.ExcludeFromPredictions" id="itemExcludeCheckNew">
                                     </div>
                                 </div>
                             </div>
@@ -699,12 +707,20 @@
                                         <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_itemToEdit.IsBeer" id="itemBeerCheck">
                                     </div>
 
-                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between mb-1">
                                         <div>
                                             <h6 class="fw-bold mb-0 text-success" style="font-size: 0.7rem;">SHOW IN POS</h6>
                                             <span class="text-muted" style="font-size: 0.6rem; line-height: 1; display: block;">Display on Point-of-Sale screen.</span>
                                         </div>
                                         <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_itemToEdit.ShowInPos" id="itemPosCheck">
+                                    </div>
+
+                                    <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
+                                        <div>
+                                            <h6 class="fw-bold mb-0 text-danger" style="font-size: 0.7rem;">EXCLUDE FROM PREDICTIONS</h6>
+                                            <span class="text-muted" style="font-size: 0.6rem; line-height: 1; display: block;">Do not recommend ordering in Smart Assistant.</span>
+                                        </div>
+                                        <input class="form-check-input ms-0" type="checkbox" style="width: 32px; height: 16px; cursor: pointer;" @bind="_itemToEdit.ExcludeFromPredictions" id="itemExcludeCheck">
                                     </div>
                                 </div>
                             </div>
@@ -771,6 +787,11 @@
             <button class="hub-nav-item @(_activeTab == "count" ? "active" : "")" data-tab="reconcile" @onclick='() => _activeTab = "count"'>
                 <i class="bi bi-clipboard-check"></i>
                 <span>Inventory Check</span>
+            </button>
+
+            <button class="hub-nav-item @(_activeTab == "predictive" ? "active" : "")" data-tab="predictive" @onclick='() => _activeTab = "predictive"'>
+                <i class="bi bi-cpu"></i>
+                <span>Smart Assistant</span>
             </button>
 
             <button class="hub-nav-item @(_activeTab == "analytics" ? "active" : "")" data-tab="analytics" @onclick='() => _activeTab = "analytics"'>
@@ -1426,6 +1447,8 @@
                     </div>
                 }
             </div>
+        } else if (_activeTab == "predictive") {
+            <PredictiveOrderingTab OnAddToOrder="AddItemsToOrderFromPrediction" Vendors="_vendors" />
         } else if (_activeTab == "backorders") {
             <div class="backorders-view animate-fade-in d-flex flex-column h-100 overflow-hidden">
                 <div class="tab-fixed-header">
@@ -1963,6 +1986,10 @@
                                     @onclick='() => _analyticsSubTab = "yearly"'>
                                 YEARLY PURCHASES
                             </button>
+                            <button class="btn btn-sm rounded-pill px-4 @(_analyticsSubTab == "profitability" ? "btn-primary shadow-sm fw-black" : "btn-link text-muted text-decoration-none fw-bold")" 
+                                    @onclick='async () => { _analyticsSubTab = "profitability"; await CalculateMonthlyProfitabilityAsync(); }'>
+                                MONTHLY SUMMARY
+                            </button>
                         </div>
                     </div>
 
@@ -2215,6 +2242,153 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+                    }
+                    else if (_analyticsSubTab == "profitability")
+                    {
+                        <div class="card border-0 shadow-sm rounded-4 p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+                                <div>
+                                    <h5 class="fw-black mb-1 text-dark">Monthly Bar Profitability & Pour Cost</h5>
+                                    <p class="small text-muted mb-0">Analyzes gross sales, vendor purchases, and inventory value shifts specifically for liquor pool items.</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                      <select class="form-select fw-bold border-2 rounded-pill px-3 text-center" style="min-width: 155px; text-align-last: center; cursor: pointer;" @bind:get="_selectedTerminal" @bind:set="async val => { _selectedTerminal = val; await SaveTerminalPrefAsync(val); await CalculateMonthlyProfitabilityAsync(); }">
+                                          <option value="ALL">All Terminals</option>
+                                          @foreach (var term in _availableTerminals)
+                                          {
+                                              <option value="@term">@term</option>
+                                          }
+                                      </select>
+                                      <select class="form-select fw-bold border-2 rounded-pill px-3 text-center" style="min-width: 145px; text-align-last: center; cursor: pointer;" @bind:get="_profitabilityMonth" @bind:set="async val => { _profitabilityMonth = val; await CalculateMonthlyProfitabilityAsync(); }">
+                                          @for (int m = 1; m <= 12; m++)
+                                          {
+                                              <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                                          }
+                                      </select>
+                                      <select class="form-select fw-bold border-2 rounded-pill px-3 text-center" style="min-width: 100px; text-align-last: center; cursor: pointer;" @bind:get="_profitabilityYear" @bind:set="async val => { _profitabilityYear = val; await CalculateMonthlyProfitabilityAsync(); }">
+                                          @for (int y = DateTime.Now.Year; y >= 2020; y--)
+                                          {
+                                              <option value="@y">@y</option>
+                                          }
+                                      </select>
+                                  </div>
+                            </div>
+
+                            @if (_calculatingProfitability)
+                            {
+                                <div class="text-center py-5">
+                                    <div class="spinner-border text-primary mb-3" role="status"></div>
+                                    <div class="text-muted fw-bold">Aggregating sales, purchases, and audit snapshots...</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="row g-3 mb-4">
+                                    <div class="col-md-3">
+                                        <div class="p-3 bg-light rounded-4 border text-center shadow-sm">
+                                            <h6 class="extra-small text-muted fw-bold text-uppercase mb-2" style="font-size: 0.65rem; letter-spacing: 0.5px;">Gross Bar Sales</h6>
+                                            <h2 class="fw-black mb-0 text-dark">@_profitSales.ToString("C")</h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="p-3 bg-light rounded-4 border text-center shadow-sm">
+                                            <h6 class="extra-small text-muted fw-bold text-uppercase mb-2" style="font-size: 0.65rem; letter-spacing: 0.5px;">Cost of Goods Sold (COGS)</h6>
+                                            <h2 class="fw-black mb-0 text-danger">@_profitCOGS.ToString("C")</h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="p-3 bg-light rounded-4 border text-center shadow-sm">
+                                            <h6 class="extra-small text-muted fw-bold text-uppercase mb-2" style="font-size: 0.65rem; letter-spacing: 0.5px;">Gross Bar Profit</h6>
+                                            <h2 class="fw-black mb-0 text-success">@_profitGrossProfit.ToString("C")</h2>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        @{
+                                            var pourCostColor = _profitPourCost > 30 ? "text-danger" : _profitPourCost > 25 ? "text-warning" : "text-success";
+                                        }
+                                        <div class="p-3 bg-light rounded-4 border text-center shadow-sm">
+                                            <h6 class="extra-small text-muted fw-bold text-uppercase mb-2" style="font-size: 0.65rem; letter-spacing: 0.5px;">Pour Cost / Profit Margin</h6>
+                                            <h2 class="fw-black mb-0 @pourCostColor">@_profitPourCost.ToString("F1")% / @_profitMargin.ToString("F1")%</h2>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row g-4">
+                                    <div class="col-lg-8">
+                                        <h6 class="fw-black text-uppercase tracking-wider mb-3 text-dark" style="font-size: 0.75rem;"><i class="bi bi-calculator me-1 text-primary"></i> COGS Calculation Detail</h6>
+                                        <div class="table-responsive border rounded-4 overflow-hidden mb-4">
+                                            <table class="table table-striped table-hover mb-0 align-middle">
+                                                <tbody>
+                                                    <tr>
+                                                        <td class="ps-3 py-3 fw-bold text-muted small">Beginning Inventory Value (@(new DateTime(_profitabilityYear, _profitabilityMonth, 1).ToString("MMM dd, yyyy")))</td>
+                                                        <td class="text-end pe-3 fw-black text-dark">@_profitBegValue.ToString("C")</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="ps-3 py-3 fw-bold text-muted small">Plus: Liquor Orders Received</td>
+                                                        <td class="text-end pe-3 fw-black text-primary">+ @_profitPurchases.ToString("C")</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="ps-3 py-3 fw-bold text-muted small">Minus: Ending Inventory Value (@(new DateTime(_profitabilityYear, _profitabilityMonth, DateTime.DaysInMonth(_profitabilityYear, _profitabilityMonth)).ToString("MMM dd, yyyy")))</td>
+                                                        <td class="text-end pe-3 fw-black text-danger">- @_profitEndValue.ToString("C")</td>
+                                                    </tr>
+                                                    <tr class="table-dark">
+                                                        <td class="ps-3 py-3 fw-black">Cost of Goods Sold (COGS)</td>
+                                                        <td class="text-end pe-3 fw-black text-white">@_profitCOGS.ToString("C")</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="card border-0 bg-light-subtle rounded-4 p-3 border mt-3">
+                                            <h6 class="fw-black text-primary mb-2" style="font-size: 0.8rem;"><i class="bi bi-info-circle-fill me-1"></i> Understanding COGS & Pour Cost</h6>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <div class="small fw-bold text-dark mb-1">How COGS is Calculated:</div>
+                                                    <div class="extra-small text-muted" style="line-height: 1.4;">
+                                                        <strong>Cost of Goods Sold (COGS)</strong> measures the cost value of the inventory actually used/sold during the month:
+                                                        <div class="font-monospace mt-1 p-1 bg-light rounded text-center" style="font-size: 0.65rem;">COGS = Beginning Inventory + Orders Received - Ending Inventory</div>
+                                                        If your beginning stock was $10k, you received $5k in orders, and ended with $8k, your COGS is <strong>$7,000</strong>.
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="small fw-bold text-dark mb-1">What the values tell you:</div>
+                                                    <div class="extra-small text-muted" style="line-height: 1.4;">
+                                                        <ul class="ps-3 mb-0">
+                                                            <li><strong>Pour Cost %:</strong> The percentage of sales revenue spent on inventory. Lower is better. A 20% pour cost means you spent $0.20 to make $1.00 of sales.</li>
+                                                            <li><strong>Beginning vs Ending:</strong> If ending value is lower than beginning, you used more stock than you purchased. If higher, you built up inventory.</li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-lg-4">
+                                        <h6 class="fw-black text-uppercase tracking-wider mb-3 text-dark" style="font-size: 0.75rem;"><i class="bi bi-filter-square me-1 text-primary"></i> Include Sales from POS Categories:</h6>
+                                        <div class="p-3 bg-light rounded-4 border overflow-auto" style="max-height: 250px;">
+                                            @if (!_posCategories.Any())
+                                            {
+                                                <div class="small text-muted italic p-2">No categories found. Sync Clover/POS system or verify categories in Admin tab.</div>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var cat in _posCategories)
+                                                {
+                                                    var total = _posCategorySalesTotals.ContainsKey(cat) ? _posCategorySalesTotals[cat] : 0m;
+                                                    <div class="form-check mb-2">
+                                                        <input class="form-check-input" type="checkbox" id="poscat-@cat" 
+                                                               checked="@_selectedPosCategories.Contains(cat)" 
+                                                               @onchange="@(async (e) => await TogglePosCategory(cat, e))" style="cursor: pointer;" />
+                                                        <label class="form-check-label fw-bold text-dark small" for="poscat-@cat" style="cursor: pointer;">
+                                                            @cat <span class="text-muted fw-normal">(@total.ToString("C"))</span>
+                                                        </label>
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -3424,6 +3598,25 @@
     private int _analyticsYear = DateTime.Now.Year;
     private HashSet<int> _expandedHistoryOrders = new();
     
+    // Monthly Profitability / Pour Cost state
+    private int _profitabilityMonth = DateTime.Now.Month;
+    private int _profitabilityYear = DateTime.Now.Year;
+    private bool _calculatingProfitability = false;
+    private decimal _profitSales = 0;
+    private decimal _profitPurchases = 0;
+    private decimal _profitBegValue = 0;
+    private decimal _profitEndValue = 0;
+    private decimal _profitCOGS = 0;
+    private decimal _profitGrossProfit = 0;
+    private decimal _profitPourCost = 0;
+    private decimal _profitMargin = 0;
+    private List<string> _posCategories = new();
+    private HashSet<string> _selectedPosCategories = new();
+    private Dictionary<string, decimal> _posCategorySalesTotals = new();
+    private bool _hasLoadedPrefs = false;
+    private List<string> _availableTerminals = new();
+    private string _selectedTerminal = "ALL";
+    
     private void ToggleHistoryOrder(int orderId)
     {
         if (_expandedHistoryOrders.Contains(orderId))
@@ -3433,6 +3626,20 @@
     }
     
     private Dictionary<int, int> _cart = new(); // ItemId -> Quantity
+
+    private void AddItemsToOrderFromPrediction(Dictionary<int, int> itemsToAdd)
+    {
+        foreach (var kvp in itemsToAdd)
+        {
+            if (kvp.Value > 0)
+            {
+                _cart[kvp.Key] = kvp.Value;
+            }
+        }
+        _activeTab = "ordering";
+        StateHasChanged();
+    }
+
     private AppUser? _currentUser;
     private bool _showPriceHistoryModal = false;
     private bool _showProfitGuideModal = false;
@@ -4133,7 +4340,24 @@
         var cleanInvoiceNumber = string.IsNullOrWhiteSpace(_receiveInvoiceNumber) ? "N/A" : _receiveInvoiceNumber.Trim();
         
         // Calculate discrepancy (Tax + Fees) on RECEIVED items only
-        var receivedItemsTotal = _orderToReceive.OrderItems.Where(i => !i.IsBackordered).Sum(i => i.UnitPriceAtTimeOfOrder * i.Quantity);
+        decimal receivedItemsTotal = 0;
+        foreach (var item in _orderToReceive.OrderItems.Where(i => !i.IsBackordered))
+        {
+            var packSize = item.LiquorItem?.PackSize ?? 1;
+            if (packSize > 1)
+            {
+                var cases = item.Quantity / packSize;
+                var bottles = item.Quantity % packSize;
+                var casePrice = item.CasePriceAtTimeOfOrder ?? (item.UnitPriceAtTimeOfOrder * packSize);
+                var bottlePrice = item.CasePriceAtTimeOfOrder.HasValue ? item.UnitPriceAtTimeOfOrder : (item.UnitPriceAtTimeOfOrder / packSize);
+                receivedItemsTotal += (cases * casePrice) + (bottles * bottlePrice);
+            }
+            else
+            {
+                receivedItemsTotal += item.UnitPriceAtTimeOfOrder * item.Quantity;
+            }
+            receivedItemsTotal += item.BottleFeeAtTimeOfOrder * item.Quantity;
+        }
         var additionalCosts = _receiveTotalDue - receivedItemsTotal;
         
         // 0. Save backorder status
@@ -4635,5 +4859,283 @@
             _isTestingConnection = false;
             StateHasChanged();
         }
+    }
+
+    private async Task CalculateMonthlyProfitabilityAsync()
+    {
+        _calculatingProfitability = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+
+            // Define Month Start and End Date
+            var start = new DateTime(_profitabilityYear, _profitabilityMonth, 1);
+            var end = start.AddMonths(1); // Non-inclusive boundary
+            var lastDay = start.AddMonths(1).AddTicks(-1); // Inclusive last moment of month
+
+            // 0. Load available distinct terminals from database if not loaded yet
+            if (!_availableTerminals.Any())
+            {
+                var terminals = await db.PosSales
+                    .AsNoTracking()
+                    .Select(s => s.TerminalName)
+                    .Distinct()
+                    .ToListAsync();
+                _availableTerminals = terminals
+                    .Where(t => !string.IsNullOrWhiteSpace(t) && !t.Contains("(TRAINING)"))
+                    .OrderBy(t => t)
+                    .ToList();
+            }
+
+            // 1. Load active POS categories if not loaded yet
+            if (!_posCategories.Any())
+            {
+                var activeCategories = await db.PosCategories
+                    .Where(c => c.IsActive && !c.IsModifierCategory)
+                    .OrderBy(c => c.DisplayOrder)
+                    .Select(c => c.Name)
+                    .ToListAsync();
+                
+                _posCategories = activeCategories.Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+                if (!_posCategories.Contains("UNCATEGORIZED"))
+                {
+                    _posCategories.Add("UNCATEGORIZED");
+                }
+                
+                // Initialize default selections if we didn't load any from local storage
+                if (!_hasLoadedPrefs)
+                {
+                    foreach (var catName in _posCategories)
+                    {
+                        var upperName = catName.ToUpper();
+                        var dbCat = db.PosCategories.FirstOrDefault(c => c.Name == catName);
+                        if ((dbCat != null && dbCat.InventoryTrackType == 1) ||
+                            upperName.Contains("BEER") || 
+                            upperName.Contains("LIQUOR") || 
+                            upperName.Contains("WINE") || 
+                            upperName.Contains("MIXED") ||
+                            upperName.Contains("DRINK"))
+                        {
+                            _selectedPosCategories.Add(catName);
+                        }
+                    }
+                }
+            }
+
+            // 2. Fetch POS Sales and aggregate category totals
+            var salesQuery = db.PosSales
+                .Where(s => s.Timestamp >= start && s.Timestamp < end && !s.IsVoided);
+
+            if (_selectedTerminal != "ALL")
+            {
+                salesQuery = salesQuery.Where(s => s.TerminalName == _selectedTerminal);
+            }
+
+            var sales = await salesQuery.ToListAsync();
+
+            // Initialize/reset category sales totals dictionary
+            _posCategorySalesTotals = _posCategories.ToDictionary(cat => cat, cat => 0m);
+
+            foreach (var sale in sales)
+            {
+                if (string.IsNullOrEmpty(sale.ItemsJson)) continue;
+                
+                try
+                {
+                    var items = System.Text.Json.JsonSerializer.Deserialize<List<GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem>>(sale.ItemsJson);
+                    if (items != null)
+                    {
+                        foreach (var item in items)
+                        {
+                            var cleanName = item.Name?.Trim() ?? "";
+                            if (cleanName.Contains("DEPOSIT", StringComparison.OrdinalIgnoreCase) ||
+                                cleanName.Contains("CORRECTION", StringComparison.OrdinalIgnoreCase) ||
+                                cleanName.Contains("NO SALE", StringComparison.OrdinalIgnoreCase) ||
+                                cleanName.Contains("CREDIT", StringComparison.OrdinalIgnoreCase) ||
+                                cleanName.Contains("PAYOUT", StringComparison.OrdinalIgnoreCase) ||
+                                cleanName.Contains("TOKEN", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            var catName = string.IsNullOrWhiteSpace(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
+                            
+                            var matchedCat = _posCategories.FirstOrDefault(c => c.Equals(catName, StringComparison.OrdinalIgnoreCase));
+                            if (matchedCat != null)
+                            {
+                                _posCategorySalesTotals[matchedCat] += (item.Price * item.Quantity);
+                            }
+                            else
+                            {
+                                if (_posCategorySalesTotals.ContainsKey("UNCATEGORIZED"))
+                                {
+                                    _posCategorySalesTotals["UNCATEGORIZED"] += (item.Price * item.Quantity);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore JSON parsing errors on isolated transactions
+                }
+            }
+
+            // Sum up sales for selected categories
+            _profitSales = _posCategorySalesTotals
+                .Where(kvp => _selectedPosCategories.Contains(kvp.Key))
+                .Sum(kvp => kvp.Value);
+
+            // 3. Fetch Total Vendor Purchases (Received liquor orders during this period)
+            _profitPurchases = await db.LiquorOrders
+                .Where(o => o.Status == "Received" && o.OrderDate >= start && o.OrderDate < end)
+                .SumAsync(o => o.TotalCost);
+
+            // 4. Calculate Beginning and Ending Inventory Value ONLY for items in the Liquor Pool
+            var allItems = await db.LiquorItems.Where(i => i.IsActive && !i.ParentItemId.HasValue).ToListAsync();
+            var categories = await db.PosCategories.ToListAsync();
+            
+            var liquorItems = allItems.Where(item => {
+                if (item.InventoryTrackType == 1 || item.InventoryTrackType == 2) return true; // Force Liquor
+                if (item.InventoryTrackType == 3) return false; // Force Food/General
+                
+                // Inherit Category Default
+                var cat = categories.FirstOrDefault(c => c.Name.Equals(item.Category, StringComparison.OrdinalIgnoreCase));
+                if (cat != null)
+                {
+                    return cat.InventoryTrackType == 1; // 1 represents Liquor destination
+                }
+                return true; // Default to true for items in Liquor Hub
+            }).ToList();
+
+            var liquorItemIds = liquorItems.Select(i => i.Id).ToHashSet();
+
+            // Fetch all transactions that occurred AFTER the month's start/end dates
+            // to roll back CurrentStock and find historical counts
+            var startTransactions = await db.LiquorTransactions
+                .Where(t => t.Timestamp >= start && liquorItemIds.Contains(t.ItemId))
+                .ToListAsync();
+
+            var endTransactions = startTransactions
+                .Where(t => t.Timestamp >= end)
+                .ToList();
+
+            decimal begValue = 0;
+            decimal endValue = 0;
+
+            foreach (var item in liquorItems)
+            {
+                // Rollback to Month End: subtract any deltas that happened AFTER the month ended
+                int endQtyChange = endTransactions.Where(t => t.ItemId == item.Id).Sum(t => t.ChangeAmount);
+                int endQty = item.CurrentStock - endQtyChange;
+                if (endQty < 0) endQty = 0;
+                endValue += endQty * item.CurrentPrice;
+
+                // Rollback to Month Start: subtract all deltas that happened AFTER the month started
+                int startQtyChange = startTransactions.Where(t => t.ItemId == item.Id).Sum(t => t.ChangeAmount);
+                int startQty = item.CurrentStock - startQtyChange;
+                if (startQty < 0) startQty = 0;
+                begValue += startQty * item.CurrentPrice;
+            }
+
+            _profitBegValue = begValue;
+            _profitEndValue = endValue;
+
+            // 5. Compute COGS, profit, and pour cost
+            _profitCOGS = _profitBegValue + _profitPurchases - _profitEndValue;
+            if (_profitCOGS < 0) _profitCOGS = 0; // Guard against negative cost anomalies
+
+            _profitGrossProfit = _profitSales - _profitCOGS;
+            _profitPourCost = _profitSales > 0 ? (_profitCOGS / _profitSales) * 100 : 0;
+            _profitMargin = _profitSales > 0 ? (_profitGrossProfit / _profitSales) * 100 : 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error calculating profitability: {ex.Message}");
+        }
+        finally
+        {
+            _calculatingProfitability = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Load category filters
+                var savedCategories = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_liquor_profit_selected_categories");
+                if (!string.IsNullOrEmpty(savedCategories))
+                {
+                    var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedCategories);
+                    if (list != null && list.Any())
+                    {
+                        _selectedPosCategories = new HashSet<string>(list);
+                        _hasLoadedPrefs = true;
+                    }
+                }
+
+                // Load terminal preference
+                var savedTerminal = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_liquor_profit_selected_terminal");
+                if (!string.IsNullOrEmpty(savedTerminal))
+                {
+                    _selectedTerminal = savedTerminal;
+                }
+
+                // Re-run profitability calculation to apply loaded preferences
+                await CalculateMonthlyProfitabilityAsync();
+            }
+            catch
+            {
+                // LocalStorage might not be available during prerendering or if sandbox throws
+            }
+        }
+    }
+
+    private async Task SaveTerminalPrefAsync(string terminal)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_liquor_profit_selected_terminal", terminal);
+        }
+        catch { }
+    }
+
+    private async Task TogglePosCategory(string categoryName, ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+            _selectedPosCategories.Add(categoryName);
+        else
+            _selectedPosCategories.Remove(categoryName);
+
+        // Save to LocalStorage
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(_selectedPosCategories.ToList());
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_liquor_profit_selected_categories", json);
+            _hasLoadedPrefs = true;
+        }
+        catch { }
+
+        // Recalculate profit sales from category totals in memory
+        _profitSales = _posCategorySalesTotals
+            .Where(kvp => _selectedPosCategories.Contains(kvp.Key))
+            .Sum(kvp => kvp.Value);
+
+        // Re-compute COGS and Pour Cost
+        _profitCOGS = _profitBegValue + _profitPurchases - _profitEndValue;
+        if (_profitCOGS < 0) _profitCOGS = 0;
+
+        _profitGrossProfit = _profitSales - _profitCOGS;
+        _profitPourCost = _profitSales > 0 ? (_profitCOGS / _profitSales) * 100 : 0;
+        _profitMargin = _profitSales > 0 ? (_profitGrossProfit / _profitSales) * 100 : 0;
+        
+        StateHasChanged();
     }
 }

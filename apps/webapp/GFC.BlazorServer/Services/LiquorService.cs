@@ -1006,6 +1006,238 @@ namespace GFC.BlazorServer.Services
             return trends;
         }
 
+        public async Task<List<LiquorRecommendationDTO>> GetOrderRecommendationsAsync(int? vendorId = null, string mode = "Recent", int recentDays = 30, DateTime? seasonalTargetDate = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+
+            var itemsQuery = db.LiquorItems
+                 .Include(i => i.Vendor)
+                 .Where(i => i.IsActive);
+
+            if (vendorId.HasValue && vendorId.Value > 0)
+            {
+                itemsQuery = itemsQuery.Where(i => i.VendorId == vendorId.Value);
+            }
+
+            var items = await itemsQuery.ToListAsync();
+            var recommendations = new List<LiquorRecommendationDTO>();
+
+            // Date ranges for calculations
+            var now = DateTime.UtcNow;
+            var recentStart = now.AddDays(-recentDays);
+            
+            // YoY variables
+            double yoyMultiplier = 1.0;
+            var current30Start = now.AddDays(-30);
+            var prev30Start = now.AddDays(-395); // Approx same time last year
+            var prev30End = now.AddDays(-365);
+
+            if (mode == "Seasonal")
+            {
+                // Calculate overall YoY growth factor for clamp checks
+                var currentSalesTotal = await db.LiquorTransactions
+                    .Where(t => t.Timestamp >= current30Start && t.ChangeAmount < 0)
+                    .SumAsync(t => Math.Abs(t.ChangeAmount));
+
+                var prevSalesTotal = await db.LiquorTransactions
+                    .Where(t => t.Timestamp >= prev30Start && t.Timestamp <= prev30End && t.ChangeAmount < 0)
+                    .SumAsync(t => Math.Abs(t.ChangeAmount));
+
+                if (prevSalesTotal > 0 && currentSalesTotal > 0)
+                {
+                    yoyMultiplier = (double)currentSalesTotal / prevSalesTotal;
+                    // Clamp to prevent wild seasonal spikes
+                    yoyMultiplier = Math.Clamp(yoyMultiplier, 0.5, 2.0);
+                }
+            }
+
+            // Get historical transactions for usages (checkouts & negative adjustments)
+            var allTransactions = await db.LiquorTransactions
+                .Where(t => t.ChangeAmount < 0)
+                .ToListAsync();
+
+            // Get recent order history for feedback loops (last 4 weeks)
+            var fourWeeksAgo = now.AddDays(-28);
+            var recentOrders = await db.LiquorOrders
+                .Include(o => o.OrderItems)
+                .Where(o => o.OrderDate >= fourWeeksAgo && o.Status == "Received")
+                .ToListAsync();
+
+            foreach (var item in items)
+            {
+                double avgWeeklyUsage = 0;
+
+                // 1. Calculate historical baseline usage
+                if (mode == "Seasonal")
+                {
+                    var targetDate = seasonalTargetDate ?? now;
+                    var seasonalStart = targetDate.AddYears(-1).AddDays(-15);
+                    var seasonalEnd = targetDate.AddYears(-1).AddDays(15);
+
+                    var seasonalCheckouts = allTransactions
+                        .Where(t => t.ItemId == item.Id && t.Timestamp >= seasonalStart && t.Timestamp <= seasonalEnd)
+                        .Sum(t => Math.Abs(t.ChangeAmount));
+
+                    // 30 days = ~4.28 weeks
+                    avgWeeklyUsage = (seasonalCheckouts / 4.28) * yoyMultiplier;
+                }
+                else // Recent Trends
+                {
+                    var recentCheckouts = allTransactions
+                        .Where(t => t.ItemId == item.Id && t.Timestamp >= recentStart)
+                        .Sum(t => Math.Abs(t.ChangeAmount));
+
+                    double weeksCount = recentDays / 7.0;
+                    avgWeeklyUsage = recentCheckouts / (weeksCount > 0 ? weeksCount : 1.0);
+                }
+
+                // 2. Error-Correction Loop (Adjust based on recent order vs. usage variance)
+                var receivedInPeriod = recentOrders
+                    .SelectMany(o => o.OrderItems)
+                    .Where(oi => oi.LiquorItemId == item.Id)
+                    .Sum(oi => oi.Quantity);
+
+                var checkedOutInPeriod = allTransactions
+                    .Where(t => t.ItemId == item.Id && t.Timestamp >= fourWeeksAgo)
+                    .Sum(t => Math.Abs(t.ChangeAmount));
+
+                // Weekly average error = (weekly ordered) - (weekly consumed)
+                double weeklyOrderAvg = receivedInPeriod / 4.0;
+                double weeklyUsageAvg = checkedOutInPeriod / 4.0;
+                double error = weeklyOrderAvg - weeklyUsageAvg;
+
+                if (error > 0)
+                {
+                    // Over-ordered in the past; reduce predicted usage to compensate
+                    avgWeeklyUsage = Math.Max(0, avgWeeklyUsage - error);
+                }
+                else if (error < 0)
+                {
+                    // Under-ordered (possible stockout); boost predicted usage
+                    avgWeeklyUsage += Math.Abs(error);
+                }
+
+                // 3. Recommended order calculation
+                // Target stock includes 20% safety buffer + minimum limit
+                double targetStock = (avgWeeklyUsage * 1.20) + item.MinStockLimit;
+                int recommendedQty = (int)Math.Max(0, Math.Ceiling(targetStock - item.CurrentStock));
+
+                // Apply minimum order and case rounding constraints
+                if (recommendedQty > 0)
+                {
+                    if (item.OrderByCaseOnly || item.PackSize > 1)
+                    {
+                        int packSize = item.PackSize > 0 ? item.PackSize : 1;
+                        int neededCases = (int)Math.Ceiling((double)recommendedQty / packSize);
+                        
+                        if (item.MinOrderCases.HasValue && neededCases < item.MinOrderCases.Value)
+                        {
+                            neededCases = item.MinOrderCases.Value;
+                        }
+
+                        recommendedQty = neededCases * packSize;
+                    }
+
+                    if (recommendedQty < item.MinimumOrderQuantity)
+                    {
+                        recommendedQty = item.MinimumOrderQuantity;
+                        
+                        // Re-align to case size if needed
+                        if (item.OrderByCaseOnly && item.PackSize > 1)
+                        {
+                            int neededCases = (int)Math.Ceiling((double)recommendedQty / item.PackSize);
+                            recommendedQty = neededCases * item.PackSize;
+                        }
+                    }
+                }
+
+                recommendations.Add(new LiquorRecommendationDTO
+                {
+                    ItemId = item.Id,
+                    ProductName = item.Name,
+                    Category = item.Category ?? "Uncategorized",
+                    CurrentStock = item.CurrentStock,
+                    MinStockLimit = item.MinStockLimit,
+                    MinimumOrderQuantity = item.MinimumOrderQuantity,
+                    AvgWeeklyUsage = Math.Round(avgWeeklyUsage, 2),
+                    RecommendedQuantity = recommendedQty,
+                    UnitPrice = item.CurrentPrice,
+                    CasePrice = item.CasePrice ?? (item.CurrentPrice * item.PackSize),
+                    PackSize = item.PackSize,
+                    OrderByCaseOnly = item.OrderByCaseOnly,
+                    VendorId = item.VendorId,
+                    VendorName = item.Vendor?.Name ?? "Unassigned",
+                    IsTopUpSuggestion = false,
+                    ExcludeFromPredictions = item.ExcludeFromPredictions,
+                    Reason = recommendedQty > 0 ? "Below minimum stock or projected by usage trends." : string.Empty
+                });
+            }
+
+            // 4. Vendor Minimum Order Fill Top-ups
+            // Group recommendations by vendor to check if they meet the minimum order limit
+            var recommendationsByVendor = recommendations.GroupBy(r => r.VendorId);
+            foreach (var vendorGroup in recommendationsByVendor)
+            {
+                if (!vendorGroup.Key.HasValue) continue;
+
+                var firstRec = vendorGroup.First();
+                var vendor = items.FirstOrDefault(i => i.VendorId == vendorGroup.Key)?.Vendor;
+                if (vendor == null || vendor.MinimumOrderAmount <= 0) continue;
+
+                // Calculate current recommended order total for this vendor
+                decimal currentOrderTotal = 0;
+                foreach (var rec in vendorGroup)
+                {
+                    if (rec.RecommendedQuantity <= 0) continue;
+
+                    if (rec.PackSize > 1 && rec.OrderByCaseOnly)
+                    {
+                        int cases = rec.RecommendedQuantity / rec.PackSize;
+                        currentOrderTotal += cases * rec.CasePrice;
+                    }
+                    else
+                    {
+                        currentOrderTotal += rec.RecommendedQuantity * rec.UnitPrice;
+                    }
+                }
+
+                // If below the minimum order limit, suggest top-up items
+                if (currentOrderTotal > 0 && currentOrderTotal < vendor.MinimumOrderAmount)
+                {
+                    decimal remainingNeeded = vendor.MinimumOrderAmount - currentOrderTotal;
+
+                    // Get items from this vendor that currently have no recommended quantity
+                    var topUpCandidates = vendorGroup
+                        .Where(r => r.RecommendedQuantity == 0)
+                        .Select(r => new
+                        {
+                            Rec = r,
+                            // Rank by days until stock runs out (CurrentStock / WeeklyUsage)
+                            DaysRemaining = r.AvgWeeklyUsage > 0 ? (r.CurrentStock / r.AvgWeeklyUsage) * 7.0 : 9999.0
+                        })
+                        .OrderBy(c => c.DaysRemaining) // Run out soonest first
+                        .ToList();
+
+                    foreach (var candidate in topUpCandidates)
+                    {
+                        if (remainingNeeded <= 0) break;
+
+                        // Recommend 1 Case or MinimumOrderQuantity
+                        int suggestQty = candidate.Rec.PackSize > 1 ? candidate.Rec.PackSize : candidate.Rec.MinimumOrderQuantity;
+                        decimal itemCost = candidate.Rec.PackSize > 1 ? candidate.Rec.CasePrice : (suggestQty * candidate.Rec.UnitPrice);
+
+                        candidate.Rec.RecommendedQuantity = suggestQty;
+                        candidate.Rec.IsTopUpSuggestion = true;
+                        candidate.Rec.Reason = $"Suggested top-up to meet vendor minimum order limit ({vendor.MinimumOrderAmount:C}). Est. run-out: {Math.Round(candidate.DaysRemaining)} days.";
+
+                        remainingNeeded -= itemCost;
+                    }
+                }
+            }
+
+            return recommendations.OrderByDescending(r => r.RecommendedQuantity > 0).ThenBy(r => r.ProductName).ToList();
+        }
+
         public async Task<IEnumerable<PosCategory>> GetAllCategoriesAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();

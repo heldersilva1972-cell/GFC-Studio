@@ -33,14 +33,19 @@
     private Timer _countdownTimer;
     private int _countdownSeconds = 60;
     private bool _logoutInProgress = false;  // prevents double-logout race between JS and C# timers
+    private bool _lastIsStation;
+    private bool _isInitialized = false;
 
     [Parameter]
     public bool IsStation { get; set; }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender || (_isInitialized && _lastIsStation != IsStation))
         {
+            _lastIsStation = IsStation;
+            _isInitialized = true;
+
             var settings = await SystemSettingsService.GetSystemSettingsAsync();
             _idleTimeoutMinutes = settings?.IdleTimeoutMinutes ?? 20;
 
@@ -52,6 +57,12 @@
 
             // [SECURITY FIX] Ensure a minimum of 5 minutes to prevent race conditions or session reset loops
             if (_idleTimeoutMinutes < 5) _idleTimeoutMinutes = 5;
+
+            // Clean up old reference if we are re-initializing
+            if (_dotNetRef != null)
+            {
+                try { _dotNetRef.Dispose(); } catch { }
+            }
 
             _dotNetRef = DotNetObjectReference.Create(this);
             await JSRuntime.InvokeVoidAsync("sessionMonitor.init", _dotNetRef, _idleTimeoutMinutes, _idleTimeoutMinutes - 1);
@@ -122,7 +133,7 @@
             Logger.LogWarning(ex, "AuthStateProvider.LogoutAsync() failed — forcing navigation to login.");
         }
 
-        NavigationManager.NavigateTo("/login", true);
+        await InvokeAsync(() => NavigationManager.NavigateTo("/login", true));
     }
 
     private async Task StayLoggedIn()

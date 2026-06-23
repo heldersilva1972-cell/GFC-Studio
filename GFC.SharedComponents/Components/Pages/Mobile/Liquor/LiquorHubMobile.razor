@@ -3042,7 +3042,24 @@
         if (string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) return;
         
         // Calculate discrepancy (Tax + Fees) on RECEIVED items only
-        var receivedItemsTotal = _orderToReceive.OrderItems.Where(i => !i.IsBackordered).Sum(i => i.UnitPriceAtTimeOfOrder * i.Quantity);
+        decimal receivedItemsTotal = 0;
+        foreach (var item in _orderToReceive.OrderItems.Where(i => !i.IsBackordered))
+        {
+            var packSize = item.LiquorItem?.PackSize ?? 1;
+            if (packSize > 1)
+            {
+                var cases = item.Quantity / packSize;
+                var bottles = item.Quantity % packSize;
+                var casePrice = item.CasePriceAtTimeOfOrder ?? (item.UnitPriceAtTimeOfOrder * packSize);
+                var bottlePrice = item.CasePriceAtTimeOfOrder.HasValue ? item.UnitPriceAtTimeOfOrder : (item.UnitPriceAtTimeOfOrder / packSize);
+                receivedItemsTotal += (cases * casePrice) + (bottles * bottlePrice);
+            }
+            else
+            {
+                receivedItemsTotal += item.UnitPriceAtTimeOfOrder * item.Quantity;
+            }
+            receivedItemsTotal += item.BottleFeeAtTimeOfOrder * item.Quantity;
+        }
         var additionalCosts = _receiveTotalDue - receivedItemsTotal;
         
         // 0. Save backorder status

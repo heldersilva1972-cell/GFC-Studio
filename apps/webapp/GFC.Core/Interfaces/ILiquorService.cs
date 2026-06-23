@@ -51,6 +51,7 @@ namespace GFC.Core.Interfaces
 
         // Analytics
         Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30);
+        Task<List<LiquorRecommendationDTO>> GetOrderRecommendationsAsync(int? vendorId = null, string mode = "Recent", int recentDays = 30, DateTime? seasonalTargetDate = null);
 
         // Categories
         Task<IEnumerable<PosCategory>> GetAllCategoriesAsync();

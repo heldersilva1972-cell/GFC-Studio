@@ -1,0 +1,515 @@
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@inject ILiquorService LiquorService
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+<style>
+    .predictive-view thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background-color: #212529 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+</style>
+
+
+<div class="predictive-view animate-fade-in h-100 d-flex flex-column" style="min-height: 0; overflow: hidden;">
+    <div class="tab-fixed-header pb-3 bg-white border-bottom shadow-sm px-4 pt-3 rounded-4 mb-4">
+        <div class="row align-items-center g-3">
+            <div class="col-md-5">
+                <h4 class="fw-black text-uppercase tracking-wider mb-1 text-primary">
+                    <i class="bi bi-cpu me-2"></i>Smart Ordering Assistant
+                </h4>
+                <p class="small text-muted mb-0 fw-bold d-flex align-items-center gap-3">
+                    <span>Uses sales checkouts, error feedback history, and seasonality to recommend the perfect order quantity.</span>
+                    <label class="form-check form-switch mb-0 d-inline-flex align-items-center gap-2" style="cursor: pointer;">
+                        <input class="form-check-input" type="checkbox" @bind="_showExcluded" style="cursor: pointer;" />
+                        <span class="text-danger fw-black" style="font-size: 0.75rem;">SHOW EXCLUDED</span>
+                    </label>
+                </p>
+            </div>
+            
+            <div class="col-md-7">
+                <div class="d-flex justify-content-md-end align-items-center gap-3 flex-wrap">
+                    <!-- Mode Toggle Group -->
+                    <div style="width: 210px; flex-shrink: 0;">
+                        <div class="d-flex align-items-center gap-1 bg-light rounded-pill p-1 border">
+                            <button class="btn btn-sm rounded-pill w-100 fw-black @(_mode == "Recent" ? "btn-white shadow-sm text-primary" : "text-muted border-0 bg-transparent")" 
+                                    style="font-size: 0.7rem; white-space: nowrap; height: 28px;" @onclick='() => SetMode("Recent")'>
+                                RECENT TRENDS
+                            </button>
+                            <button class="btn btn-sm rounded-pill w-100 fw-black @(_mode == "Seasonal" ? "btn-white shadow-sm text-primary" : "text-muted border-0 bg-transparent")" 
+                                    style="font-size: 0.7rem; white-space: nowrap; height: 28px;" @onclick='() => SetMode("Seasonal")'>
+                                SEASONAL YoY
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Parameter Selector Group (Fixed width to prevent layout shifting) -->
+                    <div style="width: 160px; flex-shrink: 0;">
+                        @if (_mode == "Recent")
+                        {
+                            <select class="form-select form-select-sm rounded-pill border-2 fw-black text-dark bg-white" style="height: 38px; font-size: 0.8rem; cursor: pointer;" 
+                                    @bind:get="_recentDays" @bind:set="async val => { _recentDays = val; await CalculateRecommendationsAsync(); }">
+                                <option value="14">Last 14 Days</option>
+                                <option value="30">Last 30 Days</option>
+                                <option value="60">Last 60 Days</option>
+                                <option value="90">Last 90 Days</option>
+                            </select>
+                        }
+                        else
+                        {
+                            <input type="month" class="form-control form-control-sm rounded-pill border-2 fw-black text-dark bg-white" 
+                                   style="height: 38px; font-size: 0.8rem;"
+                                   @bind:get="_seasonalDate" @bind:set="async val => { _seasonalDate = val; await CalculateRecommendationsAsync(); }" />
+                        }
+                    </div>
+
+                    <!-- Vendor Select Group -->
+                    <div style="width: 180px; flex-shrink: 0;">
+                        <select class="form-select form-select-sm rounded-pill border-2 fw-black text-dark bg-white" style="height: 38px; font-size: 0.8rem; cursor: pointer;" 
+                                @bind:get="VendorIdFilter" @bind:set="async val => { VendorIdFilter = val; await CalculateRecommendationsAsync(); }">
+                            <option value="0">All Vendors</option>
+                            @foreach (var v in Vendors)
+                            {
+                                <option value="@v.Id">@v.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Action Button -->
+                    <button class="btn btn-primary btn-sm rounded-pill px-4 fw-black shadow-sm" style="height: 38px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;"
+                            @onclick="AddAllToCart" disabled="@(!_selectedItemIds.Any())">
+                        <i class="bi bi-cart-plus-fill me-1"></i> ADD TO ORDER (@_selectedItemIds.Count)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="d-flex flex-column align-items-center justify-content-center py-5 flex-grow-1">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <div class="text-muted fw-bold">Analyzing usage logs and building forecasts...</div>
+        </div>
+    }
+    else if (!_recommendations.Any())
+    {
+        <div class="p-5 text-center text-muted flex-grow-1">
+            <i class="bi bi-clipboard-x display-4 opacity-25"></i>
+            <h5 class="mt-3 fw-bold">No active items found matching the current filters.</h5>
+        </div>
+    }
+    else
+    {
+        <div class="row g-0 flex-grow-1 overflow-hidden" style="min-height: 0;">
+            <!-- Main recommendations list -->
+            <div class="col-lg-8 d-flex flex-column bg-white h-100 border-end" style="min-height: 0;">
+                <div class="p-4 d-flex flex-column flex-grow-1" style="min-height: 0;">
+                    <div class="table-responsive rounded-4 shadow-sm border flex-grow-1" style="overflow-y: auto;">
+                        <table class="table table-hover table-striped mb-0 align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th class="ps-3 py-3 text-center" style="width: 50px;">
+                                        <input class="form-check-input" type="checkbox" style="cursor: pointer;"
+                                               checked="@AllRecommendationsSelected()"
+                                               @onchange="ToggleSelectAll" />
+                                    </th>
+                                    <th class="text-uppercase tracking-wider extra-small py-3">Product / Size</th>
+                                    <th class="text-center text-uppercase tracking-wider extra-small py-3">Current Stock</th>
+                                    <th class="text-center text-uppercase tracking-wider extra-small py-3">Weekly Avg Usage</th>
+                                    <th class="text-center text-uppercase tracking-wider extra-small py-3">Suggested Order</th>
+                                    <th class="text-center text-uppercase tracking-wider extra-small py-3">Vendor</th>
+                                    <th class="text-center text-uppercase tracking-wider extra-small py-3" title="Estimated cost for this item (Suggested Order × Price)">Line Est <i class="bi bi-info-circle opacity-50 ms-1" style="font-size: 0.8em;"></i></th>
+                                    <th class="pe-3 text-end text-uppercase tracking-wider extra-small py-3">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rec in _recommendations.Where(r => !r.ExcludeFromPredictions || _showExcluded))
+                                {
+                                    <tr class="@(rec.ExcludeFromPredictions ? "opacity-50 table-secondary" : (rec.RecommendedQuantity > 0 ? (rec.IsTopUpSuggestion ? "table-warning border-start border-4 border-warning" : "table-primary border-start border-4 border-primary") : ""))">
+                                        <td class="ps-3 text-center">
+                                            @if (rec.RecommendedQuantity > 0 && !rec.ExcludeFromPredictions)
+                                            {
+                                                <input class="form-check-input" type="checkbox" style="cursor: pointer;"
+                                                       checked="@_selectedItemIds.Contains(rec.ItemId)"
+                                                       @onchange="@((e) => ToggleItemSelection(rec.ItemId, e))" />
+                                            }
+                                            else
+                                            {
+                                                <input class="form-check-input" type="checkbox" disabled />
+                                            }
+                                        </td>
+                                        <td>
+                                            <div class="fw-black @(rec.ExcludeFromPredictions ? "text-decoration-line-through text-muted" : "text-dark")">@rec.ProductName</div>
+                                            <div class="small text-muted d-flex align-items-center gap-2">
+                                                <span>@rec.Category</span>
+                                                <span class="dot"></span>
+                                                <span>@rec.UnitPrice.ToString("C")</span>
+                                                @if (rec.PackSize > 1)
+                                                {
+                                                    <span class="badge bg-light text-dark border extra-small">Case of @rec.PackSize</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td class="text-center">
+                                            <div class="fw-bold @(rec.CurrentStock <= rec.MinStockLimit ? "text-danger" : "text-dark")">
+                                                @rec.CurrentStock
+                                            </div>
+                                            <div class="extra-small text-muted">Limit: @rec.MinStockLimit</div>
+                                        </td>
+                                        <td class="text-center fw-bold">
+                                            @rec.AvgWeeklyUsage @(rec.AvgWeeklyUsage == 1 ? "btl" : "btls")
+                                        </td>
+                                        <td class="text-center">
+                                            @if (rec.ExcludeFromPredictions)
+                                            {
+                                                <span class="text-muted fw-bold italic small">Excluded</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex flex-column align-items-center justify-content-center">
+                                                    <div class="d-flex align-items-center justify-content-center gap-1">
+                                                        @if (rec.PackSize > 1)
+                                                        {
+                                                            <input type="number" class="form-control form-control-sm text-center fw-black border-2 rounded-pill px-2" 
+                                                                   style="width: 75px; height: 30px;"
+                                                                   min="0"
+                                                                   @bind:get="@(rec.RecommendedQuantity / rec.PackSize)"
+                                                                   @bind:set="@((int val) => UpdateRecommendedCases(rec, val))" />
+                                                            <span class="small fw-black text-muted">Cs</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <input type="number" class="form-control form-control-sm text-center fw-black border-2 rounded-pill px-2" 
+                                                                   style="width: 75px; height: 30px;"
+                                                                   min="0"
+                                                                   @bind:get="@rec.RecommendedQuantity"
+                                                                   @bind:set="@((int val) => UpdateRecommendedUnits(rec, val))" />
+                                                            <span class="small fw-black text-muted">Btl</span>
+                                                        }
+                                                    </div>
+                                                    @if (rec.PackSize > 1)
+                                                    {
+                                                        <div class="extra-small text-muted mt-1">(@rec.RecommendedQuantity btls)</div>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(rec.Reason) && rec.RecommendedQuantity > 0)
+                                                    {
+                                                        <div class="extra-small text-muted mt-1 d-block max-w-200" title="@rec.Reason" style="font-size: 0.65rem; line-height: 1.1;">
+                                                            <i class="bi bi-info-circle text-primary"></i> @(rec.IsTopUpSuggestion ? "Vendor Min Top-up" : "Low Stock / Trend")
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border px-2 py-1" style="font-size: 0.7rem;">
+                                                @rec.VendorName
+                                            </span>
+                                        </td>
+                                        <td class="text-center fw-black text-dark">
+                                            @if (rec.RecommendedQuantity > 0 && !rec.ExcludeFromPredictions)
+                                            {
+                                                @if (rec.PackSize > 1 && rec.OrderByCaseOnly)
+                                                {
+                                                    <span>@((rec.RecommendedQuantity / rec.PackSize * rec.CasePrice).ToString("C"))</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@((rec.RecommendedQuantity * rec.UnitPrice).ToString("C"))</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span>—</span>
+                                            }
+                                        </td>
+                                        <td class="pe-3 text-end">
+                                            @if (rec.ExcludeFromPredictions)
+                                            {
+                                                <button class="btn btn-xs btn-outline-success rounded-pill fw-black px-3 py-1" style="font-size: 0.65rem;"
+                                                        @onclick="() => ToggleItemExclusion(rec)">
+                                                    <i class="bi bi-plus-circle me-1"></i> INCLUDE
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-xs btn-outline-danger rounded-pill fw-black px-3 py-1" style="font-size: 0.65rem;"
+                                                        @onclick="() => ToggleItemExclusion(rec)">
+                                                    <i class="bi bi-dash-circle me-1"></i> EXCLUDE
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar summary & vendor minimum limits -->
+            <div class="col-lg-4 d-flex flex-column bg-light h-100 p-4" style="min-height: 0; overflow-y: auto;">
+                <h5 class="fw-black text-dark text-uppercase tracking-wider mb-1">
+                    <i class="bi bi-building me-2"></i>Vendor Summary
+                </h5>
+                <p class="extra-small text-muted fw-bold mb-3">
+                    Aggregated purchase estimates by supplier to monitor order progress against mandatory vendor minimum purchase requirements.
+                </p>
+
+                @foreach (var group in _recommendations.Where(r => _selectedItemIds.Contains(r.ItemId) && r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions).GroupBy(r => r.VendorId))
+                {
+                    var vendor = Vendors.FirstOrDefault(v => v.Id == group.Key);
+                    var vName = vendor?.Name ?? "Unassigned";
+                    
+                    // Calc total
+                    decimal vTotal = 0;
+                    foreach (var rec in group)
+                    {
+                        if (rec.PackSize > 1 && rec.OrderByCaseOnly)
+                        {
+                            vTotal += (rec.RecommendedQuantity / rec.PackSize) * rec.CasePrice;
+                        }
+                        else
+                        {
+                            vTotal += rec.RecommendedQuantity * rec.UnitPrice;
+                        }
+                    }
+
+                    <div class="card border-0 shadow-sm rounded-4 mb-3 p-3 bg-white">
+                        <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
+                            <span class="fw-black text-uppercase text-dark" style="font-size: 0.85rem;">@vName</span>
+                            <span class="fw-black text-primary" style="font-size: 1.05rem;">@vTotal.ToString("C")</span>
+                        </div>
+
+                        @if (vendor != null && vendor.MinimumOrderAmount > 0)
+                        {
+                            var progressPercent = (double)Math.Min(100, (vTotal / vendor.MinimumOrderAmount) * 100);
+                            var isUnder = vTotal < vendor.MinimumOrderAmount;
+
+                            <div class="d-flex justify-content-between align-items-center small mb-1 fw-bold">
+                                <span class="text-muted">Vendor Minimum:</span>
+                                <span class="@(isUnder ? "text-warning" : "text-success")">
+                                    @vTotal.ToString("C") / @vendor.MinimumOrderAmount.ToString("C")
+                                </span>
+                            </div>
+
+                            <div class="progress rounded-pill mb-2" style="height: 8px; background: #e2e8f0;">
+                                <div class="progress-bar rounded-pill @(isUnder ? "bg-warning" : "bg-success")" role="progressbar" 
+                                     style="width: @(progressPercent)%;" aria-valuenow="@progressPercent" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+
+                            @if (isUnder)
+                            {
+                                <div class="alert alert-warning py-1.5 px-3 rounded-3 extra-small mb-0 border-0 fw-bold d-flex align-items-center mt-2">
+                                    <i class="bi bi-exclamation-triangle-fill text-warning me-2 fs-6"></i>
+                                    <span>Below minimum limit. Top-up suggestions have been auto-added below.</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="alert alert-success py-1.5 px-3 rounded-3 extra-small mb-0 border-0 fw-bold d-flex align-items-center mt-2">
+                                    <i class="bi bi-check-circle-fill text-success me-2 fs-6"></i>
+                                    <span>Vendor minimum target met!</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+
+                @if (!_recommendations.Any(r => _selectedItemIds.Contains(r.ItemId) && r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions))
+                {
+                    <div class="alert alert-info rounded-4 border-0 shadow-sm p-4 text-center mt-4">
+                        <i class="bi bi-info-circle-fill display-4 d-block mb-3 text-primary opacity-50"></i>
+                        <h6 class="fw-bold">No items currently recommended.</h6>
+                        <p class="mb-0 small text-muted">Stock levels are currently sufficient for the selected period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<Dictionary<int, int>> OnAddToOrder { get; set; }
+    [Parameter] public int VendorIdFilter { get; set; } = 0;
+    [Parameter] public List<LiquorVendor> Vendors { get; set; } = new();
+
+    private string _mode = "Recent";
+    private int _recentDays = 30;
+    private DateTime _seasonalDate = DateTime.Today;
+    private bool _isLoading = true;
+    private bool _showExcluded = false;
+    private List<LiquorRecommendationDTO> _recommendations = new();
+    private HashSet<int> _selectedItemIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CalculateRecommendationsAsync();
+    }
+
+    private async Task SetMode(string mode)
+    {
+        _mode = mode;
+        await CalculateRecommendationsAsync();
+    }
+
+    private async Task CalculateRecommendationsAsync(bool silent = false)
+    {
+        if (!silent)
+        {
+            _isLoading = true;
+            StateHasChanged();
+        }
+        try
+        {
+            DateTime? targetSeasonal = null;
+            if (_mode == "Seasonal")
+            {
+                targetSeasonal = _seasonalDate;
+            }
+
+            var newRecs = await LiquorService.GetOrderRecommendationsAsync(
+                VendorIdFilter > 0 ? VendorIdFilter : null,
+                _mode,
+                _recentDays,
+                targetSeasonal
+            );
+
+            // Sync selection: Keep previously selected ones if they are still valid recommendations
+            var existingSelected = _selectedItemIds.Intersect(newRecs.Select(r => r.ItemId)).ToHashSet();
+            if (!silent || !existingSelected.Any())
+            {
+                _selectedItemIds = newRecs
+                    .Where(r => r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions)
+                    .Select(r => r.ItemId)
+                    .ToHashSet();
+            }
+            else
+            {
+                _selectedItemIds = existingSelected
+                    .Where(id => newRecs.Any(r => r.ItemId == id && r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions))
+                    .ToHashSet();
+            }
+
+            _recommendations = newRecs;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PredictiveOrderingTab] Recommendation math error: {ex.Message}");
+        }
+        finally
+        {
+            if (!silent)
+            {
+                _isLoading = false;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private bool AllRecommendationsSelected()
+    {
+        var activeRecs = _recommendations.Where(r => r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions).ToList();
+        if (!activeRecs.Any()) return false;
+        return activeRecs.All(r => _selectedItemIds.Contains(r.ItemId));
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+        {
+            var activeRecs = _recommendations.Where(r => r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions);
+            foreach (var r in activeRecs)
+            {
+                _selectedItemIds.Add(r.ItemId);
+            }
+        }
+        else
+        {
+            _selectedItemIds.Clear();
+        }
+    }
+
+    private void ToggleItemSelection(int itemId, ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+        {
+            _selectedItemIds.Add(itemId);
+        }
+        else
+        {
+            _selectedItemIds.Remove(itemId);
+        }
+    }
+
+    private void UpdateRecommendedCases(LiquorRecommendationDTO rec, int cases)
+    {
+        int newQty = Math.Max(0, cases) * rec.PackSize;
+        rec.RecommendedQuantity = newQty;
+        if (newQty > 0)
+        {
+            _selectedItemIds.Add(rec.ItemId);
+        }
+        else
+        {
+            _selectedItemIds.Remove(rec.ItemId);
+        }
+        StateHasChanged();
+    }
+
+    private void UpdateRecommendedUnits(LiquorRecommendationDTO rec, int units)
+    {
+        int newQty = Math.Max(0, units);
+        rec.RecommendedQuantity = newQty;
+        if (newQty > 0)
+        {
+            _selectedItemIds.Add(rec.ItemId);
+        }
+        else
+        {
+            _selectedItemIds.Remove(rec.ItemId);
+        }
+        StateHasChanged();
+    }
+
+    private async Task AddAllToCart()
+    {
+        var cartMap = _recommendations
+            .Where(r => _selectedItemIds.Contains(r.ItemId) && r.RecommendedQuantity > 0 && !r.ExcludeFromPredictions)
+            .ToDictionary(r => r.ItemId, r => r.RecommendedQuantity);
+
+        if (cartMap.Any())
+        {
+            await OnAddToOrder.InvokeAsync(cartMap);
+            _selectedItemIds.Clear();
+        }
+    }
+
+    private async Task ToggleItemExclusion(LiquorRecommendationDTO rec)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbItem = await db.LiquorItems.FindAsync(rec.ItemId);
+            if (dbItem != null)
+            {
+                dbItem.ExcludeFromPredictions = !dbItem.ExcludeFromPredictions;
+                await db.SaveChangesAsync();
+                
+                // Toggle local state to instantly refresh UI
+                rec.ExcludeFromPredictions = dbItem.ExcludeFromPredictions;
+                
+                // Re-calculate since changing exclusion shifts vendor orders and top-up suggestions!
+                await CalculateRecommendationsAsync(silent: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling exclusion: {ex.Message}");
+        }
+    }
+}
