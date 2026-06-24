@@ -161,6 +161,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Finance.FinancePayment> FinancePayments => Set<GFC.Core.Models.Finance.FinancePayment>();
     public DbSet<GFC.Core.Models.Finance.FinanceLoan> FinanceLoans => Set<GFC.Core.Models.Finance.FinanceLoan>();
     public DbSet<GFC.Core.Models.Finance.FinancePaymentType> FinancePaymentTypes => Set<GFC.Core.Models.Finance.FinancePaymentType>();
+    public DbSet<GFC.Core.Models.Finance.FinanceAuditLog> FinanceAuditLogs => Set<GFC.Core.Models.Finance.FinanceAuditLog>();
 
     // BINGO
     public DbSet<BingoSession> BingoSessions => Set<BingoSession>();

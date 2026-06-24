@@ -12,11 +12,14 @@ namespace GFC.Core.Interfaces
         Task<IEnumerable<FinanceBill>> GetBillsForReportAsync(int month, int year);
         Task<IEnumerable<FinanceBill>> GetBillsForYearAsync(int year);
         Task<FinanceBill?> GetBillByIdAsync(int id);
-        Task<FinanceBill> CreateBillAsync(FinanceBill bill);
-        Task UpdateBillAsync(FinanceBill bill);
-        Task DeleteBillAsync(int id);
-        Task MarkAsPaidAsync(int billId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null);
+        Task<FinanceBill> CreateBillAsync(FinanceBill bill, string? performedBy = null);
+        Task UpdateBillAsync(FinanceBill bill, string? performedBy = null);
+        Task DeleteBillAsync(int id, string? performedBy = null);
+        Task MarkAsPaidAsync(int billId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null, string? performedBy = null);
         Task ToggleDisputeAsync(int billId, string? note = null);
+
+        // Audit Logging
+        Task<IEnumerable<FinanceAuditLog>> GetAuditLogsAsync();
 
         // Vendor Management
         Task<IEnumerable<FinanceVendor>> GetAllVendorsAsync();
@@ -39,8 +42,8 @@ namespace GFC.Core.Interfaces
 
         // Payment Management
         Task<FinancePayment?> GetPaymentByIdAsync(int id);
-        Task UpdatePaymentAsync(FinancePayment payment);
-        Task DeletePaymentAsync(int paymentId);
+        Task UpdatePaymentAsync(FinancePayment payment, string? performedBy = null);
+        Task DeletePaymentAsync(int paymentId, string? performedBy = null);
 
         // Category Management
         Task<IEnumerable<FinanceCategory>> GetAllCategoriesAsync();

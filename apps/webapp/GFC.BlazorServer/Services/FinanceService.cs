@@ -118,42 +118,62 @@ namespace GFC.BlazorServer.Services
                 .FirstOrDefaultAsync(b => b.Id == id);
         }
 
-        public async Task<FinanceBill> CreateBillAsync(FinanceBill bill)
+        public async Task<FinanceBill> CreateBillAsync(FinanceBill bill, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             db.FinanceBills.Add(bill);
             await db.SaveChangesAsync();
+
+            var vendor = await db.FinanceVendors.FindAsync(bill.VendorId);
+            var vendorName = vendor?.Name ?? "Unknown";
+            await LogActionAsync(db, "Create Bill", $"Created bill for vendor '{vendorName}' due on {bill.DueDate:MM/dd/yyyy} for {bill.OriginalAmount:C}.", performedBy);
+
             return bill;
         }
 
-        public async Task UpdateBillAsync(FinanceBill bill)
+        public async Task UpdateBillAsync(FinanceBill bill, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var existing = await db.FinanceBills.FindAsync(bill.Id);
             if (existing != null)
             {
+                var vendor = await db.FinanceVendors.FindAsync(bill.VendorId);
+                var vendorName = vendor?.Name ?? "Unknown";
+                
+                var changeDesc = $"Updated bill for vendor '{vendorName}'. " +
+                                 $"Original Amount: {existing.OriginalAmount:C} -> {bill.OriginalAmount:C}, " +
+                                 $"Due Date: {existing.DueDate:MM/dd/yyyy} -> {bill.DueDate:MM/dd/yyyy}.";
+
                 db.Entry(existing).CurrentValues.SetValues(bill);
                 existing.UpdatedAt = DateTime.Now;
                 await db.SaveChangesAsync();
+
+                await LogActionAsync(db, "Edit Bill", changeDesc, performedBy);
             }
         }
 
-        public async Task DeleteBillAsync(int id)
+        public async Task DeleteBillAsync(int id, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var bill = await db.FinanceBills.FindAsync(id);
+            var bill = await db.FinanceBills.Include(b => b.Vendor).FirstOrDefaultAsync(b => b.Id == id);
             if (bill != null)
             {
+                var vendorName = bill.Vendor?.Name ?? "Unknown";
+                var desc = $"Deleted bill for vendor '{vendorName}' due on {bill.DueDate:MM/dd/yyyy} for {bill.OriginalAmount:C}.";
+
                 db.FinanceBills.Remove(bill);
                 await db.SaveChangesAsync();
+
+                await LogActionAsync(db, "Delete Bill", desc, performedBy);
             }
         }
 
-        public async Task MarkAsPaidAsync(int billId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null)
+        public async Task MarkAsPaidAsync(int billId, decimal amount, DateTime date, string? method = null, string? note = null, int? userId = null, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var bill = await db.FinanceBills
                 .Include(b => b.Payments)
+                .Include(b => b.Vendor)
                 .FirstOrDefaultAsync(b => b.Id == billId);
 
             if (bill == null) throw new Exception("Bill not found.");
@@ -210,6 +230,10 @@ namespace GFC.BlazorServer.Services
 
             bill.UpdatedAt = DateTime.Now;
             await db.SaveChangesAsync();
+
+            var vendorName = bill.Vendor?.Name ?? "Unknown";
+            var desc = $"Recorded payment of {amount:C} via {method ?? "N/A"} on bill for vendor '{vendorName}' (Due: {bill.DueDate:MM/dd/yyyy}).";
+            await LogActionAsync(db, "Mark Paid", desc, performedBy);
         }
 
         private async Task GenerateNextRecurringInstance(GfcDbContext db, FinanceBill currentBill)
@@ -641,11 +665,20 @@ namespace GFC.BlazorServer.Services
                 .FirstOrDefaultAsync(p => p.Id == id);
         }
 
-        public async Task UpdatePaymentAsync(FinancePayment payment)
+        public async Task UpdatePaymentAsync(FinancePayment payment, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var existing = await db.FinancePayments.FindAsync(payment.Id);
+            var existing = await db.FinancePayments
+                .Include(p => p.Bill).ThenInclude(b => b!.Vendor)
+                .Include(p => p.Loan)
+                .FirstOrDefaultAsync(p => p.Id == payment.Id);
             if (existing == null) throw new Exception("Payment not found.");
+
+            string payeeName = existing.Bill?.Vendor?.Name ?? existing.Loan?.LenderName ?? "Unknown";
+            var changeDesc = $"Updated payment for '{payeeName}'. " +
+                             $"Amount: {existing.AmountPaid:C} -> {payment.AmountPaid:C}, " +
+                             $"Date: {existing.PaymentDate:MM/dd/yyyy} -> {payment.PaymentDate:MM/dd/yyyy}, " +
+                             $"Method: {existing.PaymentMethod} -> {payment.PaymentMethod}.";
 
             db.Entry(existing).CurrentValues.SetValues(payment);
             await db.SaveChangesAsync();
@@ -698,16 +731,23 @@ namespace GFC.BlazorServer.Services
                     await db.SaveChangesAsync();
                 }
             }
+
+            await LogActionAsync(db, "Edit Payment", changeDesc, performedBy);
         }
 
-        public async Task DeletePaymentAsync(int paymentId)
+        public async Task DeletePaymentAsync(int paymentId, string? performedBy = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var payment = await db.FinancePayments.FindAsync(paymentId);
+            var payment = await db.FinancePayments
+                .Include(p => p.Bill).ThenInclude(b => b!.Vendor)
+                .Include(p => p.Loan)
+                .FirstOrDefaultAsync(p => p.Id == paymentId);
             if (payment == null) return;
 
             var billId = payment.BillId;
             var loanId = payment.LoanId;
+            string payeeName = payment.Bill?.Vendor?.Name ?? payment.Loan?.LenderName ?? "Unknown";
+            var desc = $"Deleted payment of {payment.AmountPaid:C} made on {payment.PaymentDate:MM/dd/yyyy} for '{payeeName}'.";
 
             db.FinancePayments.Remove(payment);
             await db.SaveChangesAsync();
@@ -759,6 +799,37 @@ namespace GFC.BlazorServer.Services
                     }
                     await db.SaveChangesAsync();
                 }
+            }
+
+            await LogActionAsync(db, "Delete Payment", desc, performedBy);
+        }
+
+        public async Task<IEnumerable<FinanceAuditLog>> GetAuditLogsAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.FinanceAuditLogs
+                .AsNoTracking()
+                .OrderByDescending(al => al.ActionDate)
+                .ToListAsync();
+        }
+
+        private async Task LogActionAsync(GfcDbContext db, string actionType, string description, string? performedBy)
+        {
+            try
+            {
+                var log = new FinanceAuditLog
+                {
+                    ActionDate = DateTime.Now,
+                    ActionType = actionType,
+                    Description = description,
+                    PerformedBy = performedBy ?? "System"
+                };
+                db.FinanceAuditLogs.Add(log);
+                await db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FINANCE] Audit logging failed: {ex.Message}");
             }
         }
 

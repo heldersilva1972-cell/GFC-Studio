@@ -1,6 +1,7 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models.Finance
 @inject IFinanceService FinanceService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 
 <style>
     /* Direct priority overrides to ensure visibility and bypass file caching */
@@ -168,6 +169,61 @@
                             <label class="form-label small fw-bold text-muted">Notes / Description</label>
                             <InputTextArea @bind-Value="Bill.Description" class="form-control" rows="2" placeholder="e.g. Account #123456" />
                         </div>
+
+                        <!-- Payment History / Paid Date Details -->
+                        @if (Bill.Payments != null && Bill.Payments.Any())
+                        {
+                            <div class="col-12 mt-3 pt-3 border-top">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-clock-history text-primary"></i>
+                                        <span class="fw-bold small text-muted text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.5px;">Payment History</span>
+                                    </div>
+                                    @{
+                                        var lastPayment = Bill.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault();
+                                        var isLate = lastPayment != null && lastPayment.PaymentDate.Date > Bill.DueDate.Date;
+                                    }
+                                    @if (isLate)
+                                    {
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold" style="font-size: 0.65rem;">PAID LATE</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 fw-bold" style="font-size: 0.65rem;">PAID ON TIME</span>
+                                    }
+                                </div>
+                                <div class="bg-light p-3 rounded-4 border border-light-subtle">
+                                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom text-muted small" style="font-size: 0.75rem;">
+                                        <span>Due Date: <strong>@Bill.DueDate.ToString("MM/dd/yyyy")</strong></span>
+                                        <span>Total Paid: <strong class="text-success">@Bill.TotalPaid.ToString("C")</strong></span>
+                                    </div>
+                                    @foreach (var payment in Bill.Payments.OrderByDescending(p => p.PaymentDate))
+                                    {
+                                        <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.75rem;">
+                                            <div>
+                                                <span class="fw-bold text-dark">@payment.PaymentDate.ToString("MM/dd/yyyy")</span>
+                                                <span class="text-muted ms-2">(@payment.PaymentMethod)</span>
+                                                @if (!string.IsNullOrEmpty(payment.Note))
+                                                {
+                                                    <div class="text-muted italic" style="font-size: 0.65rem;">@payment.Note</div>
+                                                }
+                                            </div>
+                                            <div class="text-end">
+                                                <span class="fw-bold text-success">@payment.AmountPaid.ToString("C")</span>
+                                                @if (payment.PaymentDate.Date > Bill.DueDate.Date)
+                                                {
+                                                    <div class="text-danger fw-bold" style="font-size: 0.55rem; letter-spacing: 0.5px;">LATE</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-success fw-bold" style="font-size: 0.55rem; letter-spacing: 0.5px;">ON TIME</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <div class="modal-footer border-0 px-0 mt-2 flex-column align-items-stretch">
@@ -342,10 +398,18 @@
             }
         }
 
+        string? currentUser = null;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            currentUser = authState.User?.Identity?.Name;
+        }
+        catch { }
+
         if (Bill.Id == 0)
-            await FinanceService.CreateBillAsync(Bill);
+            await FinanceService.CreateBillAsync(Bill, currentUser);
         else
-            await FinanceService.UpdateBillAsync(Bill);
+            await FinanceService.UpdateBillAsync(Bill, currentUser);
 
         await OnSave.InvokeAsync(true);
     }

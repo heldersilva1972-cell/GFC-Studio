@@ -8,6 +8,7 @@
 @inject IFinanceService FinanceService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Bills & Invoices | GFC Studio</PageTitle>
 
@@ -49,6 +50,7 @@
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "PAYMENTS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("PAYMENTS")'>PAYMENT HISTORY</button>
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "VENDORS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("VENDORS")'>VENDORS</button>
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "LOANS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("LOANS")'>LOANS</button>
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "AUDIT" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("AUDIT")'>AUDIT LOG</button>
               </div>
               <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="GoToReport" style="font-size: 0.8rem;">VIEW REPORT</button>
               <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="() => ShowManageCategories = true" style="font-size: 0.8rem;">CATEGORIES</button>
@@ -319,8 +321,24 @@
                                                 </span>
                                             }
                                         </div>
-                                        <div class="text-muted small">
-                                            <i class="bi bi-check-circle-fill text-success me-1"></i> @bill.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault()?.PaymentDate.ToString("MM/dd/yy")
+                                        @{
+                                            var lastPayment = bill.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault();
+                                            var paidDateStr = lastPayment?.PaymentDate.ToString("MM/dd/yy") ?? "N/A";
+                                            var isLate = lastPayment != null && lastPayment.PaymentDate.Date > bill.DueDate.Date;
+                                        }
+                                        <div class="text-muted small mt-1" style="font-size: 0.7rem; line-height: 1.35;">
+                                            <div><i class="bi bi-calendar-event me-1"></i> Due: @bill.DueDate.ToString("MM/dd/yy")</div>
+                                            <div><i class="bi bi-check-circle-fill text-success me-1"></i> Paid: @paidDateStr</div>
+                                            <div class="mt-1">
+                                                @if (isLate)
+                                                {
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0.5" style="font-size: 0.55rem; font-weight: 700;">LATE</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5" style="font-size: 0.55rem; font-weight: 700;">ON TIME</span>
+                                                }
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1018,6 +1036,71 @@
                     </div>
                 </div>
             }
+            else if (CurrentView == "AUDIT")
+            {
+                <!-- AUDIT LOG LEDGER -->
+                <div class="audit-list-panel bg-white p-4" style="width: 70%; flex: 0 0 70%;">
+                    <div class="d-flex justify-content-between align-items-center mb-4 px-2">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-shield-check text-primary h4 mb-0"></i>
+                            <h4 class="mb-0 fw-black text-uppercase letter-spacing-2">SYSTEM AUDIT LEDGER</h4>
+                        </div>
+                        <span class="badge bg-primary px-3 py-2 rounded-pill">@AuditLogs.Count() LOG ENTRIES</span>
+                    </div>
+
+                    <div class="scroll-container custom-scrollbar px-2">
+                        @if (!AuditLogs.Any())
+                        {
+                            <div class="text-center py-5 opacity-50">
+                                <i class="bi bi-journals h1 d-block mb-3"></i>
+                                <div class="italic">No audit logs found.</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="flat-history-list border rounded-4 overflow-hidden shadow-sm bg-white">
+                                @foreach (var log in AuditLogs)
+                                {
+                                    <div class="transaction-item d-flex align-items-center p-3 border-bottom hover-bg-light transition-base bg-white" style="font-size: 0.8rem;">
+                                        <div class="date-block text-center pe-4 border-end" style="width: 90px; min-width: 90px;">
+                                            <div class="fw-black text-primary" style="font-size: 0.95rem;">@log.ActionDate.ToString("dd")</div>
+                                            <div class="text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">@log.ActionDate.ToString("MMM")</div>
+                                            <div class="text-muted" style="font-size: 0.55rem;">@log.ActionDate.ToString("yyyy")</div>
+                                        </div>
+                                        <div class="ps-4 flex-grow-1">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge @GetActionBadgeClass(log.ActionType) rounded-pill px-2 py-0.5" style="font-size: 0.6rem; font-weight: 700;">@log.ActionType.ToUpper()</span>
+                                                <span class="text-muted small" style="font-size: 0.7rem;"><i class="bi bi-clock me-1"></i>@log.ActionDate.ToString("h:mm tt")</span>
+                                            </div>
+                                            <div class="fw-bold text-dark mb-1" style="font-size: 0.8rem;">@log.Description</div>
+                                            <div class="small text-muted" style="font-size: 0.7rem;">
+                                                <i class="bi bi-person-fill me-1"></i> Performed By: <strong>@(log.PerformedBy ?? "System")</strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- SIDEBAR FOR AUDIT TAB -->
+                <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">AUDIT CONTROLS</label>
+                        <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
+                            <div class="label text-primary">TOTAL LOGGED ACTIONS</div>
+                            <div class="value text-primary" style="font-size: 2rem;">@AuditLogs.Count()</div>
+                        </div>
+                        <div class="p-3 bg-light rounded-4 border">
+                            <p class="text-muted mb-0 small" style="font-size: 0.7rem; line-height: 1.35;">
+                                <i class="bi bi-info-circle-fill text-info me-1"></i>
+                                This audit ledger tracks critical changes in the Bills & Invoices system, including creations, modifications, payments, and deletions.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 
@@ -1170,6 +1253,8 @@
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(g => g)
                 .ToList();
+    private List<FinanceAuditLog> AuditLogs { get; set; } = new();
+    private string? CurrentUserEmail { get; set; }
     private decimal TotalLoanBalance { get; set; }
     private bool IsYearView { get; set; }
     private string SortColumn { get; set; } = "Date";
@@ -1545,6 +1630,25 @@
         
         try
         {
+            try
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                CurrentUserEmail = authState.User?.Identity?.Name;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving authentication state: {ex.Message}");
+            }
+
+            try
+            {
+                AuditLogs = (await FinanceService.GetAuditLogsAsync()).ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving audit logs: {ex.Message}");
+            }
+
             if (IsYearView && CurrentView == "PAYMENTS")
             {
                 Bills = (await FinanceService.GetBillsForYearAsync(CurrentDate.Year)).ToList();
@@ -1691,7 +1795,7 @@
         if (BillToDelete == null) return;
         try
         {
-            await FinanceService.DeleteBillAsync(BillToDelete.Id);
+            await FinanceService.DeleteBillAsync(BillToDelete.Id, CurrentUserEmail);
             ShowDeleteBillConfirm = false;
             BillToDelete = null;
             await LoadData();
@@ -1812,7 +1916,7 @@
         if (PaymentToDelete == null) return;
         try
         {
-            await FinanceService.DeletePaymentAsync(PaymentToDelete.Id);
+            await FinanceService.DeletePaymentAsync(PaymentToDelete.Id, CurrentUserEmail);
             ShowDeletePaymentConfirm = false;
             PaymentToDelete = null;
             await LoadData();
@@ -1913,5 +2017,15 @@
         2 => "priority-medium",
         3 => "priority-low",
         _ => "priority-low"
+    };
+
+    private string GetActionBadgeClass(string actionType) => actionType switch
+    {
+        "Create Bill" => "bg-primary text-white border-primary",
+        "Edit Bill" => "bg-warning text-dark border-warning",
+        "Delete Bill" => "bg-danger text-white border-danger",
+        "Mark Paid" => "bg-success text-white border-success",
+        "Delete Payment" => "bg-danger text-white border-danger",
+        _ => "bg-secondary text-white border-secondary"
     };
 }
