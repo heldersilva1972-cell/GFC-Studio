@@ -25,15 +25,20 @@ namespace GFC.BlazorServer.Services
             _settingsService = settingsService;
         }
 
-        public async Task<IEnumerable<LiquorItem>> GetAllItemsAsync()
+        public async Task<IEnumerable<LiquorItem>> GetAllItemsAsync(bool includeInactive = false)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorItems
+            var query = db.LiquorItems
                 .AsNoTracking()
                 .Include(i => i.Vendor)
-                .Where(i => i.IsActive && !i.ParentItemId.HasValue)
-                .OrderBy(i => i.Name)
-                .ToListAsync();
+                .Where(i => !i.ParentItemId.HasValue);
+
+            if (!includeInactive)
+            {
+                query = query.Where(i => i.IsActive);
+            }
+
+            return await query.OrderBy(i => i.Name).ToListAsync();
         }
 
         public async Task<LiquorItem?> GetItemByIdAsync(int id)

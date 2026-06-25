@@ -8,7 +8,7 @@ namespace GFC.Core.Interfaces
     public interface ILiquorService
     {
         // Item Management
-        Task<IEnumerable<LiquorItem>> GetAllItemsAsync();
+        Task<IEnumerable<LiquorItem>> GetAllItemsAsync(bool includeInactive = false);
         Task<LiquorItem?> GetItemByIdAsync(int id);
         Task<LiquorItem?> GetItemByUpcAsync(string upc);
         Task<LiquorItem> CreateItemAsync(LiquorItem item, int? userId = null);
