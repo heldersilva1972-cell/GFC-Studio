@@ -11,11 +11,13 @@ namespace GFC.Mobile.Auth;
 public class MobileAuthenticationHandler : DelegatingHandler
 {
     private readonly NavigationManager _navigation;
+    private readonly IJSRuntime _js;
     private readonly IServiceProvider _serviceProvider;
 
-    public MobileAuthenticationHandler(NavigationManager navigation, IServiceProvider serviceProvider)
+    public MobileAuthenticationHandler(NavigationManager navigation, IJSRuntime js, IServiceProvider serviceProvider)
     {
         _navigation = navigation;
+        _js = js;
         _serviceProvider = serviceProvider;
     }
 
@@ -28,11 +30,8 @@ public class MobileAuthenticationHandler : DelegatingHandler
         // This is the most reliable way to authenticate cross-origin standalone mobile apps.
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var js = scope.ServiceProvider.GetRequiredService<IJSRuntime>();
-            
             string? token = null;
-            var authStateJson = await js.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
+            var authStateJson = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_auth_state");
             if (!string.IsNullOrEmpty(authStateJson))
             {
                 try
@@ -48,12 +47,13 @@ public class MobileAuthenticationHandler : DelegatingHandler
 
             if (string.IsNullOrEmpty(token))
             {
-                token = await js.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                token = await _js.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
             }
             
             if (!string.IsNullOrEmpty(token) && !request.Headers.Contains("Authorization"))
             {
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                Console.WriteLine($"[AUTH] Injected Bearer token for request: {request.RequestUri}");
             }
         }
         catch (Exception ex)
@@ -67,6 +67,13 @@ public class MobileAuthenticationHandler : DelegatingHandler
         {
             var url = request.RequestUri?.ToString() ?? "unknown";
             
+            // Log the 401 error to localStorage for diagnostic visibility
+            try
+            {
+                _ = _js.InvokeVoidAsync("localStorage.setItem", "gfc_last_401_error", $"URL: {url} | Time: {DateTime.UtcNow:u}");
+            }
+            catch { }
+
             // [LOOP PROTECTION] Do not trigger logout if the failure happened ON an auth endpoint
             if (url.Contains("/api/mobile-auth/login") || url.Contains("/api/mobile-auth/user"))
             {
@@ -75,10 +82,18 @@ public class MobileAuthenticationHandler : DelegatingHandler
             }
 
             Console.WriteLine($"[AUTH] 401 Unauthorized detected on: {url}. Resetting session.");
+
+            // Bypass forced logout/redirect if running on localhost for easier development debugging
+            var currentUrl = _navigation.Uri;
+            if (currentUrl.Contains("localhost") || currentUrl.Contains("127.0.0.1"))
+            {
+                Console.WriteLine($"[DEVELOPMENT] Bypassing automatic 401 redirect for: {url}");
+                return response;
+            }
             
             // Avoid circular dependencies by resolving the provider via IServiceProvider
-            using var scope = _serviceProvider.CreateScope();
-            var authProvider = scope.ServiceProvider.GetService<ICustomAuthenticationStateProvider>();
+            using var resolveScope = _serviceProvider.CreateScope();
+            var authProvider = resolveScope.ServiceProvider.GetService<ICustomAuthenticationStateProvider>();
             
             if (authProvider != null)
             {
@@ -86,7 +101,6 @@ public class MobileAuthenticationHandler : DelegatingHandler
             }
 
             // Force redirect to login if we aren't already there
-            var currentUrl = _navigation.Uri;
             if (!currentUrl.Contains("/login"))
             {
                 _navigation.NavigateTo("/login", forceLoad: true);

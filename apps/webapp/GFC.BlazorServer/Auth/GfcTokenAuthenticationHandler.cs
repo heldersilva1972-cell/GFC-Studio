@@ -55,15 +55,21 @@ public class GfcTokenAuthenticationHandler : AuthenticationHandler<Authenticatio
             var cacheKey = $"device_token_validation:{token}";
             if (!_cache.TryGetValue(cacheKey, out GfcLoginResult result))
             {
+                Console.WriteLine($"[AUTH SERVER] Validating token against DB: {token.Substring(0, Math.Min(token.Length, 15))}...");
                 result = await _authenticationService.LoginWithDeviceTokenAsync(token);
                 if (result != null && result.Success && result.User != null)
                 {
                     _cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
                 }
+                else
+                {
+                    Console.WriteLine($"[AUTH SERVER] DB Validation FAILED. Code: {result?.Code}, Error: {result?.ErrorMessageForLog ?? "None"}");
+                }
             }
 
             if (result != null && result.Success && result.User != null)
             {
+                Console.WriteLine($"[AUTH SERVER] Validation SUCCESS for user: {result.User.Username} (ID: {result.User.UserId})");
                 // 3. Build claims identical to CustomAuthenticationStateProvider.BuildPrincipal
                 var claims = new List<Claim>
                 {
@@ -95,9 +101,11 @@ public class GfcTokenAuthenticationHandler : AuthenticationHandler<Authenticatio
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error validating GFC Device Trust Token");
+            Console.WriteLine($"[AUTH SERVER] CRITICAL EXCEPTION validating token: {ex.Message}");
             return AuthenticateResult.Fail("Authentication service error");
         }
 
+        Console.WriteLine($"[AUTH SERVER] Rejecting request: Invalid or expired token.");
         return AuthenticateResult.Fail("Invalid or expired token");
     }
 }

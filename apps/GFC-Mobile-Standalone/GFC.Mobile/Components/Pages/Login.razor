@@ -55,6 +55,22 @@
             </div>
         }
 
+        @if (_showUpdateAvailableBanner)
+        {
+            <div class="alert alert-warning px-3 py-2 rounded-3 mb-4 d-flex flex-column gap-2 border border-warning border-opacity-25" role="alert" style="background: rgba(255, 193, 7, 0.05); color: #ffc107;">
+                <div class="d-flex align-items-center small fw-bold">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    <span>App Update Available</span>
+                </div>
+                <div class="extra-small opacity-75">
+                    If your client did not update automatically, tap below to force clear cache or continue to log in anyway.
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-warning w-100 fw-bold rounded-pill mt-1" style="font-size: 0.7rem;" @onclick="ForceUpdateAndReloadAsync">
+                    FORCE UPDATE & RELOAD
+                </button>
+            </div>
+        }
+
         @if (_loginMode == LoginMode.FastGrid && !_showConfirmation)
         {
             <div class="fast-login-grid w-100 animate-fade-in">
@@ -402,7 +418,19 @@
                 _serverVersionReport = serverVersion;
                 if (!string.IsNullOrEmpty(serverVersion) && serverVersion != "Offline" && IsServerNewer(serverVersion))
                 {
-                    Console.WriteLine("[GFC UPDATE] New version detected on login screen. Forcing cache-clear reload...");
+                    var reloadCountStr = await JSRuntime.InvokeAsync<string>("sessionStorage.getItem", "gfc_update_reload_count");
+                    int.TryParse(reloadCountStr, out var reloadCount);
+
+                    if (reloadCount > 0)
+                    {
+                        _showUpdateAvailableBanner = true;
+                        await InvokeAsync(StateHasChanged);
+                        return;
+                    }
+
+                    // Record that we tried to auto-reload once in sessionStorage
+                    await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", "gfc_update_reload_count", "1");
+                    Console.WriteLine("[GFC UPDATE] New version detected on login screen. Forcing single cache-clear reload...");
                     
                     await JSRuntime.InvokeVoidAsync("eval", @"
                         if ('serviceWorker' in navigator) {
@@ -544,6 +572,34 @@
             _isSubmitting = false;
             StateHasChanged();
         }
+    }
+
+    private bool _showUpdateAvailableBanner = false;
+
+    private async Task ForceUpdateAndReloadAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("sessionStorage.removeItem", "gfc_update_reload_count");
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                        for(let registration of registrations) {
+                            registration.unregister();
+                        }
+                        if ('caches' in window) {
+                            caches.keys().then(function(names) {
+                                for (let name of names) caches.delete(name);
+                            });
+                        }
+                        window.location.href = window.location.origin + window.location.pathname + '?update=' + Date.now();
+                    });
+                } else {
+                    window.location.href = window.location.origin + window.location.pathname + '?update=' + Date.now();
+                }
+            ");
+        }
+        catch { }
     }
 
     private void SetMode(LoginMode mode)
