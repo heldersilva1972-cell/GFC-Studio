@@ -850,9 +850,20 @@
                                      style="--accent-color: @sheet.DisplayColor; cursor: pointer;" @onclick="() => OpenSheetDetail(sheet)">
                                     <div class="tile-accent" style="background: @sheet.DisplayColor"></div>
                                     <div class="tile-header">
-                                        <div class="d-flex align-items-center gap-2">
+                                        <div class="d-flex align-items-center gap-2 flex-wrap">
                                             <div class="color-dot" style="background: @sheet.DisplayColor"></div>
                                             <span class="tile-title">@sheet.ColorName</span>
+                                            @{
+                                                var sheetBreakage = sheet.Games.Sum(g => CalculateGameTotalBreakage(sheet, g));
+                                            }
+                                            @if (sheetBreakage != 0)
+                                            {
+                                                <span class="badge rounded-3 animate-pulse px-2 py-0.5 fw-extrabold" 
+                                                      style="font-size: 0.55rem; color: #b45309 !important; background: #fffbeb !important; border: 1.5px solid #fde68a !important; letter-spacing: 0.01em;"
+                                                      title="Sheet Breakage: @sheetBreakage.ToString("C2")">
+                                                    <i class="bi bi-calculator-fill me-1" style="font-size: 0.55rem;"></i>@((sheetBreakage > 0 ? "+" : "") + sheetBreakage.ToString("C2"))
+                                                </span>
+                                            }
                                         </div>
                                         <div class="d-flex gap-1 flex-wrap justify-content-end">
                                             @if (sheet.IsClosedOut)
@@ -2400,22 +2411,33 @@
                         <!-- System Calc Helper Label and Breakage Info when Custom Payout is active -->
                         @if (game.CustomPayoutOverride.HasValue)
                         {
-                            var systemShare = CalculateGamePayoutRoundedShare(_selectedSheet, game);
-                            var sysRoundingBreakage = CalculateGameRoundingAdjustment(_selectedSheet, game);
+                            var systemShare = CalculateSystemGamePayoutRoundedShare(_selectedSheet, game);
                             var manualBreakage = CalculateGameManualAdjustmentBreakage(_selectedSheet, game);
-                            <div class="d-flex justify-content-between align-items-center extra-small mt-1 px-1 text-dark fw-semibold" style="font-size: 0.65rem; border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 6px;">
-                                <span class="d-flex align-items-center gap-2">
-                                    <span><i class="bi bi-info-circle me-1"></i> System Calc: <strong class="text-primary">@systemShare.ToString("C2")</strong> each</span>
-                                    <button class="btn btn-outline-danger btn-sm rounded-pill px-2 py-0.5 fw-black text-uppercase shadow-sm d-flex align-items-center gap-1 border-2" 
-                                            style="font-size: 0.55rem; line-height: 1; height: auto; padding: 2px 8px !important;" 
-                                            @onclick:stopPropagation="true" 
-                                            @onclick="() => { game.CustomPayoutOverride = null; RecalculateSheetTotals(); }">
-                                        <i class="bi bi-arrow-counterclockwise" style="font-size: 0.6rem;"></i> Reset
-                                    </button>
-                                </span>
-                                <span class="badge bg-dark text-white fw-black px-3 py-2 shadow" style="font-size: 0.75rem; letter-spacing: 0.02em;">
-                                    Manual Adj: +@manualBreakage.ToString("C2") Breakage
-                                </span>
+                            var isDecrease = game.CustomPayoutOverride.Value <= systemShare;
+                            <div class="d-flex flex-column gap-2 mt-1 px-1 text-dark fw-semibold" style="font-size: 0.65rem; border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 6px;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="d-flex align-items-center gap-2">
+                                        <span><i class="bi bi-info-circle me-1"></i> System Calc: <strong class="text-primary">@systemShare.ToString("C2")</strong> each</span>
+                                        <button class="btn btn-outline-danger btn-sm rounded-pill px-2 py-0.5 fw-black text-uppercase shadow-sm d-flex align-items-center gap-1 border-2" 
+                                                style="font-size: 0.55rem; line-height: 1; height: auto; padding: 2px 8px !important;" 
+                                                @onclick:stopPropagation="true" 
+                                                @onclick="() => { game.CustomPayoutOverride = null; RecalculateSheetTotals(); }">
+                                            <i class="bi bi-arrow-counterclockwise" style="font-size: 0.6rem;"></i> Reset
+                                        </button>
+                                    </span>
+                                    @if (isDecrease)
+                                    {
+                                        <span class="badge bg-primary text-white fw-black px-3 py-2 shadow" style="font-size: 0.75rem; letter-spacing: 0.02em;">
+                                            Base Redefined ($0.00 Breakage)
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge text-white fw-black px-3 py-2 shadow" style="font-size: 0.75rem; letter-spacing: 0.02em; background-color: #64748b !important;">
+                                            Manual Adj: @(manualBreakage > 0 ? "+" : "")@manualBreakage.ToString("C2") Breakage
+                                        </span>
+                                    }
+                                </div>
                             </div>
                         }
 
@@ -3791,7 +3813,7 @@
                     <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@progPrizes.ToString("C2")</span>
                 </div>
 
-                <!-- Standard Games Prizes Grouped by Payout -->
+                <!-- Standard Games Prizes Grouped by Base Payout (Option A) -->
                 <div class="fw-bold text-uppercase text-secondary mb-2 small mt-3" style="letter-spacing: 0.05em; font-size: 0.7rem;">Standard Games Prizes</div>
                 @{
                     var standardSheets = Sheets.Where(s => 
@@ -3799,36 +3821,54 @@
                         s.ColorName != _progColor);
                     
                     var standardGamesGrouped = standardSheets
-                        .SelectMany(s => s.Games.Select(g => new { 
-                            SheetColor = s.ColorName,
-                            Game = g, 
-                            Payout = CalculateGamePayout(s, g) 
+                        .SelectMany(s => s.Games.Select(g => {
+                            var rawShare = CalculateGamePayoutRawShare(s, g);
+                            var rawTotal = rawShare * g.WinnerCount;
+                            var finalTotal = CalculateGamePayout(s, g);
+                            var breakage = CalculateGameTotalBreakage(s, g);
+                            return new { 
+                                SheetColor = s.ColorName,
+                                Game = g, 
+                                RawShare = rawShare,
+                                RawTotal = rawTotal,
+                                Breakage = breakage,
+                                Payout = finalTotal
+                            };
                         }))
-                        .Where(x => x.Payout > 0)
-                        .GroupBy(x => x.Payout)
+                        .Where(x => x.Payout > 0 || x.RawTotal > 0)
+                        .GroupBy(x => x.RawShare)
                         .OrderBy(g => g.Key)
                         .ToList();
+
+                    decimal standardBaseTotal = 0;
                 }
                 @if (standardGamesGrouped.Any())
                 {
                     @foreach (var g in standardGamesGrouped)
                     {
-                        @if (g.Count() == 1)
-                        {
-                            var item = g.First();
-                            var gameType = item.Game.PayoutMode == 1 ? "50/50" : (item.Game.PayoutMode == 2 ? "Additive" : "Fixed");
-                            <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
-                                <span class="text-muted">1 game @@ @g.Key.ToString("C2") (@gameType, @item.SheetColor):</span>
-                                <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@g.Key.ToString("C2")</span>
+                        var count = g.Count();
+                        var baseShare = g.Key;
+                        var totalBase = g.Sum(x => x.RawTotal);
+                        var totalBreakage = g.Sum(x => x.Breakage);
+                        standardBaseTotal += totalBase;
+                        
+                        var gameType = count == 1 ? (g.First().Game.PayoutMode == 1 ? "50/50" : (g.First().Game.PayoutMode == 2 ? "Additive" : "Fixed")) : "";
+                        var desc = count == 1 
+                            ? $"1 game @ {baseShare.ToString("C2")} ({gameType}, {g.First().SheetColor})"
+                            : $"{count} game(s) @ {baseShare.ToString("C2")}";
+
+                        <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="text-muted">@desc:</span>
+                                @if (totalBreakage != 0)
+                                {
+                                    <span style="color: #b45309; background: #fffbeb; border: 1px solid #fde68a; font-weight: 800; font-size: 0.68rem; padding: 1px 6px; border-radius: 4px;">
+                                        @(totalBreakage > 0 ? "+" : "")@totalBreakage.ToString("C2") Breakage
+                                    </span>
+                                }
                             </div>
-                        }
-                        else
-                        {
-                            <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
-                                <span class="text-muted">@g.Count() game(s) @@ @g.Key.ToString("C2"):</span>
-                                <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@((g.Count() * g.Key).ToString("C2"))</span>
-                            </div>
-                        }
+                            <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@totalBase.ToString("C2")</span>
+                        </div>
                     }
                 }
                 else
@@ -3837,9 +3877,24 @@
                 }
 
                 <!-- Cash Door Prizes -->
-                <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                @{
+                    decimal doorPrizesTotal = _doorPrizeAmount * _doorPrizeCount;
+                    
+                    // Calculate base (raw) prizes for specials as well to guarantee perfect mathematical balancing
+                    decimal wtaBase = wtaSheetObj?.Games.Sum(g => CalculateGamePayoutRawShare(wtaSheetObj, g) * g.WinnerCount) ?? 0;
+                    decimal progBase = progSheetObj?.Games.Sum(g => CalculateGamePayoutRawShare(progSheetObj, g) * g.WinnerCount) ?? 0;
+                    
+                    decimal totalBasePrizesCombined = wtaBase + progBase + standardBaseTotal + doorPrizesTotal;
+                }
+                <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 0.85rem;">
                     <span class="text-muted">Total Cash Door Prizes (@_doorPrizeCount games):</span>
-                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@((_doorPrizeAmount * _doorPrizeCount).ToString("C2"))</span>
+                    <span style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@doorPrizesTotal.ToString("C2")</span>
+                </div>
+
+                <!-- Total Base Prizes -->
+                <div class="d-flex justify-content-between align-items-center mb-2" style="font-size: 0.85rem;">
+                    <span class="fw-bold text-dark">Total Base Prizes:</span>
+                    <span style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 8px; display: inline-block; font-weight: 700; font-size: 0.8rem;">@totalBasePrizesCombined.ToString("C2")</span>
                 </div>
 
                 <!-- Payout Breakage -->
@@ -5853,7 +5908,7 @@
 
     private decimal TotalSessionBreakage => Sheets.Sum(s => s.Games.Sum(g => CalculateGameTotalBreakage(s, g)));
 
-    private decimal CalculateGamePayoutRaw(BingoSheet sheet, BingoGame game)
+    private decimal CalculateSystemGamePayoutRaw(BingoSheet sheet, BingoGame game)
     {
         if (game.IsProgressive)
         {
@@ -5890,6 +5945,37 @@
         var pct = sheet.IsAdmissionOnly ? (GetCurrentPayoutPercentage() / 100m) : 1.0m;
         return game.DefaultPayout * pct;
     }
+
+    private decimal CalculateSystemGamePayoutRawShare(BingoSheet sheet, BingoGame game)
+    {
+        return Math.Round(CalculateSystemGamePayoutRaw(sheet, game) / game.WinnerCount, 2);
+    }
+
+    private decimal CalculateSystemGamePayoutRoundedShare(BingoSheet sheet, BingoGame game)
+    {
+        var rawShare = CalculateSystemGamePayoutRawShare(sheet, game);
+        if (_bingoSettings.PayoutRoundingMode == 1) // Round Up
+            return Math.Ceiling(rawShare);
+        if (_bingoSettings.PayoutRoundingMode == 2) // Round Down
+            return Math.Floor(rawShare);
+        return rawShare;
+    }
+
+    private decimal CalculateGamePayoutRaw(BingoSheet sheet, BingoGame game)
+    {
+        if (game.CustomPayoutOverride.HasValue)
+        {
+            var systemShare = CalculateSystemGamePayoutRoundedShare(sheet, game);
+            if (game.CustomPayoutOverride.Value <= systemShare)
+            {
+                return game.CustomPayoutOverride.Value * game.WinnerCount;
+            }
+        }
+
+        return CalculateSystemGamePayoutRaw(sheet, game);
+    }
+
+
 
     // PERSISTENCE
     private async Task SaveDraftAsync()
