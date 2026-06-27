@@ -40,8 +40,22 @@
                             </div>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold text-muted">Payment Due Day <span class="text-muted fw-normal">(1-31, optional)</span></label>
-                            <InputNumber @bind-Value="Loan.PaymentDueDay" class="form-control rounded-4 shadow-sm" placeholder="e.g. 15" min="1" max="31" />
+                            @if (!string.IsNullOrWhiteSpace(Loan.GroupName))
+                            {
+                                <label class="form-label small fw-bold text-muted">Payment Due Day</label>
+                                <div class="form-control rounded-4 shadow-sm bg-light fw-bold text-primary d-flex align-items-center justify-content-between" style="height: 38px; font-size: 0.85rem;">
+                                    <span>Day @(Loan.PaymentDueDay?.ToString() ?? "Not Set")</span>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill" style="font-size: 0.6rem;">MANAGED BY GROUP</span>
+                                </div>
+                                <small class="text-muted d-block mt-1" style="font-size: 0.65rem;">
+                                    <i class="bi bi-info-circle text-primary me-1"></i>Configure this in the group header on the Loans tab.
+                                </small>
+                            }
+                            else
+                            {
+                                <label class="form-label small fw-bold text-muted">Payment Due Day <span class="text-muted fw-normal">(1-31, optional)</span></label>
+                                <InputNumber @bind-Value="Loan.PaymentDueDay" class="form-control rounded-4 shadow-sm" placeholder="e.g. 15" min="1" max="31" />
+                            }
                         </div>
 
                         <!-- Notes -->
@@ -153,6 +167,24 @@
             {
                 await FinanceService.UpdateLoanAsync(Loan);
             }
+
+            // Sync the due day to all active loans in the same group
+            if (!string.IsNullOrWhiteSpace(Loan.GroupName) && Loan.PaymentDueDay.HasValue)
+            {
+                var siblingLoans = (await FinanceService.GetAllLoansAsync(includeInactive: false))
+                    .Where(l => l.Id != Loan.Id && string.Equals(l.GroupName, Loan.GroupName, StringComparison.OrdinalIgnoreCase) && l.IsActive)
+                    .ToList();
+
+                foreach (var sibling in siblingLoans)
+                {
+                    if (sibling.PaymentDueDay != Loan.PaymentDueDay)
+                    {
+                        sibling.PaymentDueDay = Loan.PaymentDueDay;
+                        await FinanceService.UpdateLoanAsync(sibling);
+                    }
+                }
+            }
+
             await OnSave.InvokeAsync(true);
         }
         catch (Exception ex)

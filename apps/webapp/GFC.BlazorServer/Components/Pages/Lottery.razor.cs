@@ -1,6 +1,7 @@
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.Core.Models.Finance;
 using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components;
 using System.ComponentModel.DataAnnotations;
@@ -25,11 +26,19 @@ namespace GFC.BlazorServer.Components.Pages
         [Inject]
         public IJSRuntime JS { get; set; } = null!;
 
+        [Inject]
+        public ILotterySettlementService LotterySettlementService { get; set; } = null!;
+
+        [Inject]
+        public ISystemSettingsService SettingsService { get; set; } = null!;
+
+        [Inject]
+        public IFinanceService FinanceService { get; set; } = null!;
+
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
         private List<LotteryShiftSummaryDto> _weeklySummaries = new();
         private List<LotteryShiftSummaryDto> _monthlySummaries = new();
-        private List<GFC.Core.DTOs.DailySalesReportDto> _reconcileReports = new();
         private List<string> _employeeNames = new();
         private List<(string Username, string FullName)> _employeeMetadata = new();
         private bool _loading = true;
@@ -63,7 +72,7 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly" || _viewMode == "analytics")
+            if (_viewMode == "weekly" || _viewMode == "weekly_sweep" || _viewMode == "analytics")
             {
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
                 _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
@@ -72,12 +81,6 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 _filterStartDate = new DateTime(_selectedYear, 1, 1);
                 _filterEndDate = new DateTime(_selectedYear, 12, 31);
-            }
-            // Snap reconcile to start of week if we switch to it
-            if (_viewMode == "reconcile")
-            {
-                _filterStartDate = GetWeekStart(_filterStartDate);
-                _filterEndDate = _filterStartDate.AddDays(6);
             }
             
             await LoadData();
@@ -171,6 +174,10 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadWeeklySummaries();
                 }
+                else if (_viewMode == "weekly_sweep")
+                {
+                    await LoadWeeklyData();
+                }
                 else if (_viewMode == "monthly")
                 {
                     await LoadMonthlySummaries();
@@ -178,11 +185,6 @@ namespace GFC.BlazorServer.Components.Pages
                 else if (_viewMode == "commissions")
                 {
                     await LoadDailySummaries();
-                }
-                else if (_viewMode == "reconcile")
-                {
-                    await LoadShifts();
-                    await LoadWeeklySummaries();
                 }
                 else if (_viewMode == "analytics")
                 {
@@ -225,58 +227,16 @@ namespace GFC.BlazorServer.Components.Pages
                 .ToList();
         }
 
-        private ReconcileTotalsDto ReconcileTotals => CalculateReconcileTotals();
-
-        private ReconcileTotalsDto CalculateReconcileTotals()
-        {
-            var totals = new ReconcileTotalsDto();
-            if (_reconcileReports == null || !_reconcileReports.Any()) return totals;
-
-            totals.TotalSales = _reconcileReports.Sum(d => d.TotalLottoSalesActivity);
-            totals.TotalPayouts = _reconcileReports.Sum(d => d.TotalLottoPayoutsActivity);
-            totals.TotalTickets = _reconcileReports.Sum(d => d.TotalLottoCancelsActivity);
-            totals.TotalEnvelope = _reconcileReports.Sum(d => d.TotalEnvelope);
-            totals.TotalNetDue = _reconcileReports.Sum(d => d.TotalLottoNetDueActivity);
-            totals.TotalIncome = _reconcileReports.Sum(d => d.TotalLotteryIncome);
-            totals.TotalFees = _reconcileReports.Sum(d => d.TotalIdentifiedFees);
-            totals.TotalVariance = _reconcileReports.Sum(d => d.TotalVariance);
-
-            totals.NetDebt = (totals.TotalNetDue - totals.TotalTickets);
-            totals.ExpectedProfit = totals.TotalIncome - totals.TotalFees + totals.TotalVariance;
-            totals.ActualProfit = totals.TotalEnvelope - totals.NetDebt;
-            totals.ReconciliationGap = totals.ActualProfit - totals.ExpectedProfit;
-            totals.IsAuditBalanced = Math.Abs(totals.ReconciliationGap) < 2.0m;
-
-            return totals;
-        }
-
-        public class ReconcileTotalsDto
-        {
-            public decimal TotalSales { get; set; }
-            public decimal TotalPayouts { get; set; }
-            public decimal TotalTickets { get; set; }
-            public decimal TotalEnvelope { get; set; }
-            public decimal TotalNetDue { get; set; }
-            public decimal TotalIncome { get; set; }
-            public decimal TotalFees { get; set; }
-            public decimal TotalVariance { get; set; }
-            public decimal NetDebt { get; set; }
-            public decimal ExpectedProfit { get; set; }
-            public decimal ActualProfit { get; set; }
-            public decimal ReconciliationGap { get; set; }
-            public bool IsAuditBalanced { get; set; }
-        }
-
         private List<(DateTime Start, DateTime End, string Label)> _availableWeeks = new();
 
         private void InitializeWeeks()
         {
             _availableWeeks.Clear();
-            // Start from the current Sun-Sat week and go back 12 weeks
-            var currentSun = GetWeekStart(DateTime.Today);
+            // Start from the current Sat-Fri week and go back 12 weeks
+            var currentSat = GetWeekStart(DateTime.Today);
             for (int i = 0; i < 12; i++)
             {
-                var start = currentSun.AddDays(-7 * i);
+                var start = currentSat.AddDays(-7 * i);
                 var end = start.AddDays(6);
                 _availableWeeks.Add((start, end, $"{start:MMM d} - {end:MMM d, yyyy}"));
             }
@@ -294,7 +254,7 @@ namespace GFC.BlazorServer.Components.Pages
 
         private static DateTime GetWeekStart(DateTime date)
         {
-            var diff = (7 + (date.DayOfWeek - DayOfWeek.Sunday)) % 7;
+            var diff = (7 + (date.DayOfWeek - DayOfWeek.Saturday)) % 7;
             return date.AddDays(-1 * diff).Date;
         }
 
@@ -361,24 +321,7 @@ namespace GFC.BlazorServer.Components.Pages
             }
         }
 
-        private async Task LoadReconcileData()
-        {
-            try
-            {
-                // Align start date to the nearest Sunday to get clean weeks
-                var start = GetWeekStart(_filterStartDate);
-                var end = start.AddDays(6);
-                
-                var result = await FinancialService.GetDailySalesReportsAsync(start, end);
-                _reconcileReports = result.Data.OrderBy(d => d.Date).ToList();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error loading reconcile data");
-                _reconcileReports = new List<DailySalesReportDto>();
-                throw;
-            }
-        }
+
 
         private async Task OnFilterChanged()
         {
@@ -418,13 +361,13 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
 
             // INTELLIGENT DATE SNAPPING
-            if (_viewMode == "daily" || _viewMode == "commissions" || _viewMode == "reconcile")
+            if (_viewMode == "daily" || _viewMode == "commissions")
             {
-                // Snap back to a clean Sunday-to-Saturday week if entering reconcile or daily mode
+                // Snap back to a clean Sunday-to-Saturday week if entering daily mode
                 _filterStartDate = GetWeekStart(_filterStartDate);
                 _filterEndDate = _filterStartDate.AddDays(6);
             }
-            else if (_viewMode == "weekly")
+            else if (_viewMode == "weekly" || _viewMode == "weekly_sweep")
             {
                 // Snap to the full month for the weekly totals view
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
@@ -958,6 +901,110 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal StabilityScore { get; set; }
             public decimal ShortageFrequency { get; set; }
             public string? TopShortUser { get; set; }
+        }
+
+        // Weekly Net Due / Sweep methods
+        private List<LotteryWeeklySettlement> _weeklySettlements = new();
+        private bool _loadingWeekly = false;
+        private LotteryWeeklySettlement? _selectedWeeklySettlement;
+        private DateTime _manualSettleDate = DateTime.Today;
+        private string _manualRefNum = string.Empty;
+        private SystemSettings? _settings;
+        private List<FinanceCategory> _categories = new();
+        private bool _savingSettings = false;
+
+        private async Task LoadWeeklyData()
+        {
+            _loadingWeekly = true;
+            try
+            {
+                _weeklySettlements = (await LotterySettlementService.GetWeeklySettlementsForYearAsync(_selectedYear)).ToList();
+                _weeklySettlements = _weeklySettlements
+                    .Where(s => s.WeekEndDate.Month == _selectedMonth)
+                    .ToList();
+
+                _settings = await SettingsService.GetSettingsAsync();
+                _categories = (await FinanceService.GetAllCategoriesAsync()).ToList();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading weekly settlement data");
+                _error = "Failed to load weekly settlement data: " + ex.Message;
+            }
+            finally
+            {
+                _loadingWeekly = false;
+            }
+        }
+
+        private void OpenManualSettleModal(LotteryWeeklySettlement settlement)
+        {
+            _selectedWeeklySettlement = settlement;
+            _manualSettleDate = DateTime.Today;
+            _manualRefNum = string.Empty;
+        }
+
+        private void OnToggle1Changed()
+        {
+            if (_settings != null && _settings.LotteryBillCreationEnabled)
+            {
+                _settings.LotteryRecordPaidHistoryEnabled = false;
+            }
+        }
+
+        private async Task SaveSettings()
+        {
+            if (_settings == null) return;
+            _savingSettings = true;
+            try
+            {
+                if (_settings.LotteryBillCreationEnabled)
+                {
+                    if (!_settings.LotterySettingsLastEnabledUtc.HasValue)
+                    {
+                        _settings.LotterySettingsLastEnabledUtc = DateTime.UtcNow;
+                    }
+                }
+                else
+                {
+                    _settings.LotterySettingsLastEnabledUtc = null;
+                }
+
+                await SettingsService.SaveSettingsAsync(_settings);
+                await JS.InvokeVoidAsync("alert", "Settings saved successfully.");
+                await LoadWeeklyData();
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("alert", "Error saving settings: " + ex.Message);
+            }
+            finally
+            {
+                _savingSettings = false;
+            }
+        }
+
+        private async Task ConfirmManualSettle()
+        {
+            if (_selectedWeeklySettlement == null) return;
+            try
+            {
+                var username = AuthStateProvider.GetCurrentUser()?.Username ?? "Unknown";
+                
+                await LotterySettlementService.SettleWeekManualAsync(
+                    _selectedWeeklySettlement.Id, 
+                    username, 
+                    _manualRefNum, 
+                    _manualSettleDate);
+
+                _selectedWeeklySettlement = null;
+                await LoadWeeklyData();
+                await JS.InvokeVoidAsync("alert", "Week marked as Settled successfully.");
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("alert", "Error settling week: " + ex.Message);
+            }
         }
     }
 }

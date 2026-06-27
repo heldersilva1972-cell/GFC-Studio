@@ -52,8 +52,10 @@ namespace GFC.Core.Models
         public decimal EmployerPfml { get; set; }
         public decimal MaUnemployment { get; set; }
         public decimal Reimbursements { get; set; }
+        public decimal PaidBills { get; set; }
+        public decimal PaidLoans { get; set; }
         
-        public decimal TotalExpenses => GrossPayroll + EmployerFica + EmployerPfml + MaUnemployment + Reimbursements;
+        public decimal TotalExpenses => GrossPayroll + EmployerFica + EmployerPfml + MaUnemployment + Reimbursements + PaidBills + PaidLoans;
         public decimal NetProfit => TotalIncome - TotalExpenses;
     }
 }

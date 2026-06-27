@@ -2,8 +2,13 @@
 @using Microsoft.AspNetCore.Authorization
 @using GFC.BlazorServer.Services
 @using GFC.Core.Models
+@using GFC.Core.Models.Finance
 @using GFC.Core.DTOs
+@using GFC.Core.Interfaces
 @inject IFinancialAnalyticsService FinancialService
+@inject ILotterySettlementService LotterySettlementService
+@inject ISystemSettingsService SettingsService
+@inject IFinanceService FinanceService
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
@@ -76,7 +81,6 @@
                 <span class="text-muted fw-bold uppercase-tracking">@_statusMessage</span>
             </div>
         }
-
         else if (_days.Count == 0)
         {
             <div class="text-center py-5 mt-4 glass-card p-5 border-0">
@@ -93,256 +97,196 @@
         else
         {
             <div class="entries-list d-flex flex-column gap-4">
-                @foreach (var day in _days)
-                {
-                    <div class="day-group-card animate-slide-up">
-                        <div class="day-header py-2 px-4 d-flex justify-content-between align-items-center">
-                            <div class="d-flex align-items-center gap-3">
-                                <span class="calendar-icon-mini position-relative">
-                                    <span class="month">@day.Date.ToString("MMM")</span>
-                                    <span class="day">@day.Date.ToString("dd")</span>
-                                    @if (day.Shifts.Any(s => !string.IsNullOrWhiteSpace(s.Notes)))
-                                    {
-                                        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-warning border border-light rounded-circle shadow-sm" style="width: 12px; height: 12px;" title="One or more shifts have notes attached"></span>
-                                    }
-                                </span>
-                                <div>
-                                    <h4 class="mb-0 fw-black text-dark fs-5">@day.Date.ToString("dddd, MMMM d, yyyy")</h4>
-                                    <div class="d-flex gap-2 mt-1">
-                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 rounded-pill small fw-bold">
-                                            BAR: @day.TotalBarSales.ToString("C2")
-                                        </span>
-                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill small fw-bold">
-                                            ENVELOPES: @day.TotalEnvelope.ToString("C2")
-                                        </span>
-                                        <span class="badge @(day.TotalLotteryIncome < 0 ? "bg-danger text-white" : "bg-indigo-subtle text-indigo border border-indigo-subtle") px-3 py-2 rounded-pill small fw-bold" style="@(day.TotalLotteryIncome < 0 ? "color: white !important;" : "")">
-                                            LOTTERY INCOME: @day.TotalLotteryIncome.ToString("C2")
-                                        </span>
-                                        <span class="badge @(day.TotalNetIncome < 0 ? "bg-danger text-white" : "bg-dark-subtle text-dark border border-dark-subtle") px-3 py-2 rounded-pill small fw-bold" style="@(day.TotalNetIncome < 0 ? "color: white !important;" : "")">
-                                            NET INCOME: @day.TotalNetIncome.ToString("C2")
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="d-flex align-items-center gap-4">
-                                <div class="text-end">
-                                    <div class="text-muted x-small uppercase-tracking fw-bold">Daily Variance</div>
-                                    <div class="fw-black @(day.TotalVariance == 0 ? "text-success" : day.TotalVariance > 0 ? "text-primary" : "text-danger")">
-                                        @(day.TotalVariance > 0 ? "+" : "")@day.TotalVariance.ToString("C2")
-                                    </div>
-                                </div>
-                                <div class="vr bg-dark bg-opacity-10" style="height: 40px;"></div>
-                                <div class="house-impact-card text-end" style="min-width: 180px;">
-                                    <div class="x-small text-muted fw-bold text-uppercase" style="letter-spacing: 0.5px;">Final House Impact</div>
-                                    <div class="fw-black fs-4 @(day.TotalNetIncome < 0 ? "text-danger" : "text-success")" style="line-height: 1;">
-                                        @day.TotalNetIncome.ToString("C2")
-                                    </div>
-                                    <div class="x-small text-muted opacity-75" style="font-size: 0.7rem;">
-                                        @(day.TotalNetIncome >= 0 ? "Profit realized after all costs." : "Loss incurred today.")
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        @if (!_showSummariesOnly)
-                        {
-                            <div class="day-body p-0">
-                            <div class="table-responsive">
-                                <table class="table table-hover mb-0 align-middle custom-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="ps-4">SHIFT</th>
-                                            <th class="text-end border-end">BAR SALES</th>
-                                            <th class="text-center text-muted x-small bg-light" colspan="3">TICKET DATA (SHIFT)</th>
-                                            <th class="text-end alert-info text-primary small fw-black border-end">SHIFT NET</th>
-                                            <th class="text-center text-muted x-small bg-light" colspan="4">DRAWER AUDIT</th>
-                                            <th class="text-end text-primary small fw-bold">ENV</th>
-                                            <th class="text-end text-muted small border-end">SETTLE</th>
-                                            <th class="text-end text-muted small">NET DUE</th>
-                                            <th class="text-end fw-black">EST. INCOME</th>
-                                            <th class="text-end text-success fw-black pe-4">REALIZED PROFIT</th>
-                                        </tr>
-                                        <tr class="secondary-header">
-                                            <th class="ps-4 border-0"></th>
-                                            <th class="text-end border-end border-0"></th>
-                                            <th class="text-end text-success x-small">+ SALES</th>
-                                            <th class="text-end text-danger x-small">− CASHES</th>
-                                            <th class="text-end text-danger x-small border-end">− TICKETS</th>
-                                            <th class="text-end border-end border-0"></th>
-                                            <th class="text-end text-muted x-small">START</th>
-                                            <th class="text-end text-warning x-small">+ BAG</th>
-                                            <th class="text-end fw-black x-small">EXPECTED</th>
-                                            <th class="text-end text-muted x-small border-end">COUNTED</th>
-                                            <th class="text-end border-end border-0"></th>
-                                            <th class="text-end border-end border-0"></th>
-                                            <th class="text-end border-0"></th>
-                                            <th class="text-end border-0"></th>
-                                            <th class="text-end border-0 pe-4 text-center">DETAILS</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var shift in day.Shifts)
+                    @foreach (var day in _days)
+                    {
+                        <div class="day-group-card animate-slide-up">
+                            <div class="day-header py-2 px-4 d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="calendar-icon-mini position-relative">
+                                        <span class="month">@day.Date.ToString("MMM")</span>
+                                        <span class="day">@day.Date.ToString("dd")</span>
+                                        @if (day.Shifts.Any(s => !string.IsNullOrWhiteSpace(s.Notes)))
                                         {
-                                            <tr>
-                                                <td class="ps-4">
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <span class="shift-indicator @shift.ShiftType.ToLower()"></span>
-                                                        <div class="fw-bold text-dark">@shift.ShiftType SHIFT</div>
-                                                        @if (shift.IsRentalHall)
-                                                        {
-                                                            <span class="badge bg-indigo-subtle text-indigo px-2 py-0 x-small rounded-pill">HALL</span>
-                                                        }
-                                                        @if (shift.Status == "Submitted")
-                                                        {
-                                                            <span class="badge bg-success-subtle text-success px-2 py-0 x-small rounded-pill ms-1">
-                                                                <i class="bi bi-check-circle-fill me-1"></i>SUBMITTED
-                                                            </span>
-                                                        }
-                                                        else if (shift.Status == "Draft")
-                                                        {
-                                                            <span class="badge bg-secondary-subtle text-secondary px-2 py-0 x-small rounded-pill ms-1">
-                                                                <i class="bi bi-pencil-fill me-1"></i>DRAFT
-                                                            </span>
-                                                        }
-                                                        @if (!string.IsNullOrWhiteSpace(shift.Notes))
-                                                        {
-                                                            <span class="badge bg-warning text-dark px-2 py-0 x-small rounded-pill ms-1" title="@shift.Notes">
-                                                                <i class="bi bi-chat-right-text-fill me-1"></i>NOTE
-                                                            </span>
-                                                        }
-                                                    </div>
-                                                    <div class="x-small text-muted">By @shift.CreatedBy</div>
-                                                </td>
-                                                @{
-                                                    var sSales = day.GetShiftSales(shift);
-                                                    var sPayouts = day.GetShiftPayouts(shift);
-                                                    var sCancels = day.GetShiftCancels(shift);
-                                                    var sDue = day.GetShiftNetDue(shift);
-                                                    var sIncome = day.GetShiftLotteryIncome(shift);
-                                                    var expectedInDrawer = shift.StartingCash + sSales - sPayouts - sCancels + shift.BackupBagAmount;
-                                                    var variance = shift.EndingCash - expectedInDrawer;
-                                                    var finalNetIncome = sIncome + variance;
-                                                    var nextShift = shift.EndingCash - shift.EnvelopeAmount;
-                                                }
-                                                <td class="text-end fw-bold border-end">@shift.BarSales.ToString("C2")</td>
-                                                <td class="text-end text-success">@sSales.ToString("N0")</td>
-                                                <td class="text-end text-danger">@sPayouts.ToString("N0")</td>
-                                                <td class="text-end text-danger border-end">@sCancels.ToString("N0")</td>
-                                                <td class="text-end fw-black alert-info text-primary border-end bg-opacity-10">
-                                                    $@((sSales - sPayouts - sCancels).ToString("N2"))
-                                                </td>
-                                                <td class="text-end text-muted small">@shift.StartingCash.ToString("N0")</td>
-                                                <td class="text-end text-warning">@shift.BackupBagAmount.ToString("N0")</td>
-                                                <td class="text-end fw-black">@expectedInDrawer.ToString("N0")</td>
-                                                <td class="text-end text-muted small border-end">@shift.EndingCash.ToString("N0")</td>
-
-                                                <td class="text-end text-primary">@shift.EnvelopeAmount.ToString("N0")</td>
-                                                <td class="text-end text-muted small border-end">@nextShift.ToString("N0")</td>
-                                                <td class="text-end text-muted small">@sDue.ToString("C2")</td>
-                                                <td class="text-end fw-bold @(sIncome < 0 ? "text-danger" : "")">@sIncome.ToString("C2")</td>
-                                                <td class="text-end fw-bold @(finalNetIncome < 0 ? "text-danger" : "text-success")">@finalNetIncome.ToString("C2")</td>
-                                                <td class="pe-4 text-center">
-                                                    <button class="btn btn-icon-sm" @onclick="() => ShowShiftDetail(day.Date, shift)">
-                                                        <i class="bi bi-info-circle"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
+                                            <span class="position-absolute top-0 start-100 translate-middle p-1 bg-warning border border-light rounded-circle shadow-sm" style="width: 12px; height: 12px;" title="One or more shifts have notes attached"></span>
                                         }
-                                    </tbody>
-                                    <tfoot class="bg-light border-top border-dark-subtle">
-                                        <tr class="fw-bold">
-                                            <td class="ps-4">
-                                                <div class="text-dark small">DAY TOTAL (REPORT)</div>
-                                                <div class="x-small text-muted">Raw Cumulative Data</div>
-                                            </td>
-                                            <td class="text-end border-end">@day.TotalBarSales.ToString("C2")</td>
-                                            <td class="text-end text-success">@day.TotalLottoSales.ToString("N0")</td>
-                                            <td class="text-end text-danger">@day.TotalLottoPayouts.ToString("N0")</td>
-                                            <td class="text-end text-danger border-end">@day.TotalLottoCancels.ToString("N0")</td>
-                                            <td class="text-end border-end alert-info text-primary">
-                                                $@((day.TotalLottoSales - day.TotalLottoPayouts - day.TotalLottoCancels).ToString("N2"))
-                                            </td>
-                                            <td class="text-end text-muted small"></td>
-                                            <td class="text-end text-warning">@day.Shifts.Sum(s => s.BackupBagAmount).ToString("N0")</td>
-                                            <td class="text-end fw-black"></td>
-                                            <td class="text-end text-muted small border-end"></td>
-                                            <td class="text-end text-primary">@day.TotalEnvelope.ToString("N0")</td>
-                                            <td class="text-end text-muted small border-end"></td>
-                                            <td class="text-end text-muted small">@day.TotalLottoNetDue.ToString("C2")</td>
-                                            <td class="text-end @(day.TotalLotteryIncome < 0 ? "text-danger" : "")">@day.TotalLotteryIncome.ToString("C2")</td>
-                                            <td class="text-end @(day.TotalNetIncome < 0 ? "text-danger" : "text-success")">@day.TotalNetIncome.ToString("C2")</td>
-                                            <td class="pe-4"></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
+                                    </span>
+                                    <div>
+                                        <h4 class="mb-0 fw-black text-dark fs-5">@day.Date.ToString("dddd, MMMM d, yyyy")</h4>
+                                        <div class="d-flex gap-2 mt-1">
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 rounded-pill small fw-bold">
+                                                BAR: @day.TotalBarSales.ToString("C2")
+                                            </span>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill small fw-bold">
+                                                ENVELOPES: @day.TotalEnvelope.ToString("C2")
+                                            </span>
+                                            <span class="badge @(day.TotalLotteryIncome < 0 ? "bg-danger text-white" : "bg-indigo-subtle text-indigo border border-indigo-subtle") px-3 py-2 rounded-pill small fw-bold" style="@(day.TotalLotteryIncome < 0 ? "color: white !important;" : "")">
+                                                LOTTERY INCOME: @day.TotalLotteryIncome.ToString("C2")
+                                            </span>
+                                            <span class="badge @(day.TotalNetIncome < 0 ? "bg-danger text-white" : "bg-dark-subtle text-dark border border-dark-subtle") px-3 py-2 rounded-pill small fw-bold" style="@(day.TotalNetIncome < 0 ? "color: white !important;" : "")">
+                                                NET INCOME: @day.TotalNetIncome.ToString("C2")
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center gap-4">
+                                    <div class="text-end">
+                                        <div class="text-muted x-small uppercase-tracking fw-bold">Daily Variance</div>
+                                        <div class="fw-black @(day.TotalVariance == 0 ? "text-success" : day.TotalVariance > 0 ? "text-primary" : "text-danger")">
+                                            @(day.TotalVariance > 0 ? "+" : "")@day.TotalVariance.ToString("C2")
+                                        </div>
+                                    </div>
+                                    <div class="vr bg-dark bg-opacity-10" style="height: 40px;"></div>
+                                    <div class="house-impact-card text-end" style="min-width: 180px;">
+                                        <div class="x-small text-muted fw-bold text-uppercase" style="letter-spacing: 0.5px;">Final House Impact</div>
+                                        <div class="fw-black fs-4 @(day.TotalNetIncome < 0 ? "text-danger" : "text-success")" style="line-height: 1;">
+                                            @day.TotalNetIncome.ToString("C2")
+                                        </div>
+                                        <div class="x-small text-muted opacity-75" style="font-size: 0.7rem;">
+                                            @(day.TotalNetIncome >= 0 ? "Profit realized after all costs." : "Loss incurred today.")
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
+                            @if (!_showSummariesOnly)
+                            {
+                                <div class="day-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-hover mb-0 align-middle custom-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="ps-4">SHIFT</th>
+                                                <th class="text-end border-end">BAR SALES</th>
+                                                <th class="text-center text-muted x-small bg-light" colspan="3">TICKET DATA (SHIFT)</th>
+                                                <th class="text-end alert-info text-primary small fw-black border-end">SHIFT NET</th>
+                                                <th class="text-center text-muted x-small bg-light" colspan="4">DRAWER AUDIT</th>
+                                                <th class="text-end text-primary small fw-bold">ENV</th>
+                                                <th class="text-end text-muted small border-end">SETTLE</th>
+                                                <th class="text-end text-muted small">NET DUE</th>
+                                                <th class="text-end fw-black">EST. INCOME</th>
+                                                <th class="text-end text-success fw-black pe-4">REALIZED PROFIT</th>
+                                            </tr>
+                                            <tr class="secondary-header">
+                                                <th class="ps-4 border-0"></th>
+                                                <th class="text-end border-end border-0"></th>
+                                                <th class="text-end text-success x-small">+ SALES</th>
+                                                <th class="text-end text-danger x-small">− CASHES</th>
+                                                <th class="text-end text-danger x-small border-end">− TICKETS</th>
+                                                <th class="text-end border-end border-0"></th>
+                                                <th class="text-end text-muted x-small">START</th>
+                                                <th class="text-end text-warning x-small">+ BAG</th>
+                                                <th class="text-end fw-black x-small">EXPECTED</th>
+                                                <th class="text-end text-muted x-small border-end">COUNTED</th>
+                                                <th class="text-end border-end border-0"></th>
+                                                <th class="text-end border-end border-0"></th>
+                                                <th class="text-end border-0"></th>
+                                                <th class="text-end border-0"></th>
+                                                <th class="text-end border-0 pe-4 text-center">DETAILS</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var shift in day.Shifts)
+                                            {
+                                                <tr>
+                                                    <td class="ps-4">
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="shift-indicator @shift.ShiftType.ToLower()"></span>
+                                                            <div class="fw-bold text-dark">@shift.ShiftType SHIFT</div>
+                                                            @if (shift.IsRentalHall)
+                                                            {
+                                                                <span class="badge bg-indigo-subtle text-indigo px-2 py-0 x-small rounded-pill">HALL</span>
+                                                            }
+                                                            @if (shift.Status == "Submitted")
+                                                            {
+                                                                <span class="badge bg-success-subtle text-success px-2 py-0 x-small rounded-pill ms-1">
+                                                                    <i class="bi bi-check-circle-fill me-1"></i>SUBMITTED
+                                                                </span>
+                                                            }
+                                                            else if (shift.Status == "Draft")
+                                                            {
+                                                                <span class="badge bg-secondary-subtle text-secondary px-2 py-0 x-small rounded-pill ms-1">
+                                                                    <i class="bi bi-pencil-fill me-1"></i>DRAFT
+                                                                </span>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(shift.Notes))
+                                                            {
+                                                                <span class="badge bg-warning text-dark px-2 py-0 x-small rounded-pill ms-1" title="@shift.Notes">
+                                                                    <i class="bi bi-chat-right-text-fill me-1"></i>NOTE
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                        <div class="x-small text-muted">By @shift.CreatedBy</div>
+                                                    </td>
+                                                    @{
+                                                        var sSales = day.GetShiftSales(shift);
+                                                        var sPayouts = day.GetShiftPayouts(shift);
+                                                        var sCancels = day.GetShiftCancels(shift);
+                                                        var sDue = day.GetShiftNetDue(shift);
+                                                        var sIncome = day.GetShiftLotteryIncome(shift);
+                                                        var expectedInDrawer = shift.StartingCash + sSales - sPayouts - sCancels + shift.BackupBagAmount;
+                                                        var variance = shift.EndingCash - expectedInDrawer;
+                                                        var finalNetIncome = sIncome + variance;
+                                                        var nextShift = shift.EndingCash - shift.EnvelopeAmount;
+                                                    }
+                                                    <td class="text-end fw-bold border-end">@shift.BarSales.ToString("C2")</td>
+                                                    <td class="text-end text-success">@sSales.ToString("N0")</td>
+                                                    <td class="text-end text-danger">@sPayouts.ToString("N0")</td>
+                                                    <td class="text-end text-danger border-end">@sCancels.ToString("N0")</td>
+                                                    <td class="text-end fw-black alert-info text-primary border-end bg-opacity-10">
+                                                        $@((sSales - sPayouts - sCancels).ToString("N2"))
+                                                    </td>
+                                                    <td class="text-end text-muted small">@shift.StartingCash.ToString("N0")</td>
+                                                    <td class="text-end text-warning">@shift.BackupBagAmount.ToString("N0")</td>
+                                                    <td class="text-end fw-black">@expectedInDrawer.ToString("N0")</td>
+                                                    <td class="text-end text-muted small border-end">@shift.EndingCash.ToString("N0")</td>
 
+                                                    <td class="text-end text-primary">@shift.EnvelopeAmount.ToString("N0")</td>
+                                                    <td class="text-end text-muted small border-end">@nextShift.ToString("N0")</td>
+                                                    <td class="text-end text-muted small">@sDue.ToString("C2")</td>
+                                                    <td class="text-end fw-bold @(sIncome < 0 ? "text-danger" : "")">@sIncome.ToString("C2")</td>
+                                                    <td class="text-end fw-bold @(finalNetIncome < 0 ? "text-danger" : "text-success")">@finalNetIncome.ToString("C2")</td>
+                                                    <td class="pe-4 text-center">
+                                                        <button class="btn btn-icon-sm" @onclick="() => ShowShiftDetail(day.Date, shift)">
+                                                            <i class="bi bi-info-circle"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                        <tfoot class="bg-light border-top border-dark-subtle">
+                                            <tr class="fw-bold">
+                                                <td class="ps-4">
+                                                    <div class="text-dark small">DAY TOTAL (REPORT)</div>
+                                                    <div class="x-small text-muted">Raw Cumulative Data</div>
+                                                </td>
+                                                <td class="text-end border-end">@day.TotalBarSales.ToString("C2")</td>
+                                                <td class="text-end text-success">@day.TotalLottoSales.ToString("N0")</td>
+                                                <td class="text-end text-danger">@day.TotalLottoPayouts.ToString("N0")</td>
+                                                <td class="text-end text-danger border-end">@day.TotalLottoCancels.ToString("N0")</td>
+                                                <td class="text-end border-end alert-info text-primary">
+                                                    $@((day.TotalLottoSales - day.TotalLottoPayouts - day.TotalLottoCancels).ToString("N2"))
+                                                </td>
+                                                <td class="text-end text-muted small"></td>
+                                                <td class="text-end text-warning">@day.Shifts.Sum(s => s.BackupBagAmount).ToString("N0")</td>
+                                                <td class="text-end fw-black"></td>
+                                                <td class="text-end text-muted small border-end"></td>
+                                                <td class="text-end text-primary">@day.TotalEnvelope.ToString("N0")</td>
+                                                <td class="text-end text-muted small border-end"></td>
+                                                <td class="text-end text-muted small">@day.TotalLottoNetDue.ToString("C2")</td>
+                                                <td class="text-end @(day.TotalLotteryIncome < 0 ? "text-danger" : "")">@day.TotalLotteryIncome.ToString("C2")</td>
+                                                <td class="text-end @(day.TotalNetIncome < 0 ? "text-danger" : "text-success")">@day.TotalNetIncome.ToString("C2")</td>
+                                                <td class="pe-4"></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
             }
-            </div>
-        }
-
-    </div>
-</div>
-
-
-<!-- Simple Detail Modal -->
-@if (_selectedShift != null)
-{
-    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-                <div class="modal-header bg-dark text-white p-4">
-                    <h5 class="modal-title fw-black uppercase-tracking fs-6">Shift Details: @_selectedShift.ShiftType</h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="() => _selectedShift = null"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div class="row g-4">
-                        <div class="col-6">
-                            <div class="detail-box">
-                                <label>CREATED BY</label>
-                                <div>@_selectedShift.CreatedBy</div>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <div class="detail-box">
-                                <label>TIMESTAMP</label>
-                                <div>@_selectedShift.CreatedAt.ToLocalTime().ToString("g")</div>
-                            </div>
-                        </div>
-                        <div class="col-12 mt-3">
-                            <div class="detail-box accent-success">
-                                <label>LOTTERY MATH</label>
-                                <div class="small">
-                                    Start (@_selectedShift.StartingCash.ToString("C2")) + Sales (@_selectedShift.LottoSales.ToString("C2")) - Payouts (@_selectedShift.LottoPayouts.ToString("C2")) - Tickets (@_selectedShift.LottoCancels.ToString("C2")) + Bag (@_selectedShift.BackupBagAmount.ToString("C2")) = Expected (@_selectedShift.ExpectedCash.ToString("C2"))
-                                </div>
-                                <div class="mt-2 fw-bold text-dark">
-                                    Actual Counted: @_selectedShift.EndingCash.ToString("C2")
-                                    <span class="ms-2 @(_selectedShift.Variance == 0 ? "text-success" : "text-danger")">
-                                        (@(_selectedShift.Variance > 0 ? "+" : "")@_selectedShift.Variance.ToString("C2"))
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        @if (!string.IsNullOrEmpty(_selectedShift.Notes))
-                        {
-                            <div class="col-12 mt-3">
-                                <div class="detail-box bg-light">
-                                    <label>NOTES</label>
-                                    <div class="fst-italic text-dark">"@_selectedShift.Notes"</div>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                </div>
-                <div class="modal-footer border-0 p-3 bg-light">
-                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _selectedShift = null">Close</button>
-                </div>
-            </div>
         </div>
     </div>
-}
 
 
 
@@ -588,14 +532,12 @@
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
             
-            // System Admins always have edit access
             if (user.IsInRole("Admin"))
             {
                 _canEdit = true;
                 return;
             }
 
-            // Check granular page permission for non-admins
             var userIdClaim = user.FindFirst(c => c.Type == "sub") ?? user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier);
             if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
             {
@@ -605,11 +547,9 @@
         }
         catch (Exception)
         {
-            _canEdit = false; // Safe default
+            _canEdit = false;
         }
     }
-
-
 
     private async Task RefreshData()
     {
@@ -625,19 +565,6 @@
             
             var result = await FinancialService.GetDailySalesReportsAsync(_startDate, _endDate);
             _days = result.Data;
-            
-            if (result.Error != "None")
-            {
-                // Silent error in background
-            }
-
-
-            
-            if (_days.Count > 0)
-            {
-                var totalShifts = _days.Sum(d => d.Shifts.Count);
-            }
-
         }
         catch (Exception ex)
         {
@@ -681,27 +608,16 @@
         _selectedShift = shift;
     }
 
-
-
     private async Task ExportToExcel()
     {
-        // Placeholder for export functionality
         await JS.InvokeVoidAsync("alert", "Exporting " + _days.Count + " days of data to Excel...");
     }
 
     private async Task PrintSummaries()
     {
-        // Force the UI into summary mode first
         _showSummariesOnly = true;
         StateHasChanged();
-        
-        // Slight delay to allow DOM to re-render without the tables
         await Task.Delay(100); 
-        
-        // Trigger browser print dialog
         await JS.InvokeVoidAsync("window.print");
     }
-
-
-
 }

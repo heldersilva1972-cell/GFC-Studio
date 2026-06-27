@@ -392,7 +392,7 @@
 <div class="filter-bar mb-2 py-2">
     <div class="row g-3 align-items-center">
         <div class="col-auto">
-            @if (_viewMode == "weekly" || _viewMode == "monthly" || _viewMode == "analytics")
+            @if (_viewMode == "weekly" || _viewMode == "weekly_sweep" || _viewMode == "monthly" || _viewMode == "analytics")
             {
                 <div class="input-group input-group-sm shadow-sm rounded-3 overflow-hidden border">
                     <span class="input-group-text border-0 bg-light text-muted fw-bold px-3">Filter Period:</span>
@@ -439,19 +439,13 @@
                 </select>
             }
         </div>
-        <div class="col text-center">
-             <button class="btn @(_viewMode == "reconcile" ? "btn-primary shadow" : "btn-outline-primary") fw-black text-uppercase px-4 border-2" 
-                    style="border-radius: 50px; height: 42px; font-size: 0.85rem;"
-                    @onclick='() => ChangeViewMode("reconcile")'>
-                <i class="bi bi-shield-check me-2"></i>Reconcile
-            </button>
-        </div>
-        <div class="col-auto text-end">
+        <div class="col text-end">
             <div class="d-inline-flex gap-2 align-items-center">
                 <div class="pill-group">
                     <button class="pill-btn @(_viewMode == "daily" ? "active" : "")" @onclick='() => ChangeViewMode("daily")'>Shift Audit</button>
                     <button class="pill-btn @(_viewMode == "commissions" ? "active" : "")" @onclick='() => ChangeViewMode("commissions")'>Commissions</button>
                     <button class="pill-btn @(_viewMode == "weekly" ? "active" : "")" @onclick='() => ChangeViewMode("weekly")'>Monthly View</button>
+                    <button class="pill-btn @(_viewMode == "weekly_sweep" ? "active" : "")" @onclick='() => ChangeViewMode("weekly_sweep")'>Weekly Sweep</button>
                     <button class="pill-btn @(_viewMode == "monthly" ? "active" : "")" @onclick='() => ChangeViewMode("monthly")'>Yearly View</button>
                     <button class="pill-btn @(_viewMode == "analytics" ? "active" : "")" @onclick='() => ChangeViewMode("analytics")'>
                         <i class="bi bi-graph-up-arrow me-1"></i> Insights
@@ -553,9 +547,8 @@
 }
 
 @* Summary Statistics *@
-@if (_shifts.Any() || _weeklySummaries.Any() || _monthlySummaries.Any())
+@if (_viewMode != "weekly_sweep" && (_shifts.Any() || _weeklySummaries.Any() || _monthlySummaries.Any()))
 {
-    bool isReconcileContext = _viewMode == "reconcile";
     bool isYearContext = _viewMode == "monthly";
     bool isMonthContext = _viewMode == "weekly";
     
@@ -563,32 +556,7 @@
     decimal contextFees = 0;
     decimal contextVariance = 0;
     
-    decimal totalEnvelopeCash = 0;
-    decimal totalDebtToLottery = 0;
-    decimal auditedNetRevenue = 0;
-    
-    if (isReconcileContext)
-    {
-        // [SMART-AUDIT]: We use the official NetDue reading from the machine report (Night Shift)
-        // instead of calculating Sales - Payouts, as the machine total includes commissions.
-        // We also strictly ignore "Draft" shifts.
-        var dailyAuditData = _shifts
-            .Where(s => s.Status != "Draft")
-            .GroupBy(s => s.ShiftDate.Date)
-            .Select(g => {
-                var latestShift = g.OrderByDescending(s => s.ShiftId).First();
-                return new {
-                    EnvelopeCash = g.Sum(s => s.EnvelopeAmount),
-                    NetDue = latestShift.NetDue,
-                    Tickets = latestShift.TotalCancels
-                };
-            }).ToList();
-
-        totalEnvelopeCash = dailyAuditData.Sum(d => d.EnvelopeCash);
-        totalDebtToLottery = dailyAuditData.Sum(d => d.NetDue - d.Tickets);
-        auditedNetRevenue = totalEnvelopeCash - totalDebtToLottery;
-    }
-    else if (isYearContext)
+    if (isYearContext)
     {
         contextCommissions = _monthlySummaries.Sum(m => m.TotalIncome);
         contextFees = _monthlySummaries.Sum(m => m.TotalFees);
@@ -624,31 +592,7 @@
     string contextLabel = isYearContext ? "Yearly" : (isMonthContext ? "Monthly" : "Weekly");
 
     <div class="mb-2 px-1">
-        @if (isReconcileContext)
-        {
-            <div class="row g-2">
-                <div class="col-md-4">
-                    <div class="data-card py-2 border-0 bg-success bg-opacity-10 border-start border-4 border-success rounded-3">
-                        <div class="extra-small fw-bold text-success text-uppercase px-3 mb-0">Total Envelope Cash</div>
-                        <div class="h5 mb-0 fw-black text-success px-3">@totalEnvelopeCash.ToString("C2")</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="data-card py-2 border-0 bg-danger bg-opacity-10 border-start border-4 border-danger rounded-3">
-                        <div class="extra-small fw-bold text-danger text-uppercase px-3 mb-0">Debt to Lottery</div>
-                        <div class="h5 mb-0 fw-black text-danger px-3">@totalDebtToLottery.ToString("C2")</div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="data-card py-2 border-0 bg-primary bg-opacity-10 border-start border-4 border-primary rounded-3">
-                        <div class="extra-small fw-bold text-primary text-uppercase px-3 mb-0">Audited Net Revenue</div>
-                        <div class="h5 mb-0 fw-black text-primary px-3">@auditedNetRevenue.ToString("C2")</div>
-                    </div>
-                </div>
-            </div>
-        }
-        else
-        {
+        @{
             decimal cumulativeNetSales = 0;
             decimal cumulativeCashes = 0;
             decimal cumulativeTickets = 0;
@@ -680,61 +624,61 @@
                 cumulativeTickets = finalShiftsOfDay.Sum(s => s.TotalCancels);
                 cumulativeNetDue = finalShiftsOfDay.Sum(s => s.NetDue);
             }
+        }
 
-            <div class="d-flex flex-wrap gap-2 w-100">
-                <!-- 1. Net Sales -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                        <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Sales</div>
-                        <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetSales.ToString("C2")</div>
-                    </div>
+        <div class="d-flex flex-wrap gap-2 w-100">
+            <!-- 1. Net Sales -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
+                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Sales</div>
+                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetSales.ToString("C2")</div>
                 </div>
-                <!-- 2. Total Cashes -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                        <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Cashes</div>
-                        <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeCashes.ToString("C2")</div>
-                    </div>
+            </div>
+            <!-- 2. Total Cashes -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
+                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Cashes</div>
+                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeCashes.ToString("C2")</div>
                 </div>
-                <!-- 3. Total Tickets -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                        <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Tickets</div>
-                        <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeTickets.ToString("C2")</div>
-                    </div>
+            </div>
+            <!-- 3. Total Tickets -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
+                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Tickets</div>
+                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeTickets.ToString("C2")</div>
                 </div>
-                <!-- 4. Net Due -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                        <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Due</div>
-                        <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetDue.ToString("C2")</div>
-                    </div>
+            </div>
+            <!-- 4. Net Due -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
+                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Due</div>
+                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetDue.ToString("C2")</div>
                 </div>
-                <!-- 5. Commissions -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border-0 bg-primary bg-opacity-10 border-start border-4 border-primary rounded-3 h-100">
-                        <div class="extra-small fw-bold text-primary text-uppercase px-3 mb-0">@contextLabel Commissions</div>
-                        <div class="h5 mb-0 fw-black text-primary px-3">@contextCommissions.ToString("C2")</div>
-                    </div>
+            </div>
+            <!-- 5. Commissions -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border-0 bg-primary bg-opacity-10 border-start border-4 border-primary rounded-3 h-100">
+                    <div class="extra-small fw-bold text-primary text-uppercase px-3 mb-0">@contextLabel Commissions</div>
+                    <div class="h5 mb-0 fw-black text-primary px-3">@contextCommissions.ToString("C2")</div>
                 </div>
-                <!-- 6. Fees -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border-0 bg-danger bg-opacity-10 border-start border-4 border-danger rounded-3 h-100">
-                        <div class="extra-small fw-bold text-danger text-uppercase px-3 mb-0">@contextLabel Fees</div>
-                        <div class="h5 mb-0 fw-black text-danger px-3">-@contextFees.ToString("C2")</div>
-                    </div>
+            </div>
+            <!-- 6. Fees -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border-0 bg-danger bg-opacity-10 border-start border-4 border-danger rounded-3 h-100">
+                    <div class="extra-small fw-bold text-danger text-uppercase px-3 mb-0">@contextLabel Fees</div>
+                    <div class="h5 mb-0 fw-black text-danger px-3">-@contextFees.ToString("C2")</div>
                 </div>
-                <!-- 7. Total Variance -->
-                <div class="flex-fill" style="min-width: 130px;">
-                    <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                        <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0 text-danger">Total Variance</div>
-                        <div class="h5 mb-0 fw-black px-3 @(contextVariance < 0 ? "text-danger" : contextVariance > 0 ? "text-success" : "text-dark")">
-                            @contextVariance.ToString("C2")
-                        </div>
+            </div>
+            <!-- 7. Total Variance -->
+            <div class="flex-fill" style="min-width: 130px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
+                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0 text-danger">Total Variance</div>
+                    <div class="h5 mb-0 fw-black px-3 @(contextVariance < 0 ? "text-danger" : contextVariance > 0 ? "text-success" : "text-dark")">
+                        @contextVariance.ToString("C2")
                     </div>
                 </div>
             </div>
-        }
+        </div>
     </div>
 }
 
@@ -943,47 +887,275 @@
 
 @if (ShowContent && _viewMode == "weekly")
 {
-        @* Monthly View (Weeks summary) *@
-        <div class="data-card">
-            <h4>Monthly View (Weeks)</h4>
-            <div class="table-container-fixed">
-                <table class="data-table">
+    @* Monthly View (Old Reconcile View) - One line per week, simple and read-only *@
+    <div class="data-card border-0 shadow-sm rounded-3 overflow-hidden mb-4 bg-white">
+        <h5 class="fw-black text-muted mb-2 pt-3 px-3 text-uppercase x-small tracking-widest">Monthly Weekly Summaries</h5>
+        <div class="table-container-fixed">
+            <table class="data-table border-top">
+                <thead>
+                    <tr class="text-uppercase x-small tracking-widest text-muted">
+                        <th class="ps-4">Fiscal Period</th>
+                        <th class="text-end">Sales (RPT 50)</th>
+                        <th class="text-end">Cashes (RPT 50)</th>
+                        <th class="text-end">Tickets (RPT 34)</th>
+                        <th class="text-end fw-bold">Net Due</th>
+                        <th class="text-end text-danger fw-bold">Due to Lottery</th>
+                        <th class="text-end text-primary fw-bold">Envelope Cash</th>
+                        <th class="text-end pe-4">Net Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_weeklySummaries != null && _weeklySummaries.Any())
+                    {
+                        @foreach (var week in _weeklySummaries.OrderByDescending(w => w.PeriodStart))
+                        {
+                            var weekDueToLottery = week.TotalNetDue - week.TotalCancels;
+                            var weekRevenue = week.TotalEnvelope - weekDueToLottery;
+                            
+                            <tr class="align-middle">
+                                <td class="ps-4 fw-bold">@week.PeriodLabel</td>
+                                <td class="text-end">@week.TotalSales.ToString("C2")</td>
+                                <td class="text-end">@week.TotalPayouts.ToString("C2")</td>
+                                <td class="text-end">@week.TotalCancels.ToString("C2")</td>
+                                <td class="text-end fw-bold">@week.TotalNetDue.ToString("C2")</td>
+                                <td class="text-end text-danger fw-bold">@weekDueToLottery.ToString("C2")</td>
+                                <td class="text-end text-primary fw-bold">@week.TotalEnvelope.ToString("C2")</td>
+                                <td class="text-end pe-4 fw-black @(weekRevenue >= 0 ? "text-success" : "text-danger")">
+                                    @weekRevenue.ToString("C2")
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (ShowContent && _viewMode == "weekly_sweep")
+{
+    @* Weekly Net Due / Sweep View *@
+    <div class="data-card border-0 shadow-sm rounded-3 overflow-hidden mb-4 bg-white">
+        <h5 class="fw-black text-muted mb-2 pt-3 px-3 text-uppercase x-small tracking-widest">Weekly Net Due Settlements</h5>
+        @if (_loadingWeekly)
+        {
+            <div class="p-5 text-center">
+                <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+                <span class="ms-2 text-muted">Loading weekly settlements...</span>
+            </div>
+        }
+        else if (!_weeklySettlements.Any())
+        {
+            <div class="text-center py-5 text-muted p-5">
+                <i class="bi bi-calendar-x d-block fs-2 mb-2 text-muted opacity-50"></i>
+                <p class="fw-bold mb-0">No weekly settlements found for the selected month/year.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-container-fixed" style="max-height: calc(100vh - 430px);">
+                <table class="data-table border-top">
                     <thead>
-                        <tr>
-                            <th>Week</th>
-                            <th>Shifts</th>
-                            <th>Net Sales</th>
-                            <th>Cashes</th>
-                            <th>Instant Tickets</th>
-                            <th>Net Due</th>
-                            <th>Shift Net Sales</th>
-                            <th>Total Envelopes</th>
-                            <th>Cash Variance</th>
+                        <tr class="text-uppercase x-small tracking-widest text-muted">
+                            <th class="ps-4">WEEK PERIOD</th>
+                            <th>DUE DATE</th>
+                            <th class="text-end">ENVELOPE DROP</th>
+                            <th class="text-end">NET DUE TO LOTTERY</th>
+                            <th class="text-center">STATUS</th>
+                            <th class="text-center">DETAILS / LINKED BILL</th>
+                            <th class="pe-4 text-end" style="width: 200px;">ACTIONS</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var summary in _weeklySummaries)
+                        @foreach (var settlement in _weeklySettlements)
                         {
                             <tr>
-                                <td>@summary.PeriodLabel</td>
-                                <td>@summary.ShiftCount</td>
-                                <td>@summary.TotalSales.ToString("C2")</td>
-                                <td>@summary.TotalPayouts.ToString("C2")</td>
-                                <td>@summary.TotalCancels.ToString("C2")</td>
-                                <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
-                                <td>@summary.TotalNetSales.ToString("C2")</td>
-                                <td>@summary.TotalEnvelope.ToString("C2")</td>
+                                <td class="ps-4 fw-bold">
+                                    <span class="d-block text-dark">@settlement.WeekStartDate.ToString("MMM dd") – @settlement.WeekEndDate.ToString("MMM dd, yyyy")</span>
+                                    <div class="d-flex align-items-center gap-2 mt-1">
+                                        <span class="text-muted small fw-normal">Lottery Week (Sat-Fri)</span>
+                                        @if (settlement.RecordedShiftsCount == 7)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2" style="font-size: 0.65rem;">
+                                                <i class="bi bi-shield-check me-1"></i>7/7 Shifts
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            var isCompletedWeek = settlement.WeekEndDate.Date < DateTime.Today;
+                                            @if (isCompletedWeek)
+                                            {
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2" style="font-size: 0.65rem;" title="Some night shift data is missing for this completed week!">
+                                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>@settlement.RecordedShiftsCount/7 Shifts (Missing Data)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2" style="font-size: 0.65rem;">
+                                                    <i class="bi bi-hourglass-split me-1"></i>@settlement.RecordedShiftsCount/7 Shifts (In Progress)
+                                                </span>
+                                            }
+                                        }
+                                    </div>
+                                </td>
                                 <td>
-                                    <span class="variance-pill @(summary.TotalVariance < 0 ? "variance-neg" : summary.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
-                                        @summary.TotalVariance.ToString("C2")
-                                    </span>
+                                    <span class="fw-bold text-dark">@settlement.WeekEndDate.AddDays(7).ToString("MMMM dd, yyyy")</span>
+                                    <span class="d-block text-muted small">Following Friday</span>
+                                </td>
+                                <td class="text-end fw-bold text-success fs-6">
+                                    @settlement.EnvelopeDropAmount.ToString("C2")
+                                </td>
+                                <td class="text-end fw-black text-primary fs-6">
+                                    @settlement.NetDueAmount.ToString("C2")
+                                </td>
+                                <td class="text-center">
+                                    @if (settlement.Status == "Settled")
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1.5 rounded-pill fw-black">
+                                            <i class="bi bi-check-circle-fill me-1"></i>SETTLED
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-3 py-1.5 rounded-pill fw-black">
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>PENDING
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-center small text-muted">
+                                    @if (settlement.Status == "Settled")
+                                    {
+                                        <span class="d-block">Settle Date: @settlement.SettleDate?.ToString("MM/dd/yyyy")</span>
+                                        <span class="d-block">By: @settlement.SettleBy</span>
+                                        @if (!string.IsNullOrWhiteSpace(settlement.ReferenceNumber))
+                                        {
+                                            <span class="d-block font-monospace">Ref: @settlement.ReferenceNumber</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span>Awaiting sweep.</span>
+                                    }
+                                    @if (settlement.LinkedBillId.HasValue)
+                                    {
+                                        <a href="/finance/bills" class="badge bg-light text-dark border rounded-pill px-2 py-1 mt-1 text-decoration-none d-inline-block">
+                                            <i class="bi bi-link-45deg"></i> Linked Bill #@settlement.LinkedBillId
+                                        </a>
+                                    }
+                                </td>
+                                <td class="pe-4 text-end">
+                                    @if (settlement.Status == "Pending")
+                                    {
+                                        <button class="btn btn-sm btn-success rounded-pill px-3 shadow-sm fw-bold" @onclick="() => OpenManualSettleModal(settlement)">
+                                            <i class="bi bi-check2-circle me-1"></i> Confirm Sweep
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-success fw-bold"><i class="bi bi-shield-check me-1"></i> Completed</span>
+                                    }
                                 </td>
                             </tr>
                         }
                     </tbody>
+                    <tfoot class="bg-light border-top">
+                        <tr class="fw-black text-dark">
+                            <td class="ps-4 py-3" colspan="2">TOTALS FOR PERIOD</td>
+                            <td class="text-end py-3 text-success fs-5">
+                                @_weeklySettlements.Sum(s => s.EnvelopeDropAmount).ToString("C2")
+                            </td>
+                            <td class="text-end py-3 text-primary fs-5">
+                                @_weeklySettlements.Sum(s => s.NetDueAmount).ToString("C2")
+                            </td>
+                            <td class="text-center py-3" colspan="2">
+                                <span class="small text-muted fw-bold">SETTLED: @_weeklySettlements.Where(s => s.Status == "Settled").Sum(s => s.NetDueAmount).ToString("C2")</span>
+                            </td>
+                            <td class="pe-4 py-3 text-end text-muted small">
+                                Outstanding: @_weeklySettlements.Where(s => s.Status != "Settled").Sum(s => s.NetDueAmount).ToString("C2")
+                            </td>
+                        </tr>
+                        <tr class="text-muted small border-0">
+                            <td colspan="7" class="ps-4 py-2 text-start italic" style="font-size: 0.7rem; font-weight: normal; border: 0; background-color: rgba(0,0,0,0.02);">
+                                * Note: Weekly lottery sweep calculations are based strictly on online games (sales/cashes) and net due activity. They do not include scratch ticket sales.
+                            </td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
+        }
+    </div>
+
+    @* Settings Card at the bottom of weekly sweep view *@
+    @if (_settings != null)
+    {
+        <div class="data-card border-0 shadow-sm rounded-3 p-4 mb-5 bg-white">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <i class="bi bi-gear-fill text-indigo fs-4"></i>
+                <h5 class="fw-black text-dark mb-0 text-uppercase tracking-wider" style="font-size: 0.85rem;">Lottery Weekly Sweep Billing Settings</h5>
+            </div>
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="form-check form-switch p-3 rounded-3 bg-light border border-light-subtle mb-3">
+                        <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="toggleBillCreation" 
+                               @bind="_settings.LotteryBillCreationEnabled" @bind:after="OnToggle1Changed" style="width: 2.5em; height: 1.25em;" />
+                        <label class="form-check-label fw-bold text-dark" for="toggleBillCreation">
+                            Automatically create weekly unpaid bills
+                        </label>
+                        <p class="text-muted small mb-0 mt-1" style="font-size: 0.73rem; line-height: 1.3;">
+                            When enabled, the system will automatically create an unpaid bill in the Bills & Invoices ledger for each completed Saturday-to-Friday week (due the following Friday).
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check form-switch p-3 rounded-3 bg-light border border-light-subtle mb-3" style="@(_settings.LotteryBillCreationEnabled ? "opacity: 0.6; pointer-events: none;" : "")">
+                        <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="toggleRecordPaid" 
+                               @bind="_settings.LotteryRecordPaidHistoryEnabled" disabled="@_settings.LotteryBillCreationEnabled" style="width: 2.5em; height: 1.25em;" />
+                        <label class="form-check-label fw-bold text-dark" for="toggleRecordPaid">
+                            Log manual payments as paid history
+                        </label>
+                        <p class="text-muted small mb-0 mt-1" style="font-size: 0.73rem; line-height: 1.3;">
+                            If enabled (and Toggle 1 is disabled), confirming a manual sweep will automatically log a matching PAID bill in the ledger for historical expense tracking.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-12">
+                    <div class="p-3 bg-indigo-subtle rounded-3 border border-indigo-subtle">
+                        <div class="row align-items-center g-3">
+                            <div class="col-md-8">
+                                <label class="fw-bold text-dark small mb-1 d-block">Default Expense Category for Lottery Bills</label>
+                                <p class="text-muted small mb-0" style="font-size: 0.7rem;">
+                                    Select the expense category under which automatically generated lottery bills should be cataloged.
+                                </p>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select border-secondary-subtle fw-bold text-dark bg-white" @bind="_settings.LotteryDefaultCategoryId">
+                                    <option value="">-- Select Category --</option>
+                                    @foreach (var cat in _categories)
+                                    {
+                                        <option value="@cat.Id">@cat.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex justify-content-end mt-4">
+                <button class="btn btn-indigo px-4 py-2 rounded-pill fw-bold shadow-sm" @onclick="SaveSettings" disabled="@_savingSettings">
+                    @if (_savingSettings)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-save2-fill me-1"></i>
+                        <span>Save Billing Settings</span>
+                    }
+                </button>
+            </div>
         </div>
+    }
 }
 
 @if (ShowContent && _viewMode == "monthly")
@@ -1033,72 +1205,6 @@
                 </table>
             </div>
         </div>
-}
-
-@* Add/Edit Shift Modal *@
-@if (ShowContent && _viewMode == "reconcile")
-{
-    @* Reconcile View (One line per week) *@
-    <div class="data-card">
-        <div class="table-container-fixed">
-            <table class="data-table">
-                <thead>
-                    <tr class="text-uppercase x-small tracking-widest text-muted">
-                        <th>Fiscal Period</th>
-                        <th class="text-end">Sales (RPT 50)</th>
-                        <th class="text-end">Cashes (RPT 50)</th>
-                        <th class="text-end">Tickets (RPT 34)</th>
-                        <th class="text-end fw-bold">Net Due</th>
-                        <th class="text-end text-danger fw-bold">Due to Lottery</th>
-                        <th class="text-end text-primary fw-bold">Envelope Cash</th>
-                        <th class="text-end">Net Revenue</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (_weeklySummaries != null && _weeklySummaries.Any())
-                    {
-                        @foreach (var week in _weeklySummaries.OrderByDescending(w => w.PeriodStart))
-                        {
-                            // [SMART-AUDIT]: Extract the true daily totals for this week (Ignoring Drafts)
-                            var weekShifts = _shifts.Where(s => s.ShiftDate.Date >= week.PeriodStart.Date && s.ShiftDate.Date <= week.PeriodEnd.Date && s.Status != "Draft");
-                            var dailyData = weekShifts.GroupBy(s => s.ShiftDate.Date)
-                                .Select(g => {
-                                    var latest = g.OrderByDescending(s => s.ShiftId).First();
-                                    return new {
-                                        Sales = latest.TotalSales,
-                                        Payouts = latest.TotalPayouts,
-                                        Tickets = latest.TotalCancels,
-                                        NetDue = latest.NetDue,
-                                        Envelope = g.Sum(s => s.EnvelopeAmount)
-                                    };
-                                }).ToList();
-
-                            var weekSales = dailyData.Sum(d => d.Sales);
-                            var weekPayouts = dailyData.Sum(d => d.Payouts);
-                            var weekTickets = dailyData.Sum(d => d.Tickets);
-                            var weekNetDue = dailyData.Sum(d => d.NetDue);
-                            var weekEnvelope = dailyData.Sum(d => d.Envelope);
-                            var weekDueToLottery = weekNetDue - weekTickets;
-                            var weekRevenue = weekEnvelope - weekDueToLottery;
-                            
-                            <tr class="align-middle">
-                                <td class="fw-bold">@week.PeriodLabel</td>
-                                <td class="text-end">@weekSales.ToString("C2")</td>
-                                <td class="text-end">@weekPayouts.ToString("C2")</td>
-                                <td class="text-end">@weekTickets.ToString("C2")</td>
-                                <td class="text-end fw-bold">@weekNetDue.ToString("C2")</td>
-                                <td class="text-end text-danger fw-bold">@weekDueToLottery.ToString("C2")</td>
-                                <td class="text-end text-primary fw-bold">@weekEnvelope.ToString("C2")</td>
-                                <td class="text-end fw-black @(weekRevenue >= 0 ? "text-success" : "text-danger")">
-                                    @weekRevenue.ToString("C2")
-                                </td>
-                            </tr>
-                        }
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
 }
 @if (_showShiftModal)
 {
@@ -1463,5 +1569,57 @@
     </div>
 }
 
+@* Manual Settlement Modal *@
+@if (_selectedWeeklySettlement != null)
+{
+    <div class="modal-backdrop fade show" style="z-index: 2050; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px);"></div>
+    <div class="modal d-block" style="z-index: 2100;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-dark text-white p-4">
+                    <h5 class="modal-title fw-black uppercase-tracking fs-6">Confirm Lottery Settlement</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _selectedWeeklySettlement = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-info border bg-light text-dark mb-4">
+                        <div class="fw-bold fs-6 mb-1">Confirming Payment Sweep</div>
+                        Please verify the sweep details before marking this week as settled.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted x-small uppercase-tracking">Week Period</label>
+                        <div class="fw-bold text-dark fs-6">
+                            @_selectedWeeklySettlement.WeekStartDate.ToString("MMM dd") – @_selectedWeeklySettlement.WeekEndDate.ToString("MMM dd, yyyy")
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted x-small uppercase-tracking">Calculated Net Due</label>
+                        <div class="fw-black text-primary fs-4">
+                            @_selectedWeeklySettlement.NetDueAmount.ToString("C2")
+                        </div>
+                        <span class="text-muted small">This amount is automatically compiled from Night Shift reports.</span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted x-small uppercase-tracking">Date Swept</label>
+                        <input type="date" class="form-control rounded-pill text-dark bg-white" @bind="_manualSettleDate" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted x-small uppercase-tracking">Bank Reference / Note (Optional)</label>
+                        <input type="text" class="form-control rounded-pill text-dark bg-white" placeholder="e.g. ACH Sweep ID or confirmation note" @bind="_manualRefNum" />
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-3 bg-light d-flex justify-content-between">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _selectedWeeklySettlement = null">Cancel</button>
+                    <button class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick="ConfirmManualSettle">
+                        <i class="bi bi-check-circle-fill me-1"></i> Confirm Settlement
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 </div> @* End lottery-page-container *@

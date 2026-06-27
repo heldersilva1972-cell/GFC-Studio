@@ -1,0 +1,261 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Finance
+@inject IFinanceService FinanceService
+
+<div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); z-index: 1050;">
+    <div class="modal-dialog modal-dialog-centered modal-lg finance-modal-content" style="max-width: 850px;">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 28px;">
+            <div class="modal-header finance-modal-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="fs-5 fw-black text-uppercase letter-spacing-1">Group Payment: @GroupName</span>
+                </div>
+                <button type="button" class="btn-close" @onclick="OnClose"></button>
+            </div>
+            
+            <div class="modal-body finance-modal-body">
+                <EditForm Model="this" OnValidSubmit="HandleSubmit">
+                    <!-- Table of Loans in the Group -->
+                    <div class="table-responsive rounded-4 border mb-4 bg-white shadow-sm overflow-hidden">
+                        <table class="table table-hover align-middle mb-0" style="font-size: 0.8rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="py-3 px-3 text-center" style="width: 150px;">Action</th>
+                                    <th class="py-3">Lender & Details</th>
+                                    <th class="py-3 text-end" style="width: 110px;">Remaining Bal.</th>
+                                    <th class="py-3 text-end" style="width: 100px;">Target</th>
+                                    <th class="py-3 text-end" style="width: 280px;">Payment Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in LoanPaymentStates)
+                                {
+                                    <tr class="@(!item.IsChecked ? "bg-light bg-opacity-50" : "")">
+                                        <td class="text-center py-3 px-3">
+                                            <!-- High-contrast PAY / SKIP segmented control -->
+                                            <div class="btn-group btn-group-sm rounded-pill border overflow-hidden p-0.5 bg-white shadow-sm" style="font-size: 0.7rem; width: 140px;">
+                                                <button type="button" 
+                                                        class="btn btn-sm px-3 rounded-pill fw-black transition-base @(item.IsChecked ? "btn-success text-white shadow-sm" : "btn-link text-muted text-decoration-none")"
+                                                        style="font-size: 0.65rem;"
+                                                        @onclick="() => { item.IsChecked = true; UpdateTotal(); }">
+                                                    PAY
+                                                </button>
+                                                <button type="button" 
+                                                        class="btn btn-sm px-3 rounded-pill fw-black transition-base @(!item.IsChecked ? "btn-secondary text-white shadow-sm" : "btn-link text-muted text-decoration-none")"
+                                                        style="font-size: 0.65rem;"
+                                                        @onclick="() => { item.IsChecked = false; UpdateTotal(); }">
+                                                    SKIP
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td class="py-3">
+                                            <div class="fw-black text-dark mb-0">@item.Loan.LenderName</div>
+                                            <div class="text-muted" style="font-size: 0.7rem;">
+                                                @if (!string.IsNullOrEmpty(item.Loan.Notes))
+                                                {
+                                                    <span>@item.Loan.Notes • </span>
+                                                }
+                                                <span class="italic text-primary">@GetLastPaymentText(item.Loan)</span>
+                                            </div>
+                                        </td>
+                                        <td class="text-end py-3 fw-bold text-dark">
+                                            @item.Loan.CurrentBalance.ToString("C")
+                                        </td>
+                                        <td class="text-end py-3 text-muted">
+                                            @(item.Loan.MonthlyPaymentAmount.HasValue ? item.Loan.MonthlyPaymentAmount.Value.ToString("C") : "Flexible")
+                                        </td>
+                                        <td class="text-end py-3">
+                                            @if (item.IsChecked)
+                                            {
+                                                <div class="d-flex align-items-center gap-2 justify-content-end">
+                                                    <!-- Individual Amount Input -->
+                                                    <div class="input-group input-group-sm" style="width: 110px;">
+                                                        <span class="input-group-text bg-white border-end-0">$</span>
+                                                        <input type="number" step="0.01" class="form-control border-start-0 text-end fw-bold" 
+                                                               @bind="item.Amount" @bind:event="oninput" @bind:after="UpdateTotal" 
+                                                               onfocus="this.select()" />
+                                                    </div>
+                                                    <!-- Individual Payment Method Selection -->
+                                                    <select class="form-select form-select-sm border shadow-sm" style="width: 140px; font-size: 0.75rem; border-radius: 8px;" @bind="item.PaymentMethod">
+                                                        <option value="Bank Transfer">Bank Transfer (ACH)</option>
+                                                        <option value="Online Bill Pay">Online Bill Pay</option>
+                                                        <option value="Check">Check</option>
+                                                        <option value="Debit Card">Debit Card</option>
+                                                        <option value="Credit Card">Credit Card</option>
+                                                        <option value="Cash">Cash</option>
+                                                        <option value="Zelle">Zelle</option>
+                                                        <option value="Venmo">Venmo</option>
+                                                        <option value="PayPal">PayPal</option>
+                                                        <option value="Auto-Pay">Auto-Pay / Auto-Draft</option>
+                                                        <option value="Other">Other</option>
+                                                    </select>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1.5 fw-black float-end" style="font-size: 0.6rem; letter-spacing: 0.5px;">
+                                                    <i class="bi bi-slash-circle-fill me-1"></i>SKIPPED FOR JILL/THIS MONTH
+                                                </span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Consolidated Transaction Details -->
+                    <div class="row g-3 p-3 bg-light rounded-4 border mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">Payment Date (Applies to all paid loans)</label>
+                            <InputDate @bind-Value="PaymentDate" class="form-control rounded-4 shadow-sm" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-bold text-muted">Notes / Reference (Applies to all paid loans)</label>
+                            <InputText @bind-Value="Notes" class="form-control rounded-4 shadow-sm" placeholder="Check #, Confirmation #, etc." />
+                        </div>
+                    </div>
+
+                    <!-- Footer & Errors -->
+                    <div class="modal-footer border-0 px-0 mt-3 d-flex justify-content-between align-items-center">
+                        <div class="text-start">
+                            <div class="text-muted small fw-bold text-uppercase">Total Group Payment</div>
+                            <div class="h3 fw-black text-success mb-0">@TotalPaymentAmount.ToString("C")</div>
+                        </div>
+
+                        <div class="d-flex flex-column align-items-end gap-2">
+                            @if (ValidationError != null)
+                            {
+                                <div class="alert alert-danger py-2 px-3 mb-2 d-flex align-items-center gap-2 shadow-sm rounded-4">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    <span class="small fw-bold">@ValidationError</span>
+                                </div>
+                            }
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-light rounded-pill px-4" @onclick="OnClose" disabled="@IsSubmitting">Cancel</button>
+                                <button type="submit" class="btn btn-success rounded-pill px-4 shadow-sm fw-bold" disabled="@IsSubmitting">
+                                    @if (IsSubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>Recording...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Record Group Actions</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string GroupName { get; set; } = string.Empty;
+    [Parameter] public List<FinanceLoan> Loans { get; set; } = new();
+    [Parameter] public DateTime CurrentDate { get; set; }
+    [Parameter] public EventCallback<bool> OnSave { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private List<LoanPaymentState> LoanPaymentStates { get; set; } = new();
+    private DateTime PaymentDate { get; set; } = DateTime.Today;
+    private string Notes { get; set; } = string.Empty;
+    private decimal TotalPaymentAmount { get; set; }
+    private string? ValidationError { get; set; }
+    private bool IsSubmitting { get; set; }
+
+    public class LoanPaymentState
+    {
+        public FinanceLoan Loan { get; set; } = new();
+        public bool IsChecked { get; set; } = true;
+        public decimal Amount { get; set; }
+        public string PaymentMethod { get; set; } = "Bank Transfer";
+    }
+
+    protected override void OnInitialized()
+    {
+        // Initialize payment state for each loan in the group
+        LoanPaymentStates = Loans.Select(l => new LoanPaymentState
+        {
+            Loan = l,
+            IsChecked = true,
+            Amount = l.MonthlyPaymentAmount ?? 0
+        }).ToList();
+
+        UpdateTotal();
+    }
+
+    private void UpdateTotal()
+    {
+        TotalPaymentAmount = LoanPaymentStates
+            .Where(x => x.IsChecked)
+            .Sum(x => x.Amount);
+    }
+
+    private string GetLastPaymentText(FinanceLoan loan)
+    {
+        var lastPmt = loan.Payments.OrderByDescending(p => p.PaymentDate).FirstOrDefault();
+        if (lastPmt != null)
+        {
+            var daysAgo = (DateTime.Today - lastPmt.PaymentDate.Date).Days;
+            return $"Last: {lastPmt.AmountPaid:C} on {lastPmt.PaymentDate:MM/dd/yy} ({daysAgo}d ago)";
+        }
+        return "No payments logged";
+    }
+
+    private async Task HandleSubmit()
+    {
+        ValidationError = null;
+        IsSubmitting = true;
+
+        // Validations
+        foreach (var item in LoanPaymentStates.Where(x => x.IsChecked))
+        {
+            if (item.Amount <= 0)
+            {
+                ValidationError = $"Please enter an amount greater than $0.00 for {item.Loan.LenderName}.";
+                IsSubmitting = false;
+                return;
+            }
+
+            if (item.Amount > item.Loan.CurrentBalance)
+            {
+                ValidationError = $"Amount for {item.Loan.LenderName} cannot exceed its remaining balance of {item.Loan.CurrentBalance:C}.";
+                IsSubmitting = false;
+                return;
+            }
+        }
+
+        try
+        {
+            var currentYearMonth = CurrentDate.ToString("yyyy-MM");
+
+            foreach (var item in LoanPaymentStates)
+            {
+                if (item.IsChecked)
+                {
+                    // Record payment with individual payment method
+                    await FinanceService.RecordLoanPaymentAsync(item.Loan.Id, item.Amount, PaymentDate, item.PaymentMethod, Notes);
+                }
+                else
+                {
+                    // Skip loan for the month
+                    await FinanceService.SkipLoanMonthAsync(item.Loan.Id, currentYearMonth);
+                }
+            }
+
+            await OnSave.InvokeAsync(true);
+        }
+        catch (Exception ex)
+        {
+            ValidationError = $"Error saving group payment: {ex.Message}";
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
+    }
+}

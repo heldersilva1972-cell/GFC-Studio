@@ -1142,6 +1142,15 @@ namespace GFC.BlazorServer.Services
                 .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Date >= start.Date && i.Request.PaidDateUtc.Value.Date <= end.Date)
                 .SumAsync(i => (decimal?)i.Amount) ?? 0m;
 
+            // 6. Expenses - Paid Bills and Loans
+            snapshot.PaidBills = await db.FinancePayments.AsNoTracking()
+                .Where(p => p.BillId != null && p.PaymentDate >= start && p.PaymentDate <= end)
+                .SumAsync(p => p.AmountPaid);
+
+            snapshot.PaidLoans = await db.FinancePayments.AsNoTracking()
+                .Where(p => p.LoanId != null && p.PaymentDate >= start && p.PaymentDate <= end)
+                .SumAsync(p => p.AmountPaid);
+
             // 7. Expenses - Payroll
             var payroll = await GetEmployeeHoursAsync(start, end);
             snapshot.GrossPayroll = payroll.Sum(p => p.TotalPay);

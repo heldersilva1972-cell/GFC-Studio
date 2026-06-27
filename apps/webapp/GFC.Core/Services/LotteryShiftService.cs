@@ -154,6 +154,25 @@ namespace GFC.Core.Services
                                  (shift.ShiftCancelsActivity * rate.TicketBonusMultiplier);
             
             shift.NetIncome = shift.LotteryIncome + shift.Variance;
+
+            // Calculate and persist Net Due Activity (Night Net Due - Day Net Due)
+            if (string.Equals(shift.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
+            {
+                var dayShifts = _repository.GetByDateRange(shift.ShiftDate.Date, shift.ShiftDate.Date);
+                var dayShift = dayShifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                if (dayShift != null)
+                {
+                    shift.ShiftNetDueActivity = shift.NetDue - dayShift.NetDue;
+                }
+                else
+                {
+                    shift.ShiftNetDueActivity = shift.NetDue;
+                }
+            }
+            else
+            {
+                shift.ShiftNetDueActivity = shift.NetDue;
+            }
         }
 
         public void DeleteShift(int shiftId)

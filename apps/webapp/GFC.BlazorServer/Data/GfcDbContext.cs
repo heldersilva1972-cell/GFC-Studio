@@ -162,6 +162,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Finance.FinanceLoan> FinanceLoans => Set<GFC.Core.Models.Finance.FinanceLoan>();
     public DbSet<GFC.Core.Models.Finance.FinancePaymentType> FinancePaymentTypes => Set<GFC.Core.Models.Finance.FinancePaymentType>();
     public DbSet<GFC.Core.Models.Finance.FinanceAuditLog> FinanceAuditLogs => Set<GFC.Core.Models.Finance.FinanceAuditLog>();
+    public DbSet<GFC.Core.Models.Finance.LotteryWeeklySettlement> LotteryWeeklySettlements => Set<GFC.Core.Models.Finance.LotteryWeeklySettlement>();
 
     // BINGO
     public DbSet<BingoSession> BingoSessions => Set<BingoSession>();
@@ -1030,6 +1031,18 @@ public class GfcDbContext : DbContext
             entity.HasOne(b => b.Category)
                 .WithMany(c => c.Bills)
                 .HasForeignKey(b => b.CategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Finance.LotteryWeeklySettlement>(entity =>
+        {
+            entity.ToTable("LotteryWeeklySettlements");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.NetDueAmount).HasColumnType("decimal(18,2)");
+            entity.Property(s => s.EnvelopeDropAmount).HasColumnType("decimal(18,2)");
+            entity.HasOne(s => s.LinkedBill)
+                .WithMany()
+                .HasForeignKey(s => s.LinkedBillId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

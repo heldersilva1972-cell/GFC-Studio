@@ -378,6 +378,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<IFinancialAnalyticsService, FinancialAnalyticsService>();
         builder.Services.AddScoped<ILiquorService, LiquorService>();
         builder.Services.AddScoped<IFinanceService, FinanceService>();
+        builder.Services.AddScoped<ILotterySettlementService, LotterySettlementService>();
         builder.Services.AddScoped<IUserUsageService, UserUsageService>();
         
         // Simulated POS Terminal Mock Services (in-memory, no SQL writes)

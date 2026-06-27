@@ -126,6 +126,12 @@ public class SystemSettings
 
     public string? PayoutCategories { get; set; } = "FOOD,SUPPLIES,MAINTENANCE,REBATE/REFUND,OTHER";
 
+    // --- LOTTERY BILLING INTEGRATION ---
+    public bool LotteryBillCreationEnabled { get; set; } = false;
+    public bool LotteryRecordPaidHistoryEnabled { get; set; } = false;
+    public int? LotteryDefaultCategoryId { get; set; }
+    public DateTime? LotterySettingsLastEnabledUtc { get; set; }
+
     // --- REVISION TRACKING (DB-DRIVEN FOR INDEPENDENT UPDATES) ---
     public string? WebappRevision { get; set; }
     public string? MobileRevision { get; set; }

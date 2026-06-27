@@ -385,6 +385,12 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.BingoAdditionalCardPrice = settings.BingoAdditionalCardPrice;
         existingSettings.BingoPayoutRoundingMode = settings.BingoPayoutRoundingMode;
 
+        // Lottery Sweep Settings
+        existingSettings.LotteryBillCreationEnabled = settings.LotteryBillCreationEnabled;
+        existingSettings.LotteryRecordPaidHistoryEnabled = settings.LotteryRecordPaidHistoryEnabled;
+        existingSettings.LotteryDefaultCategoryId = settings.LotteryDefaultCategoryId;
+        existingSettings.LotterySettingsLastEnabledUtc = settings.LotterySettingsLastEnabledUtc;
+
         // Revisions (Safe attempt)
         try {
             existingSettings.WebappRevision = settings.WebappRevision;
