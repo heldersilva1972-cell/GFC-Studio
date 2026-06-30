@@ -104,7 +104,7 @@ public class LotterySettlementService : ILotterySettlementService
                 VendorId = vendorId,
                 CategoryId = categoryId,
                 OriginalAmount = settlement.NetDueAmount,
-                DueDate = settlement.WeekEndDate.AddDays(7), // Following Friday
+                DueDate = settlement.WeekEndDate.AddDays(6), // Following Friday
                 Status = "Paid",
                 Description = $"Auto-generated paid record from Lottery Sales by {username}. Ref: {referenceNumber}",
                 CreatedAt = DateTime.UtcNow
@@ -161,7 +161,7 @@ public class LotterySettlementService : ILotterySettlementService
                 VendorId = vendorId,
                 CategoryId = categoryId,
                 OriginalAmount = settlement.NetDueAmount,
-                DueDate = settlement.WeekEndDate.AddDays(7), // Following Friday
+                DueDate = settlement.WeekEndDate.AddDays(6), // Following Friday
                 Status = "Pending",
                 Description = $"Weekly lottery sweep. Week ending {settlement.WeekEndDate:MM/dd/yyyy}",
                 CreatedAt = DateTime.UtcNow
@@ -180,8 +180,19 @@ public class LotterySettlementService : ILotterySettlementService
     {
         using var db = await _dbFactory.CreateDbContextAsync();
 
-        // 1. Generate the standard lottery weeks for the year (Saturday to Friday)
+        // 1. Generate the standard lottery weeks for the year (Sunday to Saturday)
         var weeks = GetLotteryWeeks(year);
+        var correctStartDates = weeks.Select(w => w.Start).ToList();
+
+        // 0. Clean up legacy Saturday-to-Friday pending weekly settlements
+        var legacyPending = await db.LotteryWeeklySettlements
+            .Where(s => s.WeekStartDate.Year == year && s.Status == "Pending" && !correctStartDates.Contains(s.WeekStartDate))
+            .ToListAsync();
+        if (legacyPending.Any())
+        {
+            db.LotteryWeeklySettlements.RemoveRange(legacyPending);
+            await db.SaveChangesAsync();
+        }
 
         // 2. Fetch daily shift data for the entire year in a single query
         var yearStart = weeks.Min(w => w.Start);
@@ -260,8 +271,8 @@ public class LotterySettlementService : ILotterySettlementService
         var weeks = new List<(DateTime Start, DateTime End)>();
         var startOfWeeks = new DateTime(year, 1, 1);
         
-        // Start at the first Saturday of the year, or the last Saturday of the previous year
-        while (startOfWeeks.DayOfWeek != DayOfWeek.Saturday)
+        // Start at the first Sunday of the year, or the last Sunday of the previous year
+        while (startOfWeeks.DayOfWeek != DayOfWeek.Sunday)
         {
             startOfWeeks = startOfWeeks.AddDays(-1);
         }
@@ -270,7 +281,7 @@ public class LotterySettlementService : ILotterySettlementService
         // Make sure we capture all weeks touching this year
         while (current.Year == year || current.AddDays(6).Year == year)
         {
-            weeks.Add((current, current.AddDays(6))); // Saturday to Friday
+            weeks.Add((current, current.AddDays(6))); // Sunday to Saturday
             current = current.AddDays(7);
         }
         return weeks;

@@ -254,7 +254,7 @@ namespace GFC.BlazorServer.Components.Pages
 
         private static DateTime GetWeekStart(DateTime date)
         {
-            var diff = (7 + (date.DayOfWeek - DayOfWeek.Saturday)) % 7;
+            var diff = (7 + (date.DayOfWeek - DayOfWeek.Sunday)) % 7;
             return date.AddDays(-1 * diff).Date;
         }
 
@@ -921,6 +921,7 @@ namespace GFC.BlazorServer.Components.Pages
                 _weeklySettlements = (await LotterySettlementService.GetWeeklySettlementsForYearAsync(_selectedYear)).ToList();
                 _weeklySettlements = _weeklySettlements
                     .Where(s => s.WeekEndDate.Month == _selectedMonth)
+                    .OrderBy(s => s.WeekStartDate)
                     .ToList();
 
                 _settings = await SettingsService.GetSettingsAsync();
