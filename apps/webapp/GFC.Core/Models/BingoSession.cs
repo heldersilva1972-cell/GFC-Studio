@@ -79,6 +79,9 @@ namespace GFC.Core.Models
         public string? BeanoDisbursementsJson { get; set; }
         public string? BeanoOtherExpensesJson { get; set; }
 
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal BeanoProgBeginningBalance { get; set; }
+
         // Navigation properties
         public virtual ICollection<BingoGameEntry> GameEntries { get; set; } = new List<BingoGameEntry>();
         public virtual ICollection<BingoAdmissionEntry> AdmissionEntries { get; set; } = new List<BingoAdmissionEntry>();

@@ -81,6 +81,26 @@ namespace GFC.BlazorServer.Services
             return results;
         }
 
+        public async Task<IEnumerable<FinanceBill>> GetAllBillsAsync()
+        {
+            var sw = Stopwatch.StartNew();
+            using var db = await _dbFactory.CreateDbContextAsync();
+
+            var results = await db.FinanceBills
+                .AsNoTracking()
+                .AsSplitQuery() // [OPTIMIZATION]
+                .Include(b => b.Vendor)
+                    .ThenInclude(v => v!.DefaultPaymentType)
+                .Include(b => b.Category)
+                .Include(b => b.Payments)
+                .OrderBy(b => b.DueDate)
+                .ToListAsync();
+
+            sw.Stop();
+            Console.WriteLine($"[FINANCE] GetAllBillsAsync FINISHED in {sw.ElapsedMilliseconds}ms.");
+            return results;
+        }
+
         public async Task<IEnumerable<FinanceBill>> GetBillsForReportAsync(int month, int year)
         {
             var sw = Stopwatch.StartNew();
@@ -123,10 +143,6 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             db.FinanceBills.Add(bill);
             await db.SaveChangesAsync();
-
-            var vendor = await db.FinanceVendors.FindAsync(bill.VendorId);
-            var vendorName = vendor?.Name ?? "Unknown";
-            await LogActionAsync(db, "Create Bill", $"Created bill for vendor '{vendorName}' due on {bill.DueDate:MM/dd/yyyy} for {bill.OriginalAmount:C}.", performedBy);
 
             return bill;
         }
@@ -230,10 +246,6 @@ namespace GFC.BlazorServer.Services
 
             bill.UpdatedAt = DateTime.Now;
             await db.SaveChangesAsync();
-
-            var vendorName = bill.Vendor?.Name ?? "Unknown";
-            var desc = $"Recorded payment of {amount:C} via {method ?? "N/A"} on bill for vendor '{vendorName}' (Due: {bill.DueDate:MM/dd/yyyy}).";
-            await LogActionAsync(db, "Mark Paid", desc, performedBy);
         }
 
         private async Task GenerateNextRecurringInstance(GfcDbContext db, FinanceBill currentBill)

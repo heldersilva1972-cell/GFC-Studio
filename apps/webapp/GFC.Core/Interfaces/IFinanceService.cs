@@ -11,6 +11,7 @@ namespace GFC.Core.Interfaces
         Task<IEnumerable<FinanceBill>> GetBillsAsync(int month, int year);
         Task<IEnumerable<FinanceBill>> GetBillsForReportAsync(int month, int year);
         Task<IEnumerable<FinanceBill>> GetBillsForYearAsync(int year);
+        Task<IEnumerable<FinanceBill>> GetAllBillsAsync();
         Task<FinanceBill?> GetBillByIdAsync(int id);
         Task<FinanceBill> CreateBillAsync(FinanceBill bill, string? performedBy = null);
         Task UpdateBillAsync(FinanceBill bill, string? performedBy = null);
