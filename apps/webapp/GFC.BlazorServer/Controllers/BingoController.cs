@@ -274,6 +274,7 @@ namespace GFC.BlazorServer.Controllers
             var session = await _context.BingoSessions
                 .Include(s => s.GameEntries)
                 .Include(s => s.AdmissionEntries)
+                .Include(s => s.PullTabEntries)
                 .FirstOrDefaultAsync(s => s.SessionDate.Date == date.Date && !s.IsDeleted);
 
             if (session == null)
