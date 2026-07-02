@@ -6239,6 +6239,90 @@
         }
     }
 
+    private void LoadFromServerSession(BingoSession serverSession)
+    {
+        _sessionState = (serverSession.Status == "Submitted" || serverSession.Status == "Closed") ? "Closed" : "Open";
+        _sessionEntered = true; // Auto-enter to show pre-populated data!
+        _pullTabEntries = serverSession.PullTabEntries?.ToList() ?? new List<PullTabGameEntry>();
+        _doorPrizeAmount = serverSession.DoorPrizeAmount;
+        _doorPrizeCount = serverSession.DoorPrizeCount;
+        _wtaColor = serverSession.WtaColor ?? "";
+        _progColor = serverSession.ProgColor ?? "";
+        _beanoSuppliesSales = serverSession.BeanoSuppliesSales;
+        _beanoOtherReceipts = serverSession.BeanoOtherReceipts;
+        _beanoUnexpendedNetProfit = serverSession.BeanoUnexpendedNetProfit;
+        _beanoInterest = serverSession.BeanoInterest;
+        _beanoGameBank = serverSession.BeanoGameBank;
+        _beanoOthers = serverSession.BeanoOthers;
+        _beanoCheckbookBalance = serverSession.BeanoCheckbookBalance;
+        _beanoSavingsBalance = serverSession.BeanoSavingsBalance;
+        _beanoCdBalance = serverSession.BeanoCdBalance;
+        _beanoProgBeginningBalance = serverSession.BeanoProgBeginningBalance;
+        _beanoTaxCheckNumber = serverSession.BeanoTaxCheckNumber ?? "";
+        _beanoOccasionTime = serverSession.BeanoOccasionTime ?? "6:45 PM";
+        _fiftyFifty1Color = serverSession.FiftyFifty1Color ?? "";
+        _fiftyFifty2Color = serverSession.FiftyFifty2Color ?? "";
+        _fiftyFifty3Color = serverSession.FiftyFifty3Color ?? "";
+
+        try
+        {
+            _beanoDisbursements = !string.IsNullOrEmpty(serverSession.BeanoDisbursementsJson)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(serverSession.BeanoDisbursementsJson) ?? new()
+                : new();
+        }
+        catch { _beanoDisbursements = new(); }
+
+        try
+        {
+            _beanoOtherExpenses = !string.IsNullOrEmpty(serverSession.BeanoOtherExpensesJson)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<BeanoExpense>>(serverSession.BeanoOtherExpensesJson) ?? new()
+                : new();
+        }
+        catch { _beanoOtherExpenses = new(); }
+
+        UpdatePreviousSellers();
+        
+        // 1. Populate AdmissionPacks
+        foreach (var p in AdmissionPacks)
+        {
+            var entry = serverSession.AdmissionEntries?.FirstOrDefault(ae => ae.AdmissionDefinitionId == p.Id);
+            p.Sold = entry?.Quantity ?? 0;
+        }
+
+        // 2. Populate Sheets and Games
+        foreach (var s in Sheets)
+        {
+            var sheetEntries = serverSession.GameEntries?.Where(ge => ge.SheetColor == s.ColorName).ToList() ?? new List<BingoGameEntry>();
+            
+            var extraEntry = sheetEntries.FirstOrDefault(e => e.PricePerSheet > 0);
+            s.ManualSold = extraEntry?.SheetsSold ?? 0;
+            
+            s.IsClosedOut = true; 
+            s.IsSynced = true;
+            
+            foreach (var g in s.Games)
+            {
+                var gameEntries = sheetEntries.Where(e => e.GameName == g.Name).ToList();
+                
+                var entryWithBalls = gameEntries.FirstOrDefault(e => e.BallsCalled > 0);
+                g.BallsCalled = entryWithBalls?.BallsCalled ?? 0;
+
+                g.WinnerCount = 1;
+                g.CustomPayoutOverride = null;
+                
+                // Reconstruct CustomPayoutOverride if the prize paid on server differs from standard calculated payout
+                var defaultPayout = CalculateGamePayout(s, g); 
+                var actualPrizePaid = gameEntries.Sum(e => e.PrizePaid);
+                if (actualPrizePaid > 0 && Math.Abs(actualPrizePaid - defaultPayout) > 0.05m)
+                {
+                    g.CustomPayoutOverride = actualPrizePaid;
+                }
+            }
+        }
+        
+        RecalculateSheetTotals();
+    }
+
     private async Task LoadDraftAsync()
     {
         try 
@@ -6247,7 +6331,26 @@
             var key = $"gfc_bingo_draft_{SessionDate:yyyyMMdd}";
             var draft = await JSRuntime.InvokeAsync<BingoDraft>("window.gfcGetAsync", key);
             
-            if (draft != null)
+            // Try querying server for submitted/synced session
+            BingoSession? serverSession = null;
+            bool serverCallFailed = false;
+            try
+            {
+                serverSession = await ReportingService.GetBingoSessionByDateAsync(SessionDate);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[BINGO] GetBingoSessionByDateAsync error: {ex.Message}");
+                serverCallFailed = true;
+            }
+
+            if (serverSession != null && (serverSession.Status == "Submitted" || serverSession.Status == "Closed"))
+            {
+                LoadFromServerSession(serverSession);
+                _needsSync = false;
+                await SaveDraftAsync();
+            }
+            else if (draft != null)
             {
                 _sessionState = draft.SessionState ?? "NotStarted";
                 _useManualScaling = draft.UseManualScaling;
@@ -6312,170 +6415,73 @@
                 RecalculateSheetTotals();
                 _needsSync = true;
             }
+            else if (serverSession != null)
+            {
+                LoadFromServerSession(serverSession);
+                _needsSync = false;
+                await SaveDraftAsync();
+            }
             else
             {
-                // TRY QUERYING SERVER FOR PREVIOUSLY SUBMITTED/SYNCED SESSION
-                BingoSession? serverSession = null;
-                bool serverCallFailed = false;
-                try
+                // FULL RESET FOR BLANK SESSION
+                _sessionState = "NotStarted";
+                _useManualScaling = true;
+                _payoutPercentage = 100m;
+                UpdateTargetProfitPercentage();
+                _pullTabEntries = new List<PullTabGameEntry>();
+                _doorPrizeAmount = 0m;
+                _doorPrizeCount = 0;
+                _wtaColor = "";
+                _progColor = "";
+                _fiftyFifty1Color = "";
+                _fiftyFifty2Color = "";
+                _fiftyFifty3Color = "";
+                _beanoSuppliesSales = 0m;
+                _beanoOtherReceipts = 0m;
+                _beanoInterest = 0m;
+                _beanoGameBank = 0m;
+                _beanoOthers = 0m;
+                _beanoCheckbookBalance = 0m;
+                _beanoSavingsBalance = 0m;
+                _beanoCdBalance = 0m;
+                _beanoProgBeginningBalance = 0m;
+                _beanoTaxCheckNumber = "";
+                _beanoOccasionTime = "6:45 PM";
+                _beanoDisbursements = new();
+                _beanoOtherExpenses = new();
+                _beanoUnexpendedNetProfit = 0m;
+                
+                await SetPreviousUnexpendedNetProfitAsync();
+                
+                foreach (var p in AdmissionPacks) p.Sold = 0;
+                foreach (var s in Sheets)
                 {
-                    serverSession = await ReportingService.GetBingoSessionByDateAsync(SessionDate);
+                    s.ManualSold = 0;
+                    s.IsClosedOut = false;
+                    s.IsSynced = false;
+                    foreach (var g in s.Games)
+                    {
+                        g.WinnerCount = 1;
+                        g.BallsCalled = 0;
+                        g.CustomPayoutOverride = null;
+                    }
                 }
-                catch (Exception ex)
+                RecalculateSheetTotals();
+                _needsSync = false;
+
+                // Alert user if this is a past date and we couldn't load it
+                if (SessionDate.Date < DateTime.Today)
                 {
-                    Console.WriteLine($"[BINGO] GetBingoSessionByDateAsync error: {ex.Message}");
-                    serverCallFailed = true;
-                }
-
-                if (serverSession != null)
-                {
-                    _sessionState = (serverSession.Status == "Submitted" || serverSession.Status == "Closed") ? "Closed" : "Open";
-                    _sessionEntered = true; // Auto-enter to show pre-populated data!
-                    _pullTabEntries = serverSession.PullTabEntries?.ToList() ?? new List<PullTabGameEntry>();
-                    _doorPrizeAmount = serverSession.DoorPrizeAmount;
-                    _doorPrizeCount = serverSession.DoorPrizeCount;
-                    _wtaColor = serverSession.WtaColor ?? "";
-                    _progColor = serverSession.ProgColor ?? "";
-                    _beanoSuppliesSales = serverSession.BeanoSuppliesSales;
-                    _beanoOtherReceipts = serverSession.BeanoOtherReceipts;
-                    _beanoUnexpendedNetProfit = serverSession.BeanoUnexpendedNetProfit;
-                    _beanoInterest = serverSession.BeanoInterest;
-                    _beanoGameBank = serverSession.BeanoGameBank;
-                    _beanoOthers = serverSession.BeanoOthers;
-                    _beanoCheckbookBalance = serverSession.BeanoCheckbookBalance;
-                    _beanoSavingsBalance = serverSession.BeanoSavingsBalance;
-                    _beanoCdBalance = serverSession.BeanoCdBalance;
-                    _beanoProgBeginningBalance = serverSession.BeanoProgBeginningBalance;
-                    _beanoTaxCheckNumber = serverSession.BeanoTaxCheckNumber ?? "";
-                    _beanoOccasionTime = serverSession.BeanoOccasionTime ?? "6:45 PM";
-                    _fiftyFifty1Color = serverSession.FiftyFifty1Color ?? "";
-                    _fiftyFifty2Color = serverSession.FiftyFifty2Color ?? "";
-                    _fiftyFifty3Color = serverSession.FiftyFifty3Color ?? "";
-
-                    try
+                    if (_isOffline || serverCallFailed)
                     {
-                        _beanoDisbursements = !string.IsNullOrEmpty(serverSession.BeanoDisbursementsJson)
-                            ? System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(serverSession.BeanoDisbursementsJson) ?? new()
-                            : new();
+                        await ShowToast("Offline Mode", $"No local draft found for {SessionDate:MM/dd/yyyy}, and server is unreachable.", "warning");
                     }
-                    catch { _beanoDisbursements = new(); }
-
-                    try
+                    else
                     {
-                        _beanoOtherExpenses = !string.IsNullOrEmpty(serverSession.BeanoOtherExpensesJson)
-                            ? System.Text.Json.JsonSerializer.Deserialize<List<BeanoExpense>>(serverSession.BeanoOtherExpensesJson) ?? new()
-                            : new();
-                    }
-                    catch { _beanoOtherExpenses = new(); }
-
-                    UpdatePreviousSellers();
-                    
-                    // 1. Populate AdmissionPacks
-                    foreach (var p in AdmissionPacks)
-                    {
-                        var entry = serverSession.AdmissionEntries?.FirstOrDefault(ae => ae.AdmissionDefinitionId == p.Id);
-                        p.Sold = entry?.Quantity ?? 0;
-                    }
-
-                    // 2. Populate Sheets and Games
-                    foreach (var s in Sheets)
-                    {
-                        var sheetEntries = serverSession.GameEntries?.Where(ge => ge.SheetColor == s.ColorName).ToList() ?? new List<BingoGameEntry>();
-                        
-                        var extraEntry = sheetEntries.FirstOrDefault(e => e.PricePerSheet > 0);
-                        s.ManualSold = extraEntry?.SheetsSold ?? 0;
-                        
-                        s.IsClosedOut = true; 
-                        s.IsSynced = true;
-                        
-                        foreach (var g in s.Games)
-                        {
-                            var gameEntries = sheetEntries.Where(e => e.GameName == g.Name).ToList();
-                            
-                            var entryWithBalls = gameEntries.FirstOrDefault(e => e.BallsCalled > 0);
-                            g.BallsCalled = entryWithBalls?.BallsCalled ?? 0;
-
-                            g.WinnerCount = 1;
-                            g.CustomPayoutOverride = null;
-                            
-                            // Reconstruct CustomPayoutOverride if the prize paid on server differs from standard calculated payout
-                            var defaultPayout = CalculateGamePayout(s, g); 
-                            var actualPrizePaid = gameEntries.Sum(e => e.PrizePaid);
-                            if (actualPrizePaid > 0 && Math.Abs(actualPrizePaid - defaultPayout) > 0.05m)
-                            {
-                                g.CustomPayoutOverride = actualPrizePaid;
-                            }
-                        }
-                    }
-                    
-                    RecalculateSheetTotals();
-                    _needsSync = false;
-                }
-                else
-                {
-                    // FULL RESET FOR BLANK SESSION
-                    _sessionState = "NotStarted";
-                    _useManualScaling = true;
-                    _payoutPercentage = 100m;
-                    UpdateTargetProfitPercentage();
-                    _pullTabEntries = new List<PullTabGameEntry>();
-                    _doorPrizeAmount = 0m;
-                    _doorPrizeCount = 0;
-                    _beanoOccasionTime = "6:45 PM";
-                    _beanoSuppliesSales = 0m;
-                    _beanoOtherReceipts = 0m;
-                    _beanoTaxCheckNumber = "";
-                    _beanoUnexpendedNetProfit = 0m;
-                    await SetPreviousUnexpendedNetProfitAsync();
-                    _beanoInterest = 0m;
-                    _beanoGameBank = 0m;
-                    _beanoOthers = 0m;
-                    _beanoCheckbookBalance = 0m;
-                    _beanoSavingsBalance = 0m;
-                    _beanoCdBalance = 0m;
-                    _beanoProgBeginningBalance = 0m;
-                    _beanoOtherExpenses = new List<BeanoExpense>();
-                    _beanoDisbursements = new List<BeanoDisbursement>();
-                    _wtaColor = "";
-                    _progColor = "";
-                    _fiftyFifty1Color = "";
-                    _fiftyFifty2Color = "";
-                    _fiftyFifty3Color = "";
-                    UpdatePreviousSellers();
-                    foreach (var p in AdmissionPacks)
-                    {
-                        p.Sold = 0;
-                    }
-                    foreach (var s in Sheets)
-                    {
-                        s.ManualSold = 0;
-                        s.IsClosedOut = false;
-                        s.IsSynced = false;
-                        foreach (var g in s.Games)
-                        {
-                            g.WinnerCount = 1;
-                            g.BallsCalled = 0;
-                            g.CustomPayoutOverride = null;
-                        }
-                    }
-                    RecalculateSheetTotals();
-                    _needsSync = false;
-
-                    // Alert user if this is a past date and we couldn't load it
-                    if (SessionDate.Date < DateTime.Today)
-                    {
-                        if (_isOffline || serverCallFailed)
-                        {
-                            await ShowToast("Offline Mode", $"No local draft found for {SessionDate:MM/dd/yyyy}, and server is unreachable.", "warning");
-                        }
-                        else
-                        {
-                            await ShowToast("No Session Found", $"No local draft or server session exists for {SessionDate:MM/dd/yyyy}.", "info");
-                        }
+                        await ShowToast("No Session Found", $"No local draft or server session exists for {SessionDate:MM/dd/yyyy}.", "info");
                     }
                 }
             }
-            AutoMapSpecialSheets();
         }
         catch (Exception ex)
         {
