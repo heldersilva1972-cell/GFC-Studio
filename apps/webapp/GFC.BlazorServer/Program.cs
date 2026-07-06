@@ -281,6 +281,11 @@ public class Program
         builder.Services.AddHostedService<ControllerSyncWorker>();
         builder.Services.AddHostedService<CardLifecycleBackgroundService>();
         
+        // Temporary Card Services
+        builder.Services.AddScoped<ITemporaryCardRepository, TemporaryCardRepository>();
+        builder.Services.AddScoped<TemporaryCardLifecycleService>();
+        builder.Services.AddHostedService<TemporaryCardLifecycleBackgroundService>();
+        
         // Controller Health & Full Sync
         builder.Services.AddSingleton<ControllerHealthService>();
         builder.Services.AddScoped<ControllerFullSyncService>();

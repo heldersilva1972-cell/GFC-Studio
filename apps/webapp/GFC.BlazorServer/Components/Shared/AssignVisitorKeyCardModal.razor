@@ -1,0 +1,506 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.Services
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Logging
+@using System.Threading
+@using GFC.BlazorServer.Models
+
+@inject ITemporaryCardRepository TempCardRepository
+@inject IKeyCardRepository KeyCardRepository
+@inject TemporaryCardLifecycleService LifecycleService
+@inject IControllerSyncQueueRepository SyncQueueRepository
+@inject ControllerHealthService ControllerHealthService
+@inject IAuditLogger AuditLogger
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<AssignVisitorKeyCardModal> Logger
+@inject IJSRuntime JSRuntime
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop-modern fade-in" @onclick="HandleClose"></div>
+    <div class="modal-modern-container">
+        <div class="modal-modern fade-in scale-in">
+            <div class="modal-header-modern">
+                <div>
+                    <h3 class="modal-title-modern text-primary">
+                        <i class="bi bi-person-badge text-primary"></i>
+                        Register Visitor Card
+                    </h3>
+                    <p class="modal-subtitle">Scan a card and assign scheduled access to a guest</p>
+                </div>
+                <button class="btn-close-modern" @onclick="HandleClose" disabled="@_submitting">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            @if (!_controllerOnline && !_submitting && _step < 5)
+            {
+                <div class="alert alert-warning border-0 rounded-0 m-0 d-flex align-items-center gap-2" style="font-size: 0.8rem; padding: 0.5rem 1.25rem; background: #fffbeb;">
+                    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    <span><strong>Controller Offline:</strong> Temporary assignment will be queued and synced.</span>
+                </div>
+            }
+
+            <div class="modal-body-modern">
+                <!-- Step Indicator -->
+                <div class="steps-indicator">
+                    <div class="step-line" style="left: 12.5%; right: 12.5%;"></div>
+                    
+                    <div class="step @(_step >= 1 ? "active" : "") @(_step > 1 ? "completed" : "")">
+                        <div class="step-number">
+                            @if (_step > 1) { <i class="bi bi-check"></i> } else { <span>1</span> }
+                        </div>
+                        <div class="step-label">Scan</div>
+                    </div>
+
+                    <div class="step @(_step >= 2 ? "active" : "") @(_step > 2 ? "completed" : "")">
+                        <div class="step-number">
+                            @if (_step > 2) { <i class="bi bi-check"></i> } else { <span>2</span> }
+                        </div>
+                        <div class="step-label">Visitor</div>
+                    </div>
+
+                    <div class="step @(_step >= 3 ? "active" : "") @(_step > 3 ? "completed" : "")">
+                        <div class="step-number">
+                            @if (_step > 3) { <i class="bi bi-check"></i> } else { <span>3</span> }
+                        </div>
+                        <div class="step-label">Duration</div>
+                    </div>
+
+                    <div class="step @(_step >= 4 ? "active" : "") @(_step > 4 ? "completed" : "")">
+                        <div class="step-number">
+                            @if (_step > 4) { <i class="bi bi-check"></i> } else { <span>4</span> }
+                        </div>
+                        <div class="step-label">Confirm</div>
+                    </div>
+
+                    <div class="step @(_step >= 5 ? "active" : "")">
+                        <div class="step-number">5</div>
+                        <div class="step-label">Finish</div>
+                    </div>
+                </div>
+
+                <!-- Content Area -->
+                <div class="mt-4">
+                    @if (!string.IsNullOrEmpty(_error))
+                    {
+                        <div class="alert alert-danger py-2 px-3 small border-0 mb-3 rounded-3">
+                            <i class="bi bi-exclamation-circle me-1"></i> @_error
+                        </div>
+                    }
+
+                    @if (_step == 1)
+                    {
+                        <!-- Step 1: Scan -->
+                        <div class="card-scanner-visual text-center">
+                            @if (!_cardScanned)
+                            {
+                                <div class="scanner-animation">
+                                    <div class="scanner-icon @(_scanningEnabled ? "pulse-active" : "")">
+                                        <i class="bi bi-upc-scan"></i>
+                                    </div>
+                                </div>
+                                <h5 class="fw-bold mb-2">@(_scanningEnabled ? "Waiting for Card tap..." : "Ready to Scan")</h5>
+                                <p class="text-muted small mb-4">Tap a physical key card on any reader, or type card number below.</p>
+
+                                <input type="text" class="form-control font-monospace text-center mb-3" 
+                                       placeholder="Manual Card Number (or keystrokes)" 
+                                       @bind="_keyboardInput" @onkeydown="HandleKeyDown" />
+
+                                @if (!_scanningEnabled)
+                                {
+                                    <button class="btn btn-primary w-100 btn-modern" @onclick="EnableScanning">
+                                        <i class="bi bi-play-fill me-1"></i> Start Card Read
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-outline-danger w-100 btn-modern" @onclick="CancelScanning">
+                                        Cancel Scanning
+                                    </button>
+                                }
+                            }
+                            else
+                            {
+                                <div class="scan-success p-4 rounded-4 border-2 border-dashed border-success">
+                                    <div class="text-success mb-2" style="font-size: 2.5rem;">
+                                        <i class="bi bi-check-circle-fill"></i>
+                                    </div>
+                                    <h5 class="fw-bold text-success mb-2">Card Scanned Successfully</h5>
+                                    <code class="font-monospace fs-5 text-dark bg-light px-3 py-1 rounded">@_scannedCardNumber</code>
+                                    
+                                    <div class="d-flex gap-2 w-100 mt-4">
+                                        <button class="btn btn-outline-secondary flex-grow-1" @onclick="EnableScanning">Rescan</button>
+                                        <button class="btn btn-primary flex-grow-1" @onclick="() => _step = 2">Continue</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_step == 2)
+                    {
+                        <!-- Step 2: Visitor Info -->
+                        <h5 class="fw-bold mb-3">Visitor & Contractor Details</h5>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Visitor Name</label>
+                            <input type="text" class="form-control" placeholder="e.g. John Doe" @bind="_holderName" />
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label small fw-bold text-secondary">Purpose / Company</label>
+                            <input type="text" class="form-control" placeholder="e.g. Electrician / ABC Electrical" @bind="_purpose" />
+                        </div>
+
+                        <div class="d-flex gap-2 mt-4">
+                            <button class="btn btn-light flex-grow-1" @onclick="() => _step = 1">Back</button>
+                            <button class="btn btn-primary flex-grow-1" @onclick="ProceedToDuration" disabled="@(string.IsNullOrWhiteSpace(_holderName))">Continue</button>
+                        </div>
+                    }
+                    else if (_step == 3)
+                    {
+                        <!-- Step 3: Duration -->
+                        <h5 class="fw-bold mb-3">Set Active Schedule</h5>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary d-block">Scheduled Duration</label>
+                            <div class="d-flex gap-2 mb-3 flex-wrap">
+                                <button class="btn @(_presetMode == PresetMode.Hour ? "btn-secondary text-white" : "btn-outline-secondary") btn-sm" @onclick='() => ApplyPreset(PresetMode.Hour)'>1 Hour</button>
+                                <button class="btn @(_presetMode == PresetMode.Day ? "btn-secondary text-white" : "btn-outline-secondary") btn-sm" @onclick='() => ApplyPreset(PresetMode.Day)'>1 Day</button>
+                                <button class="btn @(_presetMode == PresetMode.Week ? "btn-secondary text-white" : "btn-outline-secondary") btn-sm" @onclick='() => ApplyPreset(PresetMode.Week)'>1 Week</button>
+                                <button class="btn @(_presetMode == PresetMode.Month ? "btn-secondary text-white" : "btn-outline-secondary") btn-sm" @onclick='() => ApplyPreset(PresetMode.Month)'>1 Month</button>
+                                <button class="btn @(_presetMode == PresetMode.Custom ? "btn-primary" : "btn-outline-primary") btn-sm" @onclick='() => ApplyPreset(PresetMode.Custom)'>Custom</button>
+                            </div>
+
+                            @if (_presetMode == PresetMode.Custom)
+                            {
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <label class="form-label small text-secondary">Days</label>
+                                        <input type="number" class="form-control" @bind="_customDays" min="0" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small text-secondary">Hours</label>
+                                        <input type="number" class="form-control" @bind="_customHours" min="0" max="23" />
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small text-secondary">Expiration Expiry Date & Time</label>
+                                    <input type="datetime-local" class="form-control" @bind="_customExpiration" />
+                                </div>
+                            }
+                        </div>
+
+                        <div class="d-flex gap-2 mt-4">
+                            <button class="btn btn-light flex-grow-1" @onclick="() => _step = 2">Back</button>
+                            <button class="btn btn-primary flex-grow-1" @onclick="ProceedToConfirm">Continue</button>
+                        </div>
+                    }
+                    else if (_step == 4)
+                    {
+                        <!-- Step 4: Confirm -->
+                        <h5 class="fw-bold mb-3">Confirm Assignment</h5>
+                        
+                        <div class="summary-card p-3 rounded-4 bg-light border mb-4">
+                            <div class="row g-3">
+                                <div class="col-6">
+                                    <span class="summary-label">Visitor Name</span>
+                                    <span class="summary-value">@_holderName</span>
+                                </div>
+                                <div class="col-6">
+                                    <span class="summary-label">Purpose</span>
+                                    <span class="summary-value text-secondary">@_purpose</span>
+                                </div>
+                                <div class="col-6">
+                                    <span class="summary-label">Card Number</span>
+                                    <span class="summary-value font-monospace">@_scannedCardNumber</span>
+                                </div>
+                                <div class="col-6">
+                                    <span class="summary-label">Expires At</span>
+                                    <span class="summary-value text-success">@_activeTo.ToString("MM/dd/yyyy h:mm tt")</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-light flex-grow-1" @onclick="() => _step = 3" disabled="@_submitting">Back</button>
+                            <button class="btn btn-primary flex-grow-1" @onclick="SaveAndActivate" disabled="@_submitting">
+                                @if (_submitting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                }
+                                Confirm & Activate
+                            </button>
+                        </div>
+                    }
+                    else if (_step == 5)
+                    {
+                        <!-- Step 5: Finish -->
+                        <div class="text-center py-4">
+                            <div class="text-success mb-3" style="font-size: 3.5rem;">
+                                <i class="bi bi-shield-check"></i>
+                            </div>
+                            <h4 class="fw-bold text-success mb-2">Access Configured</h4>
+                            <p class="text-muted small px-3">Visitor card has been successfully registered and access credentials dispatched to controllers.</p>
+                            
+                            <button class="btn btn-primary w-100 btn-modern mt-4" @onclick="HandleClose">
+                                Close Window
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnCompleted { get; set; }
+
+    private int _step = 1;
+    private bool _loading = false;
+    private bool _submitting = false;
+    private bool _controllerOnline = true;
+    private string _error = "";
+
+    // Scanning State
+    private bool _scanningEnabled = false;
+    private bool _cardScanned = false;
+    private string _scannedCardNumber = "";
+    private string _keyboardInput = "";
+    private CancellationTokenSource? _scanCts;
+
+    // Form inputs
+    private string _holderName = "";
+    private string _purpose = "";
+    private PresetMode _presetMode = PresetMode.Day;
+    private int _customDays = 1;
+    private int _customHours = 0;
+    private DateTime _customExpiration = DateTime.Now.AddDays(1);
+    private DateTime _activeTo;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible)
+        {
+            _step = 1;
+            _cardScanned = false;
+            _scannedCardNumber = "";
+            _keyboardInput = "";
+            _holderName = "";
+            _purpose = "";
+            _presetMode = PresetMode.Day;
+            _error = "";
+            
+            // Check health
+            _controllerOnline = ControllerHealthService.GetHealthStatus().IsOnline;
+            
+            // Auto start scan
+            _ = Task.Delay(300).ContinueWith(async _ => await InvokeAsync(EnableScanning));
+        }
+    }
+
+    private void HandleClose()
+    {
+        StopScanning();
+        OnClose.InvokeAsync();
+    }
+
+    private async Task EnableScanning()
+    {
+        _scanningEnabled = true;
+        _cardScanned = false;
+        _scannedCardNumber = "";
+        _keyboardInput = "";
+        _error = "";
+
+        _scanCts?.Cancel();
+        _scanCts = new CancellationTokenSource();
+        _ = PollForNetworkCardRead(_scanCts.Token);
+    }
+
+    private void CancelScanning() => StopScanning();
+
+    private void StopScanning()
+    {
+        _scanningEnabled = false;
+        _scanCts?.Cancel();
+        _keyboardInput = string.Empty;
+    }
+
+    private async Task PollForNetworkCardRead(CancellationToken token)
+    {
+        var startTime = DateTime.UtcNow;
+        var timeout = TimeSpan.FromMinutes(2);
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            while (!token.IsCancellationRequested) {
+                if (DateTime.UtcNow - startTime > timeout) {
+                     StopScanning();
+                     await InvokeAsync(StateHasChanged);
+                     break;
+                }
+                var cardEvent = await db.ControllerEvents
+                    .Where(e => e.TimestampUtc > startTime && e.CardNumber != null)
+                    .OrderBy(e => e.TimestampUtc)
+                    .FirstOrDefaultAsync(token);
+                if (cardEvent != null) {
+                    var scannedNum = cardEvent.CardNumber.ToString();
+                    var conflictMsg = await CheckCardConflict(scannedNum);
+                    if (conflictMsg != null) {
+                        _error = conflictMsg;
+                        _cardScanned = false;
+                        _scannedCardNumber = string.Empty;
+                        StopScanning();
+                        await InvokeAsync(StateHasChanged);
+                        break;
+                    }
+                    _scannedCardNumber = scannedNum;
+                    _cardScanned = true;
+                    StopScanning();
+                    await InvokeAsync(StateHasChanged);
+                    break;
+                }
+                await Task.Delay(1000, token);
+            }
+        } catch { }
+    }
+
+    private async Task<string?> CheckCardConflict(string cardNumber)
+    {
+        var memberActiveCard = (await Task.Run(() => KeyCardRepository.GetAll()))
+            .FirstOrDefault(c => c.CardNumber == cardNumber && c.IsActive);
+        if (memberActiveCard != null)
+        {
+            return $"Card #{cardNumber} is already assigned to an active member.";
+        }
+
+        var tempActiveCard = (await TempCardRepository.GetAllAsync())
+            .FirstOrDefault(c => c.CardNumber == cardNumber && c.IsActive && c.ActiveTo > DateTime.Now);
+        if (tempActiveCard != null)
+        {
+            return $"Card #{cardNumber} is already assigned to active visitor: {tempActiveCard.HolderName}.";
+        }
+
+        return null;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_keyboardInput))
+        {
+            var scannedNum = _keyboardInput.Trim();
+            var conflictMsg = await CheckCardConflict(scannedNum);
+            if (conflictMsg != null)
+            {
+                _error = conflictMsg;
+                _cardScanned = false;
+                _scannedCardNumber = string.Empty;
+                _keyboardInput = string.Empty;
+                StopScanning();
+                return;
+            }
+            _scannedCardNumber = scannedNum;
+            _cardScanned = true;
+            _error = string.Empty;
+            StopScanning();
+        }
+    }
+
+    private void ProceedToDuration()
+    {
+        if (string.IsNullOrWhiteSpace(_holderName)) return;
+        _step = 3;
+    }
+
+    private void ApplyPreset(PresetMode mode)
+    {
+        _presetMode = mode;
+        if (mode == PresetMode.Custom)
+        {
+            _customExpiration = DateTime.Now.AddDays(1);
+        }
+    }
+
+    private void ProceedToConfirm()
+    {
+        if (_presetMode == PresetMode.Custom)
+        {
+            if (_customExpiration > DateTime.Now)
+            {
+                _activeTo = _customExpiration;
+            }
+            else
+            {
+                _activeTo = DateTime.Now.AddDays(_customDays).AddHours(_customHours);
+            }
+        }
+        else
+        {
+            _activeTo = _presetMode switch
+            {
+                PresetMode.Hour => DateTime.Now.AddHours(1),
+                PresetMode.Day => DateTime.Now.AddDays(1),
+                PresetMode.Week => DateTime.Now.AddDays(7),
+                PresetMode.Month => DateTime.Now.AddMonths(1),
+                _ => DateTime.Now.AddDays(1)
+            };
+        }
+
+        _step = 4;
+    }
+
+    private async Task SaveAndActivate()
+    {
+        _submitting = true;
+        _error = "";
+
+        try
+        {
+            // Register visitor card
+            var newCard = new TemporaryCard
+            {
+                HolderName = _holderName,
+                Purpose = _purpose,
+                CardNumber = _scannedCardNumber,
+                IsActive = false,
+                ActiveFrom = DateTime.Now,
+                ActiveTo = _activeTo,
+                CreatedAt = DateTime.Now
+            };
+
+            int id = await TempCardRepository.AddAsync(newCard);
+            await LifecycleService.ActivateCardAsync(id, "Wizard", default);
+
+            // Audit
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User.Identity?.Name ?? "System";
+            AuditLogger.Log("TemporaryCardAssigned", null, null, $"Temporary card #{_scannedCardNumber} assigned to {_holderName} (Purpose: {_purpose})");
+
+            _step = 5;
+            await OnCompleted.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to register visitor card in wizard.");
+            _error = "Failed to activate visitor card.";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private enum PresetMode
+    {
+        Hour,
+        Day,
+        Week,
+        Month,
+        Custom
+    }
+}

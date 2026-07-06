@@ -23,7 +23,7 @@ public class ControllerSyncQueueRepository : IControllerSyncQueueRepository
             SELECT CAST(SCOPE_IDENTITY() as int);";
 
         using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@KeyCardId", item.KeyCardId);
+        command.Parameters.AddWithValue("@KeyCardId", (object?)item.KeyCardId ?? DBNull.Value);
         command.Parameters.AddWithValue("@CardNumber", item.CardNumber);
         command.Parameters.AddWithValue("@Action", item.Action);
         command.Parameters.AddWithValue("@QueuedDate", item.QueuedDate);
@@ -203,7 +203,7 @@ public class ControllerSyncQueueRepository : IControllerSyncQueueRepository
         return new ControllerSyncQueueItem
         {
             QueueId = reader.GetInt32(reader.GetOrdinal("QueueId")),
-            KeyCardId = reader.GetInt32(reader.GetOrdinal("KeyCardId")),
+            KeyCardId = reader.IsDBNull(reader.GetOrdinal("KeyCardId")) ? null : reader.GetInt32(reader.GetOrdinal("KeyCardId")),
             CardNumber = reader.GetString(reader.GetOrdinal("CardNumber")),
             Action = reader.GetString(reader.GetOrdinal("Action")),
             QueuedDate = reader.GetDateTime(reader.GetOrdinal("QueuedDate")),

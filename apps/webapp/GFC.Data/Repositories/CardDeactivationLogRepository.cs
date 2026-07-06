@@ -29,8 +29,8 @@ namespace GFC.Data.Repositories
                 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@KeyCardId", log.KeyCardId);
-            command.Parameters.AddWithValue("@MemberId", log.MemberId);
+            command.Parameters.AddWithValue("@KeyCardId", (object?)log.KeyCardId ?? DBNull.Value);
+            command.Parameters.AddWithValue("@MemberId", (object?)log.MemberId ?? DBNull.Value);
             command.Parameters.AddWithValue("@DeactivatedDate", log.DeactivatedDate == default ? DateTime.Now : log.DeactivatedDate);
             command.Parameters.AddWithValue("@Reason", log.Reason);
             command.Parameters.AddWithValue("@ControllerSynced", log.ControllerSynced);
@@ -112,8 +112,8 @@ namespace GFC.Data.Repositories
             return new GFC.Core.Models.CardDeactivationLog
             {
                 LogId = (int)reader["LogId"],
-                KeyCardId = (int)reader["KeyCardId"],
-                MemberId = (int)reader["MemberId"],
+                KeyCardId = reader["KeyCardId"] is DBNull ? null : (int?)reader["KeyCardId"],
+                MemberId = reader["MemberId"] is DBNull ? null : (int?)reader["MemberId"],
                 DeactivatedDate = (DateTime)reader["DeactivatedDate"],
                 Reason = reader["Reason"].ToString() ?? "",
                 ControllerSynced = (bool)reader["ControllerSynced"],

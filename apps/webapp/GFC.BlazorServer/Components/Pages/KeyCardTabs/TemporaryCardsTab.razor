@@ -1,0 +1,594 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.Services
+@inject ITemporaryCardRepository TempCardRepository
+@inject IKeyCardRepository KeyCardRepository
+@inject TemporaryCardLifecycleService LifecycleService
+@inject ILogger<TemporaryCardsTab> Logger
+
+<div class="temporary-cards-container p-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1 text-dark fw-bold">Visitor & Contractor Key Cards</h4>
+            <p class="text-muted mb-0" style="font-size: 0.9rem;">Manage temporary access for non-members like plumbers, electricians, or guests.</p>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-state text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted mt-2">Loading visitor cards...</p>
+        </div>
+    }
+    else if (_cards.Count == 0)
+    {
+        <div class="empty-state text-center py-5 bg-light rounded-4 border border-dashed border-2">
+            <div class="empty-icon text-muted mb-3" style="font-size: 3rem;">
+                <i class="bi bi-credit-card-2-front"></i>
+            </div>
+            <h5 class="fw-bold">No Visitor Cards Registered</h5>
+            <p class="text-muted mb-0">Use the "Assign Visitor Key Card" button at the top to configure access for contractors or guests.</p>
+        </div>
+    }
+    else
+    {
+        <div class="visitor-badge-grid fade-in">
+            @foreach (var card in _cards)
+            {
+                var isExpired = card.IsActive && DateTime.Now >= card.ActiveTo;
+                var statusClass = !card.IsActive ? "card-inactive" : (isExpired ? "card-expired" : "card-active");
+                
+                <div class="visitor-badge-card @statusClass">
+                    <div class="badge-header">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="visitor-avatar-badge">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                            <div>
+                                <h6 class="visitor-badge-title mb-0">@card.HolderName</h6>
+                                <span class="visitor-badge-purpose">@card.Purpose</span>
+                            </div>
+                        </div>
+                        
+                        @if (!card.IsActive)
+                        {
+                            <span class="status-indicator-pill bg-secondary-subtle text-secondary border border-secondary-subtle">
+                                Inactive
+                            </span>
+                        }
+                        else if (isExpired)
+                        {
+                            <span class="status-indicator-pill bg-danger-subtle text-danger border border-danger-subtle">
+                                Expired
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="status-indicator-pill bg-success-subtle text-success border border-success-subtle">
+                                <span class="status-dot-active"></span> Active
+                            </span>
+                        }
+                    </div>
+                    
+                    <div class="badge-body">
+                        <div class="info-row">
+                            <span class="info-label">Card Number</span>
+                            <span class="info-value font-monospace bg-light px-2 py-0.5 rounded text-secondary">
+                                @(string.IsNullOrEmpty(card.CardNumber) ? "Unassigned" : card.CardNumber)
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Registered</span>
+                            <span class="info-value">@card.CreatedAt.ToString("MM/dd/yyyy")</span>
+                        </div>
+                        
+                        @if (card.IsActive)
+                        {
+                            var remaining = card.ActiveTo - DateTime.Now;
+                            <div class="info-row">
+                                <span class="info-label">Expires</span>
+                                <span class="info-value text-muted" style="font-size: 0.75rem;">@card.ActiveTo.ToString("MM/dd/yyyy h:mm tt")</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Time Remaining</span>
+                                @if (remaining.TotalSeconds <= 0)
+                                {
+                                    <span class="info-value text-danger">Expired</span>
+                                }
+                                else if (remaining.TotalHours < 24)
+                                {
+                                    <span class="info-value text-warning">@FormatRemainingTime(remaining)</span>
+                                }
+                                else
+                                {
+                                    <span class="info-value text-success">@remaining.Days Days</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="badge-footer">
+                        <div class="actions-container">
+                            @if (card.IsActive && !isExpired)
+                            {
+                                <button class="btn btn-outline-warning btn-badge-action" @onclick="() => DeactivateCard(card)" title="Deactivate Access">
+                                    <i class="bi bi-shield-slash"></i> Disable
+                                </button>
+                            }
+                            else if (!string.IsNullOrEmpty(card.CardNumber))
+                            {
+                                <button class="btn btn-outline-success btn-badge-action" @onclick="() => OpenReactivateModal(card)" title="Reactivate Access">
+                                    <i class="bi bi-shield-check"></i> Reactivate
+                                </button>
+                            }
+
+                            @if (!string.IsNullOrEmpty(card.CardNumber))
+                            {
+                                <button class="btn btn-outline-secondary btn-badge-action" @onclick="() => OpenReplaceModal(card)" title="Replace Card Number">
+                                    <i class="bi bi-arrow-repeat"></i> Replace
+                                </button>
+                                <button class="btn btn-outline-danger btn-badge-action" @onclick="() => UnassignCard(card)" title="Remove Card Assignment">
+                                    <i class="bi bi-x-circle"></i> Unassign
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-primary btn-badge-action" @onclick="() => OpenAssignModal(card)" title="Assign Card Number">
+                                    <i class="bi bi-plus-circle"></i> Assign
+                                </button>
+                            }
+                        </div>
+                        
+                        <button class="btn btn-link text-danger p-0 ms-1 btn-badge-action" @onclick="() => DeleteCard(card)" title="Delete Record">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@* Modal Overlay for Add / Edit *@
+@if (_showAddModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title fw-bold">@(_modalCardId == 0 ? "Register Visitor Card" : "Reactivate Visitor Card")</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showAddModal = false"></button>
+                </div>
+                <div class="modal-body py-3">
+                    @if (!string.IsNullOrEmpty(_modalError))
+                    {
+                        <div class="alert alert-danger py-2 px-3 small border-0 mb-3 rounded-3">
+                            <i class="bi bi-exclamation-circle me-1"></i> @_modalError
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Visitor / Contractor Name</label>
+                        <input type="text" class="form-control" placeholder="e.g. John Doe" @bind="_modalHolderName" disabled="@(_modalCardId > 0)" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Purpose / Company</label>
+                        <input type="text" class="form-control" placeholder="e.g. ABC Plumbing" @bind="_modalPurpose" disabled="@(_modalCardId > 0)" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Card Number</label>
+                        <input type="text" class="form-control font-monospace" placeholder="Scan or enter card number" @bind="_modalCardNumber" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold d-block">Scheduled Duration</label>
+                        <div class="d-flex gap-2 mb-2 flex-wrap">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick='() => ApplyPreset(PresetMode.Hour)'>1 Hour</button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick='() => ApplyPreset(PresetMode.Day)'>1 Day</button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick='() => ApplyPreset(PresetMode.Week)'>1 Week</button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick='() => ApplyPreset(PresetMode.Month)'>1 Month</button>
+                            <button class="btn btn-outline-primary btn-sm" @onclick='() => ApplyPreset(PresetMode.Custom)'>Custom</button>
+                        </div>
+
+                        @if (_presetMode == PresetMode.Custom)
+                        {
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small">Days</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_customDays" min="0" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Hours</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_customHours" min="0" max="23" />
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small text-muted d-block">Explicit Expiration DateTime</label>
+                                <input type="datetime-local" class="form-control form-control-sm" @bind="_customExpiration" />
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-light btn-sm" @onclick="() => _showAddModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveCard">Save & Activate</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Modal Overlay for Replacement *@
+@if (_showReplaceModal && _selectedCardForAction != null)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title fw-bold">Replace Key Card</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showReplaceModal = false"></button>
+                </div>
+                <div class="modal-body py-3">
+                    @if (!string.IsNullOrEmpty(_modalError))
+                    {
+                        <div class="alert alert-danger py-2 px-3 small border-0 mb-3 rounded-3">
+                            <i class="bi bi-exclamation-circle me-1"></i> @_modalError
+                        </div>
+                    }
+                    <p class="text-muted small">Replace the lost or damaged key card for <strong>@_selectedCardForAction.HolderName</strong>. The old card number will be deactivated immediately.</p>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Current Card Number</label>
+                        <input type="text" class="form-control font-monospace" value="@_selectedCardForAction.CardNumber" disabled />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">New Card Number</label>
+                        <input type="text" class="form-control font-monospace" placeholder="Scan or enter new card number" @bind="_newReplacementCardNumber" />
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-light btn-sm" @onclick="() => _showReplaceModal = false">Cancel</button>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="ReplaceCard">Confirm Replacement</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .visitor-avatar {
+        width: 38px;
+        height: 38px;
+        background-color: #6366f1;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+    }
+    .status-dot-active {
+        width: 8px;
+        height: 8px;
+        background-color: #10b981;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 8px #10b981;
+        animation: pulse-dot 1.5s infinite;
+    }
+    .status-dot-static {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    @@keyframes pulse-dot {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    .btn-modern {
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+</style>
+
+@code {
+    private List<TemporaryCard> _cards = new();
+    private bool _loading = true;
+
+    // Modals state
+    private bool _showAddModal = false;
+    private bool _showReplaceModal = false;
+
+    // Form inputs
+    private int _modalCardId = 0;
+    private string _modalHolderName = "";
+    private string _modalPurpose = "";
+    private string _modalCardNumber = "";
+    
+    private PresetMode _presetMode = PresetMode.Day;
+    private int _customDays = 1;
+    private int _customHours = 0;
+    private DateTime _customExpiration = DateTime.Now.AddDays(1);
+
+    private TemporaryCard? _selectedCardForAction;
+    private string _newReplacementCardNumber = "";
+    private string _modalError = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCards();
+    }
+
+    public async Task RefreshAsync() => await LoadCards();
+
+    private async Task LoadCards()
+    {
+        _loading = true;
+        try
+        {
+            _cards = await TempCardRepository.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load temporary cards.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenAddModal()
+    {
+        _modalCardId = 0;
+        _modalHolderName = "";
+        _modalPurpose = "";
+        _modalCardNumber = "";
+        _presetMode = PresetMode.Day;
+        _modalError = "";
+        _showAddModal = true;
+    }
+
+    private void OpenReactivateModal(TemporaryCard card)
+    {
+        _modalCardId = card.TemporaryCardId;
+        _modalHolderName = card.HolderName;
+        _modalPurpose = card.Purpose;
+        _modalCardNumber = card.CardNumber ?? "";
+        _presetMode = PresetMode.Day;
+        _modalError = "";
+        _showAddModal = true;
+    }
+
+    private void OpenAssignModal(TemporaryCard card)
+    {
+        _modalCardId = card.TemporaryCardId;
+        _modalHolderName = card.HolderName;
+        _modalPurpose = card.Purpose;
+        _modalCardNumber = "";
+        _presetMode = PresetMode.Day;
+        _modalError = "";
+        _showAddModal = true;
+    }
+
+    private void OpenReplaceModal(TemporaryCard card)
+    {
+        _selectedCardForAction = card;
+        _newReplacementCardNumber = "";
+        _modalError = "";
+        _showReplaceModal = true;
+    }
+
+    private void ApplyPreset(PresetMode mode)
+    {
+        _presetMode = mode;
+        if (mode == PresetMode.Custom)
+        {
+            _customExpiration = DateTime.Now.AddDays(1);
+        }
+    }
+
+    private string FormatRemainingTime(TimeSpan span)
+    {
+        if (span.TotalHours >= 1)
+        {
+            return $"{(int)span.TotalHours}h {span.Minutes}m";
+        }
+        return $"{span.Minutes}m";
+    }
+
+    private async Task SaveCard()
+    {
+        if (string.IsNullOrWhiteSpace(_modalHolderName)) return;
+
+        DateTime activeFrom = DateTime.Now;
+        DateTime activeTo = DateTime.Now;
+
+        if (_presetMode == PresetMode.Custom)
+        {
+            if (_customExpiration > DateTime.Now)
+            {
+                activeTo = _customExpiration;
+            }
+            else
+            {
+                activeTo = DateTime.Now.AddDays(_customDays).AddHours(_customHours);
+            }
+        }
+        else
+        {
+            activeTo = _presetMode switch
+            {
+                PresetMode.Hour => DateTime.Now.AddHours(1),
+                PresetMode.Day => DateTime.Now.AddDays(1),
+                PresetMode.Week => DateTime.Now.AddDays(7),
+                PresetMode.Month => DateTime.Now.AddMonths(1),
+                _ => DateTime.Now.AddDays(1)
+            };
+        }
+
+        _modalError = "";
+
+        // Check if card number is already active for member or another guest
+        if (!string.IsNullOrWhiteSpace(_modalCardNumber))
+        {
+            var memberActiveCard = (await Task.Run(() => KeyCardRepository.GetAll()))
+                .FirstOrDefault(c => c.CardNumber == _modalCardNumber && c.IsActive);
+            if (memberActiveCard != null)
+            {
+                _modalError = $"Card #{_modalCardNumber} is already assigned to an active member.";
+                return;
+            }
+
+            var tempActiveCard = (await TempCardRepository.GetAllAsync())
+                .FirstOrDefault(c => c.CardNumber == _modalCardNumber && c.IsActive && c.ActiveTo > DateTime.Now && c.TemporaryCardId != _modalCardId);
+            if (tempActiveCard != null)
+            {
+                _modalError = $"Card #{_modalCardNumber} is already assigned to active visitor: {tempActiveCard.HolderName}.";
+                return;
+            }
+        }
+
+        try
+        {
+            if (_modalCardId == 0)
+            {
+                // Register new
+                var newCard = new TemporaryCard
+                {
+                    HolderName = _modalHolderName,
+                    Purpose = _modalPurpose,
+                    CardNumber = string.IsNullOrWhiteSpace(_modalCardNumber) ? null : _modalCardNumber,
+                    IsActive = false, // Will activate below
+                    ActiveFrom = activeFrom,
+                    ActiveTo = activeTo,
+                    CreatedAt = DateTime.Now
+                };
+
+                int id = await TempCardRepository.AddAsync(newCard);
+                if (!string.IsNullOrWhiteSpace(newCard.CardNumber))
+                {
+                    await LifecycleService.ActivateCardAsync(id, "System", default);
+                }
+            }
+            else
+            {
+                // Reactivate / Update existing
+                var card = await TempCardRepository.GetByIdAsync(_modalCardId);
+                if (card != null)
+                {
+                    card.CardNumber = string.IsNullOrWhiteSpace(_modalCardNumber) ? null : _modalCardNumber;
+                    card.ActiveFrom = activeFrom;
+                    card.ActiveTo = activeTo;
+                    await TempCardRepository.UpdateAsync(card);
+                    
+                    if (!string.IsNullOrWhiteSpace(card.CardNumber))
+                    {
+                        await LifecycleService.ActivateCardAsync(_modalCardId, "System", default);
+                    }
+                }
+            }
+
+            _showAddModal = false;
+            await LoadCards();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save visitor card.");
+        }
+    }
+
+    private async Task DeactivateCard(TemporaryCard card)
+    {
+        try
+        {
+            await LifecycleService.DeactivateCardAsync(card.TemporaryCardId, "System", default);
+            await LoadCards();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to deactivate card.");
+        }
+    }
+
+    private async Task ReplaceCard()
+    {
+        if (_selectedCardForAction == null || string.IsNullOrWhiteSpace(_newReplacementCardNumber)) return;
+
+        _modalError = "";
+
+        // Check card conflict
+        var memberActiveCard = (await Task.Run(() => KeyCardRepository.GetAll()))
+            .FirstOrDefault(c => c.CardNumber == _newReplacementCardNumber && c.IsActive);
+        if (memberActiveCard != null)
+        {
+            _modalError = $"Card #{_newReplacementCardNumber} is already assigned to an active member.";
+            return;
+        }
+
+        var tempActiveCard = (await TempCardRepository.GetAllAsync())
+            .FirstOrDefault(c => c.CardNumber == _newReplacementCardNumber && c.IsActive && c.ActiveTo > DateTime.Now);
+        if (tempActiveCard != null)
+        {
+            _modalError = $"Card #{_newReplacementCardNumber} is already assigned to active visitor: {tempActiveCard.HolderName}.";
+            return;
+        }
+
+        try
+        {
+            await LifecycleService.ReplaceCardAsync(_selectedCardForAction.TemporaryCardId, _newReplacementCardNumber, "System", default);
+            _showReplaceModal = false;
+            await LoadCards();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to replace card.");
+        }
+    }
+
+    private async Task UnassignCard(TemporaryCard card)
+    {
+        try
+        {
+            await LifecycleService.UnassignCardAsync(card.TemporaryCardId, "System", default);
+            await LoadCards();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to unassign card.");
+        }
+    }
+
+    private async Task DeleteCard(TemporaryCard card)
+    {
+        try
+        {
+            // Fully revoke first if active
+            if (card.IsActive && !string.IsNullOrEmpty(card.CardNumber))
+            {
+                await LifecycleService.DeactivateCardAsync(card.TemporaryCardId, "System (Deleted)", default);
+            }
+            await TempCardRepository.DeleteAsync(card.TemporaryCardId);
+            await LoadCards();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete card.");
+        }
+    }
+
+    private enum PresetMode
+    {
+        Hour,
+        Day,
+        Week,
+        Month,
+        Custom
+    }
+}

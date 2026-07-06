@@ -11,4 +11,5 @@ public interface IImmediateSyncDispatcher
     /// Implementation should try direct communication and only queue if offline.
     /// </summary>
     Task DispatchSyncAsync(int keyCardId, bool activate, CancellationToken ct = default);
+    Task DispatchTempCardSyncAsync(string cardNumber, bool activate, CancellationToken ct = default);
 }

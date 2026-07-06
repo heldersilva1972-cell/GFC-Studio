@@ -6,7 +6,7 @@ namespace GFC.Core.Models;
 public class ControllerSyncQueueItem
 {
     public int QueueId { get; set; }
-    public int KeyCardId { get; set; }
+    public int? KeyCardId { get; set; }
     public string CardNumber { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty; // "ACTIVATE" or "DEACTIVATE"
     public DateTime QueuedDate { get; set; }

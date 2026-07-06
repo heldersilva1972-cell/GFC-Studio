@@ -191,9 +191,9 @@ else
                     <div class="queue-card-body">
                         <div class="member-info">
                             <div class="member-name">
-                                @(_memberNames.TryGetValue(item.KeyCardId, out var name) ? name : "Unknown Member")
+                                @(item.KeyCardId.HasValue && _memberNames.TryGetValue(item.KeyCardId.Value, out var name) ? name : "Visitor / Contractor")
                             </div>
-                            <div class="member-id">Member #@item.KeyCardId</div>
+                            <div class="member-id">@(item.KeyCardId.HasValue ? $"Member #{item.KeyCardId.Value}" : "Temporary Card")</div>
                         </div>
                         
                         <div class="action-info">
@@ -306,7 +306,7 @@ else
             
             // Look for cards that are unconfirmed but NOT in the queue
             var allCards = await Task.Run(() => KeyCardRepository.GetAll());
-            var pendingCardIds = pending.Select(p => p.KeyCardId).ToHashSet();
+            var pendingCardIds = pending.Where(p => p.KeyCardId.HasValue).Select(p => p.KeyCardId!.Value).ToHashSet();
             
             _unconfirmedMissingFromQueue = allCards
                 .Where(c => !c.IsControllerSynced && !pendingCardIds.Contains(c.KeyCardId))
@@ -327,21 +327,24 @@ else
             _memberNames.Clear();
             foreach (var item in _allItems)
             {
-                try
+                if (item.KeyCardId.HasValue)
                 {
-                    var card = await Task.Run(() => KeyCardRepository.GetById(item.KeyCardId));
-                    if (card != null)
+                    try
                     {
-                        var member = await Task.Run(() => MemberRepository.GetMemberById(card.MemberId));
-                        if (member != null)
+                        var card = await Task.Run(() => KeyCardRepository.GetById(item.KeyCardId.Value));
+                        if (card != null)
                         {
-                            _memberNames[item.KeyCardId] = FormatMemberName(member);
+                            var member = await Task.Run(() => MemberRepository.GetMemberById(card.MemberId));
+                            if (member != null)
+                            {
+                                _memberNames[item.KeyCardId.Value] = FormatMemberName(member);
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "Failed to load member name for card {KeyCardId}", item.KeyCardId);
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Failed to load member name for card {KeyCardId}", item.KeyCardId);
+                    }
                 }
             }
         }

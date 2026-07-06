@@ -72,4 +72,40 @@ public class ImmediateSyncDispatcher : IImmediateSyncDispatcher
             }
         }, ct);
     }
+
+    public async Task DispatchTempCardSyncAsync(string cardNumber, bool activate, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(cardNumber))
+        {
+            _logger.LogError("DispatchTempCardSyncAsync aborted: CardNumber is blank.");
+            return;
+        }
+
+        // 1. Add to queue first (safety first)
+        var queueId = await _queueRepo.AddAsync(new GFC.Core.Models.ControllerSyncQueueItem
+        {
+            KeyCardId = null,
+            CardNumber = cardNumber,
+            Action = activate ? "ACTIVATE" : "DEACTIVATE",
+            QueuedDate = DateTime.Now,
+            Status = "PENDING",
+            AttemptCount = 0
+        });
+
+        // 2. Try to process it immediately in a background-safe way
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(100, ct); 
+                await _syncService.ProcessQueueItemAsync(queueId, ct);
+                _logger.LogInformation("Successfully performed immediate sync for temp card {CardNumber}", cardNumber);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("Immediate sync for temp card {CardNumber} deferred to background queue: {Message}", 
+                    cardNumber, ex.Message);
+            }
+        }, ct);
+    }
 }

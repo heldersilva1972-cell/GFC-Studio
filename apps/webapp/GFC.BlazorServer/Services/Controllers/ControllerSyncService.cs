@@ -89,6 +89,59 @@ public class ControllerSyncService : IControllerSyncService
 
                 if (!permissions.Any())
                 {
+                    bool isTempCardActive = false;
+                    var conn = dbContext.Database.GetDbConnection();
+                    var wasOpen = conn.State == System.Data.ConnectionState.Open;
+                    if (!wasOpen) await conn.OpenAsync(ct);
+                    try
+                    {
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "SELECT COUNT(*) FROM dbo.TemporaryCards WHERE CardNumber = @CardNo AND IsActive = 1";
+                        var p = cmd.CreateParameter();
+                        p.ParameterName = "@CardNo";
+                        p.Value = item.CardNumber;
+                        cmd.Parameters.Add(p);
+
+                        var count = (int)(await cmd.ExecuteScalarAsync(ct) ?? 0);
+                        isTempCardActive = count > 0;
+                    }
+                    finally
+                    {
+                        if (!wasOpen) await conn.CloseAsync();
+                    }
+
+                    if (isTempCardActive)
+                    {
+                        var allActiveDoors = await dbContext.Doors
+                            .Include(d => d.Controller)
+                            .Where(d => d.IsEnabled)
+                            .ToListAsync(ct);
+
+                        if (allActiveDoors.Any())
+                        {
+                            var tempPerController = allActiveDoors.GroupBy(d => d.ControllerId);
+                            foreach (var group in tempPerController)
+                            {
+                                var controllerId = group.Key;
+                                if (controllerId == 0) continue;
+                                var doorIndexes = group.Select(d => d.DoorIndex).Where(idx => idx > 0).ToList();
+                                if (!doorIndexes.Any()) continue;
+
+                                var privilege = new CardPrivilegeModel
+                                {
+                                    ControllerId = controllerId,
+                                    CardNumber = long.Parse(item.CardNumber),
+                                    DoorIndexes = doorIndexes,
+                                    TimeProfileIndex = 1,
+                                    Enabled = true
+                                };
+                                await _controllerClient.AddOrUpdatePrivilegeAsync(privilege, ct);
+                            }
+                            await _queueRepo.MarkAsCompletedAsync(item.QueueId);
+                            return;
+                        }
+                    }
+
                     _logger.LogWarning("No door permissions found for card {CardNumber}. Removing from all controllers for cleanup.", item.CardNumber);
                     await _controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), ct);
                     await _queueRepo.MarkAsCompletedAsync(item.QueueId);
@@ -149,28 +202,30 @@ public class ControllerSyncService : IControllerSyncService
             // Success - mark item as completed in queue
             await _queueRepo.MarkAsCompletedAsync(item.QueueId);
             
-            // CRITICAL: Update the KeyCard record to confirm it is now synced with hardware
-            try
+            if (item.KeyCardId.HasValue)
             {
-                var card = _keyCardRepository.GetById(item.KeyCardId);
-                if (card != null)
+                try
                 {
-                    card.IsControllerSynced = true;
-                    card.LastControllerSyncDate = DateTime.Now;
-                    _keyCardRepository.Update(card);
-                    _logger.LogInformation("Confirmed sync status for card {CardNumber} in database.", item.CardNumber);
+                    var card = _keyCardRepository.GetById(item.KeyCardId.Value);
+                    if (card != null)
+                    {
+                        card.IsControllerSynced = true;
+                        card.LastControllerSyncDate = DateTime.Now;
+                        _keyCardRepository.Update(card);
+                        _logger.LogInformation("Confirmed sync status for card {CardNumber} in database.", item.CardNumber);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                // Elevated to LogError: this failure is silent but leaves the card showing
-                // 'Activation Not Confirmed' in the UI indefinitely, even though the hardware
-                // sync succeeded. Needs investigation if seen in logs.
-                _logger.LogError(ex,
-                    "SYNC FLAG UPDATE FAILED: Hardware sync for card {CardNumber} (QueueId {QueueId}) was successful, " +
-                    "but updating IsControllerSynced in the database failed. " +
-                    "The card will incorrectly show 'Activation Not Confirmed' in the UI.",
-                    item.CardNumber, item.QueueId);
+                catch (Exception ex)
+                {
+                    // Elevated to LogError: this failure is silent but leaves the card showing
+                    // 'Activation Not Confirmed' in the UI indefinitely, even though the hardware
+                    // sync succeeded. Needs investigation if seen in logs.
+                    _logger.LogError(ex,
+                        "SYNC FLAG UPDATE FAILED: Hardware sync for card {CardNumber} (QueueId {QueueId}) was successful, " +
+                        "but updating IsControllerSynced in the database failed. " +
+                        "The card will incorrectly show 'Activation Not Confirmed' in the UI.",
+                        item.CardNumber, item.QueueId);
+                }
             }
 
             _logger.LogInformation(
