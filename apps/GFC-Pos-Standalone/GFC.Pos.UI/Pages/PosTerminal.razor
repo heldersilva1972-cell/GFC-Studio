@@ -4903,6 +4903,107 @@
                 }
             }
 
+            if (closeEvent)
+            {
+                // Kick cash drawer on settlement
+                try
+                {
+                    if (!forceTrainingMode || allowHardwareInTraining)
+                    {
+                        await PrinterService.KickDrawerAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Tally Settle KickDrawerAsync failed: {ex.Message}");
+                }
+
+                // If beers were actually consumed, create POS Sales transactions so they are included in Z-Report / Shift Audit
+                if (totalConsumedCost > 0)
+                {
+                    bool hasSplit = currentTallies.Any(t => t.EnableClubSplit && t.QuantityTaken > 0);
+                    decimal clubPortion = currentTallies.Sum(t => t.ClubSubtotal);
+                    decimal eventPortion = currentTallies.Sum(t => t.EventSubtotal);
+
+                    if (hasSplit)
+                    {
+                        // 1. Event Portion Sale (TAB)
+                        if (eventPortion > 0)
+                        {
+                            var eventSale = new PosSaleDto
+                            {
+                                Id = Guid.NewGuid(),
+                                Timestamp = DateTime.Now,
+                                TerminalName = TerminalName,
+                                PaymentType = "TAB",
+                                TotalAmount = eventPortion,
+                                ActiveEventId = evId,
+                                ItemsJson = JsonSerializer.Serialize(currentTallies
+                                    .Where(t => t.Consumed > 0 && t.EventSubtotal > 0)
+                                    .Select(t => new ProductItem
+                                    {
+                                        Name = $"TALLY: {t.Name} (Event)",
+                                        Price = t.Price - t.ClubSplitAmount,
+                                        Quantity = t.Consumed,
+                                        Category = "BEER"
+                                    }).ToList())
+                            };
+                            await PosService.SaveSaleAsync(eventSale);
+                            await PosService.AddSaleToShiftAsync(eventSale);
+                        }
+
+                        // 2. Club Portion Sale (CASH)
+                        if (clubPortion > 0)
+                        {
+                            var clubSale = new PosSaleDto
+                            {
+                                Id = Guid.NewGuid(),
+                                Timestamp = DateTime.Now,
+                                TerminalName = TerminalName,
+                                PaymentType = "CASH",
+                                TotalAmount = clubPortion,
+                                ActiveEventId = evId,
+                                ItemsJson = JsonSerializer.Serialize(currentTallies
+                                    .Where(t => t.Consumed > 0 && t.ClubSubtotal > 0)
+                                    .Select(t => new ProductItem
+                                    {
+                                        Name = $"TALLY: {t.Name} (Club)",
+                                        Price = t.ClubSplitAmount,
+                                        Quantity = t.Consumed,
+                                        Category = "BEER"
+                                    }).ToList())
+                            };
+                            await PosService.SaveSaleAsync(clubSale);
+                            await PosService.AddSaleToShiftAsync(clubSale);
+                        }
+                    }
+                    else
+                    {
+                        // Full amount as TAB sale
+                        var fullSale = new PosSaleDto
+                        {
+                            Id = Guid.NewGuid(),
+                            Timestamp = DateTime.Now,
+                            TerminalName = TerminalName,
+                            PaymentType = "TAB",
+                            TotalAmount = totalConsumedCost,
+                            ActiveEventId = evId,
+                            ItemsJson = JsonSerializer.Serialize(currentTallies
+                                .Where(t => t.Consumed > 0)
+                                .Select(t => new ProductItem
+                                {
+                                    Name = $"TALLY: {t.Name}",
+                                    Price = t.Price,
+                                    Quantity = t.Consumed,
+                                    Category = "BEER"
+                                }).ToList())
+                        };
+                        await PosService.SaveSaleAsync(fullSale);
+                        await PosService.AddSaleToShiftAsync(fullSale);
+                    }
+                }
+            }
+
             // Sync menu to vault
             if (_cachedMenu != null)
             {
@@ -6022,36 +6123,42 @@
         PosService.MenuRefreshed -= OnMenuRefreshed;
     }
 
-    private async void LockTerminal()
+    private void LockTerminal()
     {
         if (string.IsNullOrEmpty(CurrentUserName)) return;
 
         // Safely close the supplier delivery overlay on lock/logout
         CloseLiquorOrdersWorkflow();
 
-        // [AUTO-UPDATE] Check for newer POS version before locking
-        try
-        {
-            if (_showUpdateBanner)
-            {
-                Console.WriteLine("[GFC POS UPDATE] Active update banner detected during logout. Forcing reload/installer...");
-                await TriggerNuclearReload();
-                return;
-            }
-
-            var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
-            if (isUpdateAvailable)
-            {
-                Console.WriteLine($"[GFC POS UPDATE] New version ({UpdateService.ServerVersion}) detected during logout. Forcing reload/installer...");
-                await TriggerNuclearReload();
-                return;
-            }
-        }
-        catch { /* Fallback to standard lock */ }
-
+        // Perform instant UI logout/lock
         CurrentUserName = string.Empty;
         _displayProfile = "normal";
         _showDisplayPopover = false;
+        StateHasChanged();
+
+        // [AUTO-UPDATE] Check for newer POS version in the background (no UI blocking)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (_showUpdateBanner)
+                {
+                    Console.WriteLine("[GFC POS UPDATE] Active update banner detected during logout. Forcing reload/installer...");
+                    await InvokeAsync(TriggerNuclearReload);
+                    return;
+                }
+
+                var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
+                if (isUpdateAvailable)
+                {
+                    Console.WriteLine($"[GFC POS UPDATE] New version ({UpdateService.ServerVersion}) detected during logout. Forcing reload/installer...");
+                    await InvokeAsync(TriggerNuclearReload);
+                    return;
+                }
+            }
+            catch { /* Fallback to standard lock (already done) */ }
+        });
+
         _ = RefreshData(); // Background update for next operator
     }
 
