@@ -78,7 +78,14 @@
                                 <div class="d-flex align-items-center justify-content-between w-100 h-100 px-4">
                                     <div class="d-flex flex-column">
                                         <span class="fw-black text-muted fs-6">DAILY TOTAL</span>
-                                        <span class="text-muted small">Hours worked today</span>
+                                        @if (_hasExistingRecord)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle extra-small mt-1 animate-fade-in" style="font-size: 0.65rem; width: fit-content; font-weight: 800;"><i class="bi bi-check-circle-fill me-1"></i>Hours Recorded</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Hours worked today</span>
+                                        }
                                     </div>
                                     <div class="d-flex align-items-center">
                                         <div class="form-input-modern text-end pe-1 fw-black text-primary" style="font-size: 3rem;">
@@ -100,7 +107,6 @@
                                 <button class="key-btn" @onclick='() => KeyPressed("4")'>4</button>
                                 <button class="key-btn" @onclick='() => KeyPressed("5")'>5</button>
                                 <button class="key-btn" @onclick='() => KeyPressed("6")'>6</button>
-                                
                                 <button class="key-btn" @onclick='() => KeyPressed("7")'>7</button>
                                 <button class="key-btn" @onclick='() => KeyPressed("8")'>8</button>
                                 <button class="key-btn" @onclick='() => KeyPressed("9")'>9</button>
@@ -128,8 +134,8 @@
                             }
                             else
                             {
-                                <i class="bi bi-send-fill"></i>
-                                <span>SUBMIT HOURS</span>
+                                <i class="bi @(_hasExistingRecord ? "bi-pencil-square" : "bi-send-fill")"></i>
+                                <span>@(_hasExistingRecord ? "CORRECT/UPDATE HOURS" : "SUBMIT HOURS")</span>
                             }
                         </button>
                     }
@@ -287,6 +293,8 @@
     private string ErrorMessage { get; set; }
     private bool IsHoursFocused { get; set; }
     private bool _showCorrectionModal { get; set; }
+    private bool _hasExistingRecord { get; set; }
+    private bool _isPrePopulatedActive { get; set; }
     private decimal _existingHours { get; set; }
     private string _displayName { get; set; } = "";
     private AppUser? currentAppUser { get; set; }
@@ -309,10 +317,57 @@
                 _displayName = $"{member.FirstName} {member.LastName}";
             }
         }
+        await LoadExistingHoursForDate();
+    }
+
+    private async Task LoadExistingHoursForDate()
+    {
+        ErrorMessage = null;
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            if (user == null) return;
+
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existing = await db.BarSaleEntries
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date 
+                                       && e.Shift == "Janitor" 
+                                       && e.CreatedBy == user.Username
+                                       && !e.IsDeleted);
+
+            if (existing != null)
+            {
+                _hasExistingRecord = true;
+                _isPrePopulatedActive = true;
+                _existingHours = existing.TotalHours ?? 0m;
+                TotalHours = _existingHours;
+                _hoursInput = _existingHours > 0 ? _existingHours.ToString("0.#") : "";
+            }
+            else
+            {
+                _hasExistingRecord = false;
+                _isPrePopulatedActive = false;
+                _existingHours = 0m;
+                TotalHours = 0m;
+                _hoursInput = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading existing janitor hours: {ex.Message}");
+        }
     }
 
     private void KeyPressed(string key)
     {
+        if (_isPrePopulatedActive)
+        {
+            _isPrePopulatedActive = false;
+            _hoursInput = "";
+            TotalHours = 0;
+        }
+
         if (key == "." && _hoursInput.Contains(".")) return;
         if (_hoursInput.Length >= 6) return;
         
@@ -325,6 +380,14 @@
 
     private void BackspaceCurrentField()
     {
+        if (_isPrePopulatedActive)
+        {
+            _isPrePopulatedActive = false;
+            _hoursInput = "";
+            TotalHours = 0;
+            return;
+        }
+
         if (_hoursInput.Length > 0)
         {
             _hoursInput = _hoursInput.Substring(0, _hoursInput.Length - 1);
@@ -339,11 +402,12 @@
         }
     }
 
-    private void OnDateChanged(ChangeEventArgs e)
+    private async Task OnDateChanged(ChangeEventArgs e)
     {
         if (DateTime.TryParse(e.Value?.ToString(), out var date))
         {
             ReportDate = date;
+            await LoadExistingHoursForDate();
         }
     }
 
@@ -376,6 +440,12 @@
 
             if (existing != null)
             {
+                if (existing.TotalHours == TotalHours)
+                {
+                    ErrorMessage = "Hours are already set to this value.";
+                    IsSubmitting = false;
+                    return;
+                }
                 _existingHours = existing.TotalHours ?? 0m;
                 _showCorrectionModal = true;
                 IsSubmitting = false;

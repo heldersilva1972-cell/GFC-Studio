@@ -336,6 +336,7 @@
     .data-table th {
         padding: 10px 12px !important;
         font-size: 0.68rem !important;
+        line-height: 1.1 !important;
         background: #f8fafc !important;
         position: sticky;
         top: -1px;
@@ -353,7 +354,7 @@
         padding: 4px 16px !important;
         background: #f1f5f9;
         position: sticky;
-        top: 37px; /* Height of the main TH header */
+        top: 33px; /* Height of the main TH header */
         z-index: 10;
         font-weight: 900;
         box-shadow: inset 0 -1px 0 #e2e8f0;
@@ -583,7 +584,19 @@
         contextCommissions = _shifts
             .GroupBy(s => s.ShiftDate.Date)
             .Sum(g => {
-                var latest = g.OrderByDescending(s => s.ShiftId).First();
+                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                
+                var latest = night;
+                if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        latest = day;
+                    }
+                }
+                latest ??= night ?? day ?? g.First();
+
                 var rates = _commissionRates.FirstOrDefault(r => r.Year == g.Key.Year);
                 if (rates == null) return 0;
                 return (latest.TotalSales * rates.SalesCommissionMultiplier) + 
@@ -624,7 +637,20 @@
             {
                 var finalShiftsOfDay = _shifts
                     .GroupBy(s => s.ShiftDate.Date)
-                    .Select(g => g.OrderByDescending(s => s.ShiftId).First())
+                    .Select(g => {
+                        var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                        var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                        
+                        var representative = night;
+                        if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                            {
+                                representative = day;
+                            }
+                        }
+                        return representative ?? night ?? day ?? g.First();
+                    })
                     .ToList();
 
                 cumulativeNetSales = finalShiftsOfDay.Sum(s => s.TotalSales);
@@ -739,77 +765,67 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @{
-                        bool anyShiftsInWeek = _shifts.Any();
-                    }
-
-                    @if (!anyShiftsInWeek)
+                    @for (var day = _filterEndDate.Date; day >= _filterStartDate.Date; day = day.AddDays(-1))
                     {
-                        <tr>
-                            <td colspan="15" class="ps-4 py-5 text-center text-muted">
-                                <i class="bi bi-info-circle fs-4 d-block mb-2"></i>
-                                <span class="fw-bold">No lottery shifts recorded for this week.</span><br/>
-                                <span class="small opacity-75">Select a different week or filter from the top bar.</span>
+                        var currentDay = day;
+                        var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == currentDay.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                        var nightShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == currentDay.Date && string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+
+                        // Only show the day group if it's not in the future, or if a shift actually exists for it
+                        if (currentDay.Date > DateTime.Today && dayShift == null && nightShift == null)
+                        {
+                            continue;
+                        }
+
+                        @* Day Header Row *@
+                        <tr class="day-group-header">
+                            <td colspan="15" class="ps-4 py-2 border-bottom border-top">
+                                <span class="fw-black text-primary text-uppercase small tracking-wider">@currentDay.ToString("dddd, MMMM d")</span>
                             </td>
                         </tr>
-                    }
-                    else
-                    {
-                        @for (var day = _filterEndDate.Date; day >= _filterStartDate.Date; day = day.AddDays(-1))
+
+                        @* Render Day Shift *@
+                        @if (dayShift != null)
                         {
-                            var shiftsForDay = _shifts.Where(s => s.ShiftDate.Date == day.Date).ToList();
-                            if (!shiftsForDay.Any()) continue;
-
-                            @* Day Header Row *@
-                            <tr class="day-group-header">
-                                <td colspan="15" class="ps-4 py-2 border-bottom border-top">
-                                    <span class="fw-black text-primary text-uppercase small tracking-wider">@day.ToString("dddd, MMMM d")</span>
+                            <tr class="align-middle">
+                                <td class="ps-4">
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle">DAY</span>
                                 </td>
-                            </tr>
-
-                            @foreach (var shift in shiftsForDay)
-                            {
-                                <tr class="align-middle">
-                                    <td class="ps-4">
-                                        @if (shift.ShiftType == "Day")
-                                        {
-                                            <span class="badge bg-info-subtle text-info border border-info-subtle">DAY</span>
-                                        }
-                                        else if (shift.ShiftType == "Night")
-                                        {
-                                            <span class="badge bg-indigo-subtle text-indigo border border-indigo-subtle">NIGHT</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-light text-muted">@shift.ShiftType</span>
-                                        }
+                                @if (string.Equals(dayShift.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <td colspan="12">
+                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1"><i class="bi bi-door-closed-fill me-1"></i>CLUB CLOSED</span>
+                                        <span class="text-muted small ms-2">No shift activity logged</span>
                                     </td>
-                                    <td><span class="fw-bold">@shift.EmployeeName</span></td>
-                                    <td class="small">@shift.StartingCash.ToString("C")</td>
-                                    <td class="small">@shift.TotalSales.ToString("C2")</td>
-                                    <td class="small">@shift.TotalPayouts.ToString("C2")</td>
-                                    <td class="small">@shift.TotalCancels.ToString("C2")</td>
-                                    <td class="fw-bold">@shift.NetDue.ToString("C2")</td>
-                                    <td class="small">@shift.NetSales.ToString("C2")</td>
-                                    <td class="fw-bold small">@shift.ExpectedCash.ToString("C2")</td>
-                                    <td class="small">@shift.EndingCash.ToString("C")</td>
+                                }
+                                else
+                                {
+                                    <td><span class="fw-bold">@dayShift.EmployeeName</span></td>
+                                    <td class="small">@dayShift.StartingCash.ToString("C")</td>
+                                    <td class="small">@dayShift.TotalSales.ToString("C2")</td>
+                                    <td class="small">@dayShift.TotalPayouts.ToString("C2")</td>
+                                    <td class="small">@dayShift.TotalCancels.ToString("C2")</td>
+                                    <td class="fw-bold">@dayShift.NetDue.ToString("C2")</td>
+                                    <td class="small">@dayShift.NetSales.ToString("C2")</td>
+                                    <td class="fw-bold small">@dayShift.ExpectedCash.ToString("C2")</td>
+                                    <td class="small">@dayShift.EndingCash.ToString("C")</td>
                                     <td class="small">
-                                        @if (shift.BackupBagAmount > 0 || shift.BagRefillAmount > 0)
+                                        @if (dayShift.BackupBagAmount > 0 || dayShift.BagRefillAmount > 0)
                                         {
                                             <div class="d-flex flex-column gap-1" style="min-width: 140px;">
-                                                @if (shift.BackupBagAmount > 0)
+                                                @if (dayShift.BackupBagAmount > 0)
                                                 {
                                                     <div class="d-flex align-items-center">
                                                         <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle extra-small px-2 py-1 w-100 text-start" style="font-size: 0.62rem; letter-spacing: 0.02em;">
-                                                            <i class="bi bi-box-arrow-right me-1"></i> OUT FROM BAG: <span class="fw-black ms-auto float-end">@shift.BackupBagAmount.ToString("C0")</span>
+                                                            <i class="bi bi-box-arrow-right me-1"></i> OUT FROM BAG: <span class="fw-black ms-auto float-end">@dayShift.BackupBagAmount.ToString("C0")</span>
                                                         </span>
                                                     </div>
                                                 }
-                                                @if (shift.BagRefillAmount > 0)
+                                                @if (dayShift.BagRefillAmount > 0)
                                                 {
                                                     <div class="d-flex align-items-center">
                                                         <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle extra-small px-2 py-1 w-100 text-start" style="font-size: 0.62rem; letter-spacing: 0.02em;">
-                                                            <i class="bi bi-box-arrow-in-left me-1"></i> BACK TO BAG: <span class="fw-black ms-auto float-end">@shift.BagRefillAmount.ToString("C0")</span>
+                                                            <i class="bi bi-box-arrow-in-left me-1"></i> BACK TO BAG: <span class="fw-black ms-auto float-end">@dayShift.BagRefillAmount.ToString("C0")</span>
                                                         </span>
                                                     </div>
                                                 }
@@ -820,24 +836,148 @@
                                             <span class="text-muted opacity-50 x-small">$0.00</span>
                                         }
                                     </td>
-                                    <td class="@(shift.EnvelopeAmount > 0 ? "text-warning fw-bold" : "text-muted opacity-50")">
-                                        @shift.EnvelopeAmount.ToString("C2")
+                                    <td class="@(dayShift.EnvelopeAmount > 0 ? "text-warning fw-bold" : "text-muted opacity-50")">
+                                        @dayShift.EnvelopeAmount.ToString("C2")
                                     </td>
                                     <td>
-                                        <span class="variance-pill @(shift.Variance < 0 ? "variance-neg" : shift.Variance > 0 ? "variance-pos" : "variance-zero")">
-                                            @shift.Variance.ToString("C2")
+                                        <span class="variance-pill @(dayShift.Variance < 0 ? "variance-neg" : dayShift.Variance > 0 ? "variance-pos" : "variance-zero")">
+                                            @dayShift.Variance.ToString("C2")
                                         </span>
                                     </td>
+                                }
+                                <td>
+                                    @if (dayShift.Status == "Draft")
+                                    {
+                                        <span class="badge bg-warning text-dark x-small">Draft (In Progress)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge @(dayShift.IsReconciled ? "bg-success" : "bg-info") x-small">@(dayShift.IsReconciled ? "Reconciled" : "Submitted")</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(dayShift.ShiftId)" title="Edit">
+                                        <i class="bi bi-pencil-square fs-5"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            <tr class="align-middle" style="background-color: #fffdf9 !important;">
+                                <td class="ps-4">
+                                    <span class="badge bg-light text-muted border">DAY</span>
+                                </td>
+                                <td colspan="12">
+                                    <span class="text-muted small italic fw-normal"><i class="bi bi-exclamation-circle text-warning me-1"></i>No shift report entered</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle x-small">Missing</span>
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold py-0.5 shadow-sm" style="font-size: 0.7rem;" @onclick='() => CreateClosedShift(currentDay, "Day")'>
+                                        <i class="bi bi-door-closed-fill me-1"></i> Mark Closed
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+
+                        @* Render Night Shift *@
+                        @if (nightShift != null)
+                        {
+                            <tr class="align-middle">
+                                <td class="ps-4">
+                                    <span class="badge bg-indigo-subtle text-indigo border border-indigo-subtle">NIGHT</span>
+                                </td>
+                                @if (string.Equals(nightShift.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <td colspan="12">
+                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1"><i class="bi bi-door-closed-fill me-1"></i>CLUB CLOSED</span>
+                                        <span class="text-muted small ms-2">No shift activity logged</span>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td><span class="fw-bold">@nightShift.EmployeeName</span></td>
+                                    <td class="small">@nightShift.StartingCash.ToString("C")</td>
+                                    <td class="small">@nightShift.TotalSales.ToString("C2")</td>
+                                    <td class="small">@nightShift.TotalPayouts.ToString("C2")</td>
+                                    <td class="small">@nightShift.TotalCancels.ToString("C2")</td>
+                                    <td class="fw-bold">@nightShift.NetDue.ToString("C2")</td>
+                                    <td class="small">@nightShift.NetSales.ToString("C2")</td>
+                                    <td class="fw-bold small">@nightShift.ExpectedCash.ToString("C2")</td>
+                                    <td class="small">@nightShift.EndingCash.ToString("C")</td>
+                                    <td class="small">
+                                        @if (nightShift.BackupBagAmount > 0 || nightShift.BagRefillAmount > 0)
+                                        {
+                                            <div class="d-flex flex-column gap-1" style="min-width: 140px;">
+                                                @if (nightShift.BackupBagAmount > 0)
+                                                {
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle extra-small px-2 py-1 w-100 text-start" style="font-size: 0.62rem; letter-spacing: 0.02em;">
+                                                            <i class="bi bi-box-arrow-right me-1"></i> OUT FROM BAG: <span class="fw-black ms-auto float-end">@nightShift.BackupBagAmount.ToString("C0")</span>
+                                                        </span>
+                                                    </div>
+                                                }
+                                                @if (nightShift.BagRefillAmount > 0)
+                                                {
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle extra-small px-2 py-1 w-100 text-start" style="font-size: 0.62rem; letter-spacing: 0.02em;">
+                                                            <i class="bi bi-box-arrow-in-left me-1"></i> BACK TO BAG: <span class="fw-black ms-auto float-end">@nightShift.BagRefillAmount.ToString("C0")</span>
+                                                        </span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted opacity-50 x-small">$0.00</span>
+                                        }
+                                    </td>
+                                    <td class="@(nightShift.EnvelopeAmount > 0 ? "text-warning fw-bold" : "text-muted opacity-50")">
+                                        @nightShift.EnvelopeAmount.ToString("C2")
+                                    </td>
                                     <td>
-                                        <span class="badge @(shift.IsReconciled ? "bg-success" : "bg-info") x-small">@(shift.IsReconciled ? "Reconciled" : "Submitted")</span>
+                                        <span class="variance-pill @(nightShift.Variance < 0 ? "variance-neg" : nightShift.Variance > 0 ? "variance-pos" : "variance-zero")">
+                                            @nightShift.Variance.ToString("C2")
+                                        </span>
                                     </td>
-                                    <td class="text-center">
-                                        <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(shift.ShiftId)" title="Edit">
-                                            <i class="bi bi-pencil-square fs-5"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
+                                }
+                                <td>
+                                    @if (nightShift.Status == "Draft")
+                                    {
+                                        <span class="badge bg-warning text-dark x-small">Draft (In Progress)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge @(nightShift.IsReconciled ? "bg-success" : "bg-info") x-small">@(nightShift.IsReconciled ? "Reconciled" : "Submitted")</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(nightShift.ShiftId)" title="Edit">
+                                        <i class="bi bi-pencil-square fs-5"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            <tr class="align-middle" style="background-color: #fffdf9 !important;">
+                                <td class="ps-4">
+                                    <span class="badge bg-indigo-subtle text-indigo border border-indigo-subtle">NIGHT</span>
+                                </td>
+                                <td colspan="12">
+                                    <span class="text-muted small italic fw-normal"><i class="bi bi-exclamation-circle text-warning me-1"></i>No shift report entered</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle x-small">Missing</span>
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold py-0.5 shadow-sm" style="font-size: 0.7rem;" @onclick='() => CreateClosedShift(currentDay, "Night")'>
+                                        <i class="bi bi-door-closed-fill me-1"></i> Mark Closed
+                                    </button>
+                                </td>
+                            </tr>
                         }
                     }
                 </tbody>
@@ -1346,6 +1486,12 @@
             </div>
 
             <div class="modal-card__actions p-3 pt-2 border-0 d-flex gap-2 bg-white">
+                @if (_editingShiftId.HasValue && string.Equals(_shiftForm.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                {
+                    <button type="button" class="btn btn-outline-danger px-4 py-2 fs-7 fw-bold shadow-sm" @onclick="() => ConfirmDelete(_editingShiftId.Value)">
+                        DELETE SHIFT
+                    </button>
+                }
                 <button type="submit" class="btn btn-primary px-4 py-2 fs-7 fw-bold flex-grow-1 shadow-sm" disabled="@_savingShift">
                     @if (_savingShift)
                     {
@@ -1383,8 +1529,8 @@
 @* Delete Confirmation Modal *@
 @if (_showDeleteModal)
 {
-    <div class="modal-backdrop"></div>
-    <div class="modal-card" style="max-width: 400px;">
+    <div class="modal-backdrop" style="z-index: 2050;"></div>
+    <div class="modal-card" style="max-width: 400px; z-index: 2100;">
         <div class="modal-card__header">
             <h4>Confirm Delete</h4>
         </div>

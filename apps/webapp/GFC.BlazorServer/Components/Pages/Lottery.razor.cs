@@ -476,12 +476,21 @@ namespace GFC.BlazorServer.Components.Pages
         private void OnEmployeeChanged(ChangeEventArgs e)
         {
             var username = e.Value?.ToString() ?? string.Empty;
-            if (string.IsNullOrEmpty(username) || username == _shiftForm.CreatedBy) return;
+            if (username == _shiftForm.CreatedBy) return;
 
-            var metadata = _employeeMetadata.FirstOrDefault(m => m.Username == username);
-            _pendingUsername = username;
-            _pendingFullName = metadata.FullName ?? username;
-            _showReassignConfirmation = true;
+            if (string.IsNullOrEmpty(username))
+            {
+                _pendingUsername = string.Empty;
+                _pendingFullName = "Unassigned";
+                _showReassignConfirmation = true;
+            }
+            else
+            {
+                var metadata = _employeeMetadata.FirstOrDefault(m => m.Username == username);
+                _pendingUsername = username;
+                _pendingFullName = metadata.FullName ?? username;
+                _showReassignConfirmation = true;
+            }
         }
 
         private void ConfirmReassignment()
@@ -612,6 +621,8 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 await Task.Run(() => LotteryService.DeleteShift(_shiftToDelete.Value));
                 _showDeleteModal = false;
+                _showShiftModal = false; // CLOSE EDIT MODAL ON SUCCESSFUL DELETE
+                _editingShiftId = null;  // CLEAR EDITING ID
                 _shiftToDelete = null;
                 await LoadData();
             }
@@ -1005,6 +1016,60 @@ namespace GFC.BlazorServer.Components.Pages
             catch (Exception ex)
             {
                 await JS.InvokeVoidAsync("alert", "Error settling week: " + ex.Message);
+            }
+        }
+
+        private async Task CreateClosedShift(DateTime date, string shiftType)
+        {
+            try
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                var username = currentUser?.Username ?? "System";
+                
+                decimal startingCash = 1200; // default target
+                
+                // Fetch previous shifts to find baseline ending cash to carry over
+                var previousShifts = await Task.Run(() => LotteryService.GetShiftsByDateRange(date.AddDays(-7), date));
+                var latestShift = previousShifts
+                    .Where(s => s.ShiftDate.Date < date.Date || (s.ShiftDate.Date == date.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase) && string.Equals(shiftType, "Night", StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(s => s.ShiftDate.Date)
+                    .ThenBy(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .FirstOrDefault();
+
+                if (latestShift != null)
+                {
+                    startingCash = latestShift.EndingCash;
+                }
+
+                var shift = new LotteryShift
+                {
+                    ShiftDate = date.Date,
+                    EmployeeName = "Club Closed",
+                    ShiftType = shiftType,
+                    MachineId = "MAIN",
+                    StartingCash = startingCash,
+                    EndingCash = startingCash, // Ending cash is same as starting cash
+                    TotalSales = 0,
+                    TotalPayouts = 0,
+                    TotalCancels = 0,
+                    NetDue = 0,
+                    NetSales = 0,
+                    ExpectedCash = startingCash,
+                    Variance = 0,
+                    Notes = "Club Closed",
+                    Status = "Submitted",
+                    IsReconciled = false,
+                    CreatedBy = username,
+                    CreatedDate = DateTime.UtcNow
+                };
+
+                await Task.Run(() => LotteryService.CreateShift(shift, username));
+                await LoadData();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error creating closed shift");
+                _error = "Failed to mark shift as closed: " + ex.Message;
             }
         }
     }

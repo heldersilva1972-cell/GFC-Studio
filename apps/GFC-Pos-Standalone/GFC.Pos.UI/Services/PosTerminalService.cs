@@ -1184,8 +1184,6 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                             if (remappedIds.TryGetValue(eventId, out var realEventId)) {
                                 Console.WriteLine($"[SYNC] Remapping negative close event ID {eventId} to {realEventId} using remappedIds.");
                                 eventId = realEventId;
-                                key = $"gfc_pos_vault_event_close_{realEventId}";
-                                retryKey = $"gfc_sync_retry_{key}";
                             } else {
                                 Console.WriteLine($"[SYNC] Auto-healing: Found negative Id {eventId} in event close outbox. Falling back to cached menu lookup.");
                                 try {

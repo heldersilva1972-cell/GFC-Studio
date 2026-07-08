@@ -6178,11 +6178,11 @@
         {
             _hasBlockingOpenSession = false;
             _blockingSessionDate = null;
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
             var records = await JSRuntime.InvokeAsync<List<VaultRecord>>("window.gfcGetAllAsync");
             if (records != null)
             {
-                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 foreach (var rec in records)
                 {
                     if (rec.Key != null && rec.Key.StartsWith("gfc_bingo_draft_"))
@@ -6221,6 +6221,18 @@
                         }
                         if (s.Status == "Partial" || s.Status == "Open" || s.Status == "Draft")
                         {
+                            // Check if we have a local draft for this date and if it is closed/locked
+                            var targetKey = $"gfc_bingo_draft_{s.SessionDate:yyyyMMdd}";
+                            var localRecord = records?.FirstOrDefault(r => string.Equals(r.Key, targetKey, StringComparison.OrdinalIgnoreCase));
+                            if (localRecord != null)
+                            {
+                                var localDraft = System.Text.Json.JsonSerializer.Deserialize<BingoDraft>(localRecord.Data.GetRawText(), options);
+                                if (localDraft != null && (localDraft.SessionState == "Closed" || localDraft.SessionState == "Submitted"))
+                                {
+                                    continue; // Local is closed/locked, ignore server's out-of-sync status
+                                }
+                            }
+
                             _hasBlockingOpenSession = true;
                             _blockingSessionDate = s.SessionDate;
                             return;

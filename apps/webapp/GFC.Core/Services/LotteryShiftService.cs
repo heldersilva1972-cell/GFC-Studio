@@ -81,7 +81,16 @@ namespace GFC.Core.Services
             shift.CreatedBy = createdBy;
             shift.Status ??= "Submitted";
             shift.IsReconciled = false;
-            return _repository.Create(shift);
+            
+            var createdId = _repository.Create(shift);
+
+            // Propagate to Night shift if Day shift was created (updates baseline)
+            if (string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
+            {
+                PropagateDayShiftToNight(shift, createdBy);
+            }
+
+            return createdId;
         }
 
         public void UpdateShift(LotteryShift shift, string? modifiedBy = null)
@@ -111,6 +120,49 @@ namespace GFC.Core.Services
             shift.ModifiedDate = DateTime.UtcNow;
             shift.ModifiedBy = modifiedBy;
             _repository.Update(shift);
+
+            // Propagate to Night shift if Day shift was updated (updates baseline)
+            if (string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
+            {
+                PropagateDayShiftToNight(shift, modifiedBy);
+            }
+        }
+
+        private void PropagateDayShiftToNight(LotteryShift dayShift, string? modifiedBy)
+        {
+            if (dayShift == null) return;
+            var shifts = _repository.GetByDateRange(dayShift.ShiftDate.Date, dayShift.ShiftDate.Date);
+            var nightShift = shifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+            if (nightShift != null)
+            {
+                nightShift.ShiftSalesActivity = nightShift.TotalSales - dayShift.TotalSales;
+                nightShift.ShiftPayoutsActivity = nightShift.TotalPayouts - dayShift.TotalPayouts;
+                nightShift.ShiftCancelsActivity = nightShift.TotalCancels - dayShift.TotalCancels;
+
+                ReconcileShiftMath(nightShift);
+
+                nightShift.ModifiedDate = DateTime.UtcNow;
+                nightShift.ModifiedBy = modifiedBy;
+                _repository.Update(nightShift);
+            }
+        }
+
+        private void PropagateDayShiftDeletionToNight(DateTime shiftDate, string? modifiedBy)
+        {
+            var shifts = _repository.GetByDateRange(shiftDate.Date, shiftDate.Date);
+            var nightShift = shifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+            if (nightShift != null)
+            {
+                nightShift.ShiftSalesActivity = nightShift.TotalSales;
+                nightShift.ShiftPayoutsActivity = nightShift.TotalPayouts;
+                nightShift.ShiftCancelsActivity = nightShift.TotalCancels;
+
+                ReconcileShiftMath(nightShift);
+
+                nightShift.ModifiedDate = DateTime.UtcNow;
+                nightShift.ModifiedBy = modifiedBy;
+                _repository.Update(nightShift);
+            }
         }
 
         private void ReconcileShiftMath(LotteryShift shift)
@@ -177,7 +229,13 @@ namespace GFC.Core.Services
 
         public void DeleteShift(int shiftId)
         {
+            var shift = _repository.GetById(shiftId);
             _repository.Delete(shiftId);
+
+            if (shift != null && string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
+            {
+                PropagateDayShiftDeletionToNight(shift.ShiftDate, "System");
+            }
         }
 
         public void MarkReconciled(int shiftId, string? reconciledBy = null)
@@ -297,10 +355,24 @@ namespace GFC.Core.Services
             var dtos = shifts.Select(MapToDto).ToList();
             ApplyConsolidation(dtos);
 
-            // GROUP BY DAY to correctly show cumulative machine totals (Latest reading of the day)
-            var shiftsByDay = dtos.GroupBy(s => s.ShiftDate.Date).Select(g => new {
-                Date = g.Key,
-                LatestShift = g.OrderByDescending(s => s.ShiftId).First()
+            // GROUP BY DAY to correctly show cumulative machine totals (Latest reading of the day, skipping closed shifts)
+            var shiftsByDay = dtos.GroupBy(s => s.ShiftDate.Date).Select(g => {
+                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                
+                var representative = night;
+                if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        representative = day;
+                    }
+                }
+                
+                return new {
+                    Date = g.Key,
+                    LatestShift = representative ?? night ?? day ?? g.First()
+                };
             }).ToList();
 
             var variances = dtos.Select(s => s.Variance).ToList();
