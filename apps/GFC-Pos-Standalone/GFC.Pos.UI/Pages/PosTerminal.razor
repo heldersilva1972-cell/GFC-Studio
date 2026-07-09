@@ -21,6 +21,89 @@
 @attribute [AllowAnonymous]
 
 <style>
+    /* SYNC STATUS POPOVER */
+    .sync-status-popover {
+        position: absolute;
+        top: calc(100% + 12px);
+        right: 0;
+        z-index: 1000;
+        width: 250px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+        padding: 16px;
+        color: #1e293b;
+        font-family: inherit;
+        animation: popoverFadeIn 0.15s ease-out;
+    }
+    @@keyframes popoverFadeIn {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .sync-status-popover .popover-title {
+        font-weight: 900;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #64748b;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 8px;
+        margin-bottom: 12px;
+        text-align: left;
+    }
+    .sync-status-popover .pending-list-container {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid #f1f5f9;
+        border-radius: 8px;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .sync-status-popover .pending-item-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.75rem;
+        text-align: left;
+    }
+    .sync-status-popover .pending-item-row:last-child {
+        border-bottom: none;
+    }
+    .sync-status-popover .pending-item-row i {
+        font-size: 1.1rem;
+        color: #64748b;
+        flex-shrink: 0;
+    }
+    .sync-status-popover .pending-item-row .item-details {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .sync-status-popover .pending-item-row .item-type {
+        font-weight: 800;
+        color: #475569;
+        line-height: 1.2;
+    }
+    .sync-status-popover .pending-item-row .item-desc {
+        color: #94a3b8;
+        font-size: 0.68rem;
+        word-break: break-all;
+        line-height: 1.2;
+    }
+    .sync-status-popover .spin {
+        animation: popoverSpin 1s linear infinite;
+        display: inline-block;
+    }
+    @@keyframes popoverSpin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
     /* DARTS CLUB ROUND SIDEBAR STYLE REVISIONS */
     .pos-cart.darts-mode-active {
         border-left: 3px solid #8b5cf6 !important;
@@ -1146,8 +1229,8 @@
                 <span class="heartbeat-label">@Connectivity.EnvironmentName</span>
             </div>
 
-            <div class="d-flex flex-column align-items-center" style="line-height: 1.1; min-width: 140px;">
-                <div class="d-flex align-items-center gap-2">
+            <div class="d-flex flex-column align-items-center" style="line-height: 1.1; min-width: 140px; position: relative;">
+                <div class="d-flex align-items-center gap-2" @onclick="ToggleSyncPopover" @onclick:stopPropagation="true" style="cursor: pointer;" title="View Sync Status">
                     @if (!Connectivity.IsServerReachable)
                     {
                         <div class="sync-pill danger animate__animated animate__pulse animate__infinite">
@@ -1157,7 +1240,7 @@
                     }
                     else if (PendingSyncCount > 0)
                     {
-                        <div class="sync-pill warning animate__animated animate__pulse animate__infinite" @onclick="ForceSync" style="cursor: pointer;" title="Click to sync now">
+                        <div class="sync-pill warning animate__animated animate__pulse animate__infinite">
                             <i class="bi @(isSyncing ? "bi-arrow-repeat spin" : "bi-cloud-arrow-up-fill")"></i>
                             <span>@(isSyncing ? "SYNCING..." : $"{PendingSyncCount} PENDING")</span>
                         </div>
@@ -1173,9 +1256,97 @@
                         v.@(VersionService.GetRevision())
                     </span>
                 </div>
-                <span class="heartbeat-label" style="font-size: 0.5rem; opacity: 0.8;">
+                <span class="heartbeat-label" style="font-size: 0.5rem; opacity: 0.8; cursor: pointer;" @onclick="ToggleSyncPopover" @onclick:stopPropagation="true">
                     @(PosService.LastSynced.HasValue ? $"SYNCED: {PosService.LastSynced.Value.ToString("h:mm:ss tt")}" : (PendingSyncCount > 0 ? $"{PendingSyncCount} TRANSACTIONS QUEUED" : "SAVED TO VAULT"))
                 </span>
+
+                @* Sync Status Popover *@
+                @if (_showSyncPopover)
+                {
+                    <div class="sync-status-popover" @onclick:stopPropagation="true">
+                        <div class="popover-title">
+                            <i class="bi bi-cloud-arrow-up-fill me-1"></i> Sync Status
+                        </div>
+                        <div class="popover-body">
+                              @if (PendingSyncCount > 0)
+                              {
+                                  <div class="pending-summary-container" style="text-align: left; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px; padding: 4px;">
+                                      @if (_pendingSalesCount > 0)
+                                      {
+                                          <div class="d-flex justify-content-between">
+                                              <span class="text-muted"><i class="bi bi-cart-fill me-1"></i> Transactions:</span>
+                                              <span class="fw-bold">@_pendingSalesCount</span>
+                                          </div>
+                                      }
+                                      @if (_pendingZCount > 0)
+                                      {
+                                          <div class="d-flex justify-content-between">
+                                              <span class="text-muted"><i class="bi bi-file-earmark-bar-graph-fill me-1"></i> Z-Reports:</span>
+                                              <span class="fw-bold">@_pendingZCount</span>
+                                          </div>
+                                      }
+                                      @if (_pendingEventCount > 0)
+                                      {
+                                          <div class="d-flex justify-content-between">
+                                              <span class="text-muted"><i class="bi bi-calendar-event-fill me-1"></i> Event Transactions:</span>
+                                              <span class="fw-bold">@_pendingEventCount</span>
+                                          </div>
+                                      }
+                                      @if (_pendingLiquorCount > 0)
+                                      {
+                                          <div class="d-flex justify-content-between">
+                                              <span class="text-muted"><i class="bi bi-truck me-1"></i> Liquor Shipments:</span>
+                                              <span class="fw-bold">@_pendingLiquorCount</span>
+                                          </div>
+                                      }
+                                  </div>
+                                 @if (Connectivity.IsServerReachable)
+                                 {
+                                     <button class="btn btn-primary btn-sm w-100 mt-3 fw-bold" @onclick="ForceSync" disabled="@isSyncing" style="border-radius: 8px;">
+                                         @if (isSyncing)
+                                         {
+                                             <i class="bi bi-arrow-repeat spin me-1"></i> <span>Syncing...</span>
+                                         }
+                                         else
+                                         {
+                                             <i class="bi bi-cloud-arrow-up-fill me-1"></i> <span>Sync Now</span>
+                                         }
+                                     </button>
+                                 }
+                                 else
+                                 {
+                                     <div class="sync-error mt-3 text-danger fw-bold small" style="text-align: left;">
+                                         <i class="bi bi-exclamation-triangle-fill me-1"></i> Offline Mode: Cannot sync.
+                                     </div>
+                                 }
+                             }
+                            else
+                            {
+                                <div class="sync-clean text-success fw-bold d-flex align-items-center gap-1">
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <span>All data synced ✓</span>
+                                </div>
+                                <div class="sync-details mt-3 text-muted small" style="text-align: left; font-size: 0.75rem;">
+                                    <div><strong>Last Sync:</strong> @(PosService.LastSynced.HasValue ? PosService.LastSynced.Value.ToString("h:mm:ss tt") : "N/A")</div>
+                                    <div><strong>Server:</strong> @(Connectivity.IsServerReachable ? "Connected" : "Disconnected")</div>
+                                </div>
+                                @if (Connectivity.IsServerReachable)
+                                {
+                                    <button class="btn btn-outline-secondary btn-sm w-100 mt-3 fw-bold" @onclick="CheckConnectionAsync" disabled="@_isCheckingConnection" style="border-radius: 8px;">
+                                        @if (_isCheckingConnection)
+                                        {
+                                            <i class="bi bi-arrow-repeat spin me-1"></i> <span>Checking...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-arrow-repeat me-1"></i> <span>Check Connection</span>
+                                        }
+                                    </button>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
             </div>
 
             @if (forceTrainingMode)
@@ -5059,6 +5230,14 @@
     private string CurrentUserName = string.Empty;
     private string _displayProfile = "normal"; // "normal" | "large" | "accessible"
     private bool _showDisplayPopover = false;
+    private bool _showSyncPopover = false;
+    private bool _isCheckingConnection = false;
+
+    private int _pendingSalesCount = 0;
+    private int _pendingZCount = 0;
+    private int _pendingEventCount = 0;
+    private int _pendingLiquorCount = 0;
+
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
     
@@ -5920,6 +6099,7 @@
         isSyncing = true;
         await InvokeAsync(StateHasChanged);
         await PosService.FlushAllPendingAsync();
+        await RefreshPendingItemsAsync();
         isSyncing = false;
         await InvokeAsync(StateHasChanged);
     }
@@ -6196,15 +6376,83 @@
     private void ToggleDisplayPopover()
     {
         _showDisplayPopover = !_showDisplayPopover;
+        if (_showDisplayPopover)
+        {
+            _showSyncPopover = false;
+        }
         StateHasChanged();
     }
 
     private void DismissDisplayPopover()
     {
+        bool changed = false;
         if (_showDisplayPopover)
         {
             _showDisplayPopover = false;
+            changed = true;
+        }
+        if (_showSyncPopover)
+        {
+            _showSyncPopover = false;
+            changed = true;
+        }
+        if (changed)
+        {
             StateHasChanged();
+        }
+    }
+
+    private async Task ToggleSyncPopover()
+    {
+        _showSyncPopover = !_showSyncPopover;
+        if (_showSyncPopover)
+        {
+            _showDisplayPopover = false;
+            await RefreshPendingItemsAsync();
+        }
+        StateHasChanged();
+    }
+
+    private async Task CheckConnectionAsync()
+    {
+        if (_isCheckingConnection) return;
+        _isCheckingConnection = true;
+        await InvokeAsync(StateHasChanged);
+        
+        await Connectivity.CheckServerReachableAsync();
+        await PosService.GetTotalPendingAsync();
+        await RefreshPendingItemsAsync();
+        
+        _isCheckingConnection = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshPendingItemsAsync()
+    {
+        _pendingSalesCount = 0;
+        _pendingZCount = 0;
+        _pendingEventCount = 0;
+        _pendingLiquorCount = 0;
+        try
+        {
+            var vaultItems = await JSRuntime.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString() ?? string.Empty;
+                    if (string.IsNullOrEmpty(key)) continue;
+
+                    if (key.StartsWith("gfc_pos_vault_sale_")) _pendingSalesCount++;
+                    else if (key.StartsWith("gfc_pos_vault_z_")) _pendingZCount++;
+                    else if (key.StartsWith("gfc_pos_vault_event_")) _pendingEventCount++;
+                    else if (key.StartsWith("gfc_pos_vault_liq_receipt_")) _pendingLiquorCount++;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[GFC SYNC POPOVER] Error counting pending items: {ex.Message}");
         }
     }
     // ─────────────────────────────────────────────────────────────────────

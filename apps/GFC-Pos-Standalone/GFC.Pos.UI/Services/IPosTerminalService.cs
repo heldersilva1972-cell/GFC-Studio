@@ -19,6 +19,8 @@ public interface IPosTerminalService
     event Action? OutboxChanged;
     event Action<PosMenuDto>? MenuRefreshed;
     int TotalPendingCount { get; }
+    int PendingSalesCount { get; }
+    int PendingZCount { get; }
     DateTime? LastSynced { get; }
     Task<int> GetTotalPendingAsync();
     Task<DateTime> GetLastZTimeAsync(string terminalName);

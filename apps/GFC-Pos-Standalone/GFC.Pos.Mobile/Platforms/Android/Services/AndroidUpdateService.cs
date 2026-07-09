@@ -68,44 +68,142 @@ public class AndroidUpdateService : IUpdateService
             var apkUrl = $"{domain}/Download/GFC_POS_Mobile.apk?v={DateTime.UtcNow.Ticks}";
             var tempApkPath = Path.Combine(Microsoft.Maui.Storage.FileSystem.CacheDirectory, "update.apk");
 
-            if (File.Exists(tempApkPath))
-            {
-                File.Delete(tempApkPath);
-            }
-
-            // 2. Download APK with Progress (Use a clean HttpClient with a standard mobile User-Agent to bypass Cloudflare bot blocks)
+            // 2. Resumable Download Loop with 30-Minute Timeout and 50 Retries
             using (var cleanHttp = new HttpClient())
             {
                 cleanHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-                
-                using (var response = await cleanHttp.GetAsync(apkUrl, HttpCompletionOption.ResponseHeadersRead))
+                cleanHttp.Timeout = TimeSpan.FromMinutes(30);
+
+                long totalRead = 0;
+                long? contentLength = null;
+                int retries = 50;
+                bool downloadComplete = false;
+
+                // Query total file size first via HEAD or a short GET request
+                try
                 {
-                    response.EnsureSuccessStatusCode();
-                    var contentLength = response.Content.Headers.ContentLength;
-
-                    using (var downloadStream = await response.Content.ReadAsStreamAsync())
-                    using (var fileStream = new FileStream(tempApkPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
+                    using (var headRequest = new HttpRequestMessage(HttpMethod.Head, apkUrl))
                     {
-                        var buffer = new byte[8192];
-                        long totalRead = 0;
-                        int bytesRead;
-
-                        while ((bytesRead = await downloadStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        using (var headResponse = await cleanHttp.SendAsync(headRequest))
                         {
-                            await fileStream.WriteAsync(buffer, 0, bytesRead);
-                            totalRead += bytesRead;
-
-                            if (contentLength.HasValue && progressCallback != null)
+                            if (headResponse.IsSuccessStatusCode)
                             {
-                                double progress = (double)totalRead / contentLength.Value;
-                                progressCallback.Invoke(progress);
+                                contentLength = headResponse.Content.Headers.ContentLength;
                             }
+                        }
+                    }
+                }
+                catch { }
+
+                if (!contentLength.HasValue)
+                {
+                    try
+                    {
+                        using (var response = await cleanHttp.GetAsync(apkUrl, HttpCompletionOption.ResponseHeadersRead))
+                        {
+                            response.EnsureSuccessStatusCode();
+                            contentLength = response.Content.Headers.ContentLength;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[GFC UPDATE ERROR] Initial connection failed: {ex.Message}");
+                        return false;
+                    }
+                }
+
+                if (!contentLength.HasValue || contentLength.Value <= 0)
+                {
+                    Console.WriteLine("[GFC UPDATE ERROR] Could not determine server APK size.");
+                    return false;
+                }
+
+                // If existing local file is corrupted/larger than the server size, delete it
+                if (File.Exists(tempApkPath))
+                {
+                    var fileInfo = new FileInfo(tempApkPath);
+                    if (fileInfo.Length >= contentLength.Value)
+                    {
+                        File.Delete(tempApkPath);
+                    }
+                    else
+                    {
+                        totalRead = fileInfo.Length;
+                        Console.WriteLine($"[GFC UPDATE] Found existing partial download. Resuming from {totalRead} bytes.");
+                    }
+                }
+
+                while (retries > 0 && !downloadComplete)
+                {
+                    try
+                    {
+                        using (var request = new HttpRequestMessage(HttpMethod.Get, apkUrl))
+                        {
+                            if (totalRead > 0)
+                            {
+                                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(totalRead, null);
+                            }
+
+                            using (var response = await cleanHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                            {
+                                // If server returns 200 OK instead of 206 PartialContent when range is specified, restart from 0
+                                if (response.StatusCode == System.Net.HttpStatusCode.OK && totalRead > 0)
+                                {
+                                    totalRead = 0;
+                                    if (File.Exists(tempApkPath)) File.Delete(tempApkPath);
+                                }
+                                else
+                                {
+                                    response.EnsureSuccessStatusCode();
+                                }
+
+                                using (var downloadStream = await response.Content.ReadAsStreamAsync())
+                                using (var fileStream = new FileStream(tempApkPath, totalRead > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
+                                {
+                                    var buffer = new byte[8192];
+                                    int bytesRead;
+
+                                    while ((bytesRead = await downloadStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                                    {
+                                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                                        totalRead += bytesRead;
+
+                                        if (progressCallback != null)
+                                        {
+                                            double progress = (double)totalRead / contentLength.Value;
+                                            progressCallback.Invoke(progress);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (totalRead == contentLength.Value)
+                        {
+                            downloadComplete = true;
+                        }
+                        else
+                        {
+                            throw new IOException($"Download stream closed prematurely. Received {totalRead} of {contentLength.Value} bytes.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        retries--;
+                        Console.WriteLine($"[GFC UPDATE] Download failed: {ex.Message}. Retries remaining: {retries}");
+                        if (retries > 0)
+                        {
+                            await Task.Delay(2000); // Wait 2 seconds before retrying
+                        }
+                        else
+                        {
+                            return false; // Retries exhausted
                         }
                     }
                 }
             }
 
-            Console.WriteLine($"[GFC UPDATE] Download complete. Saved to: {tempApkPath}");
+            Console.WriteLine($"[GFC UPDATE] Download complete. Verified {new FileInfo(tempApkPath).Length} bytes. Saved to: {tempApkPath}");
 
             // 3. Silent Installation via PackageInstaller API
             var context = Android.App.Application.Context;

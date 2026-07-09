@@ -417,6 +417,23 @@ namespace GFC.Data.Repositories
             {
                 using var connection = Db.GetConnection();
                 connection.Open();
+
+                // Check if a POS Z-Report exists for this date. If so, skip updating the bar sale owner (keep locked to POS login user)
+                const string checkSql = @"
+                    SELECT COUNT(1) 
+                    FROM PosZReports 
+                    WHERE CAST(Timestamp AS DATE) = @Date";
+
+                using (var checkCmd = new SqlCommand(checkSql, connection))
+                {
+                    checkCmd.Parameters.AddWithValue("@Date", date.Date);
+                    var count = (int)checkCmd.ExecuteScalar();
+                    if (count > 0)
+                    {
+                        Console.WriteLine($"[Lottery Reassignment] Skipping BarSaleEntries owner update for {date:yyyy-MM-dd} because POS Z-Reports exist.");
+                        return;
+                    }
+                }
                 
                 // Find and update the bar entry linked to this lottery shift
                 // Matches on Date, Shift Type, and the OLD username to ensure we hit the right one
