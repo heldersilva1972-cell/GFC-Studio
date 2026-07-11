@@ -20,6 +20,7 @@ namespace GFC.Core.Models
         public decimal NetProceeds { get; set; }
         public decimal RoundingAdjustment { get; set; }
         public int BallsCalled { get; set; }
+        public int? ProgressiveBallGoal { get; set; }
         public string? Category { get; set; }
 
         [JsonIgnore]

@@ -52,6 +52,8 @@ namespace GFC.Core.Models
 
         public int BallsCalled { get; set; }
 
+        public int? ProgressiveBallGoal { get; set; }
+
         public string? Category { get; set; }
     }
 }

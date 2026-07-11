@@ -1465,6 +1465,24 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($"Error executing SystemSettings PayoutCategories repair: {ex.Message}");
                 }
+
+                // [AUTO-FIX 11] Run ProgressiveBallGoal BingoGameEntries Column Repair
+                try
+                {
+                    Console.WriteLine(">>> Applying BingoGameEntries ProgressiveBallGoal Column Repair...");
+                    var progGoalFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[BingoGameEntries]') AND name = 'ProgressiveBallGoal')
+                        BEGIN
+                            ALTER TABLE [dbo].[BingoGameEntries] ADD [ProgressiveBallGoal] INT NULL;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(progGoalFixSql);
+                    Console.WriteLine(">>> BingoGameEntries ProgressiveBallGoal Column Repair Applied Successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing BingoGameEntries ProgressiveBallGoal repair: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {
