@@ -55,15 +55,45 @@
                         {
                             @foreach (var z in ZReports)
                             {
-                                <div class="sale-item @(SelectedZReport == z ? "active" : "")" @onclick="() => SelectedZReport = z">
-                                    <div class="d-flex flex-column">
-                                        <span class="text-muted fw-bold mb-1" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@z.Timestamp.ToString("ddd, MMM dd")</span>
-                                        <span class="fw-black text-primary" style="font-size: 0.95rem; line-height: 1;">@GetZReportPeriod(z)</span>
+                                var detail = GetShiftDetail(z);
+                                <div class="sale-item @(SelectedZReport == z ? "active" : "")" @onclick="() => SelectedZReport = z" style="padding: 0.85rem 1.25rem;">
+                                    <div class="d-flex flex-column flex-grow-1">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@z.Timestamp.ToString("ddd, MMM dd")</span>
+                                            @if (!string.IsNullOrEmpty(detail.BadgeText))
+                                            {
+                                                <span class="badge @detail.BadgeClass" style="font-size: 0.55rem; padding: 2px 6px; border-radius: 4px;">@detail.BadgeText</span>
+                                            }
+                                        </div>
+                                        
+                                        @if (detail.FirstSaleTime.HasValue)
+                                        {
+                                            <span class="fw-bold text-success" style="font-size: 0.8rem; line-height: 1.2;">
+                                                🟢 First Sale: @detail.FirstSaleTime.Value.ToString("ddd, MMM dd h:mm tt") (@detail.FirstSaleBartender)
+                                            </span>
+                                            <span class="fw-bold text-danger mt-1" style="font-size: 0.8rem; line-height: 1.2;">
+                                                🔴 Last Sale: @detail.LastSaleTime?.ToString("ddd, MMM dd h:mm tt") (@detail.LastSaleBartender)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-bold text-muted" style="font-size: 0.8rem; line-height: 1.2;">
+                                                🚫 No sales recorded
+                                            </span>
+                                        }
+                                        
+                                        @if (!string.IsNullOrEmpty(detail.DurationDisplay) && detail.FirstSaleTime.HasValue)
+                                        {
+                                            <span class="text-muted fw-bold mt-1" style="font-size: 0.65rem;"><i class="bi bi-clock me-1"></i>@detail.DurationDisplay</span>
+                                        }
+                                        
                                         <div class="terminal mt-1">@z.TerminalName</div>
-                                        <div class="bartender">@z.BartenderName</div>
+                                        <div class="bartender mt-1" style="font-size: 0.65rem; line-height: 1.2; font-weight: bold;">
+                                            Closed by: @detail.ClosedBy @@ @detail.CloseTime.ToString("h:mm tt")
+                                        </div>
                                     </div>
-                                    <div class="text-end">
-                                        <div class="sale-amount">@z.TotalGrossSales.ToString("C")</div>
+                                    <div class="text-end ms-2 d-flex flex-column justify-content-center">
+                                        <div class="sale-amount" style="font-size: 0.95rem;">@z.TotalGrossSales.ToString("C")</div>
                                         <div class="small text-muted" style="font-size: 0.6rem;">CASH: @z.CashTotal.ToString("C")</div>
                                     </div>
                                 </div>
@@ -1418,6 +1448,7 @@
     private string ActiveTab = "SALES";
     private List<PosSale> Sales = new();
     private List<PosZReport> ZReports = new();
+    private Dictionary<Guid, (DateTime? FirstSale, string FirstBartender, DateTime? LastSale, string LastBartender)> ZReportWindows = new();
     private string FilterTerminal = "";
     private List<string> TerminalList = new();
     private List<GFC.Core.Models.PosTerminal> TerminalsWithStatus = new();
@@ -1494,20 +1525,118 @@
     }
 
 
+    public class ShiftDetailInfo
+    {
+        public DateTime? FirstSaleTime { get; set; }
+        public string FirstSaleBartender { get; set; } = "";
+        public DateTime? LastSaleTime { get; set; }
+        public string LastSaleBartender { get; set; } = "";
+        
+        public DateTime CloseTime { get; set; }
+        public string ClosedBy { get; set; } = "";
+        
+        public string DurationDisplay { get; set; } = "";
+        public string BadgeText { get; set; } = "";
+        public string BadgeClass { get; set; } = "";
+    }
+
     private string GetZReportPeriod(PosZReport current)
     {
-        var terminalReports = ZReports.Where(r => r.TerminalName == current.TerminalName)
-                                      .OrderByDescending(r => r.Timestamp)
-                                      .ToList();
-        
-        int idx = terminalReports.IndexOf(current);
-        if (idx != -1 && idx < terminalReports.Count - 1)
+        var detail = GetShiftDetail(current);
+        if (detail.FirstSaleTime.HasValue && detail.LastSaleTime.HasValue)
         {
-            var prev = terminalReports[idx + 1];
-            return $"{prev.Timestamp.ToString("h:mm tt")} - {current.Timestamp.ToString("h:mm tt")}";
+            var startStr = detail.FirstSaleTime.Value.Date == detail.CloseTime.Date 
+                ? detail.FirstSaleTime.Value.ToString("h:mm tt") 
+                : detail.FirstSaleTime.Value.ToString("ddd, MMM dd h:mm tt");
+                
+            var endStr = detail.CloseTime.ToString("h:mm tt");
+            return $"{startStr} - {endStr}";
         }
-        
-        return $"SHIFT ENDED @ {current.Timestamp.ToString("h:mm tt")}";
+        return $"Ended @ {detail.CloseTime.ToString("h:mm tt")}";
+    }
+
+    private ShiftDetailInfo GetShiftDetail(PosZReport current)
+    {
+        DateTime? firstSaleTime = null;
+        string firstSaleBartender = "";
+        DateTime? lastSaleTime = null;
+        string lastSaleBartender = "";
+
+        if (ZReportWindows.TryGetValue(current.Id, out var bounds))
+        {
+            firstSaleTime = bounds.FirstSale;
+            firstSaleBartender = bounds.FirstBartender;
+            lastSaleTime = bounds.LastSale;
+            lastSaleBartender = bounds.LastBartender;
+        }
+
+        var closeTime = current.Timestamp;
+        var closedBy = current.BartenderName ?? "Unknown";
+
+        string durationDisplay = "";
+        string badgeText = "";
+        string badgeClass = "";
+
+        if (firstSaleTime.HasValue && lastSaleTime.HasValue)
+        {
+            var duration = lastSaleTime.Value - firstSaleTime.Value;
+            if (duration.TotalMinutes < 1)
+            {
+                durationDisplay = "Under 1 min";
+            }
+            else if (duration.TotalHours < 1)
+            {
+                durationDisplay = $"{(int)duration.TotalMinutes}m active sales";
+            }
+            else
+            {
+                durationDisplay = $"{(int)duration.TotalHours}h {duration.Minutes}m active sales";
+            }
+
+            // Flag overnight/extended registers using full time since previous Z-Report
+            var terminalReports = ZReports.Where(r => r.TerminalName == current.TerminalName)
+                                          .OrderByDescending(r => r.Timestamp)
+                                          .ToList();
+            int idx = terminalReports.IndexOf(current);
+            if (idx != -1 && idx < terminalReports.Count - 1)
+            {
+                var prev = terminalReports[idx + 1];
+                var fullDuration = closeTime - prev.Timestamp;
+                
+                if (current.TotalGrossSales == 0 && fullDuration.TotalMinutes <= 10)
+                {
+                    badgeText = "Quick Reset";
+                    badgeClass = "bg-secondary text-white";
+                }
+                else if (prev.Timestamp.Date != closeTime.Date && fullDuration.TotalHours >= 12)
+                {
+                    badgeText = "Overnight Shift";
+                    badgeClass = "bg-warning text-dark";
+                }
+                else if (fullDuration.TotalHours >= 12)
+                {
+                    badgeText = "Extended Shift";
+                    badgeClass = "bg-danger text-white";
+                }
+            }
+        }
+        else
+        {
+            durationDisplay = "No transactions";
+        }
+
+        return new ShiftDetailInfo
+        {
+            FirstSaleTime = firstSaleTime,
+            FirstSaleBartender = firstSaleBartender,
+            LastSaleTime = lastSaleTime,
+            LastSaleBartender = lastSaleBartender,
+            CloseTime = closeTime,
+            ClosedBy = closedBy,
+            DurationDisplay = durationDisplay,
+            BadgeText = badgeText,
+            BadgeClass = badgeClass
+        };
     }
 
     private List<ZReportPull> GetPullsList(string json)
@@ -1758,6 +1887,32 @@
                 var zQuery = db.PosZReports.AsNoTracking().Where(r => r.Timestamp >= st && r.Timestamp < en);
                 if (!string.IsNullOrEmpty(FilterTerminal)) zQuery = zQuery.Where(r => r.TerminalName == FilterTerminal);
                 ZReports = await zQuery.OrderByDescending(r => r.Timestamp).Take(500).ToListAsync();
+
+                // Compute exact transaction bounds for each Z-Report
+                ZReportWindows.Clear();
+                foreach (var z in ZReports)
+                {
+                    var prevZ = await db.PosZReports.AsNoTracking()
+                        .Where(r => r.TerminalName == z.TerminalName && r.Timestamp < z.Timestamp)
+                        .OrderByDescending(r => r.Timestamp)
+                        .FirstOrDefaultAsync();
+
+                    var salesInShift = db.PosSales.AsNoTracking()
+                        .Where(s => s.TerminalName == z.TerminalName && 
+                                    s.Timestamp <= z.Timestamp && 
+                                    (prevZ == null || s.Timestamp > prevZ.Timestamp));
+
+                    if (await salesInShift.AnyAsync())
+                    {
+                        var first = await salesInShift.OrderBy(s => s.Timestamp).FirstOrDefaultAsync();
+                        var last = await salesInShift.OrderByDescending(s => s.Timestamp).FirstOrDefaultAsync();
+                        ZReportWindows[z.Id] = (first?.Timestamp, first?.BartenderName ?? "Unknown", last?.Timestamp, last?.BartenderName ?? "Unknown");
+                    }
+                    else
+                    {
+                        ZReportWindows[z.Id] = (null, "No Sales", null, "No Sales");
+                    }
+                }
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading ZReports query: " + ex.Message, ex);
             }
