@@ -320,7 +320,6 @@ public class Program
         builder.Services.AddScoped<WaiverService>();
         builder.Services.AddScoped<KeyHistoryService>();
         builder.Services.AddScoped<ReceiptStorageService>();
-        builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
         builder.Services.AddScoped<IOperationsService, OperationsService>();
         builder.Services.AddScoped<IEncryptionService, EncryptionService>();
@@ -428,7 +427,6 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
         builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
         builder.Services.AddHostedService<ControllerStatusMonitorService>();
-        builder.Services.AddHostedService<ReimbursementReminderWorker>();
 
         var app = builder.Build();
         
