@@ -72,7 +72,8 @@ namespace GFC.BlazorServer.Services
                     .ThenInclude(v => v!.DefaultPaymentType)
                 .Include(b => b.Category)
                 .Include(b => b.Payments)
-                .Where(b => b.DueDate >= startOfYear && b.DueDate <= endOfYear)
+                .Where(b => (b.DueDate >= startOfYear && b.DueDate <= endOfYear) ||
+                            b.Payments.Any(p => p.PaymentDate >= startOfYear && p.PaymentDate <= endOfYear))
                 .OrderBy(b => b.DueDate)
                 .ToListAsync();
 
