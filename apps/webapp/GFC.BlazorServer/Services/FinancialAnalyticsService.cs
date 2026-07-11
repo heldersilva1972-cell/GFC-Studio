@@ -932,120 +932,125 @@ namespace GFC.BlazorServer.Services
                             var shiftYear = e.Date.Year;
                             var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
                         
-                        decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
-                        decimal shiftGross = e.Hours * rate;
-    
-                        // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
-                        var yearDeduction = allDeductions.FirstOrDefault(d => d.FilingStatus == user.FilingStatus);
+                            decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
+                            decimal shiftGross = e.Hours * rate;
+        
+                            // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
+                            var yearDeduction = allDeductions.FirstOrDefault(d => d.FilingStatus == user.FilingStatus);
+                            
+                            decimal shiftWithheld = 0;
+                            decimal shiftEmployerAddOn = 0;
+
+                            try 
+                            {
+                                var taxBreakdown = GFC.BlazorServer.Utilities.PayrollTaxCalculator.CalculateFederalTaxes(
+                                    shiftGross, user, allBrackets, yearDeduction, "Monthly");
+                                
+                                // State & PFML Taxes (Using standard MA Rates)
+                                decimal stateRate = (sys?.MaStateTaxRate ?? 5.0m) / 100m;
+                                decimal shiftMaIncomeTax = Math.Floor(shiftGross * stateRate * 100m) / 100m;
+                                
+                                decimal suiRate = (sys?.MaUnemploymentRate ?? 2.42m) / 100m;
+                                decimal shiftMaSui = Math.Floor(shiftGross * suiRate * 100m) / 100m;
+                                
+                                decimal pfmlRate = (sys?.PfmlEmployeeRate ?? 0.35m) / 100m;
+                                decimal shiftMaPfml = Math.Floor(shiftGross * pfmlRate * 100m) / 100m;
+
+                                shiftWithheld = taxBreakdown.TotalEmployeeWithholding + shiftMaIncomeTax + shiftMaPfml;
+                                shiftEmployerAddOn = taxBreakdown.TotalEmployerLiability + (shiftGross * fallbackEmployerTax) + shiftMaSui;
+
+                                // Accumulate Detail Fields
+                                fedWh += taxBreakdown.FederalTax;
+                                ficaSS += taxBreakdown.SocialSecurity;
+                                ficaMed += taxBreakdown.Medicare;
+                                maIncomeTax += shiftMaIncomeTax;
+                                maSui += shiftMaSui;
+                                maPfml += shiftMaPfml;
+                                empSS += taxBreakdown.EmployerSocialSecurity;
+                                empMed += taxBreakdown.EmployerMedicare;
+                            }
+                            catch 
+                            {
+                                // Fallback for missing tax data
+                                shiftWithheld = shiftGross * fallbackEmployeeTax;
+                                shiftEmployerAddOn = shiftGross * fallbackEmployerTax;
+                            }
+
+                            decimal shiftNet = shiftGross - shiftWithheld;
+                            decimal shiftCost = shiftGross + shiftEmployerAddOn;
+
+                            totalPay += shiftGross;
+                            netPay += shiftNet;
+                            totalPayrollCost += shiftCost;
+                            totalWithheld += shiftWithheld;
+                            totalEmployerAddOn += shiftEmployerAddOn;
+
+                            if (e.IsHall) upstairsPay += shiftGross;
+                            else downstairsPay += shiftGross;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[FinancialService] Error processing entry for {user.Username}: {ex.Message}");
+                        }
+                    }
+
+                    var dto = new EmployeeHoursDto {
+                        Username = user.Username,
+                        TotalHours = totalHours,
+                        DownstairsHours = userEntries.Where(e => !e.IsHall).Sum(e => e.Hours),
+                        UpstairsHours = userEntries.Where(e => e.IsHall).Sum(e => e.Hours),
+                        EntryCount = userEntries.Count(e => e.Hours > 0),
+                        HourlyRate = user.HourlyRate, // Keep current rate for display
+                        StartDate = start,
+                        EndDate = end,
+                        TotalPay = totalPay,
+                        NetPay = netPay,
+                        TotalWithheld = totalWithheld,
+                        TotalEmployerAddOn = totalEmployerAddOn,
+                        TotalPayrollCost = totalPayrollCost,
+                        DownstairsPay = downstairsPay,
+                        UpstairsPay = upstairsPay,
                         
-                        decimal shiftWithheld = 0;
-                        decimal shiftEmployerAddOn = 0;
+                        FederalWithholding = fedWh,
+                        FicaSocialSecurity = ficaSS,
+                        FicaMedicare = ficaMed,
+                        MaIncomeTax = maIncomeTax,
+                        MaSui = maSui,
+                        MaPfml = maPfml,
+                        EmployerFicaSocialSecurity = empSS,
+                        EmployerFicaMedicare = empMed
+                    };
 
-                        try 
-                        {
-                            var taxBreakdown = GFC.BlazorServer.Utilities.PayrollTaxCalculator.CalculateFederalTaxes(
-                                shiftGross, user, allBrackets, yearDeduction, "Monthly");
-                            
-                            // State & PFML Taxes (Using standard MA Rates)
-                            decimal stateRate = (sys?.MaStateTaxRate ?? 5.0m) / 100m;
-                            decimal shiftMaIncomeTax = Math.Floor(shiftGross * stateRate * 100m) / 100m;
-                            
-                            decimal suiRate = (sys?.MaUnemploymentRate ?? 2.42m) / 100m;
-                            decimal shiftMaSui = Math.Floor(shiftGross * suiRate * 100m) / 100m;
-                            
-                            decimal pfmlRate = (sys?.PfmlEmployeeRate ?? 0.35m) / 100m;
-                            decimal shiftMaPfml = Math.Floor(shiftGross * pfmlRate * 100m) / 100m;
-
-                            shiftWithheld = taxBreakdown.TotalEmployeeWithholding + shiftMaIncomeTax + shiftMaPfml;
-                            shiftEmployerAddOn = taxBreakdown.TotalEmployerLiability + (shiftGross * fallbackEmployerTax) + shiftMaSui;
-
-                            // Accumulate Detail Fields
-                            fedWh += taxBreakdown.FederalTax;
-                            ficaSS += taxBreakdown.SocialSecurity;
-                            ficaMed += taxBreakdown.Medicare;
-                            maIncomeTax += shiftMaIncomeTax;
-                            maSui += shiftMaSui;
-                            maPfml += shiftMaPfml;
-                            empSS += taxBreakdown.EmployerSocialSecurity;
-                            empMed += taxBreakdown.EmployerMedicare;
-                        }
-                        catch 
-                        {
-                            // Fallback for missing tax data
-                            shiftWithheld = shiftGross * fallbackEmployeeTax;
-                            shiftEmployerAddOn = shiftGross * fallbackEmployerTax;
-                        }
-
-                        decimal shiftNet = shiftGross - shiftWithheld;
-                        decimal shiftCost = shiftGross + shiftEmployerAddOn;
-
-                        totalPay += shiftGross;
-                        netPay += shiftNet;
-                        totalPayrollCost += shiftCost;
-                        totalWithheld += shiftWithheld;
-                        totalEmployerAddOn += shiftEmployerAddOn;
-
-                        if (e.IsHall) upstairsPay += shiftGross;
-                        else downstairsPay += shiftGross;
-                    }
-                    catch (Exception ex)
+                    // Fill daily breakdown and shift types
+                    foreach (var entryGroup in userEntries.GroupBy(e => e.Date))
                     {
-                        Console.WriteLine($"[FinancialService] Error processing entry for {user.Username}: {ex.Message}");
+                        var date = entryGroup.Key;
+                        var hours = entryGroup.Sum(e => e.Hours);
+                        dto.DailyHours[date] = hours;
+
+                        // Determine shift signature
+                        var shiftsWithHours = entryGroup.Where(e => e.Hours > 0).Select(e => new { Shift = e.IsHall ? "Hall" : e.Shift, e.Hours }).ToList();
+                        if (shiftsWithHours.Select(s => s.Shift).Distinct().Count() > 1)
+                        {
+                            // Pack multiple shifts on the same day (e.g. Day:4.0|Janitor:2.0)
+                            dto.DailyShiftTypes[date] = string.Join("|", shiftsWithHours.Select(s => $"{s.Shift.Trim()}:{s.Hours:N1}"));
+                        }
+                        else if (shiftsWithHours.Any())
+                        {
+                            dto.DailyShiftTypes[date] = shiftsWithHours.First().Shift;
+                        }
                     }
+
+                    // Link member name for better display
+                    var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+                    dto.MemberName = member != null ? $"{member.FirstName} {member.LastName}" : (user.Email ?? user.Username);
+
+                    filteredResults.Add(dto);
                 }
-
-                var dto = new EmployeeHoursDto {
-                    Username = user.Username,
-                    TotalHours = totalHours,
-                    DownstairsHours = userEntries.Where(e => !e.IsHall).Sum(e => e.Hours),
-                    UpstairsHours = userEntries.Where(e => e.IsHall).Sum(e => e.Hours),
-                    EntryCount = userEntries.Count(e => e.Hours > 0),
-                    HourlyRate = user.HourlyRate, // Keep current rate for display
-                    StartDate = start,
-                    EndDate = end,
-                    TotalPay = totalPay,
-                    NetPay = netPay,
-                    TotalWithheld = totalWithheld,
-                    TotalEmployerAddOn = totalEmployerAddOn,
-                    TotalPayrollCost = totalPayrollCost,
-                    DownstairsPay = downstairsPay,
-                    UpstairsPay = upstairsPay,
-                    
-                    FederalWithholding = fedWh,
-                    FicaSocialSecurity = ficaSS,
-                    FicaMedicare = ficaMed,
-                    MaIncomeTax = maIncomeTax,
-                    MaSui = maSui,
-                    MaPfml = maPfml,
-                    EmployerFicaSocialSecurity = empSS,
-                    EmployerFicaMedicare = empMed
-                };
-
-                // Fill daily breakdown and shift types
-                foreach (var entryGroup in userEntries.GroupBy(e => e.Date))
+                catch (Exception ex)
                 {
-                    var date = entryGroup.Key;
-                    var hours = entryGroup.Sum(e => e.Hours);
-                    dto.DailyHours[date] = hours;
-
-                    // Determine shift signature
-                    var shifts = entryGroup.Select(e => e.IsHall ? "Hall" : e.Shift).Distinct().ToList();
-                    if (shifts.Count > 1) 
-                        dto.DailyShiftTypes[date] = "Both";
-                    else if (shifts.Any())
-                        dto.DailyShiftTypes[date] = shifts.First();
+                    Console.WriteLine($"[FinancialService] Skip user {user.Username} due to calculation error: {ex.Message}");
                 }
-
-                // Link member name for better display
-                var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
-                dto.MemberName = member != null ? $"{member.FirstName} {member.LastName}" : (user.Email ?? user.Username);
-
-                filteredResults.Add(dto);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[FinancialService] Skip user {user.Username} due to calculation error: {ex.Message}");
-            }
         }
 
             // [ORPHANS] Handle any entries that didn't match a user
@@ -1069,7 +1074,18 @@ namespace GFC.BlazorServer.Services
                 filteredResults.Add(miscDto);
             }
 
-            return filteredResults.OrderByDescending(d => d.TotalHours).ToList();
+            return filteredResults
+                .OrderBy(d => {
+                    var u = users.FirstOrDefault(x => x.Username == d.Username);
+                    if (u != null && u.MemberId.HasValue)
+                    {
+                        var m = allMembers.FirstOrDefault(x => x.MemberID == u.MemberId);
+                        if (m != null) return m.LastName ?? m.FirstName ?? d.MemberName;
+                    }
+                    return d.MemberName;
+                })
+                .ThenBy(d => d.MemberName)
+                .ToList();
             }
             catch (Exception ex)
             {

@@ -43,7 +43,8 @@ namespace GFC.BlazorServer.Services
                     .Include(b => b.Payments)
                     .Where(b => (b.DueDate >= startOfMonth && b.DueDate <= endOfMonth) || 
                                 (b.Status != "Paid" && b.DueDate < startOfMonth) ||
-                                (b.Status != "Paid" && b.DueDate > endOfMonth && b.DueDate <= upcomingLimit))
+                                (b.Status != "Paid" && b.DueDate > endOfMonth && b.DueDate <= upcomingLimit) ||
+                                b.Payments.Any(p => p.PaymentDate >= startOfMonth && p.PaymentDate <= endOfMonth))
                     .OrderBy(b => b.DueDate)
                     .ToListAsync();
                 

@@ -217,7 +217,6 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
-        builder.Services.AddScoped<IStudioPageRepository, GFC.BlazorServer.Repositories.StudioPageRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -337,7 +336,6 @@ public class Program
         builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
         builder.Services.AddScoped<IStaticExportService, StaticExportService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
-        builder.Services.AddSingleton<IStudioEngineService, StudioEngineService>();
         builder.Services.AddScoped<IStudioCmsService, StudioCmsService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
