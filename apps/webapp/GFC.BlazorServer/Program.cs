@@ -369,7 +369,6 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
-        builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         builder.Services.AddScoped<IPublicReviewService, PublicReviewService>();
         builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
