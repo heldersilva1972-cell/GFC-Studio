@@ -146,6 +146,11 @@ namespace GFC.BlazorServer.Services
             db.FinanceBills.Add(bill);
             await db.SaveChangesAsync();
 
+            var vendor = await db.FinanceVendors.FindAsync(bill.VendorId);
+            var vendorName = vendor?.Name ?? "Unknown";
+            var desc = $"Created bill for vendor '{vendorName}' due on {bill.DueDate:MM/dd/yyyy} for {bill.OriginalAmount:C}.";
+            await LogActionAsync(db, "Create Bill", desc, performedBy);
+
             return bill;
         }
 
@@ -248,6 +253,10 @@ namespace GFC.BlazorServer.Services
 
             bill.UpdatedAt = DateTime.Now;
             await db.SaveChangesAsync();
+
+            var vendorName = bill.Vendor?.Name ?? "Unknown";
+            var desc = $"Recorded payment of {amount:C} for '{vendorName}' bill (Due: {bill.DueDate:MM/dd/yyyy}) via {method ?? "Unknown"}.";
+            await LogActionAsync(db, "Record Payment", desc, performedBy);
         }
 
         private async Task GenerateNextRecurringInstance(GfcDbContext db, FinanceBill currentBill)

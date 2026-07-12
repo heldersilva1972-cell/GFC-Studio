@@ -3,11 +3,18 @@ window.sessionMonitor = {
     isWarningActive: false,
     lastActivityTime: 0,
 
-    init: function (dotNetReference, idleMinutes, warningMinutes) {
+    init: function (dotNetReference, idleMinutes) {
         this.cleanup();
         this.dotNetRef = dotNetReference;
         this.idleTimeout = idleMinutes * 60 * 1000;
-        this.warningTimeout = warningMinutes * 60 * 1000;
+        
+        // Calculate warning time dynamically: 60s before timeout, or half-time if timeout is 60s or less
+        if (this.idleTimeout > 60000) {
+            this.warningTimeout = this.idleTimeout - 60000;
+        } else {
+            this.warningTimeout = this.idleTimeout / 2;
+        }
+
         this.isWarningActive = false;
         this.lastActivityTime = Date.now();
 
