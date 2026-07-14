@@ -89,6 +89,9 @@ namespace GFC.BlazorServer.Services
             if (options.IncludeSignInNumberDraw)
                 AddSignInNumberDrawSheet(package);
 
+            if (options.IncludePagePermissions)
+                AddPagePermissionsSheet(package);
+
             return package.GetAsByteArray();
         }
 
@@ -561,6 +564,68 @@ namespace GFC.BlazorServer.Services
 
             // Auto-fit columns
             worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+        }
+
+        private void AddPagePermissionsSheet(ExcelPackage package)
+        {
+            var worksheet = package.Workbook.Worksheets.Add("Page Access Permissions");
+            var users = _userManagementService.GetAllUsers();
+            var pages = _userManagementService.GetAllPages();
+            
+            var pageDescriptions = pages.ToDictionary(p => p.PageId, p => p.Description ?? string.Empty);
+
+            // Headers
+            worksheet.Cells[1, 1].Value = "User ID";
+            worksheet.Cells[1, 2].Value = "Username";
+            worksheet.Cells[1, 3].Value = "Is Admin";
+            worksheet.Cells[1, 4].Value = "Is Active";
+            worksheet.Cells[1, 5].Value = "Page Name";
+            worksheet.Cells[1, 6].Value = "Page Route (Actual Page)";
+            worksheet.Cells[1, 7].Value = "Category";
+            worksheet.Cells[1, 8].Value = "Description";
+            worksheet.Cells[1, 9].Value = "Access Allowed";
+            worksheet.Cells[1, 10].Value = "Edit Allowed";
+            worksheet.Cells[1, 11].Value = "Receive Push Notification";
+
+            // Style headers
+            using (var range = worksheet.Cells[1, 1, 1, 11])
+            {
+                range.Style.Font.Bold = true;
+                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                range.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                range.Style.Border.BorderAround(ExcelBorderStyle.Thin);
+            }
+
+            // Data
+            int row = 2;
+            foreach (var user in users)
+            {
+                var permissions = _userManagementService.GetUserPagePermissions(user.UserId);
+                foreach (var perm in permissions)
+                {
+                    worksheet.Cells[row, 1].Value = user.UserId;
+                    worksheet.Cells[row, 2].Value = user.Username;
+                    worksheet.Cells[row, 3].Value = user.IsAdmin ? "Yes" : "No";
+                    worksheet.Cells[row, 4].Value = user.IsActive ? "Yes" : "No";
+                    worksheet.Cells[row, 5].Value = perm.PageName;
+                    worksheet.Cells[row, 6].Value = perm.PageRoute;
+                    worksheet.Cells[row, 7].Value = perm.Category ?? "";
+                    
+                    pageDescriptions.TryGetValue(perm.PageId, out var desc);
+                    worksheet.Cells[row, 8].Value = desc ?? "";
+                    
+                    worksheet.Cells[row, 9].Value = perm.CanAccess ? "Yes" : "No";
+                    worksheet.Cells[row, 10].Value = perm.CanEdit ? "Yes" : "No";
+                    worksheet.Cells[row, 11].Value = perm.ReceivePush ? "Yes" : "No";
+                    row++;
+                }
+            }
+
+            // Auto-fit columns
+            if (worksheet.Dimension != null)
+            {
+                worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+            }
         }
 
         private void AddSignInNumberDrawSheet(ExcelPackage package)

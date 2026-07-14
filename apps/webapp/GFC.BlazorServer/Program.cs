@@ -1190,7 +1190,76 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                             UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/users/active-sessions';
                             UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/security-settings';
                             UPDATE AppPages SET IsActive = 0 WHERE PageRoute = '/admin/users/live-activity';
-                            PRINT 'Updated AppPages names and active states';
+                            
+                            -- Delete legacy inactive lottery pages
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/finance/lottery-analytics')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/finance/lottery-analytics');
+                                DELETE FROM AppPages WHERE PageRoute = '/finance/lottery-analytics';
+                            END
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/finance/lottery-reconcile')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/finance/lottery-reconcile');
+                                DELETE FROM AppPages WHERE PageRoute = '/finance/lottery-reconcile';
+                            END
+                            
+                            -- Delete legacy inactive progressive bingo page
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/admin/bingo/progressive')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/admin/bingo/progressive');
+                                DELETE FROM AppPages WHERE PageRoute = '/admin/bingo/progressive';
+                            END
+                            
+                            -- Delete legacy mobile reimbursement pages
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/reimbursements')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/reimbursements');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/reimbursements';
+                            END
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/reimbursements/manager')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/reimbursements/manager');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/reimbursements/manager';
+                            END
+                            
+                            -- Delete legacy duplicate mobile liquor page
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/liquor')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/liquor');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/liquor';
+                            END
+                            
+                            -- Delete legacy mobile checkout page
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/liquor/checkout')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/liquor/checkout');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/liquor/checkout';
+                            END
+                            
+                            -- Delete legacy mobile inventory page
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/liquor/manage')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/liquor/manage');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/liquor/manage';
+                            END
+                            
+                            -- Delete legacy duplicate mobile system stats page
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/mobile/system-stats')
+                            BEGIN
+                                DELETE FROM UserPagePermissions WHERE PageId IN (SELECT PageId FROM AppPages WHERE PageRoute = '/mobile/system-stats');
+                                DELETE FROM AppPages WHERE PageRoute = '/mobile/system-stats';
+                            END
+                            
+                            -- Update Bar/Lottery Entries category to BAR
+                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/finance/bar-lottery-sales')
+                            BEGIN
+                                UPDATE AppPages SET Category = 'BAR' WHERE PageRoute = '/finance/bar-lottery-sales';
+                            END
+                            
+                            -- Consolidate all mobile pages under MOBILE APPS
+                            UPDATE AppPages SET Category = 'MOBILE APPS' WHERE Category = 'MOBILE HUB';
+                            
+                            PRINT 'Updated AppPages names and active states, removed legacy lottery pages, set Bar/Lottery Entries category, removed legacy progressive page, consolidated mobile categories, removed mobile reimbursement pages';
                         END
                         IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
                         BEGIN
