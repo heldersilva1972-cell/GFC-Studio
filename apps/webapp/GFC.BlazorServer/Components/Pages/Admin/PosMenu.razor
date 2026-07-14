@@ -851,16 +851,27 @@
                                                 </td>
                                                 <td class="py-2 px-4 text-center text-muted small">@item.Category</td>
                                                 <td class="py-2 px-4 text-center">
-                                                    <div class="form-check form-switch d-flex justify-content-center">
-                                                        <input class="form-check-input" type="checkbox" checked="@item.IsUnitBased" 
-                                                               @onchange="(e) => ToggleIsUnitBased(item, e.Value)" />
-                                                    </div>
+                                                    @if (item.ParentItemId.HasValue)
+                                                    {
+                                                        <span class="text-muted small">N/A</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="form-check form-switch d-flex justify-content-center">
+                                                            <input class="form-check-input" type="checkbox" checked="@item.IsUnitBased" 
+                                                                   @onchange="(e) => ToggleIsUnitBased(item, e.Value)" />
+                                                        </div>
+                                                    }
                                                 </td>
                                                 <td class="py-2 px-4 text-center fw-bold text-muted small">
-                                                    @item.PackSize
+                                                    @(item.ParentItemId.HasValue ? "N/A" : item.PackSize.ToString())
                                                 </td>
                                                 <td class="py-2 px-4 text-center">
-                                                    @if (item.PackSize > 1)
+                                                    @if (item.ParentItemId.HasValue)
+                                                    {
+                                                        <span class="text-muted small">N/A</span>
+                                                    }
+                                                    else if (item.PackSize > 1)
                                                     {
                                                         <div class="form-check form-switch d-flex justify-content-center">
                                                             <input class="form-check-input" type="checkbox" checked="@item.AllowLooseReconciliation" 
@@ -873,14 +884,21 @@
                                                     }
                                                 </td>
                                                 <td class="py-2 px-4 text-center">
-                                                    <select class="form-select form-select-sm fw-bold border-2" 
-                                                            value="@item.InventoryTrackType" 
-                                                            @onchange="@((e) => UpdateItemInventoryTrackType(item, e.Value))">
-                                                        <option value="0">Inherited</option>
-                                                        <option value="1">None (No Track)</option>
-                                                        <option value="2">Liquor Hub</option>
-                                                        <option value="3">General/Food</option>
-                                                    </select>
+                                                    @if (item.ParentItemId.HasValue)
+                                                    {
+                                                        <span class="text-muted small">N/A</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <select class="form-select form-select-sm fw-bold border-2" 
+                                                                value="@item.InventoryTrackType" 
+                                                                @onchange="@((e) => UpdateItemInventoryTrackType(item, e.Value))">
+                                                            <option value="0">Inherited</option>
+                                                            <option value="1">None (No Track)</option>
+                                                            <option value="2">Liquor Hub</option>
+                                                            <option value="3">General/Food</option>
+                                                        </select>
+                                                    }
                                                 </td>
                                                 <td class="py-2 px-4 text-center">
                                                     <div class="form-check form-switch d-flex justify-content-center">
@@ -2872,7 +2890,7 @@
     {
         using var db = await DbFactory.CreateDbContextAsync();
         tokens = await db.PosTokens.OrderBy(t => t.Name).ToListAsync();
-        allItemsForTokens = await db.LiquorItems.Where(i => i.IsActive && !i.ParentItemId.HasValue).OrderBy(i => i.Name).ToListAsync();
+        allItemsForTokens = await db.LiquorItems.Where(i => i.IsActive && (!i.ParentItemId.HasValue || i.ShowInPos)).OrderBy(i => i.Name).ToListAsync();
     }
 
     private async Task ReloadItems(bool silent = false)
@@ -2911,7 +2929,7 @@
         }
 
         // 1. First, find all items we care about (Active OR currently showing in POS OR showArchived is enabled)
-        var allAvailable = await db.LiquorItems.Where(i => (showArchived || i.IsActive || i.ShowInPos) && !i.ParentItemId.HasValue).ToListAsync();
+        var allAvailable = await db.LiquorItems.Where(i => (showArchived || i.IsActive || i.ShowInPos)).ToListAsync();
         
         if (showUncategorized)
         {
@@ -3052,53 +3070,64 @@
 
     private void OpenEditItemModal(LiquorItem item)
     {
+        LiquorItem itemToEdit = item;
+        if (item.ParentItemId.HasValue)
+        {
+            using var db = DbFactory.CreateDbContext();
+            var parent = db.LiquorItems.FirstOrDefault(x => x.Id == item.ParentItemId.Value);
+            if (parent != null)
+            {
+                itemToEdit = parent;
+            }
+        }
+
         // Clone for safe editing
         editingItem = new LiquorItem
         {
-            Id = item.Id,
-            Name = item.Name,
-            Description = item.Description,
-            UpcCode = item.UpcCode,
-            BottleSize = item.BottleSize,
-            Category = item.Category,
-            ImageUrl = item.ImageUrl,
-            VendorId = item.VendorId,
-            CurrentPrice = item.CurrentPrice,
-            CurrentStock = item.CurrentStock,
-            MinStockLimit = item.MinStockLimit,
-            MinimumOrderQuantity = item.MinimumOrderQuantity,
-            PackSize = item.PackSize,
-            RetailPrice = item.RetailPrice,
-            PourSize = item.PourSize,
-            IsUnitBased = item.IsUnitBased,
-            InventoryTrackType = item.InventoryTrackType,
-            IsActive = item.IsActive,
-            IsBeer = item.IsBeer,
-            ShowInPos = item.ShowInPos,
-            AllowLooseReconciliation = item.AllowLooseReconciliation,
-            DisplayOrder = item.DisplayOrder,
-            ParentItemId = item.ParentItemId,
-            PourVolumeOunces = item.PourVolumeOunces,
-            BottleVolumeOunces = item.BottleVolumeOunces,
-            OuncesAccumulator = item.OuncesAccumulator
+            Id = itemToEdit.Id,
+            Name = itemToEdit.Name,
+            Description = itemToEdit.Description,
+            UpcCode = itemToEdit.UpcCode,
+            BottleSize = itemToEdit.BottleSize,
+            Category = itemToEdit.Category,
+            ImageUrl = itemToEdit.ImageUrl,
+            VendorId = itemToEdit.VendorId,
+            CurrentPrice = itemToEdit.CurrentPrice,
+            CurrentStock = itemToEdit.CurrentStock,
+            MinStockLimit = itemToEdit.MinStockLimit,
+            MinimumOrderQuantity = itemToEdit.MinimumOrderQuantity,
+            PackSize = itemToEdit.PackSize,
+            RetailPrice = itemToEdit.RetailPrice,
+            PourSize = itemToEdit.PourSize,
+            IsUnitBased = itemToEdit.IsUnitBased,
+            InventoryTrackType = itemToEdit.InventoryTrackType,
+            IsActive = itemToEdit.IsActive,
+            IsBeer = itemToEdit.IsBeer,
+            ShowInPos = itemToEdit.ShowInPos,
+            AllowLooseReconciliation = itemToEdit.AllowLooseReconciliation,
+            DisplayOrder = itemToEdit.DisplayOrder,
+            ParentItemId = itemToEdit.ParentItemId,
+            PourVolumeOunces = itemToEdit.PourVolumeOunces,
+            BottleVolumeOunces = itemToEdit.BottleVolumeOunces,
+            OuncesAccumulator = itemToEdit.OuncesAccumulator
         };
         showFullInventoryDetails = false;
 
         sellByGlass = false;
         glassPrice = 0;
         glassPourSize = 5.0m;
-        sellByBottle = item.ShowInPos;
-        bottlePrice = item.RetailPrice;
+        sellByBottle = itemToEdit.ShowInPos;
+        bottlePrice = itemToEdit.RetailPrice;
 
-        if (item.BottleVolumeOunces.HasValue)
+        if (itemToEdit.BottleVolumeOunces.HasValue)
         {
-            bottleVolumeMl = (int)Math.Round(item.BottleVolumeOunces.Value / 0.033814m);
+            bottleVolumeMl = (int)Math.Round(itemToEdit.BottleVolumeOunces.Value / 0.033814m);
         }
         else
         {
-            if (!string.IsNullOrEmpty(item.BottleSize) && item.BottleSize.EndsWith("ml", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(itemToEdit.BottleSize) && itemToEdit.BottleSize.EndsWith("ml", StringComparison.OrdinalIgnoreCase))
             {
-                if (int.TryParse(item.BottleSize.Substring(0, item.BottleSize.Length - 2), out int parsedMl))
+                if (int.TryParse(itemToEdit.BottleSize.Substring(0, itemToEdit.BottleSize.Length - 2), out int parsedMl))
                 {
                     bottleVolumeMl = parsedMl;
                 }
@@ -3116,7 +3145,7 @@
         try
         {
             using var db = DbFactory.CreateDbContext();
-            var child = db.LiquorItems.FirstOrDefault(x => x.ParentItemId == item.Id && x.IsActive);
+            var child = db.LiquorItems.FirstOrDefault(x => x.ParentItemId == itemToEdit.Id && x.IsActive);
             if (child != null)
             {
                 sellByGlass = child.ShowInPos;
@@ -3848,7 +3877,7 @@
     private async Task LoadAllItems()
     {
         using var db = await DbFactory.CreateDbContextAsync();
-        allItemsForTokens = await db.LiquorItems.Where(i => i.IsActive && !i.ParentItemId.HasValue).OrderBy(i => i.Name).ToListAsync();
+        allItemsForTokens = await db.LiquorItems.Where(i => i.IsActive && (!i.ParentItemId.HasValue || i.ShowInPos)).OrderBy(i => i.Name).ToListAsync();
     }
 
     private async Task ToggleShowArchived(ChangeEventArgs e)
