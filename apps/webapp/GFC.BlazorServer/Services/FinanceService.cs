@@ -27,6 +27,7 @@ namespace GFC.BlazorServer.Services
             Console.WriteLine($"[FINANCE] GetBillsAsync START: {month}/{year}");
             
             using var db = await _dbFactory.CreateDbContextAsync();
+            await ProcessRecurringBillsAsync(db);
             var startOfMonth = new DateTime(year, month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
@@ -63,6 +64,7 @@ namespace GFC.BlazorServer.Services
         {
             var sw = Stopwatch.StartNew();
             using var db = await _dbFactory.CreateDbContextAsync();
+            await ProcessRecurringBillsAsync(db);
             var startOfYear = new DateTime(year, 1, 1);
             var endOfYear = new DateTime(year, 12, 31);
 
@@ -87,6 +89,7 @@ namespace GFC.BlazorServer.Services
         {
             var sw = Stopwatch.StartNew();
             using var db = await _dbFactory.CreateDbContextAsync();
+            await ProcessRecurringBillsAsync(db);
 
             var results = await db.FinanceBills
                 .AsNoTracking()
@@ -107,6 +110,7 @@ namespace GFC.BlazorServer.Services
         {
             var sw = Stopwatch.StartNew();
             using var db = await _dbFactory.CreateDbContextAsync();
+            await ProcessRecurringBillsAsync(db);
             var startOfMonth = new DateTime(year, month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
 
@@ -145,6 +149,8 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             db.FinanceBills.Add(bill);
             await db.SaveChangesAsync();
+
+            await ProcessRecurringBillsAsync(db);
 
             var vendor = await db.FinanceVendors.FindAsync(bill.VendorId);
             var vendorName = vendor?.Name ?? "Unknown";
@@ -285,6 +291,55 @@ namespace GFC.BlazorServer.Services
                     Status = BillStatus.Pending.ToString()
                 };
                 db.FinanceBills.Add(nextBill);
+            }
+        }
+
+        private async Task ProcessRecurringBillsAsync(GfcDbContext db)
+        {
+            try
+            {
+                var today = DateTime.Today;
+                var recurringBills = await db.FinanceBills
+                    .Where(b => b.IsRecurring && !string.IsNullOrEmpty(b.RecurringFrequency) && b.DueDate <= today)
+                    .ToListAsync();
+
+                bool changed = false;
+                foreach (var bill in recurringBills)
+                {
+                    DateTime nextDueDate = CalculateNextDate(bill.DueDate, bill.RecurringFrequency!);
+                    bool alreadyExists = await db.FinanceBills.AnyAsync(b => 
+                        b.VendorId == bill.VendorId && 
+                        b.DueDate == nextDueDate && 
+                        b.IsRecurring);
+
+                    if (!alreadyExists)
+                    {
+                        var nextBill = new FinanceBill
+                        {
+                            VendorId = bill.VendorId,
+                            CategoryId = bill.CategoryId,
+                            LoanId = bill.LoanId,
+                            Description = bill.Description,
+                            OriginalAmount = bill.OriginalAmount,
+                            DueDate = nextDueDate,
+                            WarningDays = bill.WarningDays,
+                            IsRecurring = true,
+                            RecurringFrequency = bill.RecurringFrequency,
+                            Status = BillStatus.Pending.ToString()
+                        };
+                        db.FinanceBills.Add(nextBill);
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    await db.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FINANCE] Error auto-generating recurring bills: {ex.Message}");
             }
         }
 

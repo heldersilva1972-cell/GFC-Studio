@@ -121,6 +121,7 @@
                             <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "Month" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => OnFilterSelected("Month")'>Month</button>
                             <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "7Days" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => OnFilterSelected("7Days")'>7 Days</button>
                             <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "14Days" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => OnFilterSelected("14Days")'>14 Days</button>
+                            <button class="btn btn-sm py-0.5 px-2 rounded-pill fw-bold @(SelectedTimeFilter == "All" ? "btn-primary text-white" : "btn-link text-muted text-decoration-none")" style="font-size: 0.6rem; min-height: auto;" @onclick='() => OnFilterSelected("All")'>All</button>
                         </div>
                     </div>
                     <div class="scroll-container custom-scrollbar px-3 pt-3">
@@ -1192,10 +1193,10 @@
                         }
                         else
                         {
-                            var days = SelectedTimeFilter == "7Days" ? 7 : 14;
+                            var text = SelectedTimeFilter == "All" ? "All Unpaid Bills" : $"Next {(SelectedTimeFilter == "7Days" ? 7 : 14)} Days (Rolling)";
                             <div class="month-selector d-flex align-items-center justify-content-center bg-secondary-subtle rounded-pill px-4 py-3 border mb-3 text-muted">
                                 <i class="bi bi-clock-history me-2"></i>
-                                <span class="fw-black h6 mb-0 text-uppercase" style="font-size: 0.65rem; letter-spacing: 0.5px;">Next @days Days (Rolling)</span>
+                                <span class="fw-black h6 mb-0 text-uppercase" style="font-size: 0.65rem; letter-spacing: 0.5px;">@text</span>
                             </div>
                         }
                     </div>
@@ -1556,7 +1557,7 @@
             var horizon = today.AddDays(14);
             unpaidQuery = unpaidQuery.Where(b => b.DueDate <= horizon);
         }
-        else // "Month"
+        else if (SelectedTimeFilter == "Month")
         {
             unpaidQuery = unpaidQuery.Where(b => b.DueDate <= endOfMonth);
         }
@@ -1860,15 +1861,20 @@
 
     private async Task OnFilterSelected(string filter)
     {
+        var oldFilter = SelectedTimeFilter;
         SelectedTimeFilter = filter;
         if (filter == "7Days" || filter == "14Days")
         {
             var today = DateTime.Today;
-            if (CurrentDate.Month != today.Month || CurrentDate.Year != today.Year)
+            if (CurrentDate.Month != today.Month || CurrentDate.Year != today.Year || oldFilter == "All")
             {
                 CurrentDate = today;
                 await LoadData();
             }
+        }
+        else if (filter == "All" || oldFilter == "All")
+        {
+            await LoadData();
         }
         UpdateDisplay();
     }
@@ -1946,6 +1952,10 @@
             else if (IsYearView)
             {
                 Bills = (await FinanceService.GetBillsForYearAsync(CurrentDate.Year)).ToList();
+            }
+            else if (SelectedTimeFilter == "All")
+            {
+                Bills = (await FinanceService.GetAllBillsAsync()).ToList();
             }
             else
             {
