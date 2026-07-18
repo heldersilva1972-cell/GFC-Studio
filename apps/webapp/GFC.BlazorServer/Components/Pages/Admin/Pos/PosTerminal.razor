@@ -2924,7 +2924,7 @@
             <div class="settings-card shadow-lg @(_currentCloseOutStep == CloseOutStep.Selection ? "w-100 mx-5" : "")">
                 <div class="d-flex justify-content-between align-items-center mb-5">
                     <h3 class="fw-black mb-0">SHIFT CLOSE-OUT</h3>
-                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" @onclick="() => _currentCloseOutStep = CloseOutStep.None">CANCEL</button>
+                    <button class="btn btn-outline-danger px-4 rounded-pill fw-black" disabled="@_isProcessingZOut" @onclick="() => _currentCloseOutStep = CloseOutStep.None">CANCEL</button>
                 </div>
                 
                 @if (_currentCloseOutStep == CloseOutStep.PromptInventory)
@@ -3038,10 +3038,18 @@
                         <h2 class="fw-black mb-2 text-uppercase">Print Z-Report?</h2>
                         <p class="text-muted fw-bold text-uppercase mb-5">Finalizing shift totals and locking records...</p>
                         <div class="d-grid gap-3">
-                            <button class="settings-footer-btn btn-close-out-print" @onclick="() => ProcessZOut(true)">
-                                <i class="bi bi-check-circle-fill me-2"></i> YES, PRINT & CLOSE SHIFT
+                            <button class="settings-footer-btn btn-close-out-print" disabled="@_isProcessingZOut" @onclick="() => ProcessZOut(true)">
+                                @if (_isProcessingZOut)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    <span>PROCESSING...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check-circle-fill me-2"></i><span>YES, PRINT & CLOSE SHIFT</span>
+                                }
                             </button>
-                            <button class="btn btn-light py-3 rounded-pill fw-bold text-danger" @onclick="() => _currentCloseOutStep = CloseOutStep.None">BACK TO TERMINAL</button>
+                            <button class="btn btn-light py-3 rounded-pill fw-bold text-danger" disabled="@_isProcessingZOut" @onclick="() => _currentCloseOutStep = CloseOutStep.None">BACK TO TERMINAL</button>
                         </div>
                     </div>
                 }
@@ -7895,6 +7903,7 @@
 
     private enum CloseOutStep { None, PromptInventory, ReviewDraft, Selection, PromptHours, PromptZ }
     private CloseOutStep _currentCloseOutStep = CloseOutStep.None;
+    private bool _isProcessingZOut = false;
     private Dictionary<int, int> _inventoryPullDraft = new();
     private bool _showOpenBanquetsZOutWarning = false;
     private void StartCloseOutWorkflow()
@@ -7919,129 +7928,141 @@
     private void RemoveFromDraft(int id) { if (_inventoryPullDraft.ContainsKey(id) && _inventoryPullDraft[id] > 1) _inventoryPullDraft[id]--; else _inventoryPullDraft.Remove(id); }
     private async Task ProcessZOut(bool print)
     {
-        if (!forceTrainingMode) {
-            // Calculate final audit from Database
-            var finalAudit = await PosService.GetShiftAuditAsync();
-            
-            // Calculate Token Credits directly from computed audit
-            decimal tokenCredits = finalAudit.TokenCredits;
-            
-            decimal? hoursWorked = null;
-            if (_captureHoursOnCloseout && decimal.TryParse(_hoursInputString, out var parsedHours))
-            {
-                hoursWorked = parsedHours;
+        if (_isProcessingZOut) return;
+        _isProcessingZOut = true;
+        StateHasChanged();
+
+        try
+        {
+            if (!forceTrainingMode) {
+                // Calculate final audit from Database
+                var finalAudit = await PosService.GetShiftAuditAsync();
+                
+                // Calculate Token Credits directly from computed audit
+                decimal tokenCredits = finalAudit.TokenCredits;
+                
+                decimal? hoursWorked = null;
+                if (_captureHoursOnCloseout && decimal.TryParse(_hoursInputString, out var parsedHours))
+                {
+                    hoursWorked = parsedHours;
+                }
+
+                var z = new PosZReportDto { 
+                    Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
+                    CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
+                    InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
+                    SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
+                    BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
+                    TokenCredits = tokenCredits,
+                    HoursWorked = hoursWorked,
+                    RecordSalesToBar = _recordSalesToBar
+                };
+                await PosService.SaveZReportAsync(z);
+
+                if (print) 
+                {
+                    // ─── GENERATE REGULAR SALES (EXCLUDES BANQUETS) ───
+                    var groupedRegular = finalAudit.RegularItemSummary
+                        .Select(kvp => {
+                            var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
+                            var category = product?.Category;
+                            if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
+                            if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
+                            return new { 
+                                Name = kvp.Key, 
+                                Quantity = kvp.Value, 
+                                Category = category ?? "MISC", 
+                                Total = finalAudit.RegularItemTotals.ContainsKey(kvp.Key) ? finalAudit.RegularItemTotals[kvp.Key] : 0
+                            };
+                        })
+                        .GroupBy(x => x.Category)
+                        .OrderBy(g => g.Key);
+
+                    var salesRows = "";
+                    foreach(var group in groupedRegular) {
+                        salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
+                        foreach(var item in group.OrderByDescending(x => x.Quantity)) {
+                            salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
+                        }
+                        var groupTotal = group.Sum(x => x.Total);
+                        salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
+                    }
+
+                    var voidedRows = "";
+                    foreach(var vs in finalAudit.VoidedSales) {
+                        voidedRows += $"<div style='display:flex; justify-content:space-between; color: #666; font-style: italic;'><span>{vs.Timestamp:h:mm tt} - {vs.AdjustmentReason ?? "Void"}</span><span>({vs.TotalAmount:C})</span></div>";
+                    }
+
+                    var inventoryRows = "";
+                    foreach(var pull in _inventoryPullDraft) {
+                        var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
+                        if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
+                    }
+
+                    var banquetRows = "";
+                    foreach (var b in finalAudit.Banquets)
+                    {
+                        banquetRows += $@"
+                            <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
+                                <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>EVENT: {b.EventName}</div>
+                                <div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
+                        
+                        foreach (var dep in b.Deposits)
+                        {
+                            banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>- Add Funds</span><span>{dep:C}</span></div>";
+                        }
+                        
+                        banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
+                        foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
+                        {
+                            var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
+                            banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
+                        }
+                        
+                        banquetRows += $@"
+                                <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
+                                    <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
+                                </div>
+                            </div>";
+                    }
+
+                    var html = BuildZReportHtml(z);
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
+                    }
+                    catch {}
+
+                    // Execute print on the main thread and await completion to avoid race conditions with Navigation/Reload
+                    try
+                    {
+                        if (!forceTrainingMode || allowHardwareInTraining)
+                        {
+                            await PrinterService.KickDrawerAsync();
+                        }
+                        await PrinterService.PrintReceiptAsync(html);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS] Z-Report print failed: {ex.Message}");
+                    }
+                }
             }
 
-            var z = new PosZReportDto { 
-                Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
-                CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
-                InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
-                SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
-                BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
-                TokenCredits = tokenCredits,
-                HoursWorked = hoursWorked,
-                RecordSalesToBar = _recordSalesToBar
-            };
-            await PosService.SaveZReportAsync(z);
-
-            if (print) 
-            {
-                // ─── GENERATE REGULAR SALES (EXCLUDES BANQUETS) ───
-                var groupedRegular = finalAudit.RegularItemSummary
-                    .Select(kvp => {
-                        var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
-                        var category = product?.Category;
-                        if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                        if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
-                        return new { 
-                            Name = kvp.Key, 
-                            Quantity = kvp.Value, 
-                            Category = category ?? "MISC", 
-                            Total = finalAudit.RegularItemTotals.ContainsKey(kvp.Key) ? finalAudit.RegularItemTotals[kvp.Key] : 0
-                        };
-                    })
-                    .GroupBy(x => x.Category)
-                    .OrderBy(g => g.Key);
-
-                var salesRows = "";
-                foreach(var group in groupedRegular) {
-                    salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
-                    foreach(var item in group.OrderByDescending(x => x.Quantity)) {
-                        salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
-                    }
-                    var groupTotal = group.Sum(x => x.Total);
-                    salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
-                }
-
-                var voidedRows = "";
-                foreach(var vs in finalAudit.VoidedSales) {
-                    voidedRows += $"<div style='display:flex; justify-content:space-between; color: #666; font-style: italic;'><span>{vs.Timestamp:h:mm tt} - {vs.AdjustmentReason ?? "Void"}</span><span>({vs.TotalAmount:C})</span></div>";
-                }
-
-                var inventoryRows = "";
-                foreach(var pull in _inventoryPullDraft) {
-                    var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
-                    if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
-                }
-
-                var banquetRows = "";
-                foreach (var b in finalAudit.Banquets)
-                {
-                    banquetRows += $@"
-                        <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
-                            <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>EVENT: {b.EventName}</div>
-                            <div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
-                    
-                    foreach (var dep in b.Deposits)
-                    {
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>- Add Funds</span><span>{dep:C}</span></div>";
-                    }
-                    
-                    banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
-                    foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
-                    {
-                        var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Key} (x{item.Value})</span><span>{itemTotal:C}</span></div>";
-                    }
-                    
-                    banquetRows += $@"
-                            <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
-                                <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
-                            </div>
-                        </div>";
-                }
-
-                var html = BuildZReportHtml(z);
-                try
-                {
-                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
-                }
-                catch {}
-
-                // Execute print on the main thread and await completion to avoid race conditions with Navigation/Reload
-                try
-                {
-                    if (!forceTrainingMode || allowHardwareInTraining)
-                    {
-                        await PrinterService.KickDrawerAsync();
-                    }
-                    await PrinterService.PrintReceiptAsync(html);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[POS] Z-Report print failed: {ex.Message}");
-                }
-            }
+            _inventoryPullDraft.Clear(); 
+            await PosService.ClearShiftAsync();
+            await UpdateAuditAsync();
+            _currentCloseOutStep = CloseOutStep.None;
+            showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
+            
+            // 5. [NEW] Force reload to reset terminal state (Security Requirement)
+            Navigation.NavigateTo("/", true);
         }
-
-        _inventoryPullDraft.Clear(); 
-        await PosService.ClearShiftAsync();
-        await UpdateAuditAsync();
-        _currentCloseOutStep = CloseOutStep.None;
-        showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
-        
-        // 5. [NEW] Force reload to reset terminal state (Security Requirement)
-        Navigation.NavigateTo("/", true);
+        finally
+        {
+            _isProcessingZOut = false;
+            StateHasChanged();
+        }
     }
 
     private bool _showLastSaleBar = true;
