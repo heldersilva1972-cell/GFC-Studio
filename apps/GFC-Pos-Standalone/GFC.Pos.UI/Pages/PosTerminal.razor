@@ -1300,6 +1300,32 @@
                                           </div>
                                       }
                                   </div>
+
+                                  <div class="pending-list-container mt-2 mb-2" style="max-height: 180px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px;">
+                                      @foreach (var item in _pendingItems)
+                                      {
+                                          <div class="pending-item-row d-flex align-items-center justify-content-between p-2 border-bottom" style="font-size: 0.75rem;">
+                                              <div class="item-details" style="min-width: 0; flex-grow: 1; text-align: left;">
+                                                  <span class="item-type fw-bold d-block text-dark">@item.DisplayName</span>
+                                                  <span class="item-desc text-muted d-block text-truncate" style="font-size: 0.65rem;" title="@item.Key">@item.Key</span>
+                                                  <span class="badge @(item.RetryCount >= 5 ? "bg-danger" : "bg-warning text-dark")" style="font-size: 0.6rem;">
+                                                      Retries: @item.RetryCount @(item.RetryCount >= 5 ? "(Stuck)" : "")
+                                                  </span>
+                                              </div>
+                                              <div class="d-flex gap-1 ms-2">
+                                                  @if (item.RetryCount >= 5)
+                                                  {
+                                                      <button type="button" class="btn btn-outline-primary p-1" @onclick="() => ResetItemRetryAsync(item.Key)" title="Reset Retries" style="line-height: 1; font-size: 0.7rem;">
+                                                          <i class="bi bi-arrow-counterclockwise" style="color: #0d6efd; font-size: 0.8rem;"></i>
+                                                      </button>
+                                                  }
+                                                  <button type="button" class="btn btn-outline-danger p-1" @onclick="() => DeletePendingItemAsync(item.Key)" title="Remove permanently" style="line-height: 1; font-size: 0.7rem;">
+                                                      <i class="bi bi-trash" style="color: #dc3545; font-size: 0.8rem;"></i>
+                                                  </button>
+                                              </div>
+                                          </div>
+                                      }
+                                  </div>
                                  @if (Connectivity.IsServerReachable)
                                  {
                                      <button class="btn btn-primary btn-sm w-100 mt-3 fw-bold" @onclick="ForceSync" disabled="@isSyncing" style="border-radius: 8px;">
@@ -5237,6 +5263,15 @@
     private int _pendingZCount = 0;
     private int _pendingEventCount = 0;
     private int _pendingLiquorCount = 0;
+    private List<VaultItemModel> _pendingItems = new();
+
+    public class VaultItemModel
+    {
+        public string Key { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public int RetryCount { get; set; }
+    }
 
     private string TerminalName = "TERMINAL 1";
     private List<UserListItemDto> AuthorizedUsers = new();
@@ -6070,6 +6105,14 @@
                     return;
                 }
 
+                // If it is 3:00 AM (Hour == 3) and no bartender is logged in, automatically reload to install the update
+                if (DateTime.Now.Hour == 3 && string.IsNullOrEmpty(CurrentUserName))
+                {
+                    Console.WriteLine($"[GFC POS UPDATE] 3:00 AM Maintenance window active and terminal is idle. Forcing auto-update/reload to {activeServerVersion}...");
+                    await InvokeAsync(TriggerNuclearReload);
+                    return;
+                }
+
                 if (!_showUpdateBanner)
                 {
                     // Show update banner/pill instead of executing background reload.
@@ -6317,28 +6360,7 @@
         _showDisplayPopover = false;
         StateHasChanged();
 
-        // [AUTO-UPDATE] Check for newer POS version in the background (no UI blocking)
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                if (_showUpdateBanner)
-                {
-                    Console.WriteLine("[GFC POS UPDATE] Active update banner detected during logout. Forcing reload/installer...");
-                    await InvokeAsync(TriggerNuclearReload);
-                    return;
-                }
-
-                var isUpdateAvailable = await UpdateService.CheckForUpdatesAsync();
-                if (isUpdateAvailable)
-                {
-                    Console.WriteLine($"[GFC POS UPDATE] New version ({UpdateService.ServerVersion}) detected during logout. Forcing reload/installer...");
-                    await InvokeAsync(TriggerNuclearReload);
-                    return;
-                }
-            }
-            catch { /* Fallback to standard lock (already done) */ }
-        });
+        // [AUTO-UPDATE] Scheduled auto-update is now handled globally at 3:00 AM instead of during logout.
 
         _ = RefreshData(); // Background update for next operator
     }
@@ -6427,12 +6449,43 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task ResetItemRetryAsync(string key)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{key}", "0");
+            Toast.ShowSuccess("Retry counter reset to 0.");
+            await RefreshPendingItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to reset retry: {ex.Message}");
+        }
+    }
+
+    private async Task DeletePendingItemAsync(string key)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", key);
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_retry_{key}");
+            Toast.ShowSuccess("Pending item deleted from local queue.");
+            await PosService.GetTotalPendingAsync();
+            await RefreshPendingItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to delete item: {ex.Message}");
+        }
+    }
+
     private async Task RefreshPendingItemsAsync()
     {
         _pendingSalesCount = 0;
         _pendingZCount = 0;
         _pendingEventCount = 0;
         _pendingLiquorCount = 0;
+        _pendingItems.Clear();
         try
         {
             var vaultItems = await JSRuntime.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
@@ -6443,10 +6496,56 @@
                     var key = item.GetProperty("key").GetString() ?? string.Empty;
                     if (string.IsNullOrEmpty(key)) continue;
 
-                    if (key.StartsWith("gfc_pos_vault_sale_")) _pendingSalesCount++;
-                    else if (key.StartsWith("gfc_pos_vault_z_")) _pendingZCount++;
-                    else if (key.StartsWith("gfc_pos_vault_event_")) _pendingEventCount++;
-                    else if (key.StartsWith("gfc_pos_vault_liq_receipt_")) _pendingLiquorCount++;
+                    string type = "Unknown";
+                    string displayName = key;
+
+                    if (key.StartsWith("gfc_pos_vault_sale_"))
+                    {
+                        _pendingSalesCount++;
+                        type = "Sale";
+                        displayName = "Sale Transaction";
+                    }
+                    else if (key.StartsWith("gfc_pos_vault_z_"))
+                    {
+                        _pendingZCount++;
+                        type = "Z-Report";
+                        displayName = "Z-Report";
+                    }
+                    else if (key.StartsWith("gfc_pos_vault_event_"))
+                    {
+                        _pendingEventCount++;
+                        type = "Event";
+                        if (key.StartsWith("gfc_pos_vault_event_start_")) displayName = "Event Start";
+                        else if (key.StartsWith("gfc_pos_vault_event_close_")) displayName = "Event Close";
+                        else if (key.StartsWith("gfc_pos_vault_event_add_funds_")) displayName = "Event Add Funds";
+                        else if (key.StartsWith("gfc_pos_vault_event_tally_")) displayName = "Event Tally";
+                        else displayName = "Event Transaction";
+                    }
+                    else if (key.StartsWith("gfc_pos_vault_liq_receipt_"))
+                    {
+                        _pendingLiquorCount++;
+                        type = "Liquor";
+                        displayName = "Liquor Receipt";
+                    }
+
+                    int retries = 0;
+                    try
+                    {
+                        var retryCountStr = await JSRuntime.InvokeAsync<string>("localStorage.getItem", $"gfc_sync_retry_{key}");
+                        if (!string.IsNullOrEmpty(retryCountStr) && int.TryParse(retryCountStr, out var parsedRetry))
+                        {
+                            retries = parsedRetry;
+                        }
+                    }
+                    catch {}
+
+                    _pendingItems.Add(new VaultItemModel
+                    {
+                        Key = key,
+                        Type = type,
+                        DisplayName = displayName,
+                        RetryCount = retries
+                    });
                 }
             }
         }
