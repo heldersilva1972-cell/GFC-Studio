@@ -8576,7 +8576,7 @@
                 if (cleanKey.Contains(" (TOKEN SALE)")) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
                 if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
                 
-                var product = DbItems.FirstOrDefault(i => i.Name == cleanKey);
+                var product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                 var category = product?.Category;
                 if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                 if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN")) category = "TOKENS";
@@ -8642,6 +8642,39 @@
         {
             ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
         }
+
+        // Compute category summaries (Food & Snacks, Liquor & Beverages excluding sodas/waters/redbull)
+        decimal foodSnackTotal = 0;
+        decimal liquorTotal = 0;
+        foreach (var group in groupedRegular)
+        {
+            foreach (var item in group)
+            {
+                var itemCat = item.Category.ToUpper();
+                var itemNameLower = item.Name.ToLower();
+
+                if (itemCat == "FOOD" || itemCat == "CANDY" || itemCat == "SNACK" || itemCat == "SNACKS")
+                {
+                    foodSnackTotal += item.Total;
+                }
+                else if (itemCat == "LIQUOR" || itemCat == "WINE" || itemCat == "BEER" || itemCat == "NON-ALCOHOLIC" || itemCat == "BEVERAGE" || itemCat == "BEVERAGES")
+                {
+                    if (!itemNameLower.Contains("soda") && 
+                        !itemNameLower.Contains("water") && 
+                        !itemNameLower.Contains("redbull") && 
+                        !itemNameLower.Contains("red bull"))
+                    {
+                        liquorTotal += item.Total;
+                    }
+                }
+            }
+        }
+
+        ReceiptFormatter.AppendSectionHeader(sb, "CATEGORY SUMMARIES");
+        ReceiptFormatter.AppendBlank(sb);
+        ReceiptFormatter.AppendLine(sb, "FOOD & SNACKS TOTAL", $"{foodSnackTotal:C}");
+        ReceiptFormatter.AppendLine(sb, "LIQUOR & DRINKS TOTAL", $"{liquorTotal:C}");
+        ReceiptFormatter.AppendBlank(sb);
 
         // Payouts detail
         if (payoutLines.Any())
