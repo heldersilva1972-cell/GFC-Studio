@@ -374,7 +374,7 @@ namespace GFC.BlazorServer.Services
             {
                 ItemId = itemId,
                 UserId = userId,
-                ChangeAmount = actualDelta,
+                ChangeAmount = delta,
                 TransactionType = "Adjustment", 
                 Notes = $"{reason} (From {oldStock} to {newStock})",
                 Timestamp = DateTime.UtcNow
@@ -1071,6 +1071,7 @@ namespace GFC.BlazorServer.Services
             foreach (var item in items)
             {
                 double avgWeeklyUsage = 0;
+                double totalPeriodUsage = 0;
 
                 // 1. Calculate historical baseline usage
                 if (mode == "Seasonal")
@@ -1085,16 +1086,39 @@ namespace GFC.BlazorServer.Services
 
                     // 30 days = ~4.28 weeks
                     avgWeeklyUsage = (seasonalCheckouts / 4.28) * yoyMultiplier;
+                    totalPeriodUsage = seasonalCheckouts;
                 }
                 else // Recent Trends
                 {
-                    var recentCheckouts = allTransactions
-                        .Where(t => t.ItemId == item.Id && t.Timestamp >= recentStart)
-                        .Sum(t => Math.Abs(t.ChangeAmount));
-
-                    double weeksCount = recentDays / 7.0;
-                    avgWeeklyUsage = recentCheckouts / (weeksCount > 0 ? weeksCount : 1.0);
+                    var itemTx = allTransactions.Where(t => t.ItemId == item.Id).ToList();
+                    
+                    double w1Usage = itemTx.Where(t => t.Timestamp >= now.AddDays(-7)).Sum(t => Math.Abs(t.ChangeAmount));
+                    double w2Usage = itemTx.Where(t => t.Timestamp >= now.AddDays(-14) && t.Timestamp < now.AddDays(-7)).Sum(t => Math.Abs(t.ChangeAmount));
+                    double w3Usage = itemTx.Where(t => t.Timestamp >= now.AddDays(-21) && t.Timestamp < now.AddDays(-14)).Sum(t => Math.Abs(t.ChangeAmount));
+                    double w4Usage = itemTx.Where(t => t.Timestamp >= recentStart && t.Timestamp < now.AddDays(-21)).Sum(t => Math.Abs(t.ChangeAmount));
+                    
+                    if (recentDays <= 7)
+                    {
+                        avgWeeklyUsage = w1Usage;
+                    }
+                    else if (recentDays <= 14)
+                    {
+                        avgWeeklyUsage = (w1Usage * 0.70) + (w2Usage * 0.30);
+                    }
+                    else if (recentDays <= 21)
+                    {
+                        avgWeeklyUsage = (w1Usage * 0.60) + (w2Usage * 0.30) + (w3Usage * 0.10);
+                    }
+                    else
+                    {
+                        double w4Weeks = (recentDays - 21) / 7.0;
+                        double w4Normalized = w4Usage / (w4Weeks > 0 ? w4Weeks : 1.0);
+                        avgWeeklyUsage = (w1Usage * 0.50) + (w2Usage * 0.30) + (w3Usage * 0.15) + (w4Normalized * 0.05);
+                    }
+                    totalPeriodUsage = w1Usage + w2Usage + w3Usage + w4Usage;
                 }
+
+                double trueAvgWeeklyUsage = avgWeeklyUsage;
 
                 // 2. Error-Correction Loop (Adjust based on recent order vs. usage variance)
                 var receivedInPeriod = recentOrders
@@ -1164,7 +1188,7 @@ namespace GFC.BlazorServer.Services
                     CurrentStock = item.CurrentStock,
                     MinStockLimit = item.MinStockLimit,
                     MinimumOrderQuantity = item.MinimumOrderQuantity,
-                    AvgWeeklyUsage = Math.Round(avgWeeklyUsage, 2),
+                    AvgWeeklyUsage = Math.Round(trueAvgWeeklyUsage, 2),
                     RecommendedQuantity = recommendedQty,
                     UnitPrice = item.CurrentPrice,
                     CasePrice = item.CasePrice ?? (item.CurrentPrice * item.PackSize),
@@ -1174,7 +1198,9 @@ namespace GFC.BlazorServer.Services
                     VendorName = item.Vendor?.Name ?? "Unassigned",
                     IsTopUpSuggestion = false,
                     ExcludeFromPredictions = item.ExcludeFromPredictions,
-                    Reason = recommendedQty > 0 ? "Below minimum stock or projected by usage trends." : string.Empty
+                    Reason = recommendedQty > 0 ? "Below minimum stock or projected by usage trends." : string.Empty,
+                    IsUnitBased = item.IsUnitBased,
+                    TotalPeriodUsage = Math.Round(totalPeriodUsage, 2)
                 });
             }
 

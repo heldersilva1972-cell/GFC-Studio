@@ -21,5 +21,7 @@ namespace GFC.Core.Models
         public bool IsTopUpSuggestion { get; set; }
         public bool ExcludeFromPredictions { get; set; }
         public string Reason { get; set; } = string.Empty;
+        public bool IsUnitBased { get; set; }
+        public double TotalPeriodUsage { get; set; }
     }
 }

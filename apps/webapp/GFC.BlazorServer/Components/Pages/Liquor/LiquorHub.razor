@@ -3899,6 +3899,7 @@
         // PHASE 2: Heavy Background Data (History, Trends, Transactions, Backorders)
         _ = Task.Run(async () => {
             try {
+                using var db = await DbFactory.CreateDbContextAsync();
                 var ordersTask = LiquorService.GetAllOrdersAsync();
                 var recentTxTask = LiquorService.GetRecentTransactionsAsync(500);
                 var backordersTask = LiquorService.GetPendingBackordersAsync();
@@ -3913,10 +3914,12 @@
                 var pendingOrders = allOrders.Where(o => o.Status == "Placed").ToList();
                 var historyOrders = allOrders.Where(o => o.Status != "Placed").OrderByDescending(o => o.OrderDate).ToList();
                 
-                var itemOrderCounts = historyOrders
-                    .SelectMany(o => o.OrderItems)
-                    .GroupBy(i => i.LiquorItemId)
-                    .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+                // Query actual depletions (sales/consumption) from database transactions instead of completed purchase orders
+                var itemOrderCounts = await db.LiquorTransactions
+                    .Where(t => t.ChangeAmount < 0)
+                    .GroupBy(t => t.ItemId)
+                    .Select(g => new { ItemId = g.Key, TotalSold = g.Sum(t => -t.ChangeAmount) })
+                    .ToDictionaryAsync(x => x.ItemId, x => x.TotalSold);
                 
                 var lastReconcileDate = recentTransactions
                     .Where(t => t.TransactionType == "Reconcile")
@@ -4889,6 +4892,35 @@
         }
     }
 
+    private List<GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem> DeserializeItems(string json)
+    {
+        try
+        {
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            if (json.StartsWith("["))
+            {
+                var list = System.Text.Json.JsonSerializer.Deserialize<List<GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem>>(json, options);
+                if (list != null && list.Any(x => x != null && !string.IsNullOrEmpty(x.Name))) return list;
+            }
+            else if (json.StartsWith("{"))
+            {
+                var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(json, options);
+                if (dict != null)
+                {
+                    return dict.Select(kvp => new GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem
+                    {
+                        Name = kvp.Key,
+                        Quantity = kvp.Value,
+                        Price = 0,
+                        Category = "UNCATEGORIZED"
+                    }).ToList();
+                }
+            }
+        }
+        catch { }
+        return new List<GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem>();
+    }
+
     private async Task CalculateMonthlyProfitabilityAsync()
     {
         _calculatingProfitability = true;
@@ -4898,8 +4930,8 @@
         {
             using var db = await DbFactory.CreateDbContextAsync();
 
-            // Define Month Start and End Date
-            var start = new DateTime(_profitabilityYear, _profitabilityMonth, 1);
+            // Define Month Start and End Date with 3:00 AM Business Day Offset
+            var start = new DateTime(_profitabilityYear, _profitabilityMonth, 1).AddHours(3);
             var end = start.AddMonths(1); // Non-inclusive boundary
             var lastDay = start.AddMonths(1).AddTicks(-1); // Inclusive last moment of month
 
@@ -4970,50 +5002,39 @@
             {
                 if (string.IsNullOrEmpty(sale.ItemsJson)) continue;
                 
-                try
+                var items = DeserializeItems(sale.ItemsJson);
+                foreach (var item in items)
                 {
-                    var items = System.Text.Json.JsonSerializer.Deserialize<List<GFC.BlazorServer.Components.Pages.Admin.Pos.PosTerminal.ProductItem>>(sale.ItemsJson);
-                    if (items != null)
+                    var cleanName = item.Name?.Trim() ?? "";
+                    if (cleanName.Contains("DEPOSIT", StringComparison.OrdinalIgnoreCase) ||
+                        cleanName.Contains("CORRECTION", StringComparison.OrdinalIgnoreCase) ||
+                        cleanName.Contains("NO SALE", StringComparison.OrdinalIgnoreCase) ||
+                        cleanName.Contains("CREDIT", StringComparison.OrdinalIgnoreCase) ||
+                        cleanName.Contains("PAYOUT", StringComparison.OrdinalIgnoreCase))
                     {
-                        foreach (var item in items)
-                        {
-                            var cleanName = item.Name?.Trim() ?? "";
-                            if (cleanName.Contains("DEPOSIT", StringComparison.OrdinalIgnoreCase) ||
-                                cleanName.Contains("CORRECTION", StringComparison.OrdinalIgnoreCase) ||
-                                cleanName.Contains("NO SALE", StringComparison.OrdinalIgnoreCase) ||
-                                cleanName.Contains("CREDIT", StringComparison.OrdinalIgnoreCase) ||
-                                cleanName.Contains("PAYOUT", StringComparison.OrdinalIgnoreCase) ||
-                                cleanName.Contains("TOKEN", StringComparison.OrdinalIgnoreCase))
-                            {
-                                continue;
-                            }
+                        continue;
+                    }
 
-                            var catName = string.IsNullOrWhiteSpace(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
-                            
-                            var matchedCat = _posCategories.FirstOrDefault(c => c.Equals(catName, StringComparison.OrdinalIgnoreCase));
-                            if (matchedCat != null)
-                            {
-                                _posCategorySalesTotals[matchedCat] += (item.Price * item.Quantity);
-                            }
-                            else
-                            {
-                                if (_posCategorySalesTotals.ContainsKey("UNCATEGORIZED"))
-                                {
-                                    _posCategorySalesTotals["UNCATEGORIZED"] += (item.Price * item.Quantity);
-                                }
-                            }
+                    var catName = string.IsNullOrWhiteSpace(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
+                    
+                    var matchedCat = _posCategories.FirstOrDefault(c => c.Equals(catName, StringComparison.OrdinalIgnoreCase));
+                    if (matchedCat != null)
+                    {
+                        _posCategorySalesTotals[matchedCat] += (item.Price * item.Quantity);
+                    }
+                    else
+                    {
+                        if (_posCategorySalesTotals.ContainsKey("UNCATEGORIZED"))
+                        {
+                            _posCategorySalesTotals["UNCATEGORIZED"] += (item.Price * item.Quantity);
                         }
                     }
                 }
-                catch
-                {
-                    // Ignore JSON parsing errors on isolated transactions
-                }
             }
 
-            // Sum up sales for selected categories
+            // Sum up sales for selected categories (case-insensitive check)
             _profitSales = _posCategorySalesTotals
-                .Where(kvp => _selectedPosCategories.Contains(kvp.Key))
+                .Where(kvp => _selectedPosCategories.Any(sc => sc.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase)))
                 .Sum(kvp => kvp.Value);
 
             // 3. Fetch Total Vendor Purchases (Received liquor orders during this period)
