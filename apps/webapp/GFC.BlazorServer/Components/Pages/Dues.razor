@@ -18,6 +18,7 @@
 @inject IGlobalNoteRepository GlobalNoteRepository
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<Dues> Logger
+@inject GFC.Core.Interfaces.IHistoryRepository HistoryRepository
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavManager
 @inject IControllerSyncQueueRepository SyncQueueRepository
@@ -1295,6 +1296,22 @@
             _operationMessage = $"Waiver updated for {_waiverForm.MemberName}.";
             _operationError = false;
 
+            // Log to MemberChangeHistory
+            try
+            {
+                HistoryRepository.LogMemberChange(
+                    _waiverForm.MemberId,
+                    "Waiver Granted",
+                    null,
+                    $"Waiver from {startYear} to {endYear} (Reason: {_waiverForm.Reason})",
+                    currentUser?.Username ?? "Staff"
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to log waiver history for member {MemberId}", _waiverForm.MemberId);
+            }
+
             AuditLogger.Log(
                 AuditLogActions.DuesWaiverAdded,
                 currentUser?.UserId,
@@ -1817,6 +1834,22 @@
                 }
             }
 
+            // Log Dues Paid event to MemberChangeHistory
+            try
+            {
+                HistoryRepository.LogMemberChange(
+                    _paymentTarget.MemberId, 
+                    "Dues Paid", 
+                    null, 
+                    $"Paid {_paymentForm.Amount:C} for year(s): {string.Join(", ", yearsPaid)} ({_paymentForm.PaymentType})", 
+                    currentUser?.Username ?? "Staff"
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to log dues payment history for member {MemberId}", _paymentTarget.MemberId);
+            }
+
             _operationMessage = $"Payment recorded for {_paymentTarget.FullName}.";
             _operationError = false;
             
@@ -2188,6 +2221,22 @@
                 Text = $"Payment edited for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}) - Year: {_editPaymentForm.Year}, Amount: {_editPaymentForm.Amount:C}, Date: {_editPaymentForm.PaidDate.ToString("yyyy-MM-dd")}, Method: {_editPaymentForm.PaymentType} by {currentUser?.Username ?? "Unknown"}"
             }));
             
+            // Log to MemberChangeHistory
+            try
+            {
+                HistoryRepository.LogMemberChange(
+                    _editPaymentTarget.MemberId,
+                    "Payment Edited",
+                    null,
+                    $"Edited Year {_editPaymentForm.Year} to {_editPaymentForm.Amount:C} ({_editPaymentForm.PaymentType}) on {_editPaymentForm.PaidDate:yyyy-MM-dd}",
+                    currentUser?.Username ?? "Staff"
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to log dues payment edit history for member {MemberId}", _editPaymentTarget.MemberId);
+            }
+
             AuditLogger.Log(
                 AuditLogActions.DuesPaymentUpdated,
                 currentUser?.UserId,
