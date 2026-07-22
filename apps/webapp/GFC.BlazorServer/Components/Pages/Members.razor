@@ -18,16 +18,29 @@
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IDuesWaiverRepository DuesWaiverRepository
 @inject KeyCardService CardService
+@inject GFC.Core.Interfaces.IHistoryRepository HistoryRepository
 
 @implements IDisposable
 
 <div class="members-dashboard-container">
     <div class="fixed-top-section">
         <div class="sticky-header-top">
-            <div class="page-header mb-4 px-2">
-                <h1 class="page-title-modern mb-1">Member Directory</h1>
-                <p class="text-muted mb-0">Comprehensive list and management of the club membership</p>
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2 flex-wrap gap-2">
+                <div>
+                    <h1 class="page-title-modern mb-1">Member Directory</h1>
+                    <p class="text-muted mb-0">Comprehensive list and management of the club membership</p>
+                </div>
+                <div class="btn-group rounded-pill border shadow-sm p-1 bg-white">
+                    <button class="btn btn-sm @(_activeTab == "directory" ? "btn-dark rounded-pill px-3 fw-bold" : "btn-link text-muted text-decoration-none px-3")" @onclick='() => SetTab("directory")'>
+                        <i class="bi bi-people-fill me-1"></i>Directory List
+                    </button>
+                    <button class="btn btn-sm @(_activeTab == "activity" ? "btn-dark rounded-pill px-3 fw-bold" : "btn-link text-muted text-decoration-none px-3")" @onclick='() => SetTab("activity")'>
+                        <i class="bi bi-clock-history me-1"></i>Activity Log
+                    </button>
+                </div>
             </div>
+        @if (_activeTab == "directory")
+        {
             <!-- 1. INSIGHT HEADER: Tightened Metric Cards -->
             <div class="row g-3 mb-3">
                 <div class="col-md-3">
@@ -135,105 +148,202 @@
                     }
                 </div>
             </div>
+        }
         </div>
     </div>
 
     <div class="scrollable-member-list">
-        <!-- 3. MAIN LIST -->
-        @if (_isLoading)
+        @if (_activeTab == "directory")
         {
-            <div class="loading-overlay">
-                <div class="loader-modern"></div>
-                <p class="text-muted mt-3">Gathering member data...</p>
-            </div>
-        }
-        else if (!string.IsNullOrWhiteSpace(_errorMessage))
-        {
-            <div class="alert alert-danger glass-morphic border-danger mt-4 scale-in">
-                <div class="d-flex align-items-center">
-                    <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
-                    <div>
-                        <h5 class="alert-heading mb-1">Connection Error</h5>
-                        <p class="mb-0">@_errorMessage</p>
+            <!-- 3. MAIN LIST -->
+            @if (_isLoading)
+            {
+                <div class="loading-overlay">
+                    <div class="loader-modern"></div>
+                    <p class="text-muted mt-3">Gathering member data...</p>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="alert alert-danger glass-morphic border-danger mt-4 scale-in">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+                        <div>
+                            <h5 class="alert-heading mb-1">Connection Error</h5>
+                            <p class="mb-0">@_errorMessage</p>
+                        </div>
+                        <button class="btn btn-danger ms-auto" type="button" @onclick="LoadMembersAsync">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Retry
+                        </button>
                     </div>
-                    <button class="btn btn-danger ms-auto" type="button" @onclick="LoadMembersAsync">
-                        <i class="bi bi-arrow-clockwise me-1"></i> Retry
+                </div>
+            }
+            else if (_filteredMembers.Count == 0)
+            {
+                <div class="empty-state-modern scale-in">
+                    <div class="empty-icon">
+                        <i class="bi bi-people"></i>
+                    </div>
+                    <h3>No members found</h3>
+                    <p>Adjust your search or filters to see results.</p>
+                </div>
+            }
+            else
+            {
+                <div class="member-grid-modern">
+                    @foreach (var member in _filteredMembers)
+                    {
+                        bool isOverdue = member.DuesStatus.Contains("Past Due", StringComparison.OrdinalIgnoreCase) || 
+                                         member.DuesStatus.Contains("Overdue", StringComparison.OrdinalIgnoreCase);
+
+                        <div class="member-card-simplified scale-in @(isOverdue ? "is-overdue" : "")" @onclick="() => NavigateToMember(member.MemberId)">
+                            <div class="card-body-simple">
+                                <div class="d-flex justify-content-between align-items-start mb-3">
+                                    <div class="name-id-group">
+                                        <span class="member-id-tag">#@member.MemberId</span>
+                                        <h4 class="member-name-simple">@member.FullName</h4>
+                                    </div>
+                                    <div class="status-pill-group">
+                                        <span class="badge-modern @GetStatusBadgeClass(member.Status)">
+                                            @GetStatusLabel(member.Status)
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center mt-auto">
+                                    <div class="dues-info d-flex align-items-center">
+                                        <span class="badge-modern @GetDuesBadgeClass(member.DuesStatus)">
+                                            @if (isOverdue)
+                                            {
+                                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                            }
+                                            @GetDuesLabel(member.DuesStatus)
+                                        </span>
+                                        @if (member.MemberSince.HasValue)
+                                        {
+                                            <span class="member-since-simple ms-2">Since @member.MemberSince.Value.Year</span>
+                                        }
+                                    </div>
+                                    
+                                    <div class="card-info-simple">
+                                        @if (!string.IsNullOrEmpty(member.CardNumber))
+                                        {
+                                            <div class="card-display-simple">
+                                                <i class="bi bi-credit-card-2-front me-1"></i>
+                                                <span class="card-num-simple">@member.CardNumber</span>
+                                                <span class="card-status-dot @(member.CardIsActive == true ? "active" : "inactive")"></span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="no-card-simple">No Card</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-action-overlay">
+                                <span>View Profile <i class="bi bi-arrow-right ms-1"></i></span>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="list-footer-minimal mt-5">
+                    Total Results: <strong>@_filteredMembers.Count</strong> members
+                </div>
+            }
+        }
+        else if (_activeTab == "activity")
+        {
+            <div class="card border-0 shadow-sm rounded-4 p-4 glass-morphic">
+                <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+                    <div>
+                        <h4 class="fw-bold mb-1 text-dark">Global Member Activity Feed</h4>
+                        <p class="small text-muted mb-0">Track real-time membership changes, status transitions, dues payments, and waivers.</p>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" @onclick="LoadHistoryAsync">
+                        @if (_loadingHistory)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-repeat me-1"></i>
+                        }
+                        Refresh Feed
                     </button>
                 </div>
-            </div>
-        }
-        else if (_filteredMembers.Count == 0)
-        {
-            <div class="empty-state-modern scale-in">
-                <div class="empty-icon">
-                    <i class="bi bi-people"></i>
+                <div class="table-responsive border rounded-4 overflow-hidden bg-white shadow-sm">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light uppercase-tracking text-dark" style="font-size: 0.75rem; height: 42px;">
+                            <tr>
+                                <th class="ps-3 fw-bold" style="width: 15%;">Date</th>
+                                <th class="fw-bold" style="width: 25%;">Member</th>
+                                <th class="fw-bold" style="width: 15%;">Field</th>
+                                <th class="fw-bold" style="width: 30%;">Change Details</th>
+                                <th class="text-end pe-3 fw-bold" style="width: 15%;">Changed By</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_loadingHistory && _memberHistory == null)
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-5">
+                                        <div class="spinner-border text-primary mb-3"></div>
+                                        <div class="text-muted fw-bold">Retrieving activity log from server...</div>
+                                    </td>
+                                </tr>
+                            }
+                            else if (_memberHistory == null || !_memberHistory.Any())
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-5 text-muted">
+                                        <div class="empty-icon fs-2 text-muted mb-2"><i class="bi bi-clock-history"></i></div>
+                                        <div>No member changes found in the activity feed.</div>
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var change in _memberHistory)
+                                {
+                                    <tr style="height: 48px;">
+                                        <td class="ps-3 text-muted small">@change.ChangeDate.ToLocalTime().ToString("MM/dd HH:mm")</td>
+                                        <td>
+                                            <a href="/members/@change.MemberID" class="fw-bold text-dark text-decoration-none hover-primary small">
+                                                @change.MemberName
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border rounded-pill px-2 py-1" style="font-size: 0.65rem;">@change.FieldName</span>
+                                        </td>
+                                        <td class="small">
+                                            @if (string.Equals(change.FieldName, "Member Created", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="text-success"><i class="bi bi-person-plus-fill me-1"></i> New member registered: <strong>@change.NewValue</strong></span>
+                                            }
+                                            else if (string.Equals(change.FieldName, "Dues Paid", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="text-primary"><i class="bi bi-cash-coin me-1"></i> <strong>@change.NewValue</strong></span>
+                                            }
+                                            else if (string.Equals(change.FieldName, "Waiver Granted", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <span class="text-warning"><i class="bi bi-gift-fill me-1"></i> <strong>@change.NewValue</strong></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">@change.OldValue</span> 
+                                                <i class="bi bi-arrow-right mx-1 text-muted"></i> 
+                                                <span class="fw-bold text-dark">@change.NewValue</span>
+                                            }
+                                        </td>
+                                        <td class="text-end pe-3 font-monospace small fw-bold text-muted">@change.ChangedBy</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
                 </div>
-                <h3>No members found</h3>
-                <p>Adjust your search or filters to see results.</p>
-            </div>
-        }
-        else
-        {
-            <div class="member-grid-modern">
-                @foreach (var member in _filteredMembers)
-                {
-                    bool isOverdue = member.DuesStatus.Contains("Past Due", StringComparison.OrdinalIgnoreCase) || 
-                                     member.DuesStatus.Contains("Overdue", StringComparison.OrdinalIgnoreCase);
-
-                    <div class="member-card-simplified scale-in @(isOverdue ? "is-overdue" : "")" @onclick="() => NavigateToMember(member.MemberId)">
-                        <div class="card-body-simple">
-                            <div class="d-flex justify-content-between align-items-start mb-3">
-                                <div class="name-id-group">
-                                    <span class="member-id-tag">#@member.MemberId</span>
-                                    <h4 class="member-name-simple">@member.FullName</h4>
-                                </div>
-                                <div class="status-pill-group">
-                                    <span class="badge-modern @GetStatusBadgeClass(member.Status)">
-                                        @GetStatusLabel(member.Status)
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="d-flex justify-content-between align-items-center mt-auto">
-                                <div class="dues-info d-flex align-items-center">
-                                    <span class="badge-modern @GetDuesBadgeClass(member.DuesStatus)">
-                                        @if (isOverdue)
-                                        {
-                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                        }
-                                        @GetDuesLabel(member.DuesStatus)
-                                    </span>
-                                    @if (member.MemberSince.HasValue)
-                                    {
-                                        <span class="member-since-simple ms-2">Since @member.MemberSince.Value.Year</span>
-                                    }
-                                </div>
-                                
-                                <div class="card-info-simple">
-                                    @if (!string.IsNullOrEmpty(member.CardNumber))
-                                    {
-                                        <div class="card-display-simple">
-                                            <i class="bi bi-credit-card-2-front me-1"></i>
-                                            <span class="card-num-simple">@member.CardNumber</span>
-                                            <span class="card-status-dot @(member.CardIsActive == true ? "active" : "inactive")"></span>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <span class="no-card-simple">No Card</span>
-                                    }
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-action-overlay">
-                            <span>View Profile <i class="bi bi-arrow-right ms-1"></i></span>
-                        </div>
-                    </div>
-                }
-            </div>
-
-            <div class="list-footer-minimal mt-5">
-                Total Results: <strong>@_filteredMembers.Count</strong> members
             </div>
         }
     </div>
@@ -675,6 +785,38 @@
     private bool _isLoading = true;
     private string? _errorMessage;
     private CancellationTokenSource? _debounceCts;
+
+    private string _activeTab = "directory";
+    private List<MemberChangeHistory>? _memberHistory;
+    private bool _loadingHistory = false;
+
+    private async Task SetTab(string tab)
+    {
+        _activeTab = tab;
+        if (tab == "activity" && _memberHistory == null)
+        {
+            await LoadHistoryAsync();
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _loadingHistory = true;
+        StateHasChanged();
+        try
+        {
+            _memberHistory = await HistoryRepository.GetGlobalHistoryAsync(100);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load member activity feed in Member Directory");
+        }
+        finally
+        {
+            _loadingHistory = false;
+            StateHasChanged();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
