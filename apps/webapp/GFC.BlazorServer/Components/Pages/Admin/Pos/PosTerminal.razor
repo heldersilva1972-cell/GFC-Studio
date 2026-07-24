@@ -3446,6 +3446,15 @@
                                     </div>
                                 </div>
                                 <div class="d-flex align-items-center">
+                                    @{
+                                        var catUpper = (item.Category ?? "").Trim().ToUpper();
+                                    }
+                                    @if (_dynamicTokenMode && (catUpper == "BEER" || catUpper == "LIQUOR" || catUpper == "WINE" || catUpper == "SELTZER" || catUpper == "SELTZERS" || catUpper == "CIDER" || catUpper == "CIDERS") && !item.IsTokenApplied && item.Price > 0 && catUpper != "TOKENS" && !item.Name.Contains("(TOKEN SALE)"))
+                                    {
+                                        <button type="button" class="btn btn-sm btn-link text-primary p-0 border-0 bg-transparent me-2" title="Sell as Gift Token" @onclick:stopPropagation="true" @onclick="() => ConvertCartItemToToken(item)">
+                                            <i class="bi bi-gift-fill fs-5" style="color: #3b82f6 !important;"></i>
+                                        </button>
+                                    }
                                     <span class="price-tag">$@((item.Price * item.Quantity).ToString("N2"))</span>
                                     <button class="btn-remove" @onclick:stopPropagation="true" @onclick="() => RemoveItem(item)">
                                         <i class="bi bi-dash-circle-fill"></i>
@@ -4925,6 +4934,7 @@
     private List<string> ModifierCategories = new();
     private List<PosModifierDto> Modifiers = new();
     private List<PosToken> DbTokens = new();
+    private bool _dynamicTokenMode = true;
     private List<ActiveEvent> DbActiveEvents = new();
     private List<EventTemplate> DbEventTemplates = new();
     private PosMenuDto? _cachedMenu; // Keep full menu for local updates
@@ -6484,6 +6494,68 @@
             else
             {
                 CartItems.Remove(item);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void ConvertCartItemToToken(ProductItem item)
+    {
+        if (item == null || item.IsTokenApplied || item.Name.Contains("(TOKEN SALE)")) return;
+
+        PosToken? matchedToken = null;
+        var catUpper = (item.Category ?? "").Trim().ToUpper();
+        if (catUpper == "BEER" || catUpper == "SELTZER" || catUpper == "SELTZERS" || catUpper == "CIDER" || catUpper == "CIDERS")
+        {
+            matchedToken = DbTokens.FirstOrDefault(t => t.IsActive && t.AllowCreditUpgrade != true && (t.Name.ToUpper().Contains("BEER") || t.Name.ToUpper().Contains("SELTZER")));
+        }
+        else if (catUpper == "LIQUOR" || catUpper == "WINE")
+        {
+            matchedToken = DbTokens.FirstOrDefault(t => t.IsActive && t.AllowCreditUpgrade != true && (t.Name.ToUpper().Contains("MIXED") || t.Name.ToUpper().Contains("DRINK")));
+        }
+
+        if (matchedToken == null)
+        {
+            matchedToken = DbTokens.FirstOrDefault(t => t.IsActive && t.AllowCreditUpgrade != true);
+        }
+
+        if (matchedToken == null)
+        {
+            Toast.ShowWarning("No matching standard token found for this category.");
+            return;
+        }
+
+        var tokenName = $"{matchedToken.Name} ({item.Name}) (TOKEN SALE)";
+        var tokenId   = -matchedToken.Id;
+
+        if (item.Quantity > 1)
+        {
+            item.Quantity--;
+            CartItems.Add(new ProductItem
+            {
+                Id = tokenId,
+                Name = tokenName,
+                Price = matchedToken.SalePrice,
+                Category = "TOKENS",
+                Quantity = 1
+            });
+        }
+        else
+        {
+            var tokenItem = new ProductItem
+            {
+                Id = tokenId,
+                Name = tokenName,
+                Price = matchedToken.SalePrice,
+                Category = "TOKENS",
+                Quantity = 1
+            };
+
+            var idx = CartItems.IndexOf(item);
+            if (idx >= 0)
+            {
+                CartItems[idx] = tokenItem;
+                SelectedCartItem = tokenItem;
             }
         }
         StateHasChanged();
