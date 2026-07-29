@@ -8607,7 +8607,7 @@
                     var token = DbTokens.FirstOrDefault(t => t.Name.Equals(tokenPart, StringComparison.OrdinalIgnoreCase));
                     if (token != null) price = -(token.CreditValue ?? token.SalePrice);
                 }
-                return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = price * kvp.Value };
+                return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = price * kvp.Value, ZReportGroup = product?.ZReportGroup ?? 0 };
             })
             .GroupBy(x => x.Category)
             .OrderBy(g => g.Key);
@@ -8653,7 +8653,7 @@
             ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
         }
 
-        // Compute category summaries (Food & Snacks, Liquor & Beverages excluding sodas/waters/redbull)
+        // Compute category summaries (Food & Snacks, Liquor & Beverages)
         decimal foodSnackTotal = 0;
         decimal liquorTotal = 0;
         foreach (var group in groupedRegular)
@@ -8663,16 +8663,28 @@
                 var itemCat = item.Category.ToUpper();
                 var itemNameLower = item.Name.ToLower();
 
-                if (itemCat == "FOOD" || itemCat == "CANDY" || itemCat == "SNACK" || itemCat == "SNACKS")
+                // 1. Evaluate ZReportGroup setting (1 = Food & Non-Alcoholic, 2 = Liquor & Alcohol, 3 = Excluded)
+                int effectiveGroup = item.ZReportGroup;
+
+                if (effectiveGroup == 1) // Explicit Food & Non-Alcoholic
                 {
                     foodSnackTotal += item.Total;
                 }
-                else if (itemCat == "LIQUOR" || itemCat == "WINE" || itemCat == "BEER" || itemCat == "SELTZER" || itemCat == "SELTZERS" || itemCat == "CIDER" || itemCat == "CIDERS" || itemCat == "NON-ALCOHOLIC" || itemCat == "BEVERAGE" || itemCat == "BEVERAGES")
+                else if (effectiveGroup == 2) // Explicit Liquor & Alcohol
                 {
-                    if (!itemNameLower.Contains("soda") && 
-                        !itemNameLower.Contains("water") && 
-                        !itemNameLower.Contains("redbull") && 
-                        !itemNameLower.Contains("red bull"))
+                    liquorTotal += item.Total;
+                }
+                else if (effectiveGroup == 3) // Excluded / Non-Sales
+                {
+                    // Skip
+                }
+                else // Default System Rules (Group == 0)
+                {
+                    if (itemCat == "FOOD" || itemCat == "CANDY" || itemCat == "SNACK" || itemCat == "SNACKS" || itemCat == "NON-ALCOHOLIC" || itemCat == "BEVERAGE" || itemCat == "BEVERAGES" || itemCat == "SODA" || itemCat == "WATER" || itemNameLower.Contains("soda") || itemNameLower.Contains("water") || itemNameLower.Contains("redbull") || itemNameLower.Contains("red bull"))
+                    {
+                        foodSnackTotal += item.Total;
+                    }
+                    else if (itemCat == "LIQUOR" || itemCat == "WINE" || itemCat == "BEER" || itemCat == "SELTZER" || itemCat == "SELTZERS" || itemCat == "CIDER" || itemCat == "CIDERS")
                     {
                         liquorTotal += item.Total;
                     }

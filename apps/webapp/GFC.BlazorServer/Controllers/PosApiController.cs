@@ -164,6 +164,10 @@ public class PosApiController : ControllerBase
 
             var items = new List<PosItemDto>();
 
+            var catZGroupMap = await db.PosCategories
+                .Where(c => c.IsActive)
+                .ToDictionaryAsync(c => c.Name.Trim().ToUpper(), c => c.ZReportGroup, StringComparer.OrdinalIgnoreCase);
+
             foreach (var i in liquorItems)
             {
                 bool showInPos = resolvedVisibility[i.Id];
@@ -205,6 +209,12 @@ public class PosApiController : ControllerBase
                         displayName = i.Name + " (Bottle)";
                     }
 
+                    int effectiveZGroup = i.ZReportGroup;
+                    if (effectiveZGroup == 0 && catZGroupMap.TryGetValue(category.Trim().ToUpper(), out var catZ))
+                    {
+                        effectiveZGroup = catZ;
+                    }
+
                     items.Add(new PosItemDto 
                     {
                         Id = i.Id,
@@ -212,7 +222,7 @@ public class PosApiController : ControllerBase
                         Price = price,
                         Category = category.Trim().ToUpper(),
                         DisplayOrder = displayOrder,
-                        ZReportGroup = i.ZReportGroup
+                        ZReportGroup = effectiveZGroup
                     });
                 }
             }
