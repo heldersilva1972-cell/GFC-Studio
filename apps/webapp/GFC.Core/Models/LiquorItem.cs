@@ -69,6 +69,8 @@ namespace GFC.Core.Models
 
         public int InventoryTrackType { get; set; } = 0; // 0 = Inherit Category, 1 = None, 2 = Liquor, 3 = Food/General
 
+        public int ZReportGroup { get; set; } = 0; // 0 = Inherit Category, 1 = Food & Non-Alcoholic, 2 = Liquor & Alcohol, 3 = Excluded
+
         public bool IsActive { get; set; } = true;
         public bool IsBeer { get; set; } = false;
         public bool ShowInPos { get; set; } = false;

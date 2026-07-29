@@ -625,6 +625,15 @@
                                     <option value="2">General/Food</option>
                                 </select>
                             </div>
+                            <div style="width: 185px;">
+                                <label class="small fw-bold text-muted mb-0" style="font-size: 0.65rem;">Z-REPORT GROUP</label>
+                                <select class="form-select form-select-sm fw-bold" @bind="selectedCategory.ZReportGroup">
+                                    <option value="0">Auto (Default)</option>
+                                    <option value="1">Food & Non-Alcoholic</option>
+                                    <option value="2">Liquor & Alcohol</option>
+                                    <option value="3">Excluded / None</option>
+                                </select>
+                            </div>
                              <button class="btn btn-sm btn-success mt-3 fw-bold px-3 shadow-sm" @onclick="SaveCategoryChanges" title="Save Category Settings">
                                  <i class="bi bi-check-lg me-1"></i> SAVE CHANGES
                              </button>
@@ -813,6 +822,7 @@
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 100px;">Pack Size</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 110px;">Loose Audit</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 180px;">Inventory Override</th>
+                                            <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center" style="width: 185px;">Z-Report Group</th>
                                             <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Show in POS</th>
                                             <th class="text-end px-4">Actions</th>
                                         </tr>
@@ -897,6 +907,23 @@
                                                             <option value="1">None (No Track)</option>
                                                             <option value="2">Liquor Hub</option>
                                                             <option value="3">General/Food</option>
+                                                        </select>
+                                                    }
+                                                </td>
+                                                <td class="py-2 px-4 text-center">
+                                                    @if (item.ParentItemId.HasValue)
+                                                    {
+                                                        <span class="text-muted small">N/A</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <select class="form-select form-select-sm fw-bold border-2" 
+                                                                value="@item.ZReportGroup" 
+                                                                @onchange="@((e) => UpdateItemZReportGroup(item, e.Value))">
+                                                            <option value="0">Inherited</option>
+                                                            <option value="1">Food & Non-Alcoholic</option>
+                                                            <option value="2">Liquor & Alcohol</option>
+                                                            <option value="3">Excluded / None</option>
                                                         </select>
                                                     }
                                                 </td>
@@ -1315,6 +1342,15 @@
                                     <option value="1">None (Do Not Track)</option>
                                     <option value="2">Track in Liquor Hub</option>
                                     <option value="3">Track in General/Food</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small fw-bold text-muted mb-1">Z-Report Group Override</label>
+                                <select class="form-select rounded-pill border-2 fw-bold" @bind="editingItem.ZReportGroup">
+                                    <option value="0">Inherit Category Default</option>
+                                    <option value="1">Food & Non-Alcoholic</option>
+                                    <option value="2">Liquor & Alcohol</option>
+                                    <option value="3">Excluded / None</option>
                                 </select>
                             </div>
 
@@ -3217,6 +3253,7 @@
                 original.Name = newName;
                 original.DisplayOrder = selectedCategory.DisplayOrder;
                 original.InventoryTrackType = selectedCategory.InventoryTrackType;
+                original.ZReportGroup = selectedCategory.ZReportGroup;
                 
                 // 2. IMPORTANT: If name changed, update all items linked to it
                 if (oldName != newName)
@@ -3412,6 +3449,31 @@
                     await db.SaveChangesAsync();
                     item.InventoryTrackType = trackType;
                     await ToastService.ShowSuccess($"Inventory override updated for {item.Name}");
+                }
+                await LoadCategories();
+                await ReloadItems(silent: true);
+            }
+            catch (Exception ex)
+            {
+                await ToastService.ShowError($"Error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task UpdateItemZReportGroup(LiquorItem item, object? val)
+    {
+        if (val != null && int.TryParse(val.ToString(), out var zGroup))
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.ZReportGroup = zGroup;
+                    await db.SaveChangesAsync();
+                    item.ZReportGroup = zGroup;
+                    await ToastService.ShowSuccess($"Z-Report Group override updated for {item.Name}");
                 }
                 await LoadCategories();
                 await ReloadItems(silent: true);

@@ -211,7 +211,8 @@ public class PosApiController : ControllerBase
                         Name = displayName,
                         Price = price,
                         Category = category.Trim().ToUpper(),
-                        DisplayOrder = displayOrder
+                        DisplayOrder = displayOrder,
+                        ZReportGroup = i.ZReportGroup
                     });
                 }
             }

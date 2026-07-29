@@ -23,6 +23,8 @@ namespace GFC.Core.Models
 
         public int InventoryTrackType { get; set; } = 0; // 0 = None, 1 = Liquor, 2 = Food/General
 
+        public int ZReportGroup { get; set; } = 0; // 0 = Auto, 1 = Food & Non-Alcoholic, 2 = Liquor & Alcohol, 3 = Excluded
+
         public string? ModifiersJson { get; set; }
 
         public int? MenuProfileId { get; set; }

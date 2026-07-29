@@ -7,4 +7,5 @@ public class PosItemDto
     public decimal Price { get; set; }
     public string Category { get; set; } = "MISC";
     public int DisplayOrder { get; set; }
+    public int ZReportGroup { get; set; }
 }

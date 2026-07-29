@@ -1529,6 +1529,29 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($"Error executing SystemSettings PayoutCategories repair: {ex.Message}");
                 }
 
+                // [AUTO-FIX 11] Run ZReportGroup Column Repair for PosCategories & LiquorItems
+                try
+                {
+                    Console.WriteLine(">>> Applying ZReportGroup Columns Repair...");
+                    var zGroupFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosCategories]') AND name = 'ZReportGroup')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosCategories] ADD [ZReportGroup] INT NOT NULL DEFAULT 0;
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[LiquorItems]') AND name = 'ZReportGroup')
+                        BEGIN
+                            ALTER TABLE [dbo].[LiquorItems] ADD [ZReportGroup] INT NOT NULL DEFAULT 0;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(zGroupFixSql);
+                    Console.WriteLine(">>> ZReportGroup Columns Repair Applied Successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing ZReportGroup columns repair: {ex.Message}");
+                }
+
                 // [AUTO-FIX 11] Run ProgressiveBallGoal BingoGameEntries Column Repair
                 try
                 {
