@@ -1835,6 +1835,9 @@
                 throw new global::System.Exception("Error loading LiquorItems in OnInitializedAsync: " + ex.Message, ex);
             }
             var overrides = await db.PosMenuOverrides.AsNoTracking().ToListAsync();
+            DbPosCategories = await db.PosCategories.AsNoTracking().ToListAsync();
+            MasterTokens = await db.PosTokens.AsNoTracking().ToListAsync();
+
             DbItems = items.Select(i => {
                 var price = i.RetailPrice;
                 var category = i.Category ?? "MISC";
@@ -1854,7 +1857,8 @@
                 return new PosTerminal.ProductItem { 
                     Name = i.Name, 
                     Price = price, 
-                    Category = category
+                    Category = category,
+                    ZReportGroup = i.ZReportGroup
                 };
             }).ToList();
 
@@ -2336,15 +2340,30 @@
             if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
 
             var product = DbLiquorItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
+            if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
+            {
+                int openIdx = cleanKey.IndexOf(" (");
+                string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
+                product = DbLiquorItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+            }
+
             var category = !string.IsNullOrEmpty(product?.Category) ? product.Category : (item.Category ?? "");
+            if ((string.Equals(category, "TOKENS", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(category)) && (item.Name.Contains("TOKEN") || item.Name.Contains("Token")))
+            {
+                category = "LIQUOR";
+            }
+
             var catUpper = category.ToUpper();
             var itemNameLower = item.Name.ToLower();
-            decimal price = product?.RetailPrice ?? 0;
-            if (price == 0 && item.Price > 0) price = item.Price;
+            decimal price = item.Price > 0 ? item.Price : (product?.RetailPrice ?? 0);
             if (price == 0 && (item.Name.Contains("TOKEN") || item.Name.Contains("Token")))
             {
                 var token = MasterTokens.FirstOrDefault(t => t.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                 if (token != null) price = token.SalePrice;
+            }
+            if (item.Name.Contains("(TOKEN REDEEMED)") || item.Name.Contains("TOKEN REDEEMED"))
+            {
+                price = 0;
             }
             decimal total = price * item.Quantity;
 
@@ -2380,12 +2399,26 @@
                 {
                     foodTotal += total;
                 }
-                else if (catUpper == "LIQUOR" || catUpper == "WINE" || catUpper == "BEER" || catUpper == "SELTZER" || catUpper == "SELTZERS" || catUpper == "CIDER" || catUpper == "CIDERS")
+                else
                 {
                     liquorTotal += total;
                 }
             }
         }
+
+        // If a gap exists between resolved item prices and recorded Gross Sales,
+        // attribute the remainder to liquorTotal — never ratio-scale food, as all
+        // prices are 25¢ increments and ratio math produces irrational cent values.
+        if (z != null && z.TotalGrossSales > 0)
+        {
+            decimal computedSum = foodTotal + liquorTotal;
+            decimal remainder = z.TotalGrossSales - computedSum;
+            if (Math.Abs(remainder) > 0.01m)
+            {
+                liquorTotal += remainder;
+            }
+        }
+
         return (foodTotal, liquorTotal);
     }
 
@@ -2418,19 +2451,6 @@
                             if (tokenMatch != null)
                             {
                                 price = tokenMatch.SalePrice;
-                                
-                                // Parse specific drink price if sold as a drink
-                                string temp = kvp.Key.Replace(" (TOKEN SALE)", "");
-                                int prefixLen = tokenMatch.Name.Length + 2;
-                                if (temp.Length > prefixLen + 1 && temp.EndsWith(")"))
-                                {
-                                    string extractedDrink = temp.Substring(prefixLen, temp.Length - prefixLen - 1);
-                                    var drinkItem = DbItems.FirstOrDefault(di => di.Name != null && di.Name.Equals(extractedDrink, StringComparison.OrdinalIgnoreCase));
-                                    if (drinkItem != null)
-                                    {
-                                        price = drinkItem.Price;
-                                    }
-                                }
                             }
                         }
                         return new PosTerminal.ProductItem { 

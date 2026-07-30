@@ -8587,18 +8587,30 @@
                 if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
                 
                 var product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
+                if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
+                {
+                    int openIdx = cleanKey.IndexOf(" (");
+                    string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
+                    product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+                }
                 var category = product?.Category;
                 if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN")) category = "TOKENS";
+                if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
                 
-                decimal price = product?.Price ?? 0;
-                if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
+                decimal price = 0;
+                if (kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))
                 {
-                    var token = DbTokens.FirstOrDefault(t => t.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
-                    if (token != null)
+                    price = 0;
+                }
+                else
+                {
+                    if (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token"))
                     {
-                        price = token.SalePrice;
+                        var tokenMatch = DbTokens.OrderByDescending(t => t.Name.Length)
+                            .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
+                        if (tokenMatch != null) price = tokenMatch.SalePrice;
                     }
+                    if (price == 0) price = product?.Price ?? 0;
                 }
                 
                 if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
@@ -8684,7 +8696,7 @@
                     {
                         foodSnackTotal += item.Total;
                     }
-                    else if (itemCat == "LIQUOR" || itemCat == "WINE" || itemCat == "BEER" || itemCat == "SELTZER" || itemCat == "SELTZERS" || itemCat == "CIDER" || itemCat == "CIDERS")
+                    else
                     {
                         liquorTotal += item.Total;
                     }
