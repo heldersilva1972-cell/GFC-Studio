@@ -128,6 +128,135 @@
         }
         else
         {
+            @if (ShowProductTrend && ProductWeeklyTrendPoints.Any())
+            {
+                var maxQty = Math.Max(10, ProductWeeklyTrendPoints.Max(p => Math.Max(p.ActualQuantity, Math.Max(p.YoYQuantity, p.ProjectedQuantity))));
+                var svgWidth = 800;
+                var svgHeight = 160;
+                var padding = 45;
+                var usableWidth = svgWidth - (padding * 2);
+                var usableHeight = svgHeight - (padding * 2);
+                var stepX = ProductWeeklyTrendPoints.Count > 1 ? (double)usableWidth / (ProductWeeklyTrendPoints.Count - 1) : usableWidth;
+
+                var actualPoints = new List<(double X, double Y, ProductWeeklyTrendPoint Pt)>();
+                var yoyPoints = new List<(double X, double Y, ProductWeeklyTrendPoint Pt)>();
+                var projectedPoints = new List<(double X, double Y, ProductWeeklyTrendPoint Pt)>();
+
+                for (int i = 0; i < ProductWeeklyTrendPoints.Count; i++)
+                {
+                    var pt = ProductWeeklyTrendPoints[i];
+                    var x = padding + (i * stepX);
+
+                    if (!pt.IsProjected)
+                    {
+                        var yActRatio = (double)pt.ActualQuantity / maxQty;
+                        var yAct = svgHeight - padding - (yActRatio * usableHeight);
+                        var actTuple = (x, yAct, pt);
+                        actualPoints.Add(actTuple);
+
+                        var yYoYRatio = (double)pt.YoYQuantity / maxQty;
+                        var yYoY = svgHeight - padding - (yYoYRatio * usableHeight);
+                        yoyPoints.Add((x, yYoY, pt));
+
+                        if (i < ProductWeeklyTrendPoints.Count - 1 && ProductWeeklyTrendPoints[i + 1].IsProjected)
+                        {
+                            projectedPoints.Add(actTuple);
+                        }
+                    }
+                    else
+                    {
+                        var yProjRatio = (double)pt.ProjectedQuantity / maxQty;
+                        var yProj = svgHeight - padding - (yProjRatio * usableHeight);
+                        projectedPoints.Add((x, yProj, pt));
+                    }
+                }
+
+                var actualPathD = BuildPathD(actualPoints);
+                var yoyPathD = BuildPathD(yoyPoints);
+                var projPathD = BuildPathD(projectedPoints);
+
+                <div class="row g-4 mb-4">
+                    <div class="col-12">
+                        <div class="chart-card p-4 border border-primary-subtle shadow-sm" style="background: #f8fafc;">
+                            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                <div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <h5 class="fw-black text-primary mb-0"><i class="bi bi-graph-up me-2"></i>@SelectedTrendProductName</h5>
+                                        <span class="badge bg-primary rounded-pill fw-black px-2 py-1 extra-small">WEEKLY SALES & YoY COMPARISON</span>
+                                    </div>
+                                    <p class="small text-muted mb-0">Solid Blue = 2026 Weekly Sales | Dashed Amber = 2025 YoY Sales | Dashed Green = Projected Weekly Forecast</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="d-flex align-items-center gap-2 extra-small fw-bold">
+                                        <span class="d-inline-block rounded-circle" style="width: 10px; height: 10px; background: #6366f1;"></span> 2026 This Year
+                                        <span class="d-inline-block rounded-circle ms-2" style="width: 10px; height: 10px; background: #f59e0b;"></span> 2025 Last Year (YoY)
+                                        <span class="d-inline-block rounded-circle ms-2" style="width: 10px; height: 10px; background: #10b981;"></span> Projected Forecast
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary rounded-circle ms-2" @onclick="() => ShowProductTrend = false" title="Close Chart">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="position-relative w-100 overflow-x-auto">
+                                <svg viewBox="0 0 @svgWidth @svgHeight" class="w-100" style="min-width: 650px; height: 160px; overflow: visible;">
+                                    <!-- Grid Lines -->
+                                    <line x1="@padding" y1="@padding" x2="@(svgWidth - padding)" y2="@padding" stroke="#e2e8f0" stroke-dasharray="4 4" stroke-width="1" />
+                                    <line x1="@padding" y1="@(svgHeight / 2)" x2="@(svgWidth - padding)" y2="@(svgHeight / 2)" stroke="#e2e8f0" stroke-dasharray="4 4" stroke-width="1" />
+                                    <line x1="@padding" y1="@(svgHeight - padding)" x2="@(svgWidth - padding)" y2="@(svgHeight - padding)" stroke="#cbd5e1" stroke-width="1.5" />
+
+                                    <!-- Y-Axis Numeric Scale Labels -->
+                                    @((MarkupString)$"<text x=\"{padding - 8}\" y=\"{padding + 4}\" text-anchor=\"end\" fill=\"#94a3b8\" font-size=\"10\" font-weight=\"700\">{maxQty}</text>")
+                                    @((MarkupString)$"<text x=\"{padding - 8}\" y=\"{(svgHeight / 2) + 4}\" text-anchor=\"end\" fill=\"#94a3b8\" font-size=\"10\" font-weight=\"700\">{maxQty / 2}</text>")
+                                    @((MarkupString)$"<text x=\"{padding - 8}\" y=\"{svgHeight - padding + 4}\" text-anchor=\"end\" fill=\"#94a3b8\" font-size=\"10\" font-weight=\"700\">0</text>")
+
+                                    <!-- Last Year YoY Line (Dashed Amber) -->
+                                    <path d="@yoyPathD" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="4 4" stroke-linecap="round" />
+
+                                    <!-- This Year Actual Line (Solid Blue) -->
+                                    <path d="@actualPathD" fill="none" stroke="#6366f1" stroke-width="3.5" stroke-linecap="round" />
+
+                                    <!-- Projected Forecast Line (Dashed Green) -->
+                                    <path d="@projPathD" fill="none" stroke="#10b981" stroke-width="3.5" stroke-dasharray="6 6" stroke-linecap="round" />
+
+                                    <!-- YoY Markers -->
+                                    @foreach (var pt in yoyPoints)
+                                    {
+                                        <g class="chart-point">
+                                            <circle cx="@pt.X.ToString("F1")" cy="@pt.Y.ToString("F1")" r="3.5" fill="#ffffff" stroke="#f59e0b" stroke-width="2">
+                                                <title>@pt.Pt.Label (2025 Last Year): @pt.Pt.YoYQuantity units</title>
+                                            </circle>
+                                        </g>
+                                    }
+
+                                    <!-- Actual Markers -->
+                                    @foreach (var pt in actualPoints)
+                                    {
+                                        <g class="chart-point">
+                                            <circle cx="@pt.X.ToString("F1")" cy="@pt.Y.ToString("F1")" r="4.5" fill="#ffffff" stroke="#6366f1" stroke-width="2.5">
+                                                <title>@pt.Pt.Label (2026 This Year): @pt.Pt.ActualQuantity units</title>
+                                            </circle>
+                                            @((MarkupString)$"<text x=\"{pt.X:F1}\" y=\"{svgHeight - 8}\" text-anchor=\"middle\" fill=\"#64748b\" font-size=\"10\" font-weight=\"700\">{pt.Pt.Label}</text>")
+                                        </g>
+                                    }
+
+                                    <!-- Projected Markers -->
+                                    @foreach (var pt in projectedPoints.Where(p => p.Pt.IsProjected))
+                                    {
+                                        <g class="chart-point">
+                                            <circle cx="@pt.X.ToString("F1")" cy="@pt.Y.ToString("F1")" r="4.5" fill="#10b981" stroke="#ffffff" stroke-width="2">
+                                                <title>@pt.Pt.Label: ~@pt.Pt.ProjectedQuantity units (Weekly Forecast Projection)</title>
+                                            </circle>
+                                            @((MarkupString)$"<text x=\"{pt.X:F1}\" y=\"{svgHeight - 8}\" text-anchor=\"middle\" fill=\"#059669\" font-size=\"10\" font-weight=\"700\">{pt.Pt.Label}</text>")
+                                        </g>
+                                    }
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
             <div class="row g-4">
                 <!-- PRODUCT PERFORMANCE TABLE -->
                 <div class="col-md-7">
@@ -208,7 +337,9 @@
                                                 var share = TotalRevenue > 0 ? (double)item.Value.Revenue / (double)TotalRevenue * 100 : 0;
                                                 <tr>
                                                     <td class="ps-4">
-                                                        <div class="fw-black text-primary">@item.Key</div>
+                                                        <div class="fw-black text-primary cursor-pointer" style="cursor: pointer;" @onclick="() => SelectProductForTrend(item.Key)" title="Click to view sales trend & 7-day forecast">
+                                                            @item.Key <i class="bi bi-graph-up-arrow ms-1 text-muted extra-small"></i>
+                                                        </div>
                                                         <div class="extra-small text-muted text-uppercase tracking-tighter">Usage Leader</div>
                                                     </td>
                                                     <td class="text-center">
@@ -272,7 +403,9 @@
 
                                                 <tr>
                                                     <td class="ps-4">
-                                                        <div class="fw-black text-primary">@item.Key</div>
+                                                        <div class="fw-black text-primary cursor-pointer" style="cursor: pointer;" @onclick="() => SelectProductForTrend(item.Key)" title="Click to view sales trend & 7-day forecast">
+                                                            @item.Key <i class="bi bi-graph-up-arrow ms-1 text-muted extra-small"></i>
+                                                        </div>
                                                         @if (netNeeded > 0)
                                                         {
                                                             <span class="badge bg-danger-light text-danger fw-black extra-small">REORDER NEEDED</span>
@@ -283,8 +416,41 @@
                                                         }
                                                     </td>
                                                     <td class="text-center">
-                                                        <div class="fw-black fs-5 text-dark">@item.Value.CurrentStock</div>
-                                                        <div class="extra-small text-muted fw-bold text-uppercase">Stock On Hand</div>
+                                                        <div class="d-flex flex-column align-items-center gap-1 py-1">
+                                                            <div class="d-flex align-items-baseline gap-1">
+                                                                <span class="fw-black fs-5 text-dark lh-1">@item.Value.CurrentStock</span>
+                                                                <span class="extra-small fw-black text-primary text-uppercase tracking-wider">
+                                                                    @(item.Value.IsLiquor ? "SHOTS" : "UNITS")
+                                                                </span>
+                                                            </div>
+                                                            @if (item.Value.PackSize > 1)
+                                                            {
+                                                                var stkCases = item.Value.CurrentStock / item.Value.PackSize;
+                                                                var stkBottles = item.Value.CurrentStock % item.Value.PackSize;
+                                                                var cLabel = stkCases == 1 ? "Case" : "Cases";
+                                                                var bLabel = stkBottles == 1 ? "Bottle" : "Bottles";
+                                                                string stkText = stkCases > 0 && stkBottles > 0 
+                                                                    ? $"{stkCases} {cLabel}, {stkBottles} {bLabel}" 
+                                                                    : (stkCases > 0 ? $"{stkCases} {cLabel}" : $"{stkBottles} {bLabel}");
+
+                                                                <div class="badge rounded-pill bg-success-light text-success border border-success-subtle fw-black px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.7rem;">
+                                                                    <i class="bi bi-box-seam-fill"></i>
+                                                                    <span>@stkText</span>
+                                                                </div>
+                                                            }
+                                                            else if (item.Value.IsLiquor)
+                                                            {
+                                                                var stkBtls = Math.Round((double)item.Value.CurrentStock * (double)item.Value.PourSizeOz / (double)item.Value.BottleVolumeOz, 1);
+                                                                <div class="badge rounded-pill fw-black px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.7rem; background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff !important;">
+                                                                    <i class="bi bi-cup-straw"></i>
+                                                                    <span>@stkBtls Bottles</span>
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="extra-small text-muted fw-bold text-uppercase">Stock On Hand</div>
+                                                            }
+                                                        </div>
                                                     </td>
                                                     <td class="text-center">
                                                         <div class="fw-black fs-5 text-primary">@projDemand</div>
@@ -556,6 +722,199 @@
 
     private int TokensSold = 0;
     private int TokensRedeemed = 0;
+
+    private string? SelectedTrendProductName = null;
+    private bool ShowProductTrend = false;
+
+    public class ProductWeeklyTrendPoint {
+        public string Label { get; set; } = "";
+        public int ActualQuantity { get; set; } = 0;
+        public int YoYQuantity { get; set; } = 0;
+        public int ProjectedQuantity { get; set; } = 0;
+        public bool IsProjected { get; set; } = false;
+    }
+
+    private List<ProductWeeklyTrendPoint> ProductWeeklyTrendPoints = new();
+    private List<PosSale> CachedSales = new();
+    private List<PosSale> CachedSalesYoY = new();
+
+    private void SelectProductForTrend(string productName)
+    {
+        if (SelectedTrendProductName == productName && ShowProductTrend)
+        {
+            ShowProductTrend = false;
+            return;
+        }
+
+        SelectedTrendProductName = productName;
+        ShowProductTrend = true;
+        BuildProductTrendPoints();
+    }
+
+    private string BuildPathD(List<(double X, double Y, ProductWeeklyTrendPoint Pt)> points)
+    {
+        if (points.Count == 0) return "";
+        var path = $"M {points[0].X:F1} {points[0].Y:F1}";
+        for (int i = 1; i < points.Count; i++)
+        {
+            var prev = points[i - 1];
+            var curr = points[i];
+            var stepX = curr.X - prev.X;
+            var cx1 = prev.X + (stepX / 2);
+            var cy1 = prev.Y;
+            var cx2 = curr.X - (stepX / 2);
+            var cy2 = curr.Y;
+            path += $" C {cx1:F1} {cy1:F1}, {cx2:F1} {cy2:F1}, {curr.X:F1} {curr.Y:F1}";
+        }
+        return path;
+    }
+
+    private void BuildProductTrendPoints()
+    {
+        ProductWeeklyTrendPoints = new();
+        if (string.IsNullOrEmpty(SelectedTrendProductName) || !ProductStats.TryGetValue(SelectedTrendProductName, out var metric))
+        {
+            return;
+        }
+
+        if (ActivePreset == "YearMode")
+        {
+            int currentMonth = SelectedYear == DateTime.Today.Year ? DateTime.Today.Month : 12;
+            int maxMonthToRender = SelectedYear == DateTime.Today.Year ? currentMonth : 12;
+            int monthlyForecast = metric.GetProjected7DayDemand(PredictionMode) * 4;
+
+            // Monthly Aggregation for Year Mode (Jan - Current Month)
+            for (int m = 1; m <= maxMonthToRender; m++)
+            {
+                var dtLabel = new DateTime(SelectedYear, m, 1);
+                var label = dtLabel.ToString("MMM");
+
+                int actualQty = 0;
+                int yoyQty = 0;
+
+                // 2026 Actual Sales (up to current month)
+                foreach (var sale in CachedSales.Where(s => s.Timestamp.Month == m && s.Timestamp.Year == SelectedYear))
+                {
+                    foreach (var item in DeserializeItems(sale.ItemsJson))
+                    {
+                        if (string.Equals(CleanProductName(item.Name), SelectedTrendProductName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            actualQty += item.Quantity;
+                        }
+                    }
+                }
+
+                // 2025 YoY Sales for the same month
+                foreach (var sale in CachedSalesYoY.Where(s => s.Timestamp.Month == m && s.Timestamp.Year == SelectedYear - 1))
+                {
+                    foreach (var item in DeserializeItems(sale.ItemsJson))
+                    {
+                        if (string.Equals(CleanProductName(item.Name), SelectedTrendProductName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            yoyQty += item.Quantity;
+                        }
+                    }
+                }
+
+                ProductWeeklyTrendPoints.Add(new ProductWeeklyTrendPoint {
+                    Label = label,
+                    ActualQuantity = actualQty,
+                    YoYQuantity = yoyQty,
+                    IsProjected = false
+                });
+
+                // Insert Projected Next Month immediately following the current month
+                if (m == currentMonth && currentMonth < 12)
+                {
+                    var nextMthLabel = new DateTime(SelectedYear, currentMonth + 1, 1).ToString("MMM") + " (Proj)";
+                    ProductWeeklyTrendPoints.Add(new ProductWeeklyTrendPoint {
+                        Label = nextMthLabel,
+                        ProjectedQuantity = monthlyForecast,
+                        IsProjected = true
+                    });
+                }
+            }
+        }
+        else
+        {
+            // Weekly Aggregation for Month/Week Modes (Wk 1, Wk 2, Wk 3...)
+            var start = StartDate.Date;
+            var end = EndDate.Date;
+            
+            int weekIndex = 1;
+            for (var wStart = start; wStart <= end; wStart = wStart.AddDays(7))
+            {
+                var wEnd = wStart.AddDays(7);
+                
+                var stThisYear = wStart.AddHours(3);
+                var enThisYear = wEnd.AddHours(3);
+
+                var stLastYear = wStart.AddYears(-1).AddHours(3);
+                var enLastYear = wEnd.AddYears(-1).AddHours(3);
+
+                int actualQty = 0;
+                int yoyQty = 0;
+
+                foreach (var sale in CachedSales.Where(s => s.Timestamp >= stThisYear && s.Timestamp < enThisYear))
+                {
+                    foreach (var item in DeserializeItems(sale.ItemsJson))
+                    {
+                        if (string.Equals(CleanProductName(item.Name), SelectedTrendProductName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            actualQty += item.Quantity;
+                        }
+                    }
+                }
+
+                foreach (var sale in CachedSalesYoY.Where(s => s.Timestamp >= stLastYear && s.Timestamp < enLastYear))
+                {
+                    foreach (var item in DeserializeItems(sale.ItemsJson))
+                    {
+                        if (string.Equals(CleanProductName(item.Name), SelectedTrendProductName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            yoyQty += item.Quantity;
+                        }
+                    }
+                }
+
+                int daysElapsed = 7;
+                if (wStart <= DateTime.Today && wEnd > DateTime.Today)
+                {
+                    daysElapsed = Math.Max(1, (int)(DateTime.Today - wStart.Date).TotalDays + 1);
+                }
+
+                if (daysElapsed < 7 && actualQty > 0)
+                {
+                    // Normalize to 7-day weekly run-rate pace so partial weeks don't plunge to 0
+                    actualQty = (int)Math.Round(((double)actualQty / daysElapsed) * 7.0);
+                }
+
+                string weekLabel = daysElapsed < 7 ? $"Wk {weekIndex} ({wStart:M/d} Pace)" : $"Wk {weekIndex} ({wStart:M/d})";
+
+                ProductWeeklyTrendPoints.Add(new ProductWeeklyTrendPoint {
+                    Label = weekLabel,
+                    ActualQuantity = actualQty,
+                    YoYQuantity = yoyQty,
+                    IsProjected = false
+                });
+
+                weekIndex++;
+            }
+
+            int weeklyForecast = metric.GetProjected7DayDemand(PredictionMode);
+            var lastWkStart = end.AddDays(1);
+
+            for (int i = 1; i <= 2; i++)
+            {
+                var projWStart = lastWkStart.AddDays((i - 1) * 7);
+                ProductWeeklyTrendPoints.Add(new ProductWeeklyTrendPoint {
+                    Label = $"Proj Wk {i} ({projWStart:M/d})",
+                    ProjectedQuantity = weeklyForecast,
+                    IsProjected = true
+                });
+            }
+        }
+    }
 
     public class ProductMetric {
         public int Quantity { get; set; }
@@ -938,6 +1297,14 @@
                     ProductStats[cleanName].QuantityYoY += item.Quantity;
                 }
             }
+        }
+
+        CachedSales = sales;
+        CachedSalesYoY = salesYoY;
+
+        if (ShowProductTrend && !string.IsNullOrEmpty(SelectedTrendProductName))
+        {
+            BuildProductTrendPoints();
         }
 
         TotalTransactions = validSalesCount;
