@@ -1144,14 +1144,15 @@
                             <div class="mt-2 border-top pt-2">
                                 <label class="small fw-black text-muted opacity-75 mb-1 d-block" style="font-size: 0.55rem; letter-spacing: 0.5px;">SHIFT FILTER</label>
                                 <div class="d-flex gap-1">
-                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2 flex-grow-1" style="font-size: 0.82rem;" @bind="FilterShiftId" @bind:after="OnShiftFilterChanged">
+                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2 flex-grow-1" style="font-size: 0.82rem;" @bind="FilterShiftValue" @bind:after="OnShiftFilterChanged">
                                         <option value="">ALL SHIFTS (@ZReports.Count)</option>
+                                        <option value="CURRENT" class="text-success fw-bold">⚡ OPEN / ACTIVE SHIFT (LIVE)</option>
                                         @foreach (var z in ZReports)
                                         {
-                                            <option value="@z.Id">@z.Timestamp.ToString("MM/dd h:mm tt") - @(string.IsNullOrEmpty(z.BartenderName) ? "Unknown" : z.BartenderName) (@z.TerminalName)</option>
+                                            <option value="@z.Id.ToString()">@z.Timestamp.ToString("MM/dd h:mm tt") - @(string.IsNullOrEmpty(z.BartenderName) ? "Unknown" : z.BartenderName) (@z.TerminalName)</option>
                                         }
                                     </select>
-                                    @if (FilterShiftId.HasValue)
+                                    @if (!string.IsNullOrEmpty(FilterShiftValue))
                                     {
                                         <button class="btn btn-outline-danger btn-sm rounded-4 px-2" @onclick="ClearShiftFilter" title="Clear Shift Filter">
                                             <i class="bi bi-x-lg"></i>
@@ -1502,7 +1503,8 @@
     private List<PosZReport> ZReports = new();
     private Dictionary<Guid, (DateTime? FirstSale, string FirstBartender, DateTime? LastSale, string LastBartender)> ZReportWindows = new();
     private string FilterTerminal = "";
-    private Guid? FilterShiftId = null;
+    private string FilterShiftValue = "";
+    private Guid? FilterShiftId => Guid.TryParse(FilterShiftValue, out var g) ? g : null;
     private List<string> TerminalList = new();
     private List<GFC.Core.Models.PosTerminal> TerminalsWithStatus = new();
     private decimal TodayTotal = 0;
@@ -1782,13 +1784,14 @@
 
     private async Task ClearShiftFilter()
     {
-        FilterShiftId = null;
+        FilterShiftValue = "";
+        SelectedZReport = null;
         await LoadSales();
     }
 
     private async Task SelectShiftFilter(Guid shiftId)
     {
-        FilterShiftId = shiftId;
+        FilterShiftValue = shiftId.ToString();
         await LoadSales();
     }
 
@@ -2011,7 +2014,20 @@
                 var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
                 if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
 
-                if (FilterShiftId.HasValue)
+                if (FilterShiftValue == "CURRENT")
+                {
+                    SelectedZReport = null;
+                    var latestZ = await db.PosZReports.AsNoTracking()
+                        .Where(r => string.IsNullOrEmpty(FilterTerminal) || r.TerminalName == FilterTerminal)
+                        .OrderByDescending(r => r.Timestamp)
+                        .FirstOrDefaultAsync();
+
+                    if (latestZ != null)
+                    {
+                        salesQuery = salesQuery.Where(s => s.Timestamp > latestZ.Timestamp);
+                    }
+                }
+                else if (FilterShiftId.HasValue)
                 {
                     var selectedShift = ZReports.FirstOrDefault(z => z.Id == FilterShiftId.Value) 
                         ?? await db.PosZReports.AsNoTracking().FirstOrDefaultAsync(z => z.Id == FilterShiftId.Value);
