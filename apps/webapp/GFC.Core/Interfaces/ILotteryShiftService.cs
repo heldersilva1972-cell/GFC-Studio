@@ -15,6 +15,7 @@ namespace GFC.Core.Interfaces
         void DeleteShift(int shiftId);
         void MarkReconciled(int shiftId, string? reconciledBy = null);
         void MarkUnreconciled(int shiftId);
+        void SubmitOnBehalfOfEmployee(int shiftId, string managerUsername);
         
         // Summary methods
         LotteryShiftSummaryDto GetDailySummary(DateTime date);

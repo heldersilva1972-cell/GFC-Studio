@@ -260,6 +260,30 @@ namespace GFC.Core.Services
             _repository.Update(shift);
         }
 
+        public void SubmitOnBehalfOfEmployee(int shiftId, string managerUsername)
+        {
+            var shift = _repository.GetById(shiftId);
+            if (shift == null) return;
+
+            shift.Status = "Submitted";
+            shift.ModifiedBy = managerUsername;
+            shift.ModifiedDate = DateTime.UtcNow;
+            _repository.Update(shift);
+
+            _auditLogRepository.Insert(new AuditLogEntry
+            {
+                TimestampUtc = DateTime.UtcNow,
+                Action = "Shift Submitted On Behalf",
+                Details = $"Shift #{shift.ShiftId} for {shift.EmployeeName} on {shift.ShiftDate:MM/dd/yyyy} ({shift.ShiftType}) submitted on behalf by Manager [{managerUsername}].",
+                PageUrl = "/lottery"
+            });
+
+            if (string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
+            {
+                PropagateDayShiftToNight(shift, managerUsername);
+            }
+        }
+
         public LotteryShiftSummaryDto GetDailySummary(DateTime date)
         {
             var shifts = _repository.GetByDateRange(date.Date, date.Date);

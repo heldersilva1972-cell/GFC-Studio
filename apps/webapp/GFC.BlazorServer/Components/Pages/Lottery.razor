@@ -856,6 +856,12 @@
                                     }
                                 </td>
                                 <td class="text-center">
+                                    @if (dayShift.Status == "Draft")
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning rounded-pill px-2 py-0.5 me-1 fw-bold shadow-sm" style="font-size: 0.7rem;" @onclick="() => PromptSubmitOnBehalf(dayShift)" title="Submit on behalf of employee">
+                                            <i class="bi bi-check-circle-fill me-1"></i> Submit On Behalf
+                                        </button>
+                                    }
                                     <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(dayShift.ShiftId)" title="Edit">
                                         <i class="bi bi-pencil-square fs-5"></i>
                                     </button>
@@ -954,6 +960,12 @@
                                     }
                                 </td>
                                 <td class="text-center">
+                                    @if (nightShift.Status == "Draft")
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning rounded-pill px-2 py-0.5 me-1 fw-bold shadow-sm" style="font-size: 0.7rem;" @onclick="() => PromptSubmitOnBehalf(nightShift)" title="Submit on behalf of employee">
+                                            <i class="bi bi-check-circle-fill me-1"></i> Submit On Behalf
+                                        </button>
+                                    }
                                     <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(nightShift.ShiftId)" title="Edit">
                                         <i class="bi bi-pencil-square fs-5"></i>
                                     </button>
@@ -1774,6 +1786,98 @@
             </div>
         </div>
     </div>
+}
+
+@* Submit On Behalf Confirmation Modal *@
+@if (_selectedShiftToSubmit != null)
+{
+    <div class="modal-backdrop fade show" style="z-index: 2050; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px);"></div>
+    <div class="modal d-block" style="z-index: 2100;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-warning text-dark p-4">
+                    <h5 class="modal-title fw-black text-uppercase tracking-wider fs-6"><i class="bi bi-shield-check me-2"></i>Submit Shift On Behalf</h5>
+                    <button type="button" class="btn-close" @onclick="() => _selectedShiftToSubmit = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning border bg-light text-dark mb-4">
+                        <div class="fw-bold fs-6 mb-1">Manager Authorization</div>
+                        You are about to officially submit this shift report on behalf of <strong>@_selectedShiftToSubmit.EmployeeName</strong>.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted x-small uppercase-tracking">Shift Information</label>
+                        <div class="fw-bold text-dark fs-6">
+                            @_selectedShiftToSubmit.ShiftDate.ToString("MMMM d, yyyy") — @_selectedShiftToSubmit.ShiftType Shift
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3 bg-light p-3 rounded-3 border">
+                        <div class="col-6">
+                            <span class="text-muted extra-small d-block text-uppercase fw-bold">Net Sales</span>
+                            <span class="fw-black text-dark fs-6">@_selectedShiftToSubmit.TotalSales.ToString("C2")</span>
+                        </div>
+                        <div class="col-6">
+                            <span class="text-muted extra-small d-block text-uppercase fw-bold">Ending Cash</span>
+                            <span class="fw-black text-dark fs-6">@_selectedShiftToSubmit.EndingCash.ToString("C2")</span>
+                        </div>
+                    </div>
+
+                    <p class="text-muted small mb-0">
+                        Submitting will change this report status from Draft to Submitted and audit log your manager credentials.
+                    </p>
+                </div>
+                <div class="modal-footer border-0 p-3 bg-light d-flex justify-content-between">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _selectedShiftToSubmit = null">Cancel</button>
+                    <button class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm" disabled="@_submittingOnBehalf" @onclick="ConfirmSubmitOnBehalf">
+                        @if (_submittingOnBehalf)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>Submitting...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle-fill me-1"></i>
+                            <span>Confirm & Submit</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private LotteryShiftDto? _selectedShiftToSubmit;
+    private bool _submittingOnBehalf;
+
+    private void PromptSubmitOnBehalf(LotteryShiftDto shift)
+    {
+        _selectedShiftToSubmit = shift;
+    }
+
+    private async Task ConfirmSubmitOnBehalf()
+    {
+        if (_selectedShiftToSubmit == null) return;
+        _submittingOnBehalf = true;
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var managerUsername = currentUser?.Username ?? "Manager";
+            
+            LotteryService.SubmitOnBehalfOfEmployee(_selectedShiftToSubmit.ShiftId, managerUsername);
+            _selectedShiftToSubmit = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submittingOnBehalf = false;
+        }
+    }
 }
 
 </div> @* End lottery-page-container *@

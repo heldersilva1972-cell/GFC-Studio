@@ -21,6 +21,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private const string VaultPrefixSales = "gfc_pos_vault_sale_";
     private const string VaultPrefixZ     = "gfc_pos_vault_z_";
     private const string ShiftLogPrefix   = "gfc_shift_log_";
+    private const string ShiftStartKey    = "gfc_shift_start_utc"; // Shift boundary timestamp
     private const string CachedMenuKey      = "gfc_pos_cached_menu";
     private const string AuthorizedUsersKey = "gfc_pos_authorized_users";
     private const string VaultPrefixLiquorReceipt = "gfc_pos_vault_liquor_receipt_";
@@ -43,6 +44,20 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     {
         var key = $"{ShiftLogPrefix}{sale.Id}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
+
+        // Stamp the shift start time on the first sale of every new shift.
+        // This is the safety net: even if ClearShiftAsync fails, GetShiftAuditAsync
+        // will ignore any sale recorded before this timestamp.
+        try
+        {
+            var existing = await _js.InvokeAsync<string?>("localStorage.getItem", ShiftStartKey);
+            if (string.IsNullOrEmpty(existing))
+            {
+                var startUtc = sale.Timestamp.ToUniversalTime().ToString("o");
+                await _js.InvokeVoidAsync("localStorage.setItem", ShiftStartKey, startUtc);
+            }
+        }
+        catch { }
     }
 
     public async Task VoidSaleAsync(Guid saleId, string reason)
@@ -122,6 +137,16 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                     await _js.InvokeVoidAsync("localStorage.setItem", "gfc_event_types_cache", JsonSerializer.Serialize(cachedTypes));
                 }
             }
+            // Read the shift start boundary — only include sales from the current shift.
+            DateTime? shiftStartUtc = null;
+            try
+            {
+                var startStr = await _js.InvokeAsync<string?>("localStorage.getItem", ShiftStartKey);
+                if (!string.IsNullOrEmpty(startStr) && DateTime.TryParse(startStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+                    shiftStartUtc = parsed;
+            }
+            catch { }
+
             var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
             if (vaultItems.ValueKind == JsonValueKind.Array)
             {
@@ -133,6 +158,11 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                         var data = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
                         if (data != null)
                         {
+                            // Safety net: if a shift-start boundary exists, skip any sale
+                            // that predates it — it belongs to a previous shift that wasn't cleared.
+                            if (shiftStartUtc.HasValue && data.Timestamp.ToUniversalTime() < shiftStartUtc.Value)
+                                continue;
+
                             if (data.IsVoided) 
                             {
                                 audit.VoidedSales.Add(data);
@@ -347,22 +377,17 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public async Task ClearShiftAsync()
     {
+        // Single atomic JS call — clears all shift log entries in one localforage pass.
+        // Replaces the previous per-key loop which was interrupted by the hard page
+        // reload (Navigation.NavigateTo force=true) before all deletions could complete.
         try
         {
-            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
-            if (vaultItems.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in vaultItems.EnumerateArray())
-                {
-                    var key = item.GetProperty("key").GetString();
-                    if (key != null && key.StartsWith(ShiftLogPrefix))
-                    {
-                        await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                    }
-                }
-            }
+            await _js.InvokeAsync<int>("window.gfcClearShiftAsync", ShiftLogPrefix);
         }
         catch { }
+
+        // Always clear the shift start boundary so the next shift begins fresh.
+        try { await _js.InvokeVoidAsync("localStorage.removeItem", ShiftStartKey); } catch { }
     }
 
     private readonly SemaphoreSlim _syncLock = new(1, 1);

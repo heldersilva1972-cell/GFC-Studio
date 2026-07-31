@@ -91,6 +91,11 @@
                                         <div class="bartender mt-1" style="font-size: 0.65rem; line-height: 1.2; font-weight: bold;">
                                             Closed by: @detail.ClosedBy @@ @detail.CloseTime.ToString("h:mm tt")
                                         </div>
+                                        <div class="mt-2">
+                                            <button class="btn btn-xs @(FilterShiftId == z.Id ? "btn-primary shadow-sm" : "btn-outline-primary bg-white") rounded-pill px-2 py-1 fw-bold" style="font-size: 0.62rem;" @onclick:stopPropagation="true" @onclick="() => SelectShiftFilter(z.Id)">
+                                                <i class="bi bi-funnel-fill me-1"></i>@(FilterShiftId == z.Id ? "FILTERED SHIFT" : "AUDIT THIS SHIFT")
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="text-end ms-2 d-flex flex-column justify-content-center">
                                         <div class="sale-amount" style="font-size: 0.95rem;">@z.TotalGrossSales.ToString("C")</div>
@@ -603,8 +608,17 @@
                             <div class="px-5 pt-4 pb-3 flex-shrink-0">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h4 class="fw-black mb-0 text-primary">PRODUCT SALES SUMMARY</h4>
-                                    <div class="badge bg-light text-primary p-2 rounded-pill px-3 fw-bold border">
-                                        <i class="bi bi-info-circle me-2"></i>Total Volume: @GetFilteredSummaryResults().Sum(x => x.Quantity)
+                                    <div class="d-flex gap-2 align-items-center">
+                                        @if (FilterShiftId.HasValue && SelectedZReport != null)
+                                        {
+                                            <div class="badge bg-primary text-white p-2 rounded-pill px-3 fw-bold border shadow-sm">
+                                                <i class="bi bi-funnel-fill me-1"></i>Shift: @SelectedZReport.BartenderName (@SelectedZReport.TerminalName @@ @SelectedZReport.Timestamp.ToString("MM/dd h:mm tt"))
+                                                <i class="bi bi-x-circle-fill ms-2" @onclick="ClearShiftFilter" style="cursor: pointer;" title="Clear Shift Filter"></i>
+                                            </div>
+                                        }
+                                        <div class="badge bg-light text-primary p-2 rounded-pill px-3 fw-bold border">
+                                            <i class="bi bi-info-circle me-2"></i>Total Volume: @GetFilteredSummaryResults().Sum(x => x.Quantity)
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -1126,6 +1140,25 @@
                                     </select>
                                 </div>
                             </div>
+
+                            <div class="mt-2 border-top pt-2">
+                                <label class="small fw-black text-muted opacity-75 mb-1 d-block" style="font-size: 0.55rem; letter-spacing: 0.5px;">SHIFT FILTER</label>
+                                <div class="d-flex gap-1">
+                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2 flex-grow-1" style="font-size: 0.82rem;" @bind="FilterShiftId" @bind:after="OnShiftFilterChanged">
+                                        <option value="">ALL SHIFTS (@ZReports.Count)</option>
+                                        @foreach (var z in ZReports)
+                                        {
+                                            <option value="@z.Id">@z.Timestamp.ToString("MM/dd h:mm tt") - @(string.IsNullOrEmpty(z.BartenderName) ? "Unknown" : z.BartenderName) (@z.TerminalName)</option>
+                                        }
+                                    </select>
+                                    @if (FilterShiftId.HasValue)
+                                    {
+                                        <button class="btn btn-outline-danger btn-sm rounded-4 px-2" @onclick="ClearShiftFilter" title="Clear Shift Filter">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
                         </div>
 
                         <!-- FINANCIAL INSIGHT (Integrated in sidebar) -->
@@ -1469,6 +1502,7 @@
     private List<PosZReport> ZReports = new();
     private Dictionary<Guid, (DateTime? FirstSale, string FirstBartender, DateTime? LastSale, string LastBartender)> ZReportWindows = new();
     private string FilterTerminal = "";
+    private Guid? FilterShiftId = null;
     private List<string> TerminalList = new();
     private List<GFC.Core.Models.PosTerminal> TerminalsWithStatus = new();
     private decimal TodayTotal = 0;
@@ -1741,6 +1775,23 @@
         await LoadSales();
     }
 
+    private async Task OnShiftFilterChanged()
+    {
+        await LoadSales();
+    }
+
+    private async Task ClearShiftFilter()
+    {
+        FilterShiftId = null;
+        await LoadSales();
+    }
+
+    private async Task SelectShiftFilter(Guid shiftId)
+    {
+        FilterShiftId = shiftId;
+        await LoadSales();
+    }
+
     private async Task OnDateManualChanged()
     {
         ActivePreset = ""; // Clear highlighted preset if user touches dates
@@ -1920,15 +1971,6 @@
             var st = StartDate.Date.AddHours(3);
             var en = EndDate.Date.AddDays(1).AddHours(3);
 
-            // Load Sales
-            try {
-                var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
-                if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
-                Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
-            } catch (global::System.Exception ex) {
-                throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
-            }
-
             // Load Z-Reports
             try {
                 var zQuery = db.PosZReports.AsNoTracking().Where(r => r.Timestamp >= st && r.Timestamp < en);
@@ -1962,6 +2004,37 @@
                 }
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading ZReports query: " + ex.Message, ex);
+            }
+
+            // Load Sales
+            try {
+                var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
+                if (!string.IsNullOrEmpty(FilterTerminal)) salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
+
+                if (FilterShiftId.HasValue)
+                {
+                    var selectedShift = ZReports.FirstOrDefault(z => z.Id == FilterShiftId.Value) 
+                        ?? await db.PosZReports.AsNoTracking().FirstOrDefaultAsync(z => z.Id == FilterShiftId.Value);
+
+                    if (selectedShift != null)
+                    {
+                        var prevZ = await db.PosZReports.AsNoTracking()
+                            .Where(r => r.TerminalName == selectedShift.TerminalName && r.Timestamp < selectedShift.Timestamp)
+                            .OrderByDescending(r => r.Timestamp)
+                            .FirstOrDefaultAsync();
+
+                        salesQuery = db.PosSales.AsNoTracking()
+                            .Where(s => s.TerminalName == selectedShift.TerminalName &&
+                                        s.Timestamp <= selectedShift.Timestamp &&
+                                        (prevZ == null || s.Timestamp > prevZ.Timestamp));
+                        
+                        SelectedZReport = selectedShift;
+                    }
+                }
+
+                Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
+            } catch (global::System.Exception ex) {
+                throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
             }
 
             // Calculate Totals
@@ -2326,7 +2399,6 @@
     {
         SelectedSale = sale;
     }
-
     private (decimal foodTotal, decimal liquorTotal) GetZReportCategorySummaries(PosZReport z)
     {
         decimal foodTotal = 0;
@@ -2334,8 +2406,12 @@
         var items = GetItemsList(z.SalesSummaryJson);
         foreach (var item in items)
         {
+            // (CREDITED) items and TOKEN CREDIT lines were sold/applied as discounts.
+            // Skip them here so category sums match TotalGrossSales without artificial inflation.
+            if (item.Name.EndsWith(" (CREDITED)") || item.Name.StartsWith("> ") || item.Name.Contains("TOKEN CREDIT"))
+                continue;
+
             var cleanKey = item.Name;
-            if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
             if (cleanKey.Contains(" (TOKEN SALE)")) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
             if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
 
@@ -2361,10 +2437,10 @@
                 var token = MasterTokens.FirstOrDefault(t => t.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                 if (token != null) price = token.SalePrice;
             }
+            // TOKEN REDEEMED items have no cash value — skip them
             if (item.Name.Contains("(TOKEN REDEEMED)") || item.Name.Contains("TOKEN REDEEMED"))
-            {
-                price = 0;
-            }
+                continue;
+
             decimal total = price * item.Quantity;
 
             // 1. Evaluate Item-level ZReportGroup override

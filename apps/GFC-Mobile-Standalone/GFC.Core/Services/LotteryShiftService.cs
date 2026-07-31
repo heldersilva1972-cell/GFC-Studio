@@ -162,6 +162,17 @@ namespace GFC.Core.Services
             _repository.Update(shift);
         }
 
+        public void SubmitOnBehalfOfEmployee(int shiftId, string managerUsername)
+        {
+            var shift = _repository.GetById(shiftId);
+            if (shift == null) return;
+
+            shift.Status = "Submitted";
+            shift.ModifiedBy = managerUsername;
+            shift.ModifiedDate = DateTime.UtcNow;
+            _repository.Update(shift);
+        }
+
         public LotteryShiftSummaryDto GetDailySummary(DateTime date)
         {
             var shifts = _repository.GetByDateRange(date.Date, date.Date);
