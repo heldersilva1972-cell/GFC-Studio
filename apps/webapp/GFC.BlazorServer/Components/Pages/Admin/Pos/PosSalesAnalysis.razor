@@ -9,6 +9,7 @@
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject ILiquorService LiquorService
+@inject ISystemSettingsService SettingsService
 @inject IJSRuntime JSRuntime
 @attribute [Authorize]
 
@@ -159,8 +160,43 @@
                                                     <div class="extra-small text-muted text-uppercase tracking-tighter">Usage Leader</div>
                                                 </td>
                                                 <td class="text-center">
-                                                    <div class="fw-black fs-5">@item.Value.Quantity</div>
-                                                    <div class="extra-small text-primary fw-bold">UNITS</div>
+                                                    <div class="d-flex flex-column align-items-center gap-1 py-1">
+                                                        <div class="d-flex align-items-baseline gap-1">
+                                                            <span class="fw-black fs-4 text-dark lh-1">@item.Value.Quantity</span>
+                                                            <span class="extra-small fw-black text-primary text-uppercase tracking-wider">
+                                                                @(item.Value.IsLiquor ? "SHOTS" : "UNITS")
+                                                            </span>
+                                                        </div>
+                                                        @if (item.Value.PackSize > 1)
+                                                        {
+                                                            var cases = item.Value.Quantity / item.Value.PackSize;
+                                                            var bottles = item.Value.Quantity % item.Value.PackSize;
+                                                            var casesLabel = cases == 1 ? "Case" : "Cases";
+                                                            var bottlesLabel = bottles == 1 ? "Bottle" : "Bottles";
+                                                            string caseText = cases > 0 && bottles > 0 
+                                                                ? $"{cases} {casesLabel}, {bottles} {bottlesLabel}" 
+                                                                : (cases > 0 ? $"{cases} {casesLabel}" : $"{bottles} {bottlesLabel}");
+
+                                                            <div class="badge rounded-pill bg-success-light text-success border border-success-subtle fw-black px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.75rem; letter-spacing: 0.2px;">
+                                                                <i class="bi bi-box-seam-fill"></i>
+                                                                <span>@caseText</span>
+                                                            </div>
+                                                        }
+                                                        else if (item.Value.IsLiquor)
+                                                        {
+                                                            var btlUsed = Math.Round(item.Value.LiquorBottlesUsed, 1);
+                                                            <div class="badge rounded-pill fw-black px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.75rem; letter-spacing: 0.2px; background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff !important;" title="@item.Value.Quantity shots @item.Value.PourSizeOz.ToString("0.#") oz each (@item.Value.TotalOuncesPoured.ToString("0.#") oz total) based on Global Shot Size">
+                                                                <i class="bi bi-cup-straw"></i>
+                                                                <span>@btlUsed Bottles Used (@item.Value.PourSizeOz.ToString("0.#")oz shot)</span>
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="badge rounded-pill bg-light text-secondary border fw-bold px-2 py-1" style="font-size: 0.7rem; letter-spacing: 0.2px;">
+                                                                SINGLE ITEM
+                                                            </div>
+                                                        }
+                                                    </div>
                                                 </td>
                                                 <td class="text-end fw-black text-dark">@item.Value.Revenue.ToString("C0")</td>
                                                 <td class="text-end pe-4">
@@ -383,6 +419,14 @@
     public class ProductMetric {
         public int Quantity { get; set; }
         public decimal Revenue { get; set; }
+        public int PackSize { get; set; } = 1;
+        public double CasesSold => PackSize > 1 ? (double)Quantity / PackSize : 0;
+
+        public bool IsLiquor { get; set; } = false;
+        public decimal PourSizeOz { get; set; } = 1.5m;
+        public decimal BottleVolumeOz { get; set; } = 25.36m;
+        public double TotalOuncesPoured => (double)(Quantity * PourSizeOz);
+        public double LiquorBottlesUsed => BottleVolumeOz > 0 ? TotalOuncesPoured / (double)BottleVolumeOz : 0;
     }
 
     private void GoBack()
@@ -500,6 +544,20 @@
             .Where(s => s.Timestamp >= st && s.Timestamp < en)
             .ToListAsync();
 
+        var sysSettings = await SettingsService.GetAsync();
+        decimal globalShotSize = sysSettings?.GlobalLiquorPourSize > 0 ? sysSettings.GlobalLiquorPourSize : 1.5m;
+
+        var inventoryItems = await db.LiquorItems.AsNoTracking().ToListAsync();
+        var itemMetaMap = new Dictionary<string, LiquorItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var liq in inventoryItems)
+        {
+            var cleanLiqName = CleanProductName(liq.Name);
+            if (!string.IsNullOrEmpty(cleanLiqName))
+            {
+                itemMetaMap[cleanLiqName] = liq;
+            }
+        }
+
         ProductStats = new();
         CategoryRevenue = new();
         TerminalRevenue = new();
@@ -536,8 +594,34 @@
                 hasValidItem = true;
 
                 // Aggregate Product Stats
-                if (!ProductStats.ContainsKey(cleanName)) 
-                    ProductStats[cleanName] = new ProductMetric();
+                if (!ProductStats.ContainsKey(cleanName))
+                {
+                    int packSize = 1;
+                    bool isLiquor = catName == "LIQUOR";
+                    decimal pourSize = globalShotSize; // Strictly use Global Shot Size (oz) from Liquor Hub configuration
+                    decimal bottleVol = 25.36m;
+
+                    if (itemMetaMap.TryGetValue(cleanName, out var liq))
+                    {
+                        if (liq.PackSize > 1) packSize = liq.PackSize;
+                        if (!liq.IsBeer && (string.Equals(liq.Category, "LIQUOR", StringComparison.OrdinalIgnoreCase) || !liq.IsUnitBased))
+                        {
+                            isLiquor = true;
+                        }
+
+                        if (liq.BottleVolumeOunces.HasValue && liq.BottleVolumeOunces.Value > 0)
+                        {
+                            bottleVol = liq.BottleVolumeOunces.Value;
+                        }
+                    }
+
+                    ProductStats[cleanName] = new ProductMetric {
+                        PackSize = packSize,
+                        IsLiquor = isLiquor,
+                        PourSizeOz = pourSize,
+                        BottleVolumeOz = bottleVol
+                    };
+                }
                 
                 ProductStats[cleanName].Quantity += item.Quantity;
                 ProductStats[cleanName].Revenue += (item.Price * item.Quantity);
