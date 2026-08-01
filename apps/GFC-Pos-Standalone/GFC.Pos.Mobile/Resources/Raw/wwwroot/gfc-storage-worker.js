@@ -78,6 +78,29 @@ self.onmessage = async (e) => {
             };
             break;
         }
+
+        case "clearPrefix": {
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.openCursor();
+            let count = 0;
+            request.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    if (typeof cursor.key === 'string' && cursor.key.startsWith(key)) {
+                        store.delete(cursor.key);
+                        count++;
+                    }
+                    cursor.continue();
+                } else {
+                    self.postMessage({ action: "clearPrefix_result", key, status: "success", count });
+                }
+            };
+            request.onerror = (e) => {
+                self.postMessage({ action: "clearPrefix_result", key, status: "error", error: e.target.error, count: 0 });
+            };
+            break;
+        }
     }
 };
 
