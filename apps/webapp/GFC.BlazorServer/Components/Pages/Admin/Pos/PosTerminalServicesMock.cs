@@ -313,6 +313,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
         // Simulator Mode: Save in memory
         public Task SaveSaleAsync(PosSaleDto sale)
         {
+            if (_sales.Any(s => s.Id == sale.Id)) return Task.CompletedTask;
             _sales.Add(sale);
             _currentShift.LatestSale = sale;
             _currentShift.GrossTotal += sale.TotalAmount;

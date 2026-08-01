@@ -41,6 +41,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public async Task AddSaleToShiftAsync(PosSaleDto sale)
     {
+        if (sale.Id == Guid.Empty) sale.Id = Guid.NewGuid();
         var key = $"{ShiftLogPrefix}{sale.Id}";
         await _js.InvokeVoidAsync("window.gfcSetAsync", key, sale);
     }
@@ -347,12 +348,16 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public async Task ClearShiftAsync()
     {
-        // Single atomic JS call — clears all shift log entries in one localforage pass.
+        // Single atomic JS call — clears all shift log entries in one localforage / worker pass.
         try
         {
-            await _js.InvokeAsync<int>("window.gfcClearShiftAsync", ShiftLogPrefix);
+            var count = await _js.InvokeAsync<int>("window.gfcClearShiftAsync", ShiftLogPrefix);
+            Console.WriteLine($"[POS] ClearShiftAsync: Cleared {count} shift log items for next shift.");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] ClearShiftAsync Error: {ex.Message}");
+        }
     }
 
     private readonly SemaphoreSlim _syncLock = new(1, 1);
