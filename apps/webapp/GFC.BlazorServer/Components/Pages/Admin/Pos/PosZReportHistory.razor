@@ -3,6 +3,7 @@
 @using Microsoft.EntityFrameworkCore
 @using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
+@using global::System.Net
 @using global::System.Text.Json
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
@@ -88,208 +89,259 @@
     </div>
 </div>
 
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IJSRuntime JSRuntime
+
 @if (_selectedReport != null)
 {
     <div class="modal-overlay" @onclick="() => _selectedReport = null">
-        <div class="detail-card shadow-lg" @onclick:stopPropagation>
+        <div class="detail-card shadow-lg" style="width: 680px;" @onclick:stopPropagation>
             <div class="history-header">
-                <div class="d-flex justify-content-between align-items-start">
+                <div class="d-flex justify-content-between align-items-start mb-2">
                     <div class="text-white">
-                        <h6 class="text-uppercase fw-black opacity-75 mb-1 text-white">End of Shift Z Report</h6>
+                        <h6 class="text-uppercase fw-black opacity-75 mb-1 text-white">
+                            @(_showThermalReceipt ? "📄 THERMAL PRINTED Z-REPORT" : "📊 WEB AUDIT SUMMARY VIEW")
+                        </h6>
                         <h2 class="fw-black mb-0 text-white">@_selectedReport.TerminalName.ToUpper()</h2>
-                        <h5 class="fw-black text-warning">BY: @_selectedReport.BartenderName.ToUpper()</h5>
-                        <p class="mb-0 opacity-75 fw-bold text-white">@_selectedReport.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</p>
+                        <h5 class="fw-black text-warning mb-0">BY: @_selectedReport.BartenderName.ToUpper()</h5>
+                        <p class="mb-0 opacity-75 fw-bold text-white small">@_selectedReport.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</p>
                     </div>
                     <button class="btn btn-link text-white p-0" @onclick="() => _selectedReport = null">
                         <i class="bi bi-x-lg fs-4"></i>
                     </button>
                 </div>
+                <!-- VIEW TOGGLE BUTTONS -->
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-white-50">
+                    <div class="btn-group shadow-sm">
+                        <button class="btn btn-sm @(_showThermalReceipt ? "btn-warning text-dark fw-black" : "btn-outline-light text-white opacity-75")" style="font-size: 0.75rem; padding: 7px 16px;" @onclick="() => _showThermalReceipt = true">
+                            <i class="bi @(_showThermalReceipt ? "bi-check-circle-fill" : "bi-receipt") me-1"></i> THERMAL PRINTED RECEIPT
+                        </button>
+                        <button class="btn btn-sm @(!_showThermalReceipt ? "btn-warning text-dark fw-black" : "btn-outline-light text-white opacity-75")" style="font-size: 0.75rem; padding: 7px 16px;" @onclick="() => _showThermalReceipt = false">
+                            <i class="bi @(!_showThermalReceipt ? "bi-check-circle-fill" : "bi-grid-3x3-gap-fill") me-1"></i> WEB SUMMARY CARDS
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-primary fw-bold rounded-pill px-3 shadow-sm" style="font-size: 0.75rem;" @onclick="PrintReceiptWindow" title="Print Z-Report">
+                            <i class="bi bi-printer-fill me-1"></i> PRINT RECEIPT
+                        </button>
+                        <button class="btn btn-sm btn-light fw-bold text-dark rounded-pill px-3 shadow-sm border" style="font-size: 0.75rem;" @onclick="CopyReceiptText" title="Copy Receipt Text">
+                            <i class="bi bi-clipboard me-1"></i> COPY TEXT
+                        </button>
+                    </div>
+                </div>
             </div>
             
             <div class="detail-body px-4">
-                @{
-                    var banquets = ParseBanquets(_selectedReport.BanquetSummaryJson);
-                    var totalPrepaidDeposits = banquets.Sum(b => b.Deposits.Sum());
-                }
-                <!-- TOP STATS -->
-                <div class="row g-3 mb-4">
-                    <div class="@(totalPrepaidDeposits > 0 ? "col-md-6" : "col-12")">
-                        <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-primary h-100">
-                            <label class="text-muted small fw-bold d-block mb-1">TOTAL GROSS SALES</label>
-                            <span class="fs-2 fw-black text-primary">$@_selectedReport.TotalGrossSales.ToString("N2")</span>
+                @if (_showThermalReceipt)
+                {
+                    <!-- THERMAL RECEIPT VIEW (1:1 PRINT MATCH) -->
+                    <div class="alert alert-primary py-2 px-3 mb-3 d-flex align-items-center justify-content-between rounded-3 border-0 shadow-sm" style="background: #eff6ff; color: #1e40af;">
+                        <span class="fw-bold small"><i class="bi bi-info-circle-fill me-2"></i><strong>VIEW:</strong> Thermal Printed Receipt (Exact 1:1 hardware printer layout)</span>
+                        <span class="badge bg-primary text-white rounded-pill">Active Mode</span>
+                    </div>
+
+                    <div class="thermal-receipt-container bg-dark p-4 rounded-4 text-center my-2 shadow-inner">
+                        <div class="thermal-receipt-paper text-start mx-auto p-4 bg-white text-dark shadow-lg rounded-3" style="font-family: 'Courier New', Courier, monospace; font-size: 0.82rem; line-height: 1.35; max-width: 440px; white-space: pre-wrap; word-break: break-word; border-top: 8px solid #1e3a8a; border-bottom: 8px dashed #cbd5e1; color: #1e293b; background-color: #fafafa;">
+                            @GetThermalReceiptText(_selectedReport)
                         </div>
                     </div>
-                    @if (totalPrepaidDeposits > 0)
-                    {
-                        <div class="col-md-6">
-                            <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-success h-100">
-                                <label class="text-muted small fw-bold d-block mb-1">PREPAID FUNDS ADDED</label>
-                                <span class="fs-2 fw-black text-success">$@totalPrepaidDeposits.ToString("N2")</span>
+                    
+                    <div class="mt-4 pt-3 border-top text-center">
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold mb-2 shadow-sm" @onclick="() => _selectedReport = null">CLOSE AUDIT</button>
+                        <p class="text-muted small fw-bold mb-0">This thermal report view matches the exact 42-column receipt printed by POS hardware.</p>
+                    </div>
+                }
+                else
+                {
+                    <!-- WEB SUMMARY VIEW -->
+                    <div class="alert alert-secondary py-2 px-3 mb-3 d-flex align-items-center justify-content-between rounded-3 border-0 shadow-sm" style="background: #f1f5f9; color: #334155;">
+                        <span class="fw-bold small"><i class="bi bi-grid-fill me-2"></i><strong>VIEW:</strong> Web Audit Summary Cards & Tables</span>
+                        <span class="badge bg-secondary text-white rounded-pill">Active Mode</span>
+                    </div>
+                    var banquets = ParseBanquets(_selectedReport.BanquetSummaryJson);
+                    var totalPrepaidDeposits = banquets.Sum(b => b.Deposits.Sum());
+                    <!-- TOP STATS -->
+                    <div class="row g-3 mb-4">
+                        <div class="@(totalPrepaidDeposits > 0 ? "col-md-6" : "col-12")">
+                            <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-primary h-100">
+                                <label class="text-muted small fw-bold d-block mb-1">TOTAL GROSS SALES</label>
+                                <span class="fs-2 fw-black text-primary">$@_selectedReport.TotalGrossSales.ToString("N2")</span>
                             </div>
                         </div>
-                    }
-                </div>
+                        @if (totalPrepaidDeposits > 0)
+                        {
+                            <div class="col-md-6">
+                                <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-success h-100">
+                                    <label class="text-muted small fw-bold d-block mb-1">PREPAID FUNDS ADDED</label>
+                                    <span class="fs-2 fw-black text-success">$@totalPrepaidDeposits.ToString("N2")</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
 
-                <!-- SALES SUMMARY -->
-                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
-                    <i class="bi bi-receipt me-2"></i> POS Sales Activity
-                </h6>
-                <div class="border rounded-4 overflow-hidden mb-5 bg-white shadow-sm">
-                    <table class="table mb-0 table-sm">
-                        <thead class="bg-light">
-                            <tr>
-                                <th class="ps-3 py-2 border-0 small">Item Name</th>
-                                <th class="text-center py-2 border-0 small">Sold</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @{
-                                var sales = ParseSummary(_selectedReport.SalesSummaryJson);
-                                if (!sales.Any())
-                                {
-                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
-                                }
-                                else
-                                {
-                                    foreach (var item in sales.OrderByDescending(x => x.Value))
+                    <!-- SALES SUMMARY -->
+                    <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                        <i class="bi bi-receipt me-2"></i> POS Sales Activity
+                    </h6>
+                    <div class="border rounded-4 overflow-hidden mb-5 bg-white shadow-sm">
+                        <table class="table mb-0 table-sm">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-3 py-2 border-0 small">Item Name</th>
+                                    <th class="text-center py-2 border-0 small">Sold</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var sales = ParseSummary(_selectedReport.SalesSummaryJson);
+                                    if (!sales.Any())
                                     {
-                                        <tr>
-                                            <td class="ps-3 py-2 fw-bold text-dark small">@item.Key.ToUpper()</td>
-                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@item.Value</span></td>
-                                        </tr>
+                                        <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
+                                    }
+                                    else
+                                    {
+                                        foreach (var item in sales.OrderByDescending(x => x.Value))
+                                        {
+                                            <tr>
+                                                <td class="ps-3 py-2 fw-bold text-dark small">@item.Key.ToUpper()</td>
+                                                <td class="text-center py-2"><span class="badge bg-primary text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@item.Value</span></td>
+                                            </tr>
+                                        }
                                     }
                                 }
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                            </tbody>
+                        </table>
+                    </div>
 
-                <!-- EVENT LOG -->
-                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
-                    <i class="bi bi-calendar-event me-2"></i> Event Activity
-                </h6>
-                <div class="mb-5">
-                    @{
-                        if (!banquets.Any())
-                        {
-                            <div class="p-4 border rounded-4 bg-light text-center text-muted small fw-bold">No event activity during this shift.</div>
-                        }
-                        else
-                        {
-                            foreach (var b in banquets)
+                    <!-- EVENT LOG -->
+                    <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                        <i class="bi bi-calendar-event me-2"></i> Event Activity
+                    </h6>
+                    <div class="mb-5">
+                        @{
+                            var banquetsLog = ParseBanquets(_selectedReport.BanquetSummaryJson);
+                            if (!banquetsLog.Any())
                             {
-                                <div class="border rounded-4 overflow-hidden mb-3 bg-white shadow-sm">
-                                    <div class="bg-light p-3 border-bottom d-flex justify-content-between align-items-center">
-                                        <span class="fw-black text-primary small">EVENT: @b.EventName.ToUpper()</span>
-                                        <span class="badge bg-primary text-white fw-black">TOTAL SPENT: @b.TotalSpent.ToString("C")</span>
-                                    </div>
-                                    <div class="p-3">
-                                        <div class="row">
-                                            @if (b.EventType != "RunningTab")
-                                            {
-                                                <div class="col-md-6 border-end">
-                                                    <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Deposits Logged</small>
-                                                    @if (b.Deposits == null || !b.Deposits.Any())
-                                                    {
-                                                        <div class="text-muted small italic">No deposits logged.</div>
-                                                    }
-                                                    else
-                                                    {
-                                                        @foreach (var dep in b.Deposits)
+                                <div class="p-4 border rounded-4 bg-light text-center text-muted small fw-bold">No event activity during this shift.</div>
+                            }
+                            else
+                            {
+                                foreach (var b in banquetsLog)
+                                {
+                                    <div class="border rounded-4 overflow-hidden mb-3 bg-white shadow-sm">
+                                        <div class="bg-light p-3 border-bottom d-flex justify-content-between align-items-center">
+                                            <span class="fw-black text-primary small">EVENT: @b.EventName.ToUpper()</span>
+                                            <span class="badge bg-primary text-white fw-black">TOTAL SPENT: @b.TotalSpent.ToString("C")</span>
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="row">
+                                                @if (b.EventType != "RunningTab")
+                                                {
+                                                    <div class="col-md-6 border-end">
+                                                        <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Deposits Logged</small>
+                                                        @if (b.Deposits == null || !b.Deposits.Any())
+                                                        {
+                                                            <div class="text-muted small italic">No deposits logged.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var dep in b.Deposits)
+                                                            {
+                                                                <div class="d-flex justify-content-between small mb-1">
+                                                                    <span class="fw-bold text-muted">- Add Funds</span>
+                                                                    <span class="fw-black">@dep.ToString("C")</span>
+                                                                </div>
+                                                            }
+                                                        }
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Tab Purchases Summary</small>
+                                                        @foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                                                         {
                                                             <div class="d-flex justify-content-between small mb-1">
-                                                                <span class="fw-bold text-muted">- Add Funds</span>
-                                                                <span class="fw-black">@dep.ToString("C")</span>
+                                                                <span class="fw-bold">@item.Key.ToUpper()</span>
+                                                                <span class="badge bg-light text-primary border fw-black" style="font-size: 0.7rem;">x @item.Value</span>
                                                             </div>
                                                         }
-                                                    }
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Tab Purchases Summary</small>
-                                                    @foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
-                                                    {
-                                                        <div class="d-flex justify-content-between small mb-1">
-                                                            <span class="fw-bold">@item.Key.ToUpper()</span>
-                                                            <span class="badge bg-light text-primary border fw-black" style="font-size: 0.7rem;">x @item.Value</span>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <div class="col-md-12">
-                                                    <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Tab Purchases Summary</small>
-                                                    @foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
-                                                    {
-                                                        <div class="d-flex justify-content-between small mb-1">
-                                                            <span class="fw-bold">@item.Key.ToUpper()</span>
-                                                            <span class="badge bg-light text-primary border fw-black" style="font-size: 0.7rem;">x @item.Value</span>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                        <div class="mt-3 pt-3 border-top d-flex justify-content-between align-items-center">
-                                            @{
-                                                var isRunningTab = b.EventType == "RunningTab" || b.EventName.EndsWith(" [Direct]") || b.EventName.EndsWith("[Direct]");
-                                                var remaining = b.Deposits.Sum() - b.TotalSpent;
-                                            }
-                                            @if (isRunningTab)
-                                            {
-                                                <span class="fw-bold text-muted small">TOTAL DUE</span>
-                                                <span class="fw-black text-dark fs-5">@b.TotalSpent.ToString("C")</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="fw-bold text-muted small">TAB BALANCE</span>
-                                                <span class="fw-black fs-5 @(remaining < 0 ? "text-danger" : "text-success")">@remaining.ToString("C")</span>
-                                            }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="col-md-12">
+                                                        <small class="text-muted fw-bold text-uppercase d-block mb-2" style="font-size: 0.7rem;">Tab Purchases Summary</small>
+                                                        @foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
+                                                        {
+                                                            <div class="d-flex justify-content-between small mb-1">
+                                                                <span class="fw-bold">@item.Key.ToUpper()</span>
+                                                                <span class="badge bg-light text-primary border fw-black" style="font-size: 0.7rem;">x @item.Value</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="mt-3 pt-3 border-top d-flex justify-content-between align-items-center">
+                                                @{
+                                                    var isRunningTab = b.EventType == "RunningTab" || b.EventName.EndsWith(" [Direct]") || b.EventName.EndsWith("[Direct]");
+                                                    var remaining = b.Deposits.Sum() - b.TotalSpent;
+                                                }
+                                                @if (isRunningTab)
+                                                {
+                                                    <span class="fw-bold text-muted small">TOTAL DUE</span>
+                                                    <span class="fw-black text-dark fs-5">@b.TotalSpent.ToString("C")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="fw-bold text-muted small">TAB BALANCE</span>
+                                                    <span class="fw-black fs-5 @(remaining < 0 ? "text-danger" : "text-success")">@remaining.ToString("C")</span>
+                                                }
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                }
                             }
                         }
-                    }
-                </div>
+                    </div>
 
-                <!-- INVENTORY LOG -->
-                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
-                    <i class="bi bi-box-seam me-2"></i> Inventory Removal Log
-                </h6>
-                <div class="border rounded-4 overflow-hidden bg-white shadow-sm">
-                    <table class="table mb-0 table-sm">
-                        <thead class="bg-light">
-                            <tr>
-                                <th class="ps-3 py-2 border-0 small">Bottle Name</th>
-                                <th class="text-center py-2 border-0 small">Pulled</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @{
-                                var pulls = ParsePulls(_selectedReport.InventoryPullsJson);
-                                if (!pulls.Any())
-                                {
-                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No inventory recorded for this shift.</td></tr>
-                                }
-                                else
-                                {
-                                    foreach (var pull in pulls)
+                    <!-- INVENTORY LOG -->
+                    <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                        <i class="bi bi-box-seam me-2"></i> Inventory Removal Log
+                    </h6>
+                    <div class="border rounded-4 overflow-hidden bg-white shadow-sm">
+                        <table class="table mb-0 table-sm">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-3 py-2 border-0 small">Bottle Name</th>
+                                    <th class="text-center py-2 border-0 small">Pulled</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var pulls = ParsePulls(_selectedReport.InventoryPullsJson);
+                                    if (!pulls.Any())
                                     {
-                                        <tr>
-                                            <td class="ps-3 py-2 fw-bold text-dark small">@GetItemName(pull.Key).ToUpper()</td>
-                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-bold" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@pull.Value</span></td>
-                                        </tr>
+                                        <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No inventory recorded for this shift.</td></tr>
+                                    }
+                                    else
+                                    {
+                                        foreach (var pull in pulls)
+                                        {
+                                            <tr>
+                                                <td class="ps-3 py-2 fw-bold text-dark small">@GetItemName(pull.Key).ToUpper()</td>
+                                                <td class="text-center py-2"><span class="badge bg-primary text-white fw-bold" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@pull.Value</span></td>
+                                            </tr>
+                                        }
                                     }
                                 }
-                            }
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="mt-5 pt-3 border-top text-center">
-                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold mb-3 shadow-sm" @onclick="() => _selectedReport = null">DONE</button>
-                    <p class="text-muted small fw-bold mb-0">This is a permanent system record. It cannot be modified or deleted.</p>
-                </div>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="mt-5 pt-3 border-top text-center">
+                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold mb-3 shadow-sm" @onclick="() => _selectedReport = null">DONE</button>
+                        <p class="text-muted small fw-bold mb-0">This is a permanent system record. It cannot be modified or deleted.</p>
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -299,6 +351,9 @@
     private List<PosZReport>? _reports;
     private PosZReport? _selectedReport;
     private Dictionary<int, string> _itemNames = new();
+    private List<LiquorItem> _dbItems = new();
+    private List<PosToken> _dbTokens = new();
+    private bool _showThermalReceipt = true;
 
     private void GoBack()
     {
@@ -310,12 +365,71 @@
         using var db = await DbFactory.CreateDbContextAsync();
         _reports = await db.PosZReports.OrderByDescending(r => r.Timestamp).Take(100).ToListAsync();
         
-        // Pre-fetch item names for the audit log
-        var items = await db.LiquorItems.Select(i => new { i.Id, i.Name }).ToListAsync();
-        _itemNames = items.ToDictionary(x => x.Id, x => x.Name);
+        _dbItems = await db.LiquorItems.ToListAsync();
+        _dbTokens = await db.PosTokens.ToListAsync();
+        _itemNames = _dbItems.ToDictionary(x => x.Id, x => x.Name);
     }
 
-    private void ShowDetails(PosZReport report) => _selectedReport = report;
+    private void ShowDetails(PosZReport report)
+    {
+        _selectedReport = report;
+        _showThermalReceipt = true; // Default to thermal receipt view on open
+    }
+
+    private string GetThermalReceiptText(PosZReport report)
+    {
+        return ZReportReceiptFormatter.BuildZReportReceiptText(
+            report.Id,
+            report.Timestamp,
+            report.TerminalName ?? "TERMINAL 1",
+            report.BartenderName ?? "N/A",
+            report.CashTotal,
+            report.TotalGrossSales,
+            report.TokenCredits ?? 0,
+            report.SalesSummaryJson ?? "{}",
+            report.BanquetSummaryJson ?? "[]",
+            report.InventoryPullsJson ?? "{}",
+            _dbItems,
+            _dbTokens
+        );
+    }
+
+    private async Task CopyReceiptText()
+    {
+        if (_selectedReport == null) return;
+        var text = GetThermalReceiptText(_selectedReport);
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await JSRuntime.InvokeVoidAsync("alert", "Thermal Z-Report text copied to clipboard!");
+        }
+        catch
+        {
+            await JSRuntime.InvokeVoidAsync("alert", text);
+        }
+    }
+
+    private async Task PrintReceiptWindow()
+    {
+        if (_selectedReport == null) return;
+        if (_showThermalReceipt)
+        {
+            var printText = GetThermalReceiptText(_selectedReport);
+            var encodedText = global::System.Net.WebUtility.HtmlEncode(printText);
+            var htmlContent = "<!DOCTYPE html><html><head><title>Z-Report - " + _selectedReport.TerminalName + "</title>" +
+                              "<style>@media print { body { margin: 0; } } body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.35; white-space: pre-wrap; padding: 20px; color: #000; background: #fff; }</style>" +
+                              "</head><body><pre style=\"margin:0; font-family:inherit;\">" + encodedText + "</pre>" +
+                              "<script>window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 500); };</script></body></html>";
+
+            var jsonHtml = JsonSerializer.Serialize(htmlContent);
+            var script = "var printWin = window.open('', '_blank', 'width=450,height=700'); if (printWin) { printWin.document.write(" + jsonHtml + "); printWin.document.close(); }";
+            await JSRuntime.InvokeVoidAsync("eval", script);
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("window.print");
+        }
+    }
 
     private Dictionary<string, int> ParseSummary(string json)
     {
@@ -347,3 +461,4 @@
         public string EventType { get; set; } = "RunningTab";
     }
 }
+
