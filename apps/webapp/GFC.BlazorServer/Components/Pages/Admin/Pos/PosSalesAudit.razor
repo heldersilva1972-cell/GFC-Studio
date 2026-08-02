@@ -2304,20 +2304,21 @@
 
     public class TokenYieldEntry {
         public PosToken Token { get; set; } = new();
+        public bool IsLifetimeMode { get; set; } = false;
         public int Sold { get; set; }
         public int Redeemed { get; set; }
-        public int LegacyRedeemed { get; set; }
-        public int StartingBalance => Token.StartingLiabilityBalance;
+        public int StartingBalance => IsLifetimeMode ? Token.StartingLiabilityBalance : 0;
         public int TotalSold => Sold + StartingBalance;
+        public int LegacyRedeemed => Math.Max(0, Redeemed - TotalSold);
         public int InCirculation => Math.Max(0, TotalSold - Redeemed);
         public decimal ActualCashCollected { get; set; }
         public decimal TotalRevenue => ActualCashCollected + (StartingBalance * Token.SalePrice);
         public decimal RedemptionValue { get; set; } // Menu price of items redeemed
         public decimal NetFinancialImpact => TotalRevenue - RedemptionValue;
         
-        // Physical Tray Stock & Audit properties
+        // Physical Token Stock & Audit properties
         public int MasterPhysicalStock { get; set; } = 0;
-        public int ExpectedPhysicalStock => Math.Max(0, MasterPhysicalStock - Sold + Redeemed + LegacyRedeemed);
+        public int ExpectedPhysicalStock => Math.Max(0, MasterPhysicalStock - Sold + Redeemed);
         public int ActualPhysicalCount { get; set; } = -1;
         public int StockVariance => ActualPhysicalCount < 0 ? 0 : ActualPhysicalCount - ExpectedPhysicalStock;
         public string DiscrepancyStatus => ActualPhysicalCount < 0 ? "UNAUDITED" : (StockVariance > 0 ? "LEGACY_INFLOW" : (StockVariance < 0 ? "SHRINKAGE" : "BALANCED"));
@@ -2865,9 +2866,10 @@
         }
         var allSales = await salesQuery.ToListAsync();
         
+        bool isLifetime = TokenFilterMode == "LIFETIME";
         var stats = MasterTokens.Where(t => t.Name != null)
                                 .GroupBy(t => t.Name)
-                                .ToDictionary(g => g.Key, g => new TokenYieldEntry { Token = g.First() });
+                                .ToDictionary(g => g.Key, g => new TokenYieldEntry { Token = g.First(), IsLifetimeMode = isLifetime });
 
         foreach (var sale in allSales)
         {
@@ -2950,12 +2952,6 @@
                             
                             if (isTrigger)
                             {
-                                if (stats[match.Name].Redeemed + item.Quantity > stats[match.Name].TotalSold)
-                                {
-                                    int legacyChunk = (stats[match.Name].Redeemed + item.Quantity) - stats[match.Name].TotalSold;
-                                    stats[match.Name].LegacyRedeemed += legacyChunk;
-                                }
-
                                 stats[match.Name].Redeemed += item.Quantity;
                                 
                                 decimal valueOfRedemption = item.Category == "TOKEN_CREDIT" ? Math.Abs(item.Price) : (menuPrice > 0 ? menuPrice : match.SalePrice);
