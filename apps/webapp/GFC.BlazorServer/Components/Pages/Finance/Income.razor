@@ -1,0 +1,557 @@
+@page "/finance/income"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@inject IFinancialAnalyticsService FinancialService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@attribute [Authorize]
+
+<PageTitle>Income Streams | GFC Finance</PageTitle>
+
+<div class="income-page-container d-flex flex-column h-100 position-relative" style="max-height: calc(100vh - 60px); overflow: hidden;">
+    
+    <!-- FIXED HEADER & CONTROLS -->
+    <header class="income-header bg-white border-bottom shadow-sm p-4 flex-shrink-0 z-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="bg-success bg-opacity-10 text-success rounded-4 p-2 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
+                        <i class="bi bi-cash-stack fs-4"></i>
+                    </div>
+                    <div>
+                        <h1 class="h3 fw-black text-dark mb-0">INCOME STREAMS</h1>
+                        <p class="text-muted small mb-0">Unified Revenue Overview & Shift Completeness Audit</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <!-- VIEW TOGGLE: GRAPH VS TABLE -->
+                <div class="btn-group shadow-sm" role="group">
+                    <button class="btn @(_activeView == "chart" ? "btn-dark" : "btn-outline-secondary") fw-bold px-3" @onclick='() => SetView("chart")'>
+                        <i class="bi bi-bar-chart-line-fill me-1"></i> Visual Chart
+                    </button>
+                    <button class="btn @(_activeView == "table" ? "btn-dark" : "btn-outline-secondary") fw-bold px-3" @onclick='() => SetView("table")'>
+                        <i class="bi bi-table me-1"></i> Detailed Ledger
+                    </button>
+                </div>
+
+                <!-- PRIMARY YEAR SELECTOR -->
+                <div class="input-group shadow-sm" style="width: 170px;">
+                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-calendar-month text-muted"></i></span>
+                    <select class="form-select border-start-0 fw-bold" @bind="_selectedMonth" @bind:after="LoadData">
+                        <option value="0">Full Year</option>
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                        }
+                    </select>
+                </div>
+                <div class="input-group shadow-sm" style="width: 120px;">
+                    <select class="form-select fw-bold" @bind="_selectedYear" @bind:after="LoadData">
+                        @foreach (var y in _availableYears)
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- COMPARISON YEAR SELECTOR (COMPARE AGAINST) -->
+                <div class="input-group shadow-sm border-start ps-2" style="width: 230px;">
+                    <span class="input-group-text bg-light border-end-0 small fw-bold text-muted px-2">Vs:</span>
+                    <select class="form-select border-start-0 fw-bold bg-light px-2" @bind="_comparisonYear" @bind:after="LoadData">
+                        <option value="0">None (Single Year)</option>
+                        @foreach (var y in _availableYears.Where(y => y != _selectedYear))
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+
+                <button class="btn btn-outline-secondary rounded-3 shadow-sm px-3" @onclick="LoadData" title="Refresh Data">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+        </div>
+
+        @if (!_isLoading)
+        {
+            <!-- DATA HEALTH / AUDIT WARNINGS BANNER -->
+            @if (_summary != null && _summary.Warnings.Any() && !_dismissAuditBanner)
+            {
+                <div class="alert alert-warning border-warning border-start border-4 rounded-3 shadow-sm mt-3 mb-0 py-2">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill fs-5 text-warning"></i>
+                            <span class="fw-bold text-dark">DATA AUDIT: @_summary.Warnings.Count Missing Shift Entry Warning(s)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            @if (_summary.Warnings.Count > 2)
+                            {
+                                <button class="btn btn-outline-dark btn-xs px-3 rounded-pill fw-bold" @onclick="() => _showAllWarnings = !_showAllWarnings">
+                                    @(_showAllWarnings ? "Collapse View ▲" : $"View All ({_summary.Warnings.Count}) ▼")
+                                </button>
+                            }
+                            <button class="btn-close ms-2" title="Dismiss Banner" @onclick="() => _dismissAuditBanner = true"></button>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mt-2" style="@(_showAllWarnings ? "max-height: 180px; overflow-y: auto;" : "")">
+                        @foreach (var w in _summary.Warnings.Take(_showAllWarnings ? 100 : 2))
+                        {
+                            <span class="badge bg-warning bg-opacity-20 text-dark border border-warning px-3 py-1 rounded-pill d-inline-flex align-items-center gap-2" style="font-size: 0.75rem;">
+                                <span><strong>@w.Stream</strong>: @w.Details</span>
+                                <button class="btn btn-xs btn-link p-0 text-dark fw-bold text-decoration-underline ms-1" @onclick="() => NavigateToUrl(w.ActionUrl)">
+                                    Record Now <i class="bi bi-arrow-right-short"></i>
+                                </button>
+                            </span>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-success border-success border-start border-4 rounded-3 shadow-sm mt-3 mb-0 d-flex align-items-center gap-2 py-2">
+                    <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                    <span class="small fw-bold text-success-emphasis">All Expected Shift Entries & Income Records Accounted For</span>
+                </div>
+            }
+
+            <!-- SUMMARY CARDS WITH MULTI-YEAR COMPARISON BADGES -->
+            <div class="row g-3 mt-2">
+                <!-- TOTAL COMBINED -->
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 bg-success bg-gradient text-white h-100">
+                        <div class="card-body p-3">
+                            <div class="small text-white-50 text-uppercase fw-bold">Combined Income</div>
+                            <div class="fs-2 fw-black my-1">@_summary?.CombinedTotalIncome.ToString("C2")</div>
+                            @if (_summary?.ComparisonYear > 0)
+                            {
+                                <div class="d-flex align-items-center gap-1 small fw-bold">
+                                    <span class="badge bg-white text-dark">vs @_summary.ComparisonYear: @_summary.ComparisonTotalIncome.ToString("C0")</span>
+                                    <span class="badge @(_summary.GrowthPercentage >= 0 ? "bg-black text-white" : "bg-danger text-white")">
+                                        @(_summary.GrowthPercentage >= 0 ? "+" : "")@_summary.GrowthPercentage.ToString("N1")%
+                                    </span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="small text-white-50">Total from all active streams</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BAR SALES -->
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 bg-white border-start border-primary border-4 h-100" style="cursor: pointer;" @onclick='() => NavigateToUrl("/finance/bar-sales")'>
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small text-muted text-uppercase fw-bold">Bar Sales</span>
+                                <i class="bi bi-cup-straw text-primary fs-5"></i>
+                            </div>
+                            <div class="fs-3 fw-black text-dark">@_summary?.TotalBarSales.ToString("C2")</div>
+                            @if (_summary?.ComparisonYear > 0)
+                            {
+                                <div class="small fw-bold text-secondary">
+                                    @_summary.ComparisonYear: @_summary.ComparisonBarSales.ToString("C0")
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="small text-muted">Bar sales gross receipts</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LOTTERY COMMISSIONS -->
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 bg-white border-start border-danger border-4 h-100" style="cursor: pointer;" @onclick='() => NavigateToUrl("/lottery")'>
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small text-muted text-uppercase fw-bold">Lottery Commissions</span>
+                                <i class="bi bi-ticket-detailed text-danger fs-5"></i>
+                            </div>
+                            <div class="fs-3 fw-black text-dark">@_summary?.TotalLotteryCommissions.ToString("C2")</div>
+                            @if (_summary?.ComparisonYear > 0)
+                            {
+                                <div class="small fw-bold text-secondary">
+                                    @_summary.ComparisonYear: @_summary.ComparisonLotteryCommissions.ToString("C0")
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="small text-muted">Net commissions earned</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MEMBERSHIP DUES -->
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 bg-white border-start border-info border-4 h-100" style="cursor: pointer;" @onclick='() => NavigateToUrl("/dues")'>
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small text-muted text-uppercase fw-bold">Membership Dues</span>
+                                <i class="bi bi-wallet2 text-info fs-5"></i>
+                            </div>
+                            <div class="fs-3 fw-black text-dark">@_summary?.TotalMembershipDues.ToString("C2")</div>
+                            @if (_summary?.ComparisonYear > 0)
+                            {
+                                <div class="small fw-bold text-secondary">
+                                    @_summary.ComparisonYear: @_summary.ComparisonMembershipDues.ToString("C0")
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="small text-muted">Dues payments collected</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </header>
+
+    <!-- MAIN DISPLAY AREA (GRAPHICAL OR TABLE) -->
+    <div class="income-content-scroll flex-grow-1 overflow-auto p-4">
+        @if (_isLoading)
+        {
+            <div class="d-flex justify-content-center align-items-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading income data...</span>
+                </div>
+            </div>
+        }
+        else if (_activeView == "chart")
+        {
+            <!-- GRAPHICAL VIEW: VISUAL BREAKDOWN CHARTS -->
+            <div class="row g-4 mb-4">
+                <!-- STREAM COMPARISON CHART (MULTI-YEAR OVERLAY IF SELECTED) -->
+                <div class="col-lg-8">
+                    <div class="card border-0 shadow-sm rounded-4 bg-white h-100">
+                        <div class="card-header bg-white border-0 py-3 px-4 d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="fw-black text-dark mb-0">
+                                    @(_summary?.ComparisonYear > 0 ? $"YEAR OVER YEAR COMPARISON ({_selectedYear} vs {_summary.ComparisonYear})" : "DAILY REVENUE BY STREAM")
+                                </h5>
+                                <span class="text-muted small">
+                                    @(_summary?.ComparisonYear > 0 ? $"Comparing day-by-day revenue trends between {_selectedYear} and {_summary.ComparisonYear}" : "Daily comparison of Bar Sales vs. Lottery Commissions vs. Dues")
+                                </span>
+                            </div>
+                        </div>
+                        <div class="card-body p-4 position-relative" style="height: 380px;">
+                            <canvas id="incomeComparisonChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REVENUE SHARE DONUT CHART -->
+                <div class="col-lg-4">
+                    <div class="card border-0 shadow-sm rounded-4 bg-white h-100">
+                        <div class="card-header bg-white border-0 py-3 px-4">
+                            <h5 class="fw-black text-dark mb-0">REVENUE CONTRIBUTION</h5>
+                            <span class="text-muted small">Share of total monthly income (@_selectedYear)</span>
+                        </div>
+                        <div class="card-body p-4 position-relative d-flex justify-content-center align-items-center" style="height: 380px;">
+                            <canvas id="incomeShareChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- DETAILED LEDGER TABLE VIEW -->
+            <div class="card border-0 shadow-sm rounded-4 bg-white">
+                <div class="card-header bg-white border-0 py-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2 sticky-top z-2">
+                    <h5 class="fw-black text-dark mb-0">CHRONOLOGICAL INCOME LEDGER</h5>
+                    <div class="d-flex gap-2 align-items-center">
+                        <select class="form-select form-select-sm fw-bold rounded-pill" @bind="_selectedStreamFilter" style="width: 180px;">
+                            <option value="All">All Income Streams</option>
+                            <option value="Bar Sales">Bar Sales</option>
+                            <option value="Lottery">Lottery</option>
+                            <option value="Membership Dues">Membership Dues</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (FilteredLedgerEntries.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="bg-light text-muted extra-small uppercase-tracking sticky-top z-1">
+                                    <tr>
+                                        <th class="ps-4">DATE</th>
+                                        <th>INCOME STREAM</th>
+                                        <th>SHIFT</th>
+                                        <th>DESCRIPTION</th>
+                                        <th class="text-end pe-4">AMOUNT</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in FilteredLedgerEntries)
+                                    {
+                                        <tr style="cursor: pointer;" @onclick="() => NavigateToUrl(entry.SourceUrl)">
+                                            <td class="ps-4 fw-bold text-secondary">@entry.Date.ToString("MMM dd, yyyy (ddd)")</td>
+                                            <td>
+                                                @if (entry.Stream == "Bar Sales")
+                                                {
+                                                    <span class="badge bg-primary text-white px-3 py-1 rounded-pill fw-bold">Bar Sales</span>
+                                                }
+                                                else if (entry.Stream == "Lottery")
+                                                {
+                                                    <span class="badge bg-danger text-white px-3 py-1 rounded-pill fw-bold">
+                                                        <i class="bi bi-ticket-detailed me-1"></i>Lottery
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-info text-white px-3 py-1 rounded-pill fw-bold">Dues</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary bg-opacity-10 text-dark border px-2 py-1 rounded-2 font-monospace fw-bold" style="font-size: 0.72rem;">
+                                                    @entry.Shift
+                                                </span>
+                                            </td>
+                                            <td class="fw-semibold text-dark">@entry.Description</td>
+                                            <td class="text-end pe-4 fw-black text-success fs-6">@entry.Amount.ToString("C2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+                            <p class="mb-0">No income entries found for the selected period or stream filter.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private int _selectedMonth = DateTime.Now.Month;
+    private int _selectedYear = DateTime.Now.Year;
+    private int _comparisonYear = 0; // 0 = None
+    private List<int> _availableYears = new() { DateTime.Now.Year };
+    private IncomeAuditSummaryDto? _summary;
+    private bool _isLoading = true;
+    private bool _showAllWarnings = false;
+    private bool _dismissAuditBanner = false;
+    private string _selectedStreamFilter = "All";
+    private string _activeView = "chart";
+
+    private IEnumerable<IncomeStreamEntryDto> FilteredLedgerEntries =>
+        _summary?.LedgerEntries.Where(e => _selectedStreamFilter == "All" || e.Stream == _selectedStreamFilter) ?? Enumerable.Empty<IncomeStreamEntryDto>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _availableYears = await FinancialService.GetAvailableYearsAsync();
+            if (!_availableYears.Contains(_selectedYear))
+            {
+                _availableYears.Add(_selectedYear);
+                _availableYears = _availableYears.OrderByDescending(y => y).ToList();
+            }
+        }
+        catch { }
+
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        DateTime startDate;
+        DateTime endDate;
+
+        if (_selectedMonth == 0)
+        {
+            // Full Year
+            startDate = new DateTime(_selectedYear, 1, 1);
+            endDate = new DateTime(_selectedYear, 12, 31);
+        }
+        else
+        {
+            // Specific Month
+            startDate = new DateTime(_selectedYear, _selectedMonth, 1);
+            endDate = startDate.AddMonths(1).AddDays(-1);
+        }
+
+        _summary = await FinancialService.GetIncomeSummaryWithAuditAsync(startDate, endDate, _comparisonYear > 0 ? _comparisonYear : null);
+        _isLoading = false;
+        StateHasChanged();
+
+        if (_activeView == "chart")
+        {
+            await Task.Delay(100);
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task SetView(string view)
+    {
+        _activeView = view;
+        StateHasChanged();
+        if (_activeView == "chart")
+        {
+            await Task.Delay(100);
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        if (_summary == null) return;
+
+        try
+        {
+            string[] labels;
+            int dataPointsCount;
+            bool isFullYear = _selectedMonth == 0;
+
+            if (isFullYear)
+            {
+                dataPointsCount = 12;
+                labels = new[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+            }
+            else
+            {
+                dataPointsCount = DateTime.DaysInMonth(_selectedYear, _selectedMonth);
+                labels = Enumerable.Range(1, dataPointsCount).Select(d => $"{_selectedMonth}/{d}").ToArray();
+            }
+
+            if (_comparisonYear > 0)
+            {
+                // MULTI-YEAR OVERLAY LINE CHART
+                var primaryData = new decimal[dataPointsCount];
+                var compData = new decimal[dataPointsCount];
+
+                foreach (var entry in _summary.LedgerEntries)
+                {
+                    int index = isFullYear ? (entry.Date.Month - 1) : (entry.Date.Day - 1);
+                    if (index >= 0 && index < dataPointsCount) primaryData[index] += entry.Amount;
+                }
+
+                foreach (var entry in _summary.ComparisonLedgerEntries)
+                {
+                    int index = isFullYear ? (entry.Date.Month - 1) : (entry.Date.Day - 1);
+                    if (index >= 0 && index < dataPointsCount) compData[index] += entry.Amount;
+                }
+
+                var multiYearConfig = new
+                {
+                    type = "line",
+                    data = new
+                    {
+                        labels = labels,
+                        datasets = new object[]
+                        {
+                            new { label = $"{_selectedYear} Revenue", data = primaryData, borderColor = "#198754", backgroundColor = "rgba(25, 135, 84, 0.15)", fill = true, tension = 0.3, borderWidth = 3, borderDash = (int[]?)null },
+                            new { label = $"{_comparisonYear} Revenue", data = compData, borderColor = "#6c757d", backgroundColor = "rgba(108, 117, 125, 0.05)", fill = true, tension = 0.3, borderWidth = 2, borderDash = (int[]?)new[] { 5, 5 } }
+                        }
+                    },
+                    options = new
+                    {
+                        responsive = true,
+                        maintainAspectRatio = false,
+                        scales = new { y = new { beginAtZero = true } }
+                    }
+                };
+
+                await JSRuntime.InvokeVoidAsync("renderChart", "incomeComparisonChart", multiYearConfig);
+            }
+            else
+            {
+                // SINGLE YEAR STACKED BAR CHART
+                var barSalesData = new decimal[dataPointsCount];
+                var lotteryData = new decimal[dataPointsCount];
+                var duesData = new decimal[dataPointsCount];
+
+                foreach (var entry in _summary.LedgerEntries)
+                {
+                    int index = isFullYear ? (entry.Date.Month - 1) : (entry.Date.Day - 1);
+                    if (index >= 0 && index < dataPointsCount)
+                    {
+                        if (entry.Stream == "Bar Sales") barSalesData[index] += entry.Amount;
+                        else if (entry.Stream == "Lottery") lotteryData[index] += entry.Amount;
+                        else if (entry.Stream == "Membership Dues") duesData[index] += entry.Amount;
+                    }
+                }
+
+                var comparisonConfig = new
+                {
+                    type = "bar",
+                    data = new
+                    {
+                        labels = labels,
+                        datasets = new[]
+                        {
+                            new { label = "Bar Sales", data = barSalesData, backgroundColor = "#0d6efd" },
+                            new { label = "Lottery Commissions", data = lotteryData, backgroundColor = "#dc3545" },
+                            new { label = "Membership Dues", data = duesData, backgroundColor = "#0dcaf0" }
+                        }
+                    },
+                    options = new
+                    {
+                        responsive = true,
+                        maintainAspectRatio = false,
+                        scales = new
+                        {
+                            x = new { stacked = true },
+                            y = new { stacked = true, beginAtZero = true }
+                        }
+                    }
+                };
+
+                await JSRuntime.InvokeVoidAsync("renderChart", "incomeComparisonChart", comparisonConfig);
+            }
+
+            // DONUT CHART FOR REVENUE SHARE
+            var shareConfig = new
+            {
+                type = "doughnut",
+                data = new
+                {
+                    labels = new[] { "Bar Sales", "Lottery Commissions", "Membership Dues" },
+                    datasets = new[]
+                    {
+                        new
+                        {
+                            data = new[] { _summary.TotalBarSales, _summary.TotalLotteryCommissions, _summary.TotalMembershipDues },
+                            backgroundColor = new[] { "#0d6efd", "#dc3545", "#0dcaf0" }
+                        }
+                    }
+                },
+                options = new
+                {
+                    responsive = true,
+                    maintainAspectRatio = false
+                }
+            };
+
+            await JSRuntime.InvokeVoidAsync("renderChart", "incomeShareChart", shareConfig);
+        }
+        catch { }
+    }
+
+    private void NavigateToUrl(string url)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Navigation.NavigateTo(url);
+        }
+    }
+}

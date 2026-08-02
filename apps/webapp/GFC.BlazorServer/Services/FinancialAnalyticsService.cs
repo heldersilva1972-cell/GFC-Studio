@@ -21,6 +21,7 @@ namespace GFC.BlazorServer.Services
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
         Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All");
         Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year, int? month = null);
+        Task<IncomeAuditSummaryDto> GetIncomeSummaryWithAuditAsync(DateTime startDate, DateTime endDate, int? comparisonYear = null);
         Task AcknowledgeNoteAsync(string noteType, int recordId, string username);
     }
 
@@ -1181,6 +1182,192 @@ namespace GFC.BlazorServer.Services
             }
 
             return snapshot;
+        }
+
+        public async Task<IncomeAuditSummaryDto> GetIncomeSummaryWithAuditAsync(DateTime startDate, DateTime endDate, int? comparisonYear = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var start = startDate.Date;
+            var end = endDate.Date.AddDays(1).AddTicks(-1);
+
+            var summary = new IncomeAuditSummaryDto
+            {
+                StartDate = start,
+                EndDate = end
+            };
+
+            // 1. Bar Sales
+            var barEntries = await db.BarSaleEntries.AsNoTracking()
+                .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
+                .ToListAsync();
+
+            summary.TotalBarSales = barEntries.Sum(b => b.TotalSales);
+
+            foreach (var b in barEntries)
+            {
+                var entryDate = (b.AdjustedSaleDate ?? b.SaleDate).Date;
+                var shiftName = string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift;
+                summary.LedgerEntries.Add(new IncomeStreamEntryDto
+                {
+                    Date = entryDate,
+                    Stream = "Bar Sales",
+                    Shift = shiftName,
+                    Description = $"Bar Sales - Shift {shiftName} ({b.EmployeeUsername ?? "Staff"})",
+                    Amount = b.TotalSales,
+                    SourceUrl = "/finance/bar-sales"
+                });
+            }
+
+            // Audit Bar Sales missing entries (check each day in date range)
+            for (var d = start.Date; d <= endDate.Date; d = d.AddDays(1))
+            {
+                // Skip if date is in the future
+                if (d > DateTime.Now.Date) continue;
+
+                var dayEntries = barEntries.Where(b => (b.AdjustedSaleDate ?? b.SaleDate).Date == d).ToList();
+                if (!dayEntries.Any())
+                {
+                    summary.Warnings.Add(new MissingEntryWarningDto
+                    {
+                        Date = d,
+                        Stream = "Bar Sales",
+                        Details = $"No Bar Sales entry recorded for {d:ddd, MMM dd, yyyy}",
+                        ActionUrl = "/finance/bar-sales"
+                    });
+                }
+            }
+
+            // 2. Lottery Commissions
+            var lotteryShifts = await db.LotteryShifts.AsNoTracking()
+                .Where(l => l.ShiftDate >= start && l.ShiftDate <= end)
+                .ToListAsync();
+
+            summary.TotalLotteryCommissions = lotteryShifts.Sum(l => l.Commission);
+
+            foreach (var l in lotteryShifts)
+            {
+                var shiftName = string.IsNullOrWhiteSpace(l.ShiftType) ? "Day" : l.ShiftType;
+                summary.LedgerEntries.Add(new IncomeStreamEntryDto
+                {
+                    Date = l.ShiftDate.Date,
+                    Stream = "Lottery",
+                    Shift = shiftName,
+                    Description = $"Lottery Commission - {shiftName} Shift ({l.EmployeeName})",
+                    Amount = l.Commission,
+                    SourceUrl = "/finance/bar-lottery-sales"
+                });
+            }
+
+            // 3. Membership Dues
+            var duesPayments = await db.DuesPayments.AsNoTracking()
+                .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= start && dp.PaidDate.Value <= end && dp.Amount.HasValue)
+                .ToListAsync();
+
+            summary.TotalMembershipDues = duesPayments.Sum(dp => dp.Amount ?? 0m);
+
+            foreach (var dp in duesPayments)
+            {
+                summary.LedgerEntries.Add(new IncomeStreamEntryDto
+                {
+                    Date = dp.PaidDate!.Value.Date,
+                    Stream = "Membership Dues",
+                    Shift = "N/A",
+                    Description = $"Dues Payment ({dp.PaymentType ?? "CASH"})",
+                    Amount = dp.Amount ?? 0m,
+                    SourceUrl = "/dues"
+                });
+            }
+
+            // Order ledger entries newest first
+            summary.LedgerEntries = summary.LedgerEntries.OrderByDescending(e => e.Date).ThenBy(e => e.Stream).ToList();
+            summary.Warnings = summary.Warnings.OrderByDescending(w => w.Date).ToList();
+
+            // 4. Multi-Year Comparison Calculation (if requested)
+            if (comparisonYear.HasValue && comparisonYear.Value > 0)
+            {
+                summary.ComparisonYear = comparisonYear.Value;
+                try
+                {
+                    DateTime compStart;
+                    DateTime compEnd;
+
+                    if (start.Month == 1 && end.Month == 12 && end.Day == 31)
+                    {
+                        // Full Year comparison
+                        compStart = new DateTime(comparisonYear.Value, 1, 1).Date;
+                        compEnd = new DateTime(comparisonYear.Value, 12, 31).Date.AddDays(1).AddTicks(-1);
+                    }
+                    else
+                    {
+                        // Specific Month comparison
+                        compStart = new DateTime(comparisonYear.Value, start.Month, 1).Date;
+                        compEnd = compStart.AddMonths(1).AddDays(-1).Date.AddDays(1).AddTicks(-1);
+                    }
+
+                    summary.ComparisonBarSales = await db.BarSaleEntries.AsNoTracking()
+                        .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
+                        .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
+
+                    summary.ComparisonLotteryCommissions = await db.LotteryShifts.AsNoTracking()
+                        .Where(l => l.ShiftDate >= compStart && l.ShiftDate <= compEnd)
+                        .SumAsync(l => (decimal?)l.Commission) ?? 0m;
+
+                    summary.ComparisonMembershipDues = await db.DuesPayments.AsNoTracking()
+                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
+                        .SumAsync(dp => dp.Amount) ?? 0m;
+
+                    var compBarEntries = await db.BarSaleEntries.AsNoTracking()
+                        .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
+                        .ToListAsync();
+
+                    foreach (var b in compBarEntries)
+                    {
+                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
+                        {
+                            Date = (b.AdjustedSaleDate ?? b.SaleDate).Date,
+                            Stream = "Bar Sales",
+                            Shift = string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift,
+                            Amount = b.TotalSales
+                        });
+                    }
+
+                    var compLotteryShifts = await db.LotteryShifts.AsNoTracking()
+                        .Where(l => l.ShiftDate >= compStart && l.ShiftDate <= compEnd)
+                        .ToListAsync();
+
+                    foreach (var l in compLotteryShifts)
+                    {
+                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
+                        {
+                            Date = l.ShiftDate.Date,
+                            Stream = "Lottery",
+                            Shift = string.IsNullOrWhiteSpace(l.ShiftType) ? "Day" : l.ShiftType,
+                            Amount = l.Commission
+                        });
+                    }
+
+                    var compDuesPayments = await db.DuesPayments.AsNoTracking()
+                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
+                        .ToListAsync();
+
+                    foreach (var dp in compDuesPayments)
+                    {
+                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
+                        {
+                            Date = dp.PaidDate!.Value.Date,
+                            Stream = "Membership Dues",
+                            Shift = "N/A",
+                            Amount = dp.Amount ?? 0m
+                        });
+                    }
+                }
+                catch
+                {
+                    // Fallback gracefully so primary year data is never blocked
+                }
+            }
+
+            return summary;
         }
 
         public async Task AcknowledgeNoteAsync(string noteType, int recordId, string username)

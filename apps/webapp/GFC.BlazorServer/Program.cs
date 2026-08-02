@@ -1250,16 +1250,14 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                                 DELETE FROM AppPages WHERE PageRoute = '/mobile/system-stats';
                             END
                             
-                            -- Update Bar/Lottery Entries category to BAR
-                            IF EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/finance/bar-lottery-sales')
+                            -- Register Income Page under FINANCE category
+                            IF NOT EXISTS (SELECT * FROM AppPages WHERE PageRoute = '/finance/income')
                             BEGIN
-                                UPDATE AppPages SET Category = 'BAR' WHERE PageRoute = '/finance/bar-lottery-sales';
+                                INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
+                                VALUES ('Income', '/finance/income', 'Unified income streams overview and shift audit warnings', 'FINANCE', 0, 1, 15);
                             END
                             
-                            -- Consolidate all mobile pages under MOBILE APPS
-                            UPDATE AppPages SET Category = 'MOBILE APPS' WHERE Category = 'MOBILE HUB';
-                            
-                            PRINT 'Updated AppPages names and active states, removed legacy lottery pages, set Bar/Lottery Entries category, removed legacy progressive page, consolidated mobile categories, removed mobile reimbursement pages';
+                            PRINT 'Updated AppPages names and active states, registered Income page, set Bar/Lottery Entries category, consolidated mobile categories';
                         END
                         IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
                         BEGIN

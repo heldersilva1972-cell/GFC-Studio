@@ -1,7 +1,15 @@
 // [NEW]
+window.incomeCharts = {};
 window.renderChart = (canvasId, chartData) => {
-    const ctx = document.getElementById(canvasId).getContext('2d');
-    new Chart(ctx, {
+    const el = document.getElementById(canvasId);
+    if (!el) return;
+    
+    if (window.incomeCharts[canvasId]) {
+        window.incomeCharts[canvasId].destroy();
+    }
+    
+    const ctx = el.getContext('2d');
+    window.incomeCharts[canvasId] = new Chart(ctx, {
         type: chartData.type,
         data: chartData.data,
         options: chartData.options

@@ -58,4 +58,44 @@ namespace GFC.Core.Models
         public decimal TotalExpenses => GrossPayroll + EmployerFica + EmployerPfml + MaUnemployment + Reimbursements + PaidBills + PaidLoans;
         public decimal NetProfit => TotalIncome - TotalExpenses;
     }
+
+    public class IncomeAuditSummaryDto
+    {
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public decimal TotalBarSales { get; set; }
+        public decimal TotalLotteryCommissions { get; set; }
+        public decimal TotalMembershipDues { get; set; }
+        public decimal CombinedTotalIncome => TotalBarSales + TotalLotteryCommissions + TotalMembershipDues;
+        
+        public int? ComparisonYear { get; set; }
+        public decimal ComparisonBarSales { get; set; }
+        public decimal ComparisonLotteryCommissions { get; set; }
+        public decimal ComparisonMembershipDues { get; set; }
+        public decimal ComparisonTotalIncome => ComparisonBarSales + ComparisonLotteryCommissions + ComparisonMembershipDues;
+        public decimal GrowthPercentage => ComparisonTotalIncome > 0 ? ((CombinedTotalIncome - ComparisonTotalIncome) / ComparisonTotalIncome) * 100m : 0m;
+        
+        public List<MissingEntryWarningDto> Warnings { get; set; } = new();
+        public List<IncomeStreamEntryDto> LedgerEntries { get; set; } = new();
+        public List<IncomeStreamEntryDto> ComparisonLedgerEntries { get; set; } = new();
+    }
+
+    public class MissingEntryWarningDto
+    {
+        public DateTime Date { get; set; }
+        public string Stream { get; set; } = ""; // "Bar Sales" or "Lottery"
+        public string Details { get; set; } = "";
+        public string ActionUrl { get; set; } = "";
+    }
+
+    public class IncomeStreamEntryDto
+    {
+        public DateTime Date { get; set; }
+        public string Stream { get; set; } = "";
+        public string Shift { get; set; } = "";
+        public string Description { get; set; } = "";
+        public decimal Amount { get; set; }
+        public string SourceUrl { get; set; } = "";
+    }
 }
+
