@@ -675,8 +675,8 @@
                                                                     <button class="btn btn-outline-primary btn-sm rounded-pill fw-bold px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenPhysicalAuditModal(y)" title="Audit Count">
                                                                         <i class="bi bi-clipboard-check me-1"></i> AUDIT
                                                                     </button>
-                                                                    <button class="btn btn-warning btn-sm rounded-pill fw-bold text-dark px-2.5 py-1 @(y.LegacyRedeemed <= 0 ? "opacity-75" : "")" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => SyncLegacyChips(y)" title="Reclaim legacy to stock">
-                                                                        <i class="bi bi-arrow-repeat me-1"></i> RECLAIM
+                                                                    <button class="btn btn-warning btn-sm rounded-pill fw-bold text-dark @(y.LegacyRedeemed <= 0 ? "opacity-75" : "")" @onclick="() => OpenReclaimModal(y)" title="Reclaim returned pre-Aug 1 chips into active stock or permanently retire them from circulation">
+                                                                        <i class="bi bi-arrow-repeat me-1"></i>RECLAIM / RETIRE LEGACY
                                                                     </button>
                                                                     <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenAddLegacyStockModal(y)" title="Replenish stock">
                                                                         <i class="bi bi-plus-lg me-1"></i> REPLENISH
@@ -1698,6 +1698,66 @@
     </div>
 }
 
+@if (_showReclaimModal && _reclaimTargetEntry != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header border-bottom py-3">
+                    <h5 class="modal-title fw-black text-dark">CONFIRM LEGACY CHIPS ACTION: @_reclaimTargetEntry.Token.Name</h5>
+                    <button type="button" class="btn-close" @onclick='() => _showReclaimModal = false'></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="p-3 bg-warning-subtle text-dark rounded-3 mb-4 border border-warning">
+                        <div class="fw-bold fs-6 mb-1">
+                            <i class="bi bi-info-circle me-1"></i>@_reclaimTargetEntry.LegacyRedeemed Returned Pre-Aug 1 Chips Detected
+                        </div>
+                        <div class="small opacity-90">
+                            Select how you want to handle these physical chips returned by customers.
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Quantity of Chips to Process (Max: @_reclaimTargetEntry.LegacyRedeemed):</label>
+                        <input type="number" class="form-control form-control-lg fw-bold" @bind="_reclaimQuantityInput" min="1" max="@_reclaimTargetEntry.LegacyRedeemed" />
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold mb-2">Select Action to Perform for these @_reclaimQuantityInput Chips:</label>
+                        <div class="list-group border-0 gap-2">
+                            <label class="list-group-item d-flex align-items-start gap-3 p-3 rounded-3 cursor-pointer border @(_reclaimOption == "RECLAIM_TO_STOCK" ? "border-warning border-2 bg-warning-subtle text-dark shadow-sm" : "bg-light text-dark opacity-75")">
+                                <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="reclaimOpt" value="RECLAIM_TO_STOCK" checked="@(_reclaimOption == "RECLAIM_TO_STOCK")" @onchange='() => _reclaimOption = "RECLAIM_TO_STOCK"' />
+                                <div>
+                                    <div class="fw-bold fs-6 text-dark"><i class="bi bi-box-arrow-in-down me-1 text-warning"></i>Option 1: Add Back to Active Stock (To Re-Sell)</div>
+                                    <div class="small text-muted mt-1">Puts these <strong>@_reclaimQuantityInput</strong> physical chips into your active drawer stock so your staff can re-sell them at the POS.</div>
+                                </div>
+                            </label>
+                            <label class="list-group-item d-flex align-items-start gap-3 p-3 rounded-3 cursor-pointer border @(_reclaimOption == "RETIRE_CHIPS" ? "border-danger border-2 bg-danger-subtle text-dark shadow-sm" : "bg-light text-dark opacity-75")">
+                                <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="reclaimOpt" value="RETIRE_CHIPS" checked="@(_reclaimOption == "RETIRE_CHIPS")" @onchange='() => _reclaimOption = "RETIRE_CHIPS"' />
+                                <div>
+                                    <div class="fw-bold fs-6 text-danger"><i class="bi bi-trash3 me-1"></i>Option 2: Retire & Remove From Circulation (Throw Away / Destroy)</div>
+                                    <div class="small text-muted mt-1">Permanently retires these <strong>@_reclaimQuantityInput</strong> old, damaged, or obsolete design chips so they are removed from circulation and will NOT be re-sold.</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Manager Notes (Optional):</label>
+                        <input type="text" class="form-control" @bind="_reclaimNotesInput" placeholder="e.g. Disposed of 4 bent old design chips" />
+                    </div>
+                </div>
+                <div class="modal-footer border-top py-3">
+                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showReclaimModal = false'>CANCEL</button>
+                    <button class="btn @(_reclaimOption == "RECLAIM_TO_STOCK" ? "btn-warning text-dark" : "btn-danger") rounded-pill fw-bold px-4" @onclick="SaveReclaimAction">
+                        CONFIRM & @(_reclaimOption == "RECLAIM_TO_STOCK" ? "ADD TO STOCK" : "RETIRE FROM CIRCULATION")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showRedemptionListModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
@@ -2307,9 +2367,11 @@
         public bool IsLifetimeMode { get; set; } = false;
         public int Sold { get; set; }
         public int Redeemed { get; set; }
+        public int ManuallyProcessedLegacyCount { get; set; } = 0;
         public int StartingBalance => IsLifetimeMode ? Token.StartingLiabilityBalance : 0;
         public int TotalSold => Sold + StartingBalance;
-        public int LegacyRedeemed => Math.Max(0, Redeemed - TotalSold);
+        public int RawLegacyRedeemed => Math.Max(0, Redeemed - TotalSold);
+        public int LegacyRedeemed => Math.Max(0, RawLegacyRedeemed - ManuallyProcessedLegacyCount);
         public int InCirculation => Math.Max(0, TotalSold - Redeemed);
         public decimal ActualCashCollected { get; set; }
         public decimal TotalRevenue => ActualCashCollected + (StartingBalance * Token.SalePrice);
@@ -2743,6 +2805,12 @@
 
     private DateTime TokenTrackingStartDate = new DateTime(2026, 8, 1);
     private string TokenFilterMode = "SINCE_AUG_1"; // "SINCE_AUG_1" or "LIFETIME"
+    private bool _showReclaimModal = false;
+    private TokenYieldEntry? _reclaimTargetEntry = null;
+    private string _reclaimOption = "RECLAIM_TO_STOCK"; // "RECLAIM_TO_STOCK" or "RETIRE_CHIPS"
+    private int _reclaimQuantityInput = 1;
+    private string _reclaimNotesInput = "";
+
     private bool _showRedemptionListModal = false;
     private bool _showHistoryModal = false;
     private bool _showPhysicalAuditModal = false;
@@ -2833,22 +2901,52 @@
         StateHasChanged();
     }
 
-    private void SyncLegacyChips(TokenYieldEntry entry)
+    private void OpenReclaimModal(TokenYieldEntry entry)
     {
-        if (entry.LegacyRedeemed <= 0) return;
-        entry.MasterPhysicalStock += entry.LegacyRedeemed;
+        _reclaimTargetEntry = entry;
+        _reclaimOption = "RECLAIM_TO_STOCK";
+        _reclaimQuantityInput = entry.LegacyRedeemed;
+        _reclaimNotesInput = "";
+        _showReclaimModal = true;
+    }
+
+    private void SaveReclaimAction()
+    {
+        if (_reclaimTargetEntry == null || _reclaimQuantityInput <= 0) return;
+        
+        int qty = Math.Min(_reclaimQuantityInput, _reclaimTargetEntry.LegacyRedeemed);
+        if (qty <= 0) return;
+
+        string status = "";
+        string note = "";
+
+        if (_reclaimOption == "RECLAIM_TO_STOCK")
+        {
+            _reclaimTargetEntry.MasterPhysicalStock += qty;
+            _reclaimTargetEntry.ManuallyProcessedLegacyCount += qty;
+            status = "LEGACY_RECLAIMED";
+            note = $"Reclaimed {qty} returned legacy chips into active re-sellable stock. {(_reclaimNotesInput)}".Trim();
+        }
+        else
+        {
+            _reclaimTargetEntry.ManuallyProcessedLegacyCount += qty;
+            status = "LEGACY_RETIRED";
+            note = $"Permanently retired/disposed of {qty} old legacy chips, removing them from circulation. {(_reclaimNotesInput)}".Trim();
+        }
+
         var log = new TokenAuditLogEntry
         {
             Timestamp = DateTime.Now,
-            TokenName = entry.Token.Name ?? "Token",
-            ExpectedStock = entry.ExpectedPhysicalStock,
-            ActualCount = entry.ExpectedPhysicalStock,
-            Variance = entry.LegacyRedeemed,
-            Status = "LEGACY_SYNCED",
-            Notes = $"Absorbed {entry.LegacyRedeemed} legacy redeemed chips back into physical stock.",
+            TokenName = _reclaimTargetEntry.Token.Name ?? "Token",
+            ExpectedStock = _reclaimTargetEntry.ExpectedPhysicalStock,
+            ActualCount = _reclaimTargetEntry.ExpectedPhysicalStock,
+            Variance = qty,
+            Status = status,
+            Notes = note,
             PerformedBy = "Manager"
         };
         TokenAuditLogs.Insert(0, log);
+        _showReclaimModal = false;
         StateHasChanged();
     }
 
