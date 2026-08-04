@@ -38,6 +38,8 @@ namespace GFC.Core.Models.Finance
         [Required]
         public DateTime DueDate { get; set; }
 
+        public DateTime? InvoiceDate { get; set; }
+
         public int WarningDays { get; set; } = 7;
 
         [Required]

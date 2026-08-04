@@ -1,0 +1,2146 @@
+@page "/lottery/imported-reports"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using System.IO
+@using System.Globalization
+@using System.Text.RegularExpressions
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject GFC.Core.Interfaces.IPagePermissionRepository PageRepo
+@inject GFC.Core.Interfaces.IUserManagementService UserService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<ImportedReports> Logger
+@inject GFC.BlazorServer.Services.LotteryEmailService EmailService
+@attribute [Authorize]
+
+<PageTitle>Lottery Imported Reports | GFC</PageTitle>
+
+<style>
+    .imported-reports-container {
+        padding: 1.5rem;
+        background: #f8fafc;
+        min-height: calc(100vh - 90px);
+        font-family: 'Outfit', 'Inter', sans-serif;
+    }
+
+    .premium-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+        padding: 2rem;
+        margin-bottom: 1.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .premium-card:hover {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+    }
+
+    .header-panel {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        border-bottom: 2px solid #f1f5f9;
+        padding-bottom: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .header-title-section h1 {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: #1e293b;
+        margin: 0 0 0.25rem 0;
+        background: linear-gradient(135deg, #1e293b, #3b82f6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .header-title-section p {
+        color: #64748b;
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .history-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .form-select-custom {
+        padding: 0.5rem 2rem 0.5rem 1rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #334155;
+        background-color: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        cursor: pointer;
+        transition: border-color 0.2s;
+    }
+
+    .form-select-custom:focus {
+        border-color: #3b82f6;
+        outline: none;
+    }
+
+    .grid-2-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    @@media (max-width: 992px) {
+        .grid-2-col {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .upload-zone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 12px;
+        padding: 2.5rem 1.5rem;
+        text-align: center;
+        background: #f8fafc;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        position: relative;
+    }
+
+    .upload-zone:hover {
+        border-color: #3b82f6;
+        background: #f0f7ff;
+    }
+
+    .upload-icon {
+        font-size: 2.5rem;
+        color: #94a3b8;
+        margin-bottom: 0.75rem;
+        transition: color 0.2s;
+    }
+
+    .upload-zone:hover .upload-icon {
+        color: #3b82f6;
+    }
+
+    .upload-label {
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 0.25rem;
+    }
+
+    .upload-hint {
+        font-size: 0.8rem;
+        color: #64748b;
+    }
+
+    .hidden-input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .file-list {
+        margin-top: 1rem;
+        list-style: none;
+        padding: 0;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #f1f5f9;
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #334155;
+    }
+
+    .file-remove-btn {
+        background: none;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+        padding: 2px;
+        font-size: 1rem;
+    }
+
+    .comparison-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.25rem;
+        margin-bottom: 0.75rem;
+    }
+
+    @@media (max-width: 992px) {
+        .comparison-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .comparison-section-header {
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0.5rem 0 0.25rem 0;
+        padding-bottom: 0.25rem;
+        border-bottom: 2px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0.75rem;
+    }
+
+    .comparison-table th {
+        background: #f8fafc;
+        color: #475569;
+        font-weight: 700;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        padding: 0.4rem 0.6rem;
+        text-align: left;
+        border-bottom: 2px solid #e2e8f0;
+    }
+
+    .comparison-table td {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.825rem;
+        color: #334155;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .comparison-table tr:hover {
+        background-color: #f8fafc;
+    }
+
+    .badge-match {
+        background: #d1fae5;
+        color: #065f46;
+        padding: 0.25rem 0.6rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .badge-mismatch {
+        background: #fee2e2;
+        color: #991b1b;
+        padding: 0.25rem 0.6rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .btn-action-primary {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        transition: all 0.2s;
+    }
+
+    .btn-action-primary:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3);
+    }
+
+    .btn-action-primary:disabled {
+        background: #cbd5e1;
+        box-shadow: none;
+        cursor: not-allowed;
+    }
+
+    .btn-action-secondary {
+        background: white;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-action-secondary:hover {
+        background: #f8fafc;
+        border-color: #94a3b8;
+    }
+
+    .meta-box {
+        background: #f0f7ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+        color: #1e40af;
+        margin-bottom: 1rem;
+    }
+
+    .sticky-col {
+        position: sticky;
+        left: 0;
+        background-color: #ffffff !important;
+        border-right: 2px solid #cbd5e1;
+        z-index: 2;
+        box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1);
+    }
+
+    th.sticky-col {
+        background-color: #f8fafc !important;
+        z-index: 3;
+    }
+
+    .sync-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+
+    .sync-status-card {
+        background: #ffffff;
+        border: 1px solid rgba(226, 232, 240, 0.8);
+        border-radius: 20px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 450px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @@keyframes scaleIn {
+        0% { transform: scale(0.9); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+</style>
+
+<div class="imported-reports-container">
+    @if (_isFetchingEmail)
+    {
+        <div class="sync-overlay">
+            <div class="sync-status-card">
+                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Syncing...</span>
+                </div>
+                <h4 class="fw-bold mb-2">Syncing with Gmail</h4>
+                <p class="text-muted text-center px-2 mb-4" style="font-size: 0.9rem; min-height: 40px;">@_syncStatusMessage</p>
+                <button class="btn btn-outline-danger btn-sm px-4" style="border-radius: 8px;" @onclick="CancelSync">
+                    <i class="bi bi-x-circle me-1"></i> Cancel Sync
+                </button>
+            </div>
+        </div>
+    }
+    @if (!_hasAccessChecked)
+    {
+        <div class="d-flex justify-content-center p-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Checking access...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- HEADER PANEL -->
+        <div class="header-panel">
+            <div class="header-title-section">
+                <h1>Lottery Imported Reports</h1>
+                <p>Compare daily shift totals with the weekly official invoice statement to ensure perfect alignment.</p>
+            </div>
+            
+            <div class="history-controls">
+                @if (_isHistoricalView || _hasDataLoaded)
+                {
+                    <button class="btn-action-secondary" @onclick="GoBackToDashboard"><i class="bi bi-arrow-left"></i> Back to Dashboard</button>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger border-0 shadow-sm mb-4 d-flex align-items-center">
+                <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                <div>@_errorMessage</div>
+            </div>
+        }
+
+        <!-- EMAIL CONFIGURATION SETTINGS PANEL -->
+        @if (!_isHistoricalView && !_hasDataLoaded)
+        {
+            <div class="premium-card mb-4" style="border-left: 4px solid var(--bs-primary);">
+                <div class="d-flex justify-content-between align-items-center cursor-pointer" @onclick="ToggleSettings">
+                    <h3 class="fw-bold mb-0 text-slate-800" style="font-size: 1.15rem; cursor: pointer;">
+                        <i class="bi bi-envelope-fill text-primary me-2"></i>Gmail Auto-Fetch Settings
+                    </h3>
+                    <button class="btn btn-sm btn-link text-decoration-none p-0">
+                        @if (_showSettings)
+                        {
+                            <span class="text-muted"><i class="bi bi-chevron-up"></i> Hide Settings</span>
+                        }
+                        else
+                        {
+                            <span class="text-primary"><i class="bi bi-chevron-down"></i> Show Settings</span>
+                        }
+                    </button>
+                </div>
+
+                @if (_showSettings)
+                {
+                    <hr class="my-3" />
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Address</label>
+                            <input type="email" class="form-control" placeholder="your-email@gmail.com" @bind="_emailSettings.EmailAddress" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Google App Password</label>
+                            <input type="password" class="form-control" placeholder="16-character app code" @bind="_emailSettings.AppPassword" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Sender Filter Address</label>
+                            <input type="text" class="form-control" placeholder="reports@lottery.com" @bind="_emailSettings.SenderAddress" />
+                            <div class="text-muted small mt-1">Only fetch messages from this email address.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Subject Keyword Filter</label>
+                            <input type="text" class="form-control" placeholder="e.g. Weekly Report" @bind="_emailSettings.SubjectKeyword" />
+                            <div class="text-muted small mt-1">Only fetch messages containing this word in the subject.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-4 pt-2">
+                                <input class="form-check-input" type="checkbox" id="autoSyncCheck" @bind="_emailSettings.AutoSyncEnabled" />
+                                <label class="form-check-label fw-bold text-slate-700 font-size-sm" for="autoSyncCheck">
+                                    Enable Background Auto-Sync
+                                </label>
+                                <div class="text-muted small">Periodically downloads reports in the background.</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Check Frequency</label>
+                            <select class="form-select" @bind="_emailSettings.SyncIntervalHours">
+                                <option value="1">Every Hour</option>
+                                <option value="6">Every 6 Hours</option>
+                                <option value="12">Every 12 Hours</option>
+                                <option value="24">Every 24 Hours (Daily)</option>
+                            </select>
+                            @if (_emailSettings.LastSyncTime.HasValue)
+                            {
+                                <div class="text-success small mt-1">Last background check: <strong>@_emailSettings.LastSyncTime.Value.ToString("g")</strong></div>
+                            }
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-end mt-3">
+                        <button class="btn btn-primary btn-sm px-4" @onclick="SaveEmailSettings">
+                            <i class="bi bi-save me-1"></i> Save Settings
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_successMessage))
+        {
+            <div class="alert alert-success border-0 shadow-sm mb-4 d-flex align-items-center">
+                <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+                <div>@_successMessage</div>
+            </div>
+        }
+
+        @if (!_isHistoricalView && !_hasDataLoaded)
+        {
+            <!-- QUICK GETTING STARTED GUIDE -->
+            <div class="premium-card mb-4" style="background-color: #f0fdf4; border-color: #bbf7d0; border-left: 4px solid #10b981;">
+                <h3 class="fw-bold mb-2 text-success" style="font-size: 1.15rem;">
+                    <i class="bi bi-info-circle-fill me-2"></i>How to Use This Workspace
+                </h3>
+                <ol class="text-success-emphasis mb-0 ps-3 small" style="line-height: 1.6; font-weight: 500;">
+                    <li>Ensure your Gmail address and Google App Password are entered in the <strong>Gmail Auto-Fetch Settings</strong> panel above.</li>
+                    <li>Click the <strong>Sync Gmail Inbox</strong> button on the dashboard below to download new lottery report CSVs from your email.</li>
+                    <li>The system will automatically organize your daily CSV reports and weekly statements into <strong>Pending Weekly Batches</strong>.</li>
+                    <li>Click <strong>Review & Process</strong> next to any week group to run the comparison and save it to the database.</li>
+                </ol>
+            </div>
+
+            <!-- PENDING WEEKLY BATCHES WORKSPACE -->
+            <div class="premium-card mb-4">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <h2 class="fw-bold mb-0 text-slate-800" style="font-size: 1.3rem;">
+                        <i class="bi bi-inbox text-primary me-2"></i>Pending Weekly Batches (@_weekGroups.Count)
+                    </h2>
+                    <div class="d-flex gap-2">
+                        @if (_allDailyStaged.Any() || _allWeeklyStaged.Any())
+                        {
+                            <button class="btn btn-outline-danger btn-sm px-3" style="border-radius: 8px;" @onclick="ResetPage">
+                                Discard All Staged
+                            </button>
+                        }
+                        <button class="btn btn-primary btn-sm px-3" style="border-radius: 8px; font-weight: 600;" @onclick="FetchEmails" disabled="@_isFetchingEmail">
+                            @if (_isFetchingEmail)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                <span>Syncing...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-envelope-check me-1"></i><span>Sync Gmail Inbox</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                @if (!_weekGroups.Any())
+                {
+                    <div class="text-center py-5 text-muted bg-light rounded-3 border border-dashed my-2">
+                        <i class="bi bi-check-circle fs-2 text-success mb-2 d-block"></i>
+                        <span class="fw-bold text-slate-700">All caught up! No pending weekly batches to process.</span><br />
+                        <span class="small">Click <strong>Sync Gmail Inbox</strong> to fetch new reports from your email.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var group in _weekGroups)
+                        {
+                            var hasStatement = group.MatchingWeeklyFile != null;
+                            var expectedDays = 7;
+                            var loadedDays = group.DailyFiles.Count;
+                            
+                            <div class="card shadow-sm border border-slate-200 rounded-3 overflow-hidden" style="border-left: 4px solid @(hasStatement && loadedDays == expectedDays ? "#10b981" : "#3b82f6") !important;">
+                                <div class="card-body p-3">
+                                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                                        <div>
+                                            <h4 class="fw-bold mb-1 text-slate-800" style="font-size: 1.05rem;">
+                                                Week Ending: @group.WeekEndingDate.ToString("MM/dd/yyyy") (Saturday)
+                                            </h4>
+                                            <p class="text-muted small mb-0">
+                                                Period: @group.WeekStartDate.ToString("MM/dd/yyyy") to @group.WeekEndingDate.ToString("MM/dd/yyyy")
+                                            </p>
+                                        </div>
+
+                                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                                            <!-- Daily Logs Status -->
+                                            <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 100px;">
+                                                <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Daily Logs</span>
+                                                <strong class="@(loadedDays == expectedDays ? "text-success" : "text-warning")" style="font-size: 0.9rem;">
+                                                    @loadedDays of @expectedDays Days
+                                                </strong>
+                                            </div>
+
+                                            <!-- Weekly Statement Status -->
+                                            <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 130px;">
+                                                <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Weekly Statement</span>
+                                                @if (hasStatement)
+                                                {
+                                                    <strong class="text-success" style="font-size: 0.9rem;"><i class="bi bi-file-earmark-check-fill me-1"></i>Matched</strong>
+                                                }
+                                                else
+                                                {
+                                                    <strong class="text-muted" style="font-size: 0.9rem;">Daily-Only Mode</strong>
+                                                }
+                                            </div>
+
+                                            <!-- Action Button -->
+                                            <button class="btn btn-primary btn-sm px-3 py-2 ms-2" style="border-radius: 8px; font-weight: 600;" @onclick="() => SelectGroupForProcessing(group)">
+                                                <i class="bi bi-layout-split me-1"></i> Review & Process
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Expandable sub-list of dates -->
+                                    <hr class="my-2 text-slate-200" />
+                                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                                        <span class="small text-muted fw-bold me-1" style="font-size: 0.75rem;">Dates Staged:</span>
+                                        @for (int i = -6; i <= 0; i++)
+                                        {
+                                            var date = group.WeekEndingDate.AddDays(i);
+                                            var isLoaded = group.DailyFiles.Any(f => f.ParsedDate.HasValue && f.ParsedDate.Value.Date == date.Date);
+                                            <span class="badge @(isLoaded ? "bg-success-subtle text-success border border-success-subtle" : "bg-danger-subtle text-danger border border-danger-subtle") rounded-pill px-2 py-1" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
+                                                @date.ToString("ddd MM/dd")
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <!-- COMPARISON VIEW -->
+            <div class="premium-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="fw-bold text-slate-800 m-0">
+                        @if (_isHistoricalView)
+                        {
+                            <span><i class="bi bi-clock-history text-secondary me-2"></i>Historical Report: Week Ending @_historicalWeekEndingDate?.ToString("MM/dd/yyyy")</span>
+                        }
+                        else
+                        {
+                            <span><i class="bi bi-check2-all text-success me-2"></i>Comparison Matrix</span>
+                        }
+                    </h2>
+                    @if (_isHistoricalView)
+                    {
+                        <div class="text-muted small">Imported by: <strong>@_selectedReportAuthor</strong> on @_selectedReportCreatedDate?.ToString("g")</div>
+                    }
+                </div>
+
+                @if (_isHistoricalView)
+                {
+                    <div class="alert alert-info border-0 shadow-sm mb-4">
+                        <i class="bi bi-info-circle-fill me-2"></i>You are viewing saved historical data. Daily sums were committed on this date.
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-light border shadow-sm mb-4" style="background-color: #f8fafc; border-color: #e2e8f0 !important; border-radius: 12px;">
+                        <div class="row">
+                            @if (_isDailyOnlyMode)
+                            {
+                                <div class="col-md-6 border-md-end">
+                                    <div class="fw-bold text-slate-700 mb-1"><i class="bi bi-calendar3 text-primary me-1"></i>Daily Shift Reports Summary (Sunday to Saturday Week)</div>
+                                    <div class="text-muted small">Week Ending Saturday: <strong class="text-primary">@_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy")</strong></div>
+                                </div>
+                                <div class="col-md-6 ps-md-4 mt-3 mt-md-0">
+                                    <div class="fw-bold text-slate-700 mb-2"><i class="bi bi-files text-primary me-1"></i>Uploaded Daily Files (@_dailyFiles.Count) <span class="text-muted" style="font-size: 0.75rem; font-weight: normal;">(click x to exclude a day)</span></div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var file in _dailyFiles)
+                                        {
+                                            <span class="badge bg-white text-dark border d-flex align-items-center gap-2 p-2 shadow-sm" style="font-size: 0.8rem; border-radius: 6px; border-color: #e2e8f0 !important;">
+                                                <i class="bi bi-file-earmark-spreadsheet text-success"></i>
+                                                <strong>@(file.ParsedDate?.ToString("MM/dd") ?? "??")</strong>
+                                                <button type="button" class="btn p-0 border-0 text-danger" style="line-height: 1;" @onclick="() => RemoveDailyFile(file)"><i class="bi bi-x-circle-fill"></i></button>
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="col-md-6 border-md-end">
+                                    <div class="fw-bold text-slate-700 mb-1"><i class="bi bi-file-earmark-text-fill text-primary me-1"></i>Weekly Invoice Statement</div>
+                                    <div class="text-muted small">File name: <strong>@_weeklyFile?.FileName</strong></div>
+                                    <div class="text-muted small">Statement Week Ending: <strong class="text-primary">@_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy")</strong></div>
+                                </div>
+                                <div class="col-md-6 ps-md-4 mt-3 mt-md-0">
+                                    <div class="fw-bold text-slate-700 mb-2"><i class="bi bi-calendar3 text-primary me-1"></i>Compared Daily Files (@_dailyFiles.Count) <span class="text-muted" style="font-size: 0.75rem; font-weight: normal;">(click x to exclude a day)</span></div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var file in _dailyFiles)
+                                        {
+                                            <span class="badge bg-white text-dark border d-flex align-items-center gap-2 p-2 shadow-sm" style="font-size: 0.8rem; border-radius: 6px; border-color: #e2e8f0 !important;">
+                                                <i class="bi bi-file-earmark-spreadsheet text-success"></i>
+                                                <strong>@(file.ParsedDate?.ToString("MM/dd") ?? "??")</strong>
+                                                <button type="button" class="btn p-0 border-0 text-danger" style="line-height: 1;" @onclick="() => RemoveDailyFile(file)"><i class="bi bi-x-circle-fill"></i></button>
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <!-- COMPACT SUMMARY BAR -->
+                <div class="d-flex justify-content-between align-items-center p-3 rounded-3 bg-light border mb-3 flex-wrap gap-3">
+                    <div>
+                        <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem;">TOTAL DAILY SUM DUE</span>
+                        <span class="fw-bold text-slate-800" style="font-size: 1.25rem;">@_totalDailyDue.ToString("C2")</span>
+                    </div>
+                    @if (!_isDailyOnlyMode)
+                    {
+                        <div>
+                            <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem;">TOTAL WEEKLY STATEMENT DUE</span>
+                            <span class="fw-bold text-slate-800" style="font-size: 1.25rem;">@_totalWeeklyDue.ToString("C2")</span>
+                        </div>
+                        <div>
+                            <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem; margin-bottom: 2px;">VARIANCE STATUS</span>
+                            @if (_totalDueVariance == 0)
+                            {
+                                <span class="badge bg-success text-white px-3 py-2" style="font-weight: 600; font-size: 0.85rem;"><i class="bi bi-check-circle-fill me-1"></i> Perfect Match</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger text-white px-3 py-2" style="font-weight: 600; font-size: 0.85rem;"><i class="bi bi-exclamation-circle-fill me-1"></i> Mismatch @_totalDueVariance.ToString("C2")</span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- SIDE-BY-SIDE TABLES GRID -->
+                <div class="comparison-grid">
+                    <!-- ONLINE SECTION -->
+                    <div>
+                        <div class="comparison-section-header">
+                            <i class="bi bi-globe text-primary"></i> ONLINE SALES STATS
+                        </div>
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40%;">Metric Field</th>
+                                    <th style="text-align: right;">Daily</th>
+                                    @if (!_isDailyOnlyMode)
+                                    {
+                                        <th style="text-align: right;">Weekly</th>
+                                        <th style="text-align: right;">Variance</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _onlineRows)
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-slate-700">@row.Name</td>
+                                        <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
+                                        @if (!_isDailyOnlyMode)
+                                        {
+                                            <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
+                                            <td style="text-align: right;">
+                                                @if (row.Variance == 0)
+                                                {
+                                                    <span class="text-success small fw-bold">$0.00</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger small fw-bold">@(row.Variance > 0 ? "+" : "")@row.Variance.ToString("C2")</span>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- INSTANT SECTION -->
+                    <div>
+                        <div class="comparison-section-header">
+                            <i class="bi bi-ticket-detailed-fill text-warning"></i> INSTANT SALES STATS
+                        </div>
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40%;">Metric Field</th>
+                                    <th style="text-align: right;">Daily</th>
+                                    @if (!_isDailyOnlyMode)
+                                    {
+                                        <th style="text-align: right;">Weekly</th>
+                                        <th style="text-align: right;">Variance</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _instantRows)
+                                {
+                                    <tr>
+                                        <td class="fw-bold text-slate-700">@row.Name</td>
+                                        <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
+                                        @if (!_isDailyOnlyMode)
+                                        {
+                                            <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
+                                            <td style="text-align: right;">
+                                                @if (row.Variance == 0)
+                                                {
+                                                    <span class="text-success small fw-bold">$0.00</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger small fw-bold">@(row.Variance > 0 ? "+" : "")@row.Variance.ToString("C2")</span>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                @if (!_isHistoricalView)
+                {
+                    <!-- COMMIT ACTIONS -->
+                    <div class="d-flex justify-content-between align-items-center mt-4">
+                        <div class="text-muted small">
+                            @if (_isDailyOnlyMode)
+                            {
+                                <span class="text-success"><i class="bi bi-info-circle-fill me-1"></i> Daily-Only Mode. Ready to save aggregated totals as week ending @_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy").</span>
+                            }
+                            else if (_totalDueVariance == 0)
+                            {
+                                <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Ready to commit. All calculations balance.</span>
+                            }
+                            else
+                            {
+                                <span class="text-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i> Warning: Discrepancy detected. You can still save if needed.</span>
+                            }
+                        </div>
+                        <div class="d-flex gap-3">
+                            <button class="btn-action-secondary" @onclick="ModifyUploads"><i class="bi bi-pencil-square me-1"></i> Modify Uploads</button>
+                            <button class="btn-action-primary" @onclick="CommitToDatabase">
+                                <i class="bi bi-save me-1"></i> Save & Commit Report
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!_isHistoricalView && !_hasDataLoaded)
+        {
+            <!-- PAST IMPORTED REPORTS HISTORY LIST -->
+            <div class="premium-card mt-4">
+                <h3 class="fw-bold mb-3 text-slate-800"><i class="bi bi-journal-text text-primary me-2"></i>Imported Weekly Reports History</h3>
+                <p class="text-muted small mb-3">Multi-week comparative overview of your committed lottery weekly reports:</p>
+                
+                @if (!_historicalWeeks.Any())
+                {
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-info-circle fs-3 mb-2 d-block text-secondary"></i>
+                        No imported reports found. Complete a week's review above to save your first record.
+                    </div>
+                }
+                else
+                {
+                    var columns = _historicalWeeks.OrderBy(w => w.WeekEndingDate).ToList();
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover text-nowrap align-middle" style="font-size: 0.8rem; border-collapse: collapse;">
+                            <thead>
+                                <tr class="bg-light">
+                                    <th class="fw-bold text-slate-700 sticky-col" style="min-width: 180px; font-size: 0.85rem; padding: 0.5rem;">Metric / Week Ending</th>
+                                    @foreach (var col in columns)
+                                    {
+                                        <th class="text-end fw-bold text-slate-800" style="font-size: 0.85rem; padding: 0.5rem; background-color: #f8fafc;">
+                                            <div class="d-flex flex-column align-items-end">
+                                                <span>@col.WeekEndingDate.ToString("MM/dd/yyyy")</span>
+                                                <span class="text-muted" style="font-size: 0.65rem; font-weight: 500;">
+                                                    by @(col.CreatedBy?.Replace("Imported: ", "") ?? "System")
+                                                </span>
+                                            </div>
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- ONLINE SECTION -->
+                                <tr class="fw-bold" style="background-color: #f1f5f9; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                    <td class="sticky-col" style="padding: 0.4rem 0.5rem; color: #1e293b; background-color: #f1f5f9 !important;">
+                                        <i class="bi bi-globe text-primary me-1"></i> Online Sales
+                                    </td>
+                                    @foreach (var col in columns) { <td style="background-color: #f1f5f9 !important;"></td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Net Sales</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.OnlineNetSales.ToString("C2")</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Commission</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.OnlineCommission.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Cashes</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.OnlineCashes.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Cash Bonus</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.OnlineCashBonus.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Claims Bonus</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.OnlineClaimsBonus.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Adjustments</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.OnlineAdjustments.ToString("C2")</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Service Fee</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.OnlineServiceFee.ToString("C2")</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Bonding Fee</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.OnlineBondingFee.ToString("C2")</td> }
+                                </tr>
+                                <tr class="fw-bold" style="background-color: #f8fafc; border-top: 1.5px solid #cbd5e1; border-bottom: 1.5px solid #cbd5e1;">
+                                    <td class="text-slate-800 sticky-col" style="padding: 0.4rem 0.5rem; background-color: #f8fafc !important;">Online Due</td>
+                                    @foreach (var col in columns) { <td class="text-end text-slate-800" style="padding: 0.4rem 0.5rem;">@col.OnlineDue.ToString("C2")</td> }
+                                </tr>
+
+                                <!-- INSTANT SECTION -->
+                                <tr class="fw-bold" style="background-color: #f1f5f9; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                    <td class="sticky-col" style="padding: 0.4rem 0.5rem; color: #1e293b; background-color: #f1f5f9 !important;">
+                                        <i class="bi bi-ticket-detailed-fill text-warning me-1"></i> Instant Sales
+                                    </td>
+                                    @foreach (var col in columns) { <td style="background-color: #f1f5f9 !important;"></td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Gross Sales</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.InstantGrossSales.ToString("C2")</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Return Sales</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.InstantReturnSales.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Commission</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.InstantCommission.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Cashes</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.InstantCashes.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Cash Bonus</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.InstantCashBonus.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Claims Bonus</td>
+                                    @foreach (var col in columns) { <td class="text-end text-danger" style="padding: 0.35rem 0.5rem;">(@col.InstantClaimsBonus.ToString("C2"))</td> }
+                                </tr>
+                                <tr>
+                                    <td class="text-slate-600 sticky-col" style="padding: 0.35rem 0.5rem;">Adjustments</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="padding: 0.35rem 0.5rem;">@col.InstantAdjustments.ToString("C2")</td> }
+                                </tr>
+                                <tr class="fw-bold" style="background-color: #f8fafc; border-top: 1.5px solid #cbd5e1; border-bottom: 1.5px solid #cbd5e1;">
+                                    <td class="text-slate-800 sticky-col" style="padding: 0.4rem 0.5rem; background-color: #f8fafc !important;">Instant Due</td>
+                                    @foreach (var col in columns) { <td class="text-end text-slate-800" style="padding: 0.4rem 0.5rem;">@col.InstantDue.ToString("C2")</td> }
+                                </tr>
+
+                                <!-- OVERALL TOTAL DUE -->
+                                <tr class="fw-bold text-success" style="border-top: 3px double #10b981; border-bottom: 3px double #10b981; background-color: #f0fdf4;">
+                                    <td class="sticky-col" style="font-size: 0.9rem; padding: 0.5rem; background-color: #f0fdf4 !important;">TOTAL DUE</td>
+                                    @foreach (var col in columns) { <td class="text-end" style="font-size: 0.9rem; padding: 0.5rem;">@col.TotalDue.ToString("C2")</td> }
+                                </tr>
+
+                                <!-- ACTIONS ROW -->
+                                <tr style="background-color: #f8fafc; border-top: 1px solid #cbd5e1;">
+                                    <td class="fw-bold text-muted sticky-col" style="padding: 0.4rem 0.5rem; background-color: #f8fafc !important;">Action Controls</td>
+                                    @foreach (var col in columns)
+                                    {
+                                        <td class="text-end" style="padding: 0.4rem 0.5rem;">
+                                            <div class="d-flex justify-content-end gap-1">
+                                                <button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.75rem; border-radius: 4px;" @onclick="() => LoadWeekDetails(col)">
+                                                    <i class="bi bi-eye"></i> View
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem; border-radius: 4px;" @onclick="() => DeleteWeekRecord(col)">
+                                                    <i class="bi bi-trash"></i> Delete
+                                                </button>
+                                            </div>
+                                        </td>
+                                    }
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _hasAccessChecked = false;
+    private bool _hasDataLoaded = false;
+    private bool _isHistoricalView = false;
+    private string _errorMessage = string.Empty;
+    private string _successMessage = string.Empty;
+
+    // Upload Staged Files Dashboard Data
+    private List<UploadedFileContext> _allDailyStaged = new();
+    private List<UploadedFileContext> _allWeeklyStaged = new();
+    private List<LotteryWeekGroup> _weekGroups = new();
+    private LotteryWeekGroup? _activeGroup = null;
+
+    // Active Processing Files (loaded for Comparison View)
+    private List<UploadedFileContext> _dailyFiles = new();
+    private UploadedFileContext? _weeklyFile = null;
+    private WeeklyMetadata? _weeklyMeta = null;
+
+    // DB Selections
+    private List<LotteryWeeklyStat> _historicalWeeks = new();
+    private DateTime? _historicalWeekEndingDate = null;
+    private string? _selectedReportAuthor = string.Empty;
+    private DateTime? _selectedReportCreatedDate = null;
+
+    // Matched Totals
+    private decimal _totalDailyDue = 0;
+    private decimal _totalWeeklyDue = 0;
+    private decimal _totalDueVariance => _totalDailyDue - _totalWeeklyDue;
+
+    private List<ComparisonRow> _onlineRows = new();
+    private List<ComparisonRow> _instantRows = new();
+    private bool _isDailyOnlyMode = false;
+    private bool _isFetchingEmail = false;
+    private string _syncStatusMessage = string.Empty;
+    private CancellationTokenSource? _syncCts = null;
+    private bool _showSettings = false;
+    private LotteryEmailSettings _emailSettings = new();
+
+    private bool CanCompare => _dailyFiles.Any();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await HasAccess())
+        {
+            Navigation.NavigateTo("/access-denied");
+            return;
+        }
+
+        _hasAccessChecked = true;
+        _emailSettings = EmailService.LoadSettings();
+        await LoadHistoricalWeeks();
+        LoadStagedReports();
+    }
+
+    private async Task<bool> HasAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        // Auto-register page if missing in AppPages
+        var existingPage = PageRepo.GetPageByRoute("/lottery/imported-reports");
+        if (existingPage == null)
+        {
+            try
+            {
+                PageRepo.AddPage(new AppPage
+                {
+                    PageName = "Imported Reports",
+                    PageRoute = "/lottery/imported-reports",
+                    Description = "Upload and compare Daily vs. Weekly Lottery CSV reports",
+                    Category = "LOTTERY",
+                    RequiresAdmin = false,
+                    IsActive = true,
+                    DisplayOrder = 110
+                });
+                existingPage = PageRepo.GetPageByRoute("/lottery/imported-reports");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to auto-register lottery imported reports page");
+            }
+        }
+
+        if (user.Identity?.Name?.ToLowerInvariant() == "admin") return true;
+
+        var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            var permissions = await Task.Run(() => UserService.GetUserPagePermissions(userId));
+            return permissions.Any(p => p.PageId == (existingPage?.PageId ?? 0));
+        }
+
+        return false;
+    }
+
+    private DateTime? GetChecklistEndDate()
+    {
+        if (_weeklyMeta?.WeekEndingDate.HasValue == true)
+        {
+            return _weeklyMeta.WeekEndingDate.Value;
+        }
+        if (_dailyFiles.Any(f => f.ParsedDate.HasValue))
+        {
+            var maxDate = _dailyFiles.Where(f => f.ParsedDate.HasValue).Select(f => f.ParsedDate.Value).Max();
+            int diff = ((int)DayOfWeek.Saturday - (int)maxDate.DayOfWeek + 7) % 7;
+            return maxDate.Date.AddDays(diff);
+        }
+        return null;
+    }
+
+    private string GetChecklistTitle()
+    {
+        if (_weeklyMeta != null && _weeklyMeta.AgentCode != "DAILY-ONLY" && _weeklyMeta.WeekEndingDate.HasValue)
+        {
+            return "Weekly Coverage Checklist";
+        }
+        return "Weekly Coverage Checklist (Sunday to Saturday)";
+    }
+
+    private string GetChecklistSubtitle()
+    {
+        var date = GetChecklistEndDate();
+        if (date == null) return "";
+        if (_weeklyMeta != null && _weeklyMeta.AgentCode != "DAILY-ONLY" && _weeklyMeta.WeekEndingDate.HasValue)
+        {
+            return $"The uploaded weekly invoice covers the 7-day period ending on {date.Value.ToString("MM/dd/yyyy")} (Wednesday). We verify that daily reports are present:";
+        }
+        return $"Calculated week ending date Saturday: {date.Value.ToString("MM/dd/yyyy")}. We verify that daily reports are present for this Sunday-Saturday period:";
+    }
+
+    private async Task LoadHistoricalWeeks()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _historicalWeeks = await db.LotteryWeeklyStats
+                .Where(w => w.CreatedBy != null && w.CreatedBy.StartsWith("Imported: "))
+                .OrderByDescending(w => w.WeekEndingDate)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading historical lottery stats");
+            _errorMessage = "Unable to load historical records. Please contact support.";
+        }
+    }
+
+    private async Task OnDailyFilesUploaded(InputFileChangeEventArgs e)
+    {
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+
+        foreach (var file in e.GetMultipleFiles())
+        {
+            try
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024); // max 1MB
+                using var reader = new StreamReader(stream);
+                var content = await reader.ReadToEndAsync();
+                
+                var dailyValues = ExtractDailyReportValues(content);
+
+                _dailyFiles.Add(new UploadedFileContext
+                {
+                    FileName = file.Name,
+                    FileSize = file.Size,
+                    Content = content,
+                    ParsedDate = dailyValues.ParsedDate,
+                    NetOnlineSales = dailyValues.NetOnlineSales,
+                    OnlineCashes = dailyValues.OnlineCashes,
+                    GrossInstantSales = dailyValues.GrossInstantSales,
+                    InstantCashes = dailyValues.InstantCashes
+                });
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = $"Failed to parse file '{file.Name}': {ex.Message}";
+            }
+        }
+
+        // Sort chronologically by parsed date
+        _dailyFiles = _dailyFiles.OrderBy(f => f.ParsedDate ?? DateTime.MaxValue).ToList();
+    }
+
+    private async Task OnWeeklyFileUploaded(InputFileChangeEventArgs e)
+    {
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+        var file = e.File;
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            _weeklyFile = new UploadedFileContext
+            {
+                FileName = file.Name,
+                FileSize = file.Size,
+                Content = content
+            };
+
+            // Parse metadata
+            _weeklyMeta = ParseWeeklyMetadata(file.Name, content);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to parse weekly report: {ex.Message}";
+            _weeklyFile = null;
+            _weeklyMeta = null;
+        }
+    }
+
+
+
+    private void GoBackToDashboard()
+    {
+        _hasDataLoaded = false;
+        _isHistoricalView = false;
+        _activeGroup = null;
+        _dailyFiles.Clear();
+        _weeklyFile = null;
+        _weeklyMeta = null;
+        _successMessage = string.Empty;
+        _errorMessage = string.Empty;
+        LoadStagedReports();
+    }
+
+    private void ModifyUploads()
+    {
+        GoBackToDashboard();
+    }
+
+    private void ClearDailyFiles()
+    {
+        _dailyFiles.Clear();
+    }
+
+    private void ToggleSettings()
+    {
+        _showSettings = !_showSettings;
+    }
+
+    private void SaveEmailSettings()
+    {
+        try
+        {
+            EmailService.SaveSettings(_emailSettings);
+            _successMessage = "Gmail settings saved successfully.";
+            _showSettings = false;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to save settings: {ex.Message}";
+        }
+    }
+
+    private async Task FetchEmails()
+    {
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+        _isFetchingEmail = true;
+        _syncStatusMessage = "Starting email sync...";
+        _syncCts = new CancellationTokenSource();
+
+        try
+        {
+            if (string.IsNullOrEmpty(_emailSettings.EmailAddress) || string.IsNullOrEmpty(_emailSettings.AppPassword))
+            {
+                _errorMessage = "Please configure your Gmail Address and App Password in Gmail Settings first.";
+                _showSettings = true;
+                _isFetchingEmail = false;
+                return;
+            }
+
+            var progress = new Progress<string>(status =>
+            {
+                _syncStatusMessage = status;
+                InvokeAsync(StateHasChanged);
+            });
+
+            var files = await EmailService.FetchLotteryReportsAsync(_emailSettings, progress, _syncCts.Token);
+            if (files == null || files.Count == 0)
+            {
+                _successMessage = "Sync completed. No new unread lottery report emails found in your Gmail inbox.";
+                return;
+            }
+
+            int dailyCount = 0;
+            int weeklyCount = 0;
+
+            var stagedDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data", "StagedReports");
+            if (!Directory.Exists(stagedDir))
+            {
+                Directory.CreateDirectory(stagedDir);
+            }
+
+            foreach (var f in files)
+            {
+                // Save to staged folder on disk so they persist across page refreshes
+                var filePath = Path.Combine(stagedDir, f.FileName);
+                await File.WriteAllTextAsync(filePath, f.Content, _syncCts.Token);
+
+                bool isWeekly = f.Content.Contains("Gross Sales") || f.Content.Contains("Return Sales") || f.Content.Contains("Commission") || f.Content.Contains("TOTAL DUE");
+
+                if (isWeekly) weeklyCount++;
+                else dailyCount++;
+            }
+
+            // Reload all files from disk staging folder to prevent duplicates in memory lists
+            LoadStagedReports();
+
+            _successMessage = $"Successfully fetched and imported {dailyCount} Daily Sales reports and {weeklyCount} Weekly statements from Gmail!";
+        }
+        catch (OperationCanceledException)
+        {
+            _errorMessage = "Gmail sync was cancelled by the user.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to sync email reports: {ex.Message}";
+        }
+        finally
+        {
+            _isFetchingEmail = false;
+            _syncCts?.Dispose();
+            _syncCts = null;
+        }
+    }
+
+    private void CancelSync()
+    {
+        _syncCts?.Cancel();
+        _syncStatusMessage = "Cancelling connection...";
+    }
+
+    private void RemoveWeeklyFile()
+    {
+        if (_weeklyFile != null)
+        {
+            DeleteStagedFileFromDisk(_weeklyFile.FileName);
+            var item = _allWeeklyStaged.FirstOrDefault(w => w.FileName == _weeklyFile.FileName);
+            if (item != null) _allWeeklyStaged.Remove(item);
+        }
+        _weeklyFile = null;
+        _weeklyMeta = null;
+        GroupFilesIntoWeeks();
+        
+        if (_hasDataLoaded)
+        {
+            ProcessComparison();
+        }
+    }
+
+    private void RemoveDailyFile(UploadedFileContext file)
+    {
+        _dailyFiles.Remove(file);
+        DeleteStagedFileFromDisk(file.FileName);
+        var item = _allDailyStaged.FirstOrDefault(d => d.FileName == file.FileName);
+        if (item != null) _allDailyStaged.Remove(item);
+        
+        GroupFilesIntoWeeks();
+
+        if (_hasDataLoaded)
+        {
+            if (_dailyFiles.Any())
+            {
+                ProcessComparison();
+            }
+            else
+            {
+                _hasDataLoaded = false;
+            }
+        }
+    }
+
+    private void ResetPage()
+    {
+        _dailyFiles.Clear();
+        _weeklyFile = null;
+        _weeklyMeta = null;
+        _hasDataLoaded = false;
+        _isHistoricalView = false;
+        _activeGroup = null;
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+        _onlineRows.Clear();
+        _instantRows.Clear();
+        _totalDailyDue = 0;
+        _totalWeeklyDue = 0;
+        
+        ClearStagedReportsFolder();
+    }
+
+    private void LoadWeekDetails(LotteryWeeklyStat record)
+    {
+        _isHistoricalView = true;
+        _historicalWeekEndingDate = record.WeekEndingDate;
+        _selectedReportAuthor = (record.CreatedBy ?? "Unknown").Replace("Imported: ", "");
+        _selectedReportCreatedDate = record.CreatedDate;
+
+        // Populate table rows
+        PopulateRowsFromRecord(record);
+    }
+
+    private void LoadStagedReports()
+    {
+        try
+        {
+            _allDailyStaged.Clear();
+            _allWeeklyStaged.Clear();
+
+            var stagedDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data", "StagedReports");
+            if (Directory.Exists(stagedDir))
+            {
+                var files = Directory.GetFiles(stagedDir, "*.csv");
+                if (files.Length > 0)
+                {
+                    int dailyCount = 0;
+                    int weeklyCount = 0;
+
+                    foreach (var path in files)
+                    {
+                        var content = File.ReadAllText(path);
+                        var fileName = Path.GetFileName(path);
+                        var fileSize = new FileInfo(path).Length;
+
+                        bool isWeekly = content.Contains("Gross Sales") || content.Contains("Return Sales") || content.Contains("Commission") || content.Contains("TOTAL DUE");
+
+                        if (isWeekly)
+                        {
+                            _allWeeklyStaged.Add(new UploadedFileContext
+                            {
+                                FileName = fileName,
+                                FileSize = fileSize,
+                                Content = content
+                            });
+                            weeklyCount++;
+                        }
+                        else
+                        {
+                            var dailyValues = ExtractDailyReportValues(content);
+                            _allDailyStaged.Add(new UploadedFileContext
+                            {
+                                FileName = fileName,
+                                FileSize = fileSize,
+                                Content = content,
+                                ParsedDate = dailyValues.ParsedDate,
+                                NetOnlineSales = dailyValues.NetOnlineSales,
+                                OnlineCashes = dailyValues.OnlineCashes,
+                                GrossInstantSales = dailyValues.GrossInstantSales,
+                                InstantCashes = dailyValues.InstantCashes
+                            });
+                            dailyCount++;
+                        }
+                    }
+
+                    GroupFilesIntoWeeks();
+                    _successMessage = $"🔔 Auto-Loaded: {dailyCount} Daily reports and {weeklyCount} Weekly statements loaded from background sync staging.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load auto-staged reports");
+        }
+    }
+
+    private void ClearStagedReportsFolder()
+    {
+        try
+        {
+            var stagedDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data", "StagedReports");
+            if (Directory.Exists(stagedDir))
+            {
+                var files = Directory.GetFiles(stagedDir, "*.csv");
+                foreach (var file in files)
+                {
+                    File.Delete(file);
+                }
+            }
+            _allDailyStaged.Clear();
+            _allWeeklyStaged.Clear();
+            _weekGroups.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to clean up staged reports directory");
+        }
+    }
+
+    private void GroupFilesIntoWeeks()
+    {
+        _weekGroups.Clear();
+        var groupsMap = new Dictionary<DateTime, LotteryWeekGroup>();
+
+        // Process daily files
+        foreach (var file in _allDailyStaged)
+        {
+            if (file.ParsedDate.HasValue)
+            {
+                var Saturday = GetSaturdayEndOfWeek(file.ParsedDate.Value);
+                if (!groupsMap.TryGetValue(Saturday, out var group))
+                {
+                    group = new LotteryWeekGroup { WeekEndingDate = Saturday };
+                    groupsMap[Saturday] = group;
+                }
+                group.DailyFiles.Add(file);
+            }
+        }
+
+        // Process weekly files
+        foreach (var wFile in _allWeeklyStaged)
+        {
+            var meta = ParseWeeklyMetadata(wFile.FileName, wFile.Content);
+            if (meta.WeekEndingDate.HasValue)
+            {
+                var Saturday = GetSaturdayEndOfWeek(meta.WeekEndingDate.Value);
+                if (!groupsMap.TryGetValue(Saturday, out var group))
+                {
+                    group = new LotteryWeekGroup { WeekEndingDate = Saturday };
+                    groupsMap[Saturday] = group;
+                }
+                group.MatchingWeeklyFile = wFile;
+            }
+        }
+
+        // Sort groups with most recent week ending date first, excluding already committed historical weeks
+        _weekGroups = groupsMap.Values
+            .Where(g => !_historicalWeeks.Any(h => h.WeekEndingDate.Date == g.WeekEndingDate.Date))
+            .OrderByDescending(g => g.WeekEndingDate)
+            .ToList();
+    }
+
+    private DateTime GetSaturdayEndOfWeek(DateTime date)
+    {
+        int diff = ((int)DayOfWeek.Saturday - (int)date.DayOfWeek + 7) % 7;
+        return date.Date.AddDays(diff);
+    }
+
+    private void SelectGroupForProcessing(LotteryWeekGroup group)
+    {
+        _activeGroup = group;
+        _isDailyOnlyMode = (group.MatchingWeeklyFile == null);
+        
+        // Copy the group's files into active processing lists
+        _dailyFiles = group.DailyFiles.OrderBy(f => f.ParsedDate ?? DateTime.MaxValue).ToList();
+        _weeklyFile = group.MatchingWeeklyFile;
+        _weeklyMeta = _weeklyFile != null ? ParseWeeklyMetadata(_weeklyFile.FileName, _weeklyFile.Content) : null;
+        
+        ProcessComparison();
+    }
+
+    private void DeleteStagedFileFromDisk(string fileName)
+    {
+        try
+        {
+            var stagedDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data", "StagedReports");
+            var filePath = Path.Combine(stagedDir, fileName);
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete file from staging disk: {FileName}", fileName);
+        }
+    }
+
+    private class LotteryWeekGroup
+    {
+        public DateTime WeekEndingDate { get; set; }
+        public DateTime WeekStartDate => WeekEndingDate.AddDays(-6);
+        public List<UploadedFileContext> DailyFiles { get; set; } = new();
+        public UploadedFileContext? MatchingWeeklyFile { get; set; }
+    }
+
+    private async Task DeleteWeekRecord(LotteryWeeklyStat record)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            // Attach and remove
+            db.LotteryWeeklyStats.Remove(record);
+            await db.SaveChangesAsync();
+            
+            _successMessage = $"Successfully deleted record for week ending {record.WeekEndingDate:MM/dd/yyyy}.";
+            await LoadHistoricalWeeks();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to delete record: {ex.Message}";
+        }
+    }
+
+    private void PopulateRowsFromRecord(LotteryWeeklyStat record)
+    {
+        _onlineRows = new List<ComparisonRow>
+        {
+            new("Net Sales", record.OnlineNetSales, record.OnlineNetSales),
+            new("Commission", record.OnlineCommission, record.OnlineCommission),
+            new("Cashes", record.OnlineCashes, record.OnlineCashes),
+            new("Cash Bonus", record.OnlineCashBonus, record.OnlineCashBonus),
+            new("Claims Bonus", record.OnlineClaimsBonus, record.OnlineClaimsBonus),
+            new("Adjustments", record.OnlineAdjustments, record.OnlineAdjustments),
+            new("Service Fee", record.OnlineServiceFee, record.OnlineServiceFee),
+            new("Bonding Fee", record.OnlineBondingFee, record.OnlineBondingFee),
+            new("Online Due", record.OnlineDue, record.OnlineDue)
+        };
+
+        _instantRows = new List<ComparisonRow>
+        {
+            new("Gross Sales", record.InstantGrossSales, record.InstantGrossSales),
+            new("Return Sales", record.InstantReturnSales, record.InstantReturnSales),
+            new("Commission", record.InstantCommission, record.InstantCommission),
+            new("Cashes", record.InstantCashes, record.InstantCashes),
+            new("Cash Bonus", record.InstantCashBonus, record.InstantCashBonus),
+            new("Claims Bonus", record.InstantClaimsBonus, record.InstantClaimsBonus),
+            new("Adjustments", record.InstantAdjustments, record.InstantAdjustments),
+            new("Instant Due", record.InstantDue, record.InstantDue)
+        };
+
+        _totalDailyDue = record.TotalDue;
+        _totalWeeklyDue = record.TotalDue;
+        _hasDataLoaded = true;
+    }
+
+    private void ProcessComparison()
+    {
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+
+        if (!_dailyFiles.Any()) return;
+
+        try
+        {
+            _isDailyOnlyMode = (_weeklyFile == null);
+
+            // 1. Parse daily aggregates
+            var dailyData = ParseDailyFiles(_dailyFiles);
+
+            if (_isDailyOnlyMode)
+            {
+                // Calculate week ending date based on max daily date (Saturday of that week)
+                var maxDate = _dailyFiles.Where(f => f.ParsedDate.HasValue).Select(f => f.ParsedDate.Value).Max();
+                int diff = ((int)DayOfWeek.Saturday - (int)maxDate.DayOfWeek + 7) % 7;
+                var weekEndingDate = maxDate.Date.AddDays(diff);
+
+                _weeklyMeta = new WeeklyMetadata
+                {
+                    AgentCode = "DAILY-ONLY",
+                    WeekEndingDate = weekEndingDate
+                };
+
+                // In Daily Only mode, we just map daily aggregates and set weekly targets to 0
+                _onlineRows = new List<ComparisonRow>
+                {
+                    new("Net Sales", dailyData.NetOnlineSales, 0),
+                    new("Commission", dailyData.OnlineCommission, 0),
+                    new("Cashes", dailyData.OnlineCashes, 0),
+                    new("Cash Bonus", dailyData.OnlineCashBonus, 0),
+                    new("Claims Bonus", dailyData.OnlineClaimsBonus, 0),
+                    new("Adjustments", dailyData.OnlineAdjustments, 0),
+                    new("Service Fee", dailyData.OnlineServiceFee, 0),
+                    new("Bonding Fee", dailyData.OnlineBondingFee, 0),
+                    new("Online Due", dailyData.OnlineDue, 0)
+                };
+
+                _instantRows = new List<ComparisonRow>
+                {
+                    new("Gross Sales", dailyData.GrossInstantSales, 0),
+                    new("Return Sales", dailyData.InstantReturnSales, 0),
+                    new("Commission", dailyData.InstantCommission, 0),
+                    new("Cashes", dailyData.InstantCashes, 0),
+                    new("Cash Bonus", dailyData.InstantCashBonus, 0),
+                    new("Claims Bonus", dailyData.InstantClaimsBonus, 0),
+                    new("Adjustments", dailyData.InstantAdjustments, 0),
+                    new("Instant Due", dailyData.InstantDue, 0)
+                };
+
+                _totalDailyDue = dailyData.OnlineDue + dailyData.InstantDue;
+                _totalWeeklyDue = 0;
+            }
+            else
+            {
+                // 2. Parse weekly invoice
+                var weeklyData = ParseWeeklyFile(_weeklyFile!.FileName, _weeklyFile!.Content);
+
+                // 3. Map comparison rows
+                _onlineRows = new List<ComparisonRow>
+                {
+                    new("Net Sales", dailyData.NetOnlineSales, weeklyData.OnlineNetSales),
+                    new("Commission", dailyData.OnlineCommission, weeklyData.OnlineCommission),
+                    new("Cashes", dailyData.OnlineCashes, weeklyData.OnlineCashes),
+                    new("Cash Bonus", dailyData.OnlineCashBonus, weeklyData.OnlineCashBonus),
+                    new("Claims Bonus", dailyData.OnlineClaimsBonus, weeklyData.OnlineClaimsBonus),
+                    new("Adjustments", dailyData.OnlineAdjustments, weeklyData.OnlineAdjustments),
+                    new("Service Fee", dailyData.OnlineServiceFee, weeklyData.OnlineServiceFee),
+                    new("Bonding Fee", dailyData.OnlineBondingFee, weeklyData.OnlineBondingFee),
+                    new("Online Due", dailyData.OnlineDue, weeklyData.OnlineDue)
+                };
+
+                _instantRows = new List<ComparisonRow>
+                {
+                    new("Gross Sales", dailyData.GrossInstantSales, weeklyData.InstantGrossSales),
+                    new("Return Sales", dailyData.InstantReturnSales, weeklyData.InstantReturnSales),
+                    new("Commission", dailyData.InstantCommission, weeklyData.InstantCommission),
+                    new("Cashes", dailyData.InstantCashes, weeklyData.InstantCashes),
+                    new("Cash Bonus", dailyData.InstantCashBonus, weeklyData.InstantCashBonus),
+                    new("Claims Bonus", dailyData.InstantClaimsBonus, weeklyData.InstantClaimsBonus),
+                    new("Adjustments", dailyData.InstantAdjustments, weeklyData.InstantAdjustments),
+                    new("Instant Due", dailyData.InstantDue, weeklyData.InstantDue)
+                };
+
+                _totalDailyDue = dailyData.OnlineDue + dailyData.InstantDue;
+                _totalWeeklyDue = weeklyData.TotalDue;
+            }
+
+            _hasDataLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Comparison processing failed: {ex.Message}";
+        }
+    }
+
+    private async Task CommitToDatabase()
+    {
+        if (!_dailyFiles.Any()) return;
+
+        try
+        {
+            LotteryWeeklyStat weeklyData;
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "Admin";
+
+            using var db = await DbFactory.CreateDbContextAsync();
+
+            if (_isDailyOnlyMode)
+            {
+                // In daily-only mode, we compile the Daily stats into a weekly model
+                var dailyData = ParseDailyFiles(_dailyFiles);
+                var maxDate = _dailyFiles.Where(f => f.ParsedDate.HasValue).Select(f => f.ParsedDate.Value).Max();
+                int diff = ((int)DayOfWeek.Saturday - (int)maxDate.DayOfWeek + 7) % 7;
+                var weekEndingDate = maxDate.Date.AddDays(diff);
+
+                weeklyData = new LotteryWeeklyStat
+                {
+                    WeekEndingDate = weekEndingDate,
+                    OnlineNetSales = dailyData.NetOnlineSales,
+                    OnlineCommission = dailyData.OnlineCommission,
+                    OnlineCashes = dailyData.OnlineCashes,
+                    OnlineCashBonus = dailyData.OnlineCashBonus,
+                    OnlineClaimsBonus = dailyData.OnlineClaimsBonus,
+                    OnlineAdjustments = dailyData.OnlineAdjustments,
+                    OnlineServiceFee = dailyData.OnlineServiceFee,
+                    OnlineBondingFee = dailyData.OnlineBondingFee,
+                    OnlineDue = dailyData.OnlineDue,
+                    InstantGrossSales = dailyData.GrossInstantSales,
+                    InstantReturnSales = dailyData.InstantReturnSales,
+                    InstantCommission = dailyData.InstantCommission,
+                    InstantCashes = dailyData.InstantCashes,
+                    InstantCashBonus = dailyData.InstantCashBonus,
+                    InstantClaimsBonus = dailyData.InstantClaimsBonus,
+                    InstantAdjustments = dailyData.InstantAdjustments,
+                    InstantDue = dailyData.InstantDue,
+                    TotalDue = dailyData.OnlineDue + dailyData.InstantDue
+                };
+            }
+            else
+            {
+                weeklyData = ParseWeeklyFile(_weeklyFile!.FileName, _weeklyFile!.Content);
+            }
+            
+            // Check for existing record
+            var existing = await db.LotteryWeeklyStats.FirstOrDefaultAsync(w => w.WeekEndingDate.Date == weeklyData.WeekEndingDate.Date);
+            if (existing != null)
+            {
+                // Update existing
+                existing.OnlineNetSales = weeklyData.OnlineNetSales;
+                existing.OnlineCommission = weeklyData.OnlineCommission;
+                existing.OnlineCashes = weeklyData.OnlineCashes;
+                existing.OnlineCashBonus = weeklyData.OnlineCashBonus;
+                existing.OnlineClaimsBonus = weeklyData.OnlineClaimsBonus;
+                existing.OnlineAdjustments = weeklyData.OnlineAdjustments;
+                existing.OnlineServiceFee = weeklyData.OnlineServiceFee;
+                existing.OnlineBondingFee = weeklyData.OnlineBondingFee;
+                existing.OnlineDue = weeklyData.OnlineDue;
+
+                existing.InstantGrossSales = weeklyData.InstantGrossSales;
+                existing.InstantReturnSales = weeklyData.InstantReturnSales;
+                existing.InstantCommission = weeklyData.InstantCommission;
+                existing.InstantCashes = weeklyData.InstantCashes;
+                existing.InstantCashBonus = weeklyData.InstantCashBonus;
+                existing.InstantClaimsBonus = weeklyData.InstantClaimsBonus;
+                existing.InstantAdjustments = weeklyData.InstantAdjustments;
+                existing.InstantDue = weeklyData.InstantDue;
+
+                existing.TotalDue = weeklyData.TotalDue;
+                existing.CreatedBy = "Imported: " + username;
+                existing.CreatedDate = DateTime.Now;
+
+                db.LotteryWeeklyStats.Update(existing);
+                _successMessage = $"Successfully updated Lottery Weekly Report in database for week ending {weeklyData.WeekEndingDate:MM/dd/yyyy}.";
+            }
+            else
+            {
+                // Insert new
+                weeklyData.CreatedBy = "Imported: " + username;
+                weeklyData.CreatedDate = DateTime.Now;
+                await db.LotteryWeeklyStats.AddAsync(weeklyData);
+                _successMessage = $"Successfully saved Lottery Weekly Report to database for week ending {weeklyData.WeekEndingDate:MM/dd/yyyy}.";
+            }
+
+            await db.SaveChangesAsync();
+            await LoadHistoricalWeeks();
+
+            // Discard committed week's active files from disk
+            foreach (var f in _dailyFiles)
+            {
+                DeleteStagedFileFromDisk(f.FileName);
+                var item = _allDailyStaged.FirstOrDefault(d => d.FileName == f.FileName);
+                if (item != null) _allDailyStaged.Remove(item);
+            }
+            if (_weeklyFile != null)
+            {
+                DeleteStagedFileFromDisk(_weeklyFile.FileName);
+                var item = _allWeeklyStaged.FirstOrDefault(w => w.FileName == _weeklyFile.FileName);
+                if (item != null) _allWeeklyStaged.Remove(item);
+            }
+
+            // Re-group remaining staged reports
+            GroupFilesIntoWeeks();
+
+            // Clear active comparison variables
+            _dailyFiles.Clear();
+            _weeklyFile = null;
+            _weeklyMeta = null;
+            _activeGroup = null;
+            _hasDataLoaded = false;
+            _onlineRows.Clear();
+            _instantRows.Clear();
+            _totalDailyDue = 0;
+            _totalWeeklyDue = 0;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to save report to database: {ex.Message}";
+        }
+    }
+
+    // --- PARSING HELPERS ---
+
+    private decimal ParseCurrency(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return 0;
+        
+        // Clean symbols
+        var clean = input.Replace("$", "").Replace(",", "").Trim();
+        
+        // Handle negative numbers formatted as (123.45)
+        if (clean.StartsWith("(") && clean.EndsWith(")"))
+        {
+            clean = "-" + clean.Substring(1, clean.Length - 2);
+        }
+
+        if (decimal.TryParse(clean, NumberStyles.Any, CultureInfo.InvariantCulture, out var result))
+        {
+            return result;
+        }
+        return 0;
+    }
+
+    private WeeklyMetadata ParseWeeklyMetadata(string fileName, string csvContent)
+    {
+        var lines = csvContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        var meta = new WeeklyMetadata();
+
+        // 1. Try to extract date from the filename (e.g. Invoice_Report_Weekly_874147_2430_02072026.CSV)
+        var fnMatch = Regex.Match(fileName, @"_(\d{2})(\d{2})(\d{4})\.[Cc][Ss][Vv]$");
+        if (fnMatch.Success)
+        {
+            if (int.TryParse(fnMatch.Groups[1].Value, out var month) &&
+                int.TryParse(fnMatch.Groups[2].Value, out var day) &&
+                int.TryParse(fnMatch.Groups[3].Value, out var year))
+            {
+                try
+                {
+                    var fileDate = new DateTime(year, month, day);
+                    // Invoice reports are dated for Sunday when run. Subtract 1 day to get Saturday ending.
+                    meta.WeekEndingDate = fileDate.AddDays(-1);
+                }
+                catch { }
+            }
+        }
+
+        // 2. Fallback to text searching if not found in filename
+        if (!meta.WeekEndingDate.HasValue)
+        {
+            foreach (var line in lines)
+            {
+                if (line.Contains("From ") && line.Contains(" to "))
+                {
+                    var match = Regex.Match(line, @"to\s+(\d{1,2}/\d{1,2}/\d{4})");
+                    if (match.Success && DateTime.TryParse(match.Groups[1].Value, out var parsedDate))
+                    {
+                        meta.WeekEndingDate = parsedDate;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (lines.Length >= 2)
+        {
+            var headers = SplitCsvLine(lines[0]);
+            var values = SplitCsvLine(lines[1]);
+            
+            for (int i = 0; i < Math.Min(headers.Length, values.Length); i++)
+            {
+                var h = headers[i].Trim().ToLowerInvariant();
+                var v = values[i].Trim();
+                if (h == "agent") meta.AgentCode = v;
+                else if (h == "address") meta.Address = v;
+                else if (h == "city") meta.City = v;
+            }
+        }
+        return meta;
+    }
+
+    private DateTime? ExtractDailyReportDate(string csvContent)
+    {
+        return ExtractDailyReportValues(csvContent).ParsedDate;
+    }
+
+    private DailyFileValues ExtractDailyReportValues(string csvContent)
+    {
+        var values = new DailyFileValues();
+        var lines = csvContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        bool foundHeader = false;
+        foreach (var line in lines)
+        {
+            var cols = SplitCsvLine(line);
+            if (cols.Length == 0) continue;
+
+            var firstCol = cols[0].Trim();
+
+            if (firstCol.Equals("Date", StringComparison.OrdinalIgnoreCase))
+            {
+                foundHeader = true;
+                continue;
+            }
+
+            if (foundHeader && !string.IsNullOrEmpty(firstCol))
+            {
+                if (DateTime.TryParse(firstCol, out var parsedDate))
+                {
+                    values.ParsedDate = parsedDate;
+                    if (cols.Length > 2) values.NetOnlineSales = ParseCurrency(cols[2]);
+                    if (cols.Length > 3) values.OnlineCashes = ParseCurrency(cols[3]);
+                    if (cols.Length > 4) values.GrossInstantSales = ParseCurrency(cols[4]);
+                    if (cols.Length > 5) values.InstantCashes = ParseCurrency(cols[5]);
+                    break;
+                }
+            }
+        }
+        return values;
+    }
+
+    private class DailyFileValues
+    {
+        public DateTime? ParsedDate { get; set; }
+        public decimal NetOnlineSales { get; set; }
+        public decimal OnlineCashes { get; set; }
+        public decimal GrossInstantSales { get; set; }
+        public decimal InstantCashes { get; set; }
+    }
+
+    private DailyAggregate ParseDailyFiles(List<UploadedFileContext> files)
+    {
+        var aggregate = new DailyAggregate();
+
+        foreach (var file in files)
+        {
+            // If weekly report is uploaded, restrict daily files to the 7-day period ending on WeekEndingDate
+            if (_weeklyMeta?.WeekEndingDate.HasValue == true)
+            {
+                var end = _weeklyMeta.WeekEndingDate.Value.Date;
+                var start = end.AddDays(-6);
+                if (file.ParsedDate.HasValue && (file.ParsedDate.Value.Date < start || file.ParsedDate.Value.Date > end))
+                {
+                    continue; // Skip daily files outside the week range
+                }
+            }
+
+            var lines = file.Content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            
+            // Look for data rows (usually starting with date after row 7)
+            bool foundHeader = false;
+            foreach (var line in lines)
+            {
+                var cols = SplitCsvLine(line);
+                if (cols.Length == 0) continue;
+
+                var firstCol = cols[0].Trim();
+
+                // Detect headers
+                if (firstCol.Equals("Date", StringComparison.OrdinalIgnoreCase))
+                {
+                    foundHeader = true;
+                    continue;
+                }
+
+                if (foundHeader && !string.IsNullOrEmpty(firstCol))
+                {
+                    // Check if date column represents a valid date (prevents totals line or garbage lines)
+                    if (DateTime.TryParse(firstCol, out _))
+                    {
+                        if (cols.Length > 2) aggregate.NetOnlineSales += ParseCurrency(cols[2]);
+                        if (cols.Length > 3) aggregate.OnlineCashes += ParseCurrency(cols[3]);
+                        if (cols.Length > 4) aggregate.GrossInstantSales += ParseCurrency(cols[4]);
+                        if (cols.Length > 5) aggregate.InstantCashes += ParseCurrency(cols[5]);
+                    }
+                }
+            }
+        }
+
+        // Apply derived due balances
+        aggregate.OnlineDue = aggregate.NetOnlineSales - aggregate.OnlineCashes;
+        aggregate.InstantDue = aggregate.GrossInstantSales - aggregate.InstantCashes;
+
+        return aggregate;
+    }
+
+    private LotteryWeeklyStat ParseWeeklyFile(string fileName, string csvContent)
+    {
+        var stat = new LotteryWeeklyStat();
+        
+        // Resolve WeekEndingDate using filename and CSV contents
+        var meta = ParseWeeklyMetadata(fileName, csvContent);
+        stat.WeekEndingDate = meta.WeekEndingDate ?? DateTime.Now;
+
+        var lines = csvContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var cols = SplitCsvLine(line);
+            if (cols.Length == 0) continue;
+
+            var firstCol = cols[0].Trim().ToUpperInvariant();
+
+            if (firstCol == "INSTANT" && i + 1 < lines.Length)
+            {
+                var dataCols = SplitCsvLine(lines[i + 1]);
+                if (dataCols.Length > 1) stat.InstantGrossSales = ParseCurrency(dataCols[1]);
+                if (dataCols.Length > 2) stat.InstantReturnSales = ParseCurrency(dataCols[2]);
+                if (dataCols.Length > 3) stat.InstantCommission = ParseCurrency(dataCols[3]);
+                if (dataCols.Length > 4) stat.InstantCashes = ParseCurrency(dataCols[4]);
+                if (dataCols.Length > 5) stat.InstantCashBonus = ParseCurrency(dataCols[5]);
+                if (dataCols.Length > 6) stat.InstantClaimsBonus = ParseCurrency(dataCols[6]);
+                if (dataCols.Length > 7) stat.InstantAdjustments = ParseCurrency(dataCols[7]);
+                if (dataCols.Length > 10) stat.InstantDue = ParseCurrency(dataCols[10]);
+            }
+            else if (firstCol == "ONLINE" && i + 1 < lines.Length)
+            {
+                var dataCols = SplitCsvLine(lines[i + 1]);
+                if (dataCols.Length > 1) stat.OnlineNetSales = ParseCurrency(dataCols[1]);
+                if (dataCols.Length > 3) stat.OnlineCommission = ParseCurrency(dataCols[3]);
+                if (dataCols.Length > 4) stat.OnlineCashes = ParseCurrency(dataCols[4]);
+                if (dataCols.Length > 5) stat.OnlineCashBonus = ParseCurrency(dataCols[5]);
+                if (dataCols.Length > 6) stat.OnlineClaimsBonus = ParseCurrency(dataCols[6]);
+                if (dataCols.Length > 7) stat.OnlineAdjustments = ParseCurrency(dataCols[7]);
+                if (dataCols.Length > 8) stat.OnlineServiceFee = ParseCurrency(dataCols[8]);
+                if (dataCols.Length > 9) stat.OnlineBondingFee = ParseCurrency(dataCols[9]);
+                if (dataCols.Length > 10) stat.OnlineDue = ParseCurrency(dataCols[10]);
+            }
+            else if (line.Contains("TOTAL DUE:"))
+            {
+                if (cols.Length > 10) stat.TotalDue = ParseCurrency(cols[10]);
+            }
+        }
+
+        if (stat.TotalDue == 0)
+        {
+            stat.TotalDue = stat.OnlineDue + stat.InstantDue;
+        }
+
+        return stat;
+    }
+
+    private string[] SplitCsvLine(string line)
+    {
+        var pattern = ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
+        var parts = Regex.Split(line, pattern);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            parts[i] = parts[i].Trim('"', ' ');
+        }
+        return parts;
+    }
+
+    // --- TYPES ---
+
+    private class UploadedFileContext
+    {
+        public string FileName { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public string Content { get; set; } = string.Empty;
+        public DateTime? ParsedDate { get; set; }
+        public decimal NetOnlineSales { get; set; }
+        public decimal OnlineCashes { get; set; }
+        public decimal GrossInstantSales { get; set; }
+        public decimal InstantCashes { get; set; }
+    }
+
+    private class WeeklyMetadata
+    {
+        public string AgentCode { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public string City { get; set; } = string.Empty;
+        public DateTime? WeekEndingDate { get; set; }
+    }
+
+    private class DailyAggregate
+    {
+        public decimal NetOnlineSales { get; set; }
+        public decimal OnlineCommission { get; set; }
+        public decimal OnlineCashes { get; set; }
+        public decimal OnlineDue { get; set; }
+
+        public decimal GrossInstantSales { get; set; }
+        public decimal InstantCommission { get; set; }
+        public decimal InstantCashes { get; set; }
+        public decimal InstantDue { get; set; }
+
+        // Placeholders to match weekly
+        public decimal OnlineCashBonus { get; set; }
+        public decimal OnlineClaimsBonus { get; set; }
+        public decimal OnlineAdjustments { get; set; }
+        public decimal OnlineServiceFee { get; set; }
+        public decimal OnlineBondingFee { get; set; }
+
+        public decimal InstantReturnSales { get; set; }
+        public decimal InstantCashBonus { get; set; }
+        public decimal InstantClaimsBonus { get; set; }
+        public decimal InstantAdjustments { get; set; }
+    }
+
+    private class ComparisonRow
+    {
+        public string Name { get; }
+        public decimal DailyValue { get; }
+        public decimal WeeklyValue { get; }
+        public decimal VarianceValue => DailyValue - WeeklyValue;
+        public decimal Variance => Math.Abs(VarianceValue);
+
+        public ComparisonRow(string name, decimal dailyValue, decimal weeklyValue)
+        {
+            Name = name;
+            DailyValue = dailyValue;
+            WeeklyValue = weeklyValue;
+        }
+    }
+}

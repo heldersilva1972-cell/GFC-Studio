@@ -178,6 +178,8 @@ public class Program
         builder.Services.AddScoped<SmtpEmailService>();
         builder.Services.AddScoped<IEmailProviderFactory, EmailProviderFactory>();
         builder.Services.AddScoped<IEmailService, EmailService>(); // The dispatcher
+        builder.Services.AddScoped<LotteryEmailService>();
+        builder.Services.AddHostedService<LotteryEmailBackgroundWorker>();
         
         builder.Services.AddOptions<ResendClientOptions>()
             .Configure<IOptionsMonitor<EmailSettings>>((options, settingsMonitor) => 
