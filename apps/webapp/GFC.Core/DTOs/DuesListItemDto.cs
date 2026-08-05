@@ -23,4 +23,6 @@ public record DuesListItemDto(
     bool IsNonPortugueseOrigin = false,
     string? RecordedBy = null,
     System.Collections.Generic.List<int>? AdvanceYearsPaid = null,
-    string? PendingReason = null);
+    string? PendingReason = null,
+    DateTime? AcceptedDate = null,
+    bool NeverPaid = false);

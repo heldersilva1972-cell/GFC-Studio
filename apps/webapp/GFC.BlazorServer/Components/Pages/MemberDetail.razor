@@ -244,7 +244,7 @@ else if (_member is not null)
                             <div class="info-value text-danger fw-bold">@FormatDate(_member.DateOfDeath)</div>
                         </div>
                     }
-                    @if (!IsGuestMember() && !MemberStatusHelper.IsPending(_member))
+                    @if (!MemberStatusHelper.IsPending(_member))
                     {
                         <div class="col">
                             <div class="info-label">Key Card</div>
@@ -643,6 +643,7 @@ else if (_member is not null)
         { "Non-Portuguese", "#2563eb" },
         { "NP Queue", "#2563eb" }, // Kept for backward compat if needed
         { "Past Due", "#f97316" },
+        { "Unpaid", "#f97316" },
         { "Paid", "#16a34a" },
         { "Waived", "#0ea5e9" },
         { "Director", "#0ea5e9" },
@@ -868,11 +869,16 @@ else if (_member is not null)
         if (_waivers != null && _waivers.Any(w => year >= w.StartYear && year <= w.EndYear))
             return "Waived";
 
+        // Check if actually paid in the current year
+        bool isPaid = _currentYearDues != null && (_currentYearDues.PaidDate.HasValue || string.Equals(_currentYearDues.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase));
+        if (isPaid) return "Paid";
+
         var eligibility = KeyCardService.GetKeyCardEligibility(_member.MemberID, year);
-        
-        if (eligibility.CurrentYearSatisfied) return "Paid";
         if (eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied) return "In Grace Period";
         
+        if (MemberStatusHelper.IsNewlyAccepted(_member, year))
+            return "Unpaid";
+
         return "Past Due";
     }
 
@@ -1226,9 +1232,9 @@ else if (_member is not null)
         return !IsGuestMember() || (_waivers != null && _waivers.Any()) || _latestPayment != null;
     }
 
-    private bool ShowKeyCardSection() => !IsGuestMember() && !MemberStatusHelper.IsPending(_member);
+    private bool ShowKeyCardSection() => !MemberStatusHelper.IsPending(_member);
 
-    private bool AllowActiveActions() => !IsInactiveMember() && !IsGuestMember() && !IsDeceased();
+    private bool AllowActiveActions() => !IsInactiveMember() && !IsDeceased();
 
     private bool AllowCardAssignment()
     {
@@ -1236,6 +1242,9 @@ else if (_member is not null)
         
         // Directors and Life members always qualify
         if (IsDirector() || IsLifeMember()) return true;
+        
+        // Newly accepted members qualify before first dues payment
+        if (MemberStatusHelper.IsNewlyAccepted(_member, DateTime.Today.Year)) return true;
         
         // Regular members must have paid dues
         var duesStatus = GetDuesStatus();

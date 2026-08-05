@@ -119,10 +119,16 @@ public class DuesInsightService : IDuesInsightService
             var overdueDays = 0;
             DateTime? dueDate = null;
             var isInGracePeriod = false;
+            var neverPaid = true;
             
-            if (!isSatisfied)
+            if (isSatisfied)
+            {
+                neverPaid = false;
+            }
+            else
             {
                 var overdueResult = _overdueService.CalculateOverdue(member, context);
+                neverPaid = !overdueResult.LastCoveredYear.HasValue;
                 if (overdueResult.IsOverdue && overdueResult.FirstUnpaidYear <= year)
                 {
                     overdueMonths = overdueResult.MonthsOverdue;
@@ -180,7 +186,9 @@ public class DuesInsightService : IDuesInsightService
                 member.IsNonPortugueseOrigin,
                 record?.RecordedBy,
                 advanceYears,
-                pendingReason));
+                pendingReason,
+                member.AcceptedDate ?? member.ApplicationDate,
+                neverPaid));
         }
 
         var result = list.OrderBy(i => i.FullName).ToList();

@@ -26,7 +26,7 @@ namespace GFC.Core.Interfaces
         // Transaction Management
         Task<LiquorTransaction> CheckoutBottleAsync(int itemId, int userId, string? notes = null);
         Task<LiquorTransaction> RestockItemAsync(int itemId, int userId, int amount, string? notes = null);
-        Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason);
+        Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason, string? locationName = null);
         Task<IEnumerable<LiquorTransaction>> GetRecentTransactionsAsync(int count = 50);
 
         // Order Management
@@ -48,6 +48,12 @@ namespace GFC.Core.Interfaces
 
         // Inventory Audit (Reconciliation)
         Task ReconcileStockAsync(IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, int userId);
+
+        // Multi-Location Stock Management
+        Task<IEnumerable<LiquorLocationStock>> GetLocationStocksAsync(string? locationName = null);
+        Task<IEnumerable<LiquorLocationStock>> GetItemStocksAsync(int itemId);
+        Task ReconcileLocationStockAsync(string locationName, IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, int userId);
+        Task TransferStockAsync(int itemId, string fromLocation, string toLocation, decimal amount, int userId, string? notes = null);
 
         // Analytics
         Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30);

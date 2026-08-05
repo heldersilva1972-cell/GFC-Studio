@@ -134,6 +134,7 @@ public class GfcDbContext : DbContext
     public DbSet<LiquorOrderItem> LiquorOrderItems => Set<LiquorOrderItem>();
     public DbSet<LiquorTransaction> LiquorTransactions => Set<LiquorTransaction>();
     public DbSet<LiquorNotificationRule> LiquorNotificationRules => Set<LiquorNotificationRule>();
+    public DbSet<LiquorLocationStock> LiquorLocationStocks => Set<LiquorLocationStock>();
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
     public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
     public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
@@ -1108,6 +1109,17 @@ public class GfcDbContext : DbContext
             entity.ToTable("LiquorNotificationRules");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.UserId);
+        });
+
+        modelBuilder.Entity<LiquorLocationStock>(entity =>
+        {
+            entity.ToTable("LiquorLocationStocks");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Item)
+                .WithMany()
+                .HasForeignKey(e => e.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.Stock).HasColumnType("decimal(18,4)");
         });
 
         modelBuilder.Entity<LiquorVendor>(entity =>

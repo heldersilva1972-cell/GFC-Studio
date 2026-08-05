@@ -276,8 +276,43 @@ namespace GFC.BlazorServer.Services
             var item = await db.LiquorItems.FindAsync(itemId);
             if (item == null) throw new Exception("Item not found");
 
+            // Decrement master CurrentStock for compatibility
             item.CurrentStock--;
-            
+            if (item.CurrentStock < 0) item.CurrentStock = 0;
+
+            // Route to correct location
+            string targetLocation = "DOWNSTAIRS_BAR"; // Default to Downstairs if unspecified
+            if (notes != null)
+            {
+                if (notes.Contains("Upstairs Bar", StringComparison.OrdinalIgnoreCase) || notes.Contains("UPSTAIRS", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetLocation = "UPSTAIRS_BAR";
+                }
+                else if (notes.Contains("Downstairs Bar", StringComparison.OrdinalIgnoreCase) || notes.Contains("DOWNSTAIRS", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetLocation = "DOWNSTAIRS_BAR";
+                }
+            }
+
+            // Transfer: Decrease from MAIN_STORAGE
+            var source = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == "MAIN_STORAGE");
+            if (source == null)
+            {
+                source = new LiquorLocationStock { ItemId = itemId, LocationName = "MAIN_STORAGE", Stock = item.CurrentStock + 1 };
+                db.LiquorLocationStocks.Add(source);
+            }
+            source.Stock -= 1;
+            if (source.Stock < 0) source.Stock = 0;
+
+            // Transfer: Increase in targetLocation
+            var dest = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == targetLocation);
+            if (dest == null)
+            {
+                dest = new LiquorLocationStock { ItemId = itemId, LocationName = targetLocation, Stock = 0 };
+                db.LiquorLocationStocks.Add(dest);
+            }
+            dest.Stock += 1;
+
             var transaction = new LiquorTransaction
             {
                 ItemId = itemId,
@@ -291,7 +326,7 @@ namespace GFC.BlazorServer.Services
             db.LiquorTransactions.Add(transaction);
             await db.SaveChangesAsync();
 
-            // Trigger Notifications in background to avoid blocking UI (e.g. slow SMTP)
+            // Trigger Notifications in background
             _ = Task.Run(async () =>
             {
                 try
@@ -317,6 +352,18 @@ namespace GFC.BlazorServer.Services
 
             item.CurrentStock += amount;
 
+            // Add restocked items to MAIN_STORAGE
+            var locStock = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == "MAIN_STORAGE");
+            if (locStock == null)
+            {
+                locStock = new LiquorLocationStock { ItemId = itemId, LocationName = "MAIN_STORAGE", Stock = item.CurrentStock };
+                db.LiquorLocationStocks.Add(locStock);
+            }
+            else
+            {
+                locStock.Stock += amount;
+            }
+
             var transaction = new LiquorTransaction
             {
                 ItemId = itemId,
@@ -330,8 +377,6 @@ namespace GFC.BlazorServer.Services
             db.LiquorTransactions.Add(transaction);
             await db.SaveChangesAsync();
 
-            // Restock rarely triggers low-stock alerts unless it's a correction, 
-            // but we'll check anyway if someone wants to know when stuff arrives.
             _ = Task.Run(async () =>
             {
                 try
@@ -349,41 +394,63 @@ namespace GFC.BlazorServer.Services
             return transaction;
         }
 
-        public async Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason)
+        public async Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason, string? locationName = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var item = await db.LiquorItems.FindAsync(itemId);
             if (item == null) throw new Exception("Item not found");
 
-            var oldStock = item.CurrentStock;
-            var newStock = oldStock + delta;
-            
-            // Prevent negative stock
-            if (newStock < 0) newStock = 0;
-            
-            // Update item
-            item.CurrentStock = newStock;
-            
-            // Calculate actual effective change (in case it was clamped)
-            var actualDelta = newStock - oldStock;
+            // Route to correct location
+            string targetLocation = locationName ?? "MAIN_STORAGE";
+            if (locationName == null && reason.StartsWith("POS Sale", StringComparison.OrdinalIgnoreCase))
+            {
+                if (item.IsUnitBased || item.IsBeer)
+                {
+                    targetLocation = "MAIN_STORAGE";
+                }
+                else
+                {
+                    targetLocation = "DOWNSTAIRS_BAR"; // Default to downstairs for POS sales of pour drinks
+                    if (reason.Contains("Upstairs Bar", StringComparison.OrdinalIgnoreCase) || reason.Contains("UPSTAIRS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLocation = "UPSTAIRS_BAR";
+                    }
+                }
+            }
 
-            // If no actual change happened (e.g., trying to reduce 0 stock), we can still log it or return null. 
-            // For now, let's log it as 0 change if that happens so the audit trail exists.
+            var locStock = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == targetLocation);
+            if (locStock == null)
+            {
+                decimal initialStock = targetLocation == "MAIN_STORAGE" ? item.CurrentStock : 0;
+                locStock = new LiquorLocationStock { ItemId = itemId, LocationName = targetLocation, Stock = initialStock };
+                db.LiquorLocationStocks.Add(locStock);
+            }
+
+            var oldStock = locStock.Stock;
+            locStock.Stock += delta;
+            if (locStock.Stock < 0) locStock.Stock = 0; // Prevent negative stock
+
+            var actualDelta = locStock.Stock - oldStock;
+
+            // Sync master CurrentStock only for MAIN_STORAGE
+            if (targetLocation == "MAIN_STORAGE")
+            {
+                item.CurrentStock = (int)Math.Max(0, Math.Round(locStock.Stock));
+            }
 
             var transaction = new LiquorTransaction
             {
                 ItemId = itemId,
                 UserId = userId,
-                ChangeAmount = delta,
-                TransactionType = "Adjustment", 
-                Notes = $"{reason} (From {oldStock} to {newStock})",
+                ChangeAmount = (int)Math.Round(actualDelta),
+                TransactionType = "Adjustment",
+                Notes = $"{reason} (Location: {targetLocation}, From {oldStock:F2} to {locStock.Stock:F2})",
                 Timestamp = DateTime.UtcNow
             };
 
             db.LiquorTransactions.Add(transaction);
             await db.SaveChangesAsync();
 
-            // Trigger Notifications if stock dropped significantly or is critical
             if (actualDelta < 0)
             {
                 _ = Task.Run(async () =>
@@ -1273,6 +1340,130 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.PosCategories.AsNoTracking().ToListAsync();
+        }
+
+        public async Task<IEnumerable<LiquorLocationStock>> GetLocationStocksAsync(string? locationName = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var query = db.LiquorLocationStocks
+                .Include(ls => ls.Item)
+                .AsNoTracking();
+
+            if (!string.IsNullOrEmpty(locationName))
+            {
+                query = query.Where(ls => ls.LocationName == locationName);
+            }
+
+            return await query.ToListAsync();
+        }
+
+        public async Task<IEnumerable<LiquorLocationStock>> GetItemStocksAsync(int itemId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorLocationStocks
+                .Include(ls => ls.Item)
+                .Where(ls => ls.ItemId == itemId)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        public async Task ReconcileLocationStockAsync(string locationName, IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, int userId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            foreach (var entry in entries)
+            {
+                var locStock = await db.LiquorLocationStocks
+                    .Include(ls => ls.Item)
+                    .FirstOrDefaultAsync(ls => ls.ItemId == entry.ItemId && ls.LocationName == locationName);
+
+                if (locStock == null)
+                {
+                    locStock = new LiquorLocationStock
+                    {
+                        ItemId = entry.ItemId,
+                        LocationName = locationName,
+                        Stock = 0
+                    };
+                    db.LiquorLocationStocks.Add(locStock);
+                }
+
+                var oldStock = locStock.Stock;
+                decimal newStock = locationName == "MAIN_STORAGE" ? entry.ActualCount : entry.ActualCountDecimal;
+                decimal delta = newStock - oldStock;
+
+                if (delta == 0) continue;
+
+                locStock.Stock = newStock;
+
+                if (locationName == "MAIN_STORAGE")
+                {
+                    var item = await db.LiquorItems.FindAsync(entry.ItemId);
+                    if (item != null)
+                    {
+                        item.CurrentStock = (int)newStock;
+                    }
+                }
+
+                var transaction = new LiquorTransaction
+                {
+                    ItemId = entry.ItemId,
+                    UserId = userId,
+                    ChangeAmount = (int)Math.Round(delta),
+                    TransactionType = "Reconcile",
+                    Notes = $"Reconcile [{locationName}]: {newStock:F2} (Adjusted from {oldStock:F2})",
+                    Timestamp = DateTime.UtcNow
+                };
+                db.LiquorTransactions.Add(transaction);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        public async Task TransferStockAsync(int itemId, string fromLocation, string toLocation, decimal amount, int userId, string? notes = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            
+            var source = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == fromLocation);
+            if (source == null)
+            {
+                source = new LiquorLocationStock { ItemId = itemId, LocationName = fromLocation, Stock = 0 };
+                db.LiquorLocationStocks.Add(source);
+            }
+            source.Stock -= amount;
+            if (source.Stock < 0) source.Stock = 0;
+
+            var dest = await db.LiquorLocationStocks.FirstOrDefaultAsync(ls => ls.ItemId == itemId && ls.LocationName == toLocation);
+            if (dest == null)
+            {
+                dest = new LiquorLocationStock { ItemId = itemId, LocationName = toLocation, Stock = 0 };
+                db.LiquorLocationStocks.Add(dest);
+            }
+            dest.Stock += amount;
+
+            var item = await db.LiquorItems.FindAsync(itemId);
+            if (item != null)
+            {
+                if (fromLocation == "MAIN_STORAGE")
+                {
+                    item.CurrentStock = (int)Math.Max(0, Math.Round(source.Stock));
+                }
+                else if (toLocation == "MAIN_STORAGE")
+                {
+                    item.CurrentStock = (int)Math.Max(0, Math.Round(dest.Stock));
+                }
+            }
+
+            var transaction = new LiquorTransaction
+            {
+                ItemId = itemId,
+                UserId = userId,
+                ChangeAmount = (int)Math.Round(amount),
+                TransactionType = "Adjustment",
+                Notes = notes ?? $"Transfer: {amount:F2} from {fromLocation} to {toLocation}",
+                Timestamp = DateTime.UtcNow
+            };
+            db.LiquorTransactions.Add(transaction);
+
+            await db.SaveChangesAsync();
         }
     }
 }

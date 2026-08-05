@@ -200,6 +200,21 @@ namespace GFC.BlazorServer.Controllers
             }
         }
 
+        [HttpPost("adjust/{itemId}")]
+        public async Task<IActionResult> AdjustStock(int itemId, [FromQuery] int userId, [FromQuery] int delta, [FromQuery] string reason, [FromQuery] string? locationName = null)
+        {
+            try
+            {
+                var transaction = await _liquorService.AdjustStockAsync(itemId, userId, delta, reason, locationName);
+                return Ok(new { success = true, transactionId = transaction.Id });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error adjusting stock for Item {ItemId}", itemId);
+                return BadRequest(ex.Message);
+            }
+        }
+
         [HttpGet("orders/pending")]
         public async Task<IActionResult> GetPendingOrders()
         {
@@ -523,6 +538,90 @@ namespace GFC.BlazorServer.Controllers
             {
                 _logger.LogError(ex, "Error fetching liquor categories");
                 return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
+        [HttpGet("locations/stocks")]
+        public async Task<IActionResult> GetLocationStocks([FromQuery] string? locationName)
+        {
+            try
+            {
+                var stocks = await _liquorService.GetLocationStocksAsync(locationName);
+                var cleanStocks = new List<LiquorLocationStock>();
+                foreach (var s in stocks)
+                {
+                    cleanStocks.Add(new LiquorLocationStock
+                    {
+                        Id = s.Id,
+                        ItemId = s.ItemId,
+                        LocationName = s.LocationName,
+                        Stock = s.Stock,
+                        Item = s.Item != null ? new LiquorItem { Id = s.Item.Id, Name = s.Item.Name, Category = s.Item.Category, CurrentPrice = s.Item.CurrentPrice, CurrentStock = s.Item.CurrentStock, BottleSize = s.Item.BottleSize, PackSize = s.Item.PackSize } : null
+                    });
+                }
+                return Ok(cleanStocks);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error getting location stocks");
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpGet("item/stocks/{itemId}")]
+        public async Task<IActionResult> GetItemStocks(int itemId)
+        {
+            try
+            {
+                var stocks = await _liquorService.GetItemStocksAsync(itemId);
+                var cleanStocks = new List<LiquorLocationStock>();
+                foreach (var s in stocks)
+                {
+                    cleanStocks.Add(new LiquorLocationStock
+                    {
+                        Id = s.Id,
+                        ItemId = s.ItemId,
+                        LocationName = s.LocationName,
+                        Stock = s.Stock,
+                        Item = null
+                    });
+                }
+                return Ok(cleanStocks);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error getting item stocks");
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpPost("reconcile/location/{locationName}")]
+        public async Task<IActionResult> ReconcileLocationStock(string locationName, [FromBody] IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, [FromQuery] int userId)
+        {
+            try
+            {
+                await _liquorService.ReconcileLocationStockAsync(locationName, entries, userId);
+                return Ok(new { success = true });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error reconciling stock for location {Location}", locationName);
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("transfer")]
+        public async Task<IActionResult> TransferStock([FromQuery] int itemId, [FromQuery] string fromLocation, [FromQuery] string toLocation, [FromQuery] decimal amount, [FromQuery] int userId, [FromQuery] string? notes)
+        {
+            try
+            {
+                await _liquorService.TransferStockAsync(itemId, fromLocation, toLocation, amount, userId, notes);
+                return Ok(new { success = true });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error transferring stock");
+                return BadRequest(ex.Message);
             }
         }
     }

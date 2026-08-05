@@ -6,5 +6,6 @@ namespace GFC.Core.Models
     {
         public int ItemId { get; set; }
         public int ActualCount { get; set; }
+        public decimal ActualCountDecimal { get; set; }
     }
 }

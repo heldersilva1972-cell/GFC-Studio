@@ -103,7 +103,19 @@ public class OverdueCalculationService
         }
         
         // Calculate due date for first unpaid year
-        DateTime dueDate = new DateTime(firstUnpaidYear, 1, 1).AddDays(GraceDays);
+        DateTime dueDate;
+        if (!lastCoveredYear.HasValue && member.AcceptedDate.HasValue)
+        {
+            dueDate = member.AcceptedDate.Value;
+        }
+        else if (!lastCoveredYear.HasValue && member.ApplicationDate.HasValue)
+        {
+            dueDate = member.ApplicationDate.Value;
+        }
+        else
+        {
+            dueDate = new DateTime(firstUnpaidYear, 1, 1).AddDays(GraceDays);
+        }
         
         if (today < dueDate)
         {
@@ -220,8 +232,19 @@ public class OverdueCalculationService
         }
         
         // Calculate due date for first unpaid year
-        // Dues are due January 1st of the year + grace period
-        DateTime dueDate = new DateTime(firstUnpaidYear, 1, 1).AddDays(GraceDays);
+        DateTime dueDate;
+        if (!lastCoveredYear.HasValue && member.AcceptedDate.HasValue)
+        {
+            dueDate = member.AcceptedDate.Value;
+        }
+        else if (!lastCoveredYear.HasValue && member.ApplicationDate.HasValue)
+        {
+            dueDate = member.ApplicationDate.Value;
+        }
+        else
+        {
+            dueDate = new DateTime(firstUnpaidYear, 1, 1).AddDays(GraceDays);
+        }
         
         // If today is before the due date, member is not overdue
         if (today < dueDate)

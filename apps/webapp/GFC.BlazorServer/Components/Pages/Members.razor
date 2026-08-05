@@ -913,6 +913,9 @@
                     
                     // Calculate Overdue Years count
                     int overdueYears = 0;
+                    bool neverPaid = !duesLookup.TryGetValue(item.MemberId, out var dm) || !dm.Any(d => KeyCardService.IsDuesSatisfied(d.PaymentType, d.PaidDate));
+                    bool isNewUnpaid = neverPaid && (DateTime.Today - (detail?.AcceptedDate ?? detail?.ApplicationDate ?? DateTime.Today)).TotalDays < 365;
+
                     if (!isLife)
                     {
                         int startYear = detail?.AcceptedDate?.Year ?? detail?.ApplicationDate?.Year ?? year;
@@ -923,7 +926,7 @@
                         {
                             bool yPaid = (boardLookup.TryGetValue(item.MemberId, out var by) && by.Contains(y)) ||
                                          (waiverYearsByMember.TryGetValue(item.MemberId, out var wy) && wy.Contains(y)) ||
-                                         (duesLookup.TryGetValue(item.MemberId, out var dm) && dm.Any(d => d.Year == y && KeyCardService.IsDuesSatisfied(d.PaymentType, d.PaidDate)));
+                                         (duesLookup.TryGetValue(item.MemberId, out var dList) && dList.Any(d => d.Year == y && KeyCardService.IsDuesSatisfied(d.PaymentType, d.PaidDate)));
                             
                             if (yPaid) break;
                             overdueYears++;
@@ -933,10 +936,23 @@
                     int totalOverdueMonths = 0;
                     if (overdueYears > 0)
                     {
-                        // Calculate months as: (Full Years missing excluding current) * 12 + Current month
-                        // e.g. If March 2026 and missing 2026 only: 3 MOS
-                        //      If March 2026 and missing 2025/2026: 15 MOS (1 YR, 3 MOS)
-                        totalOverdueMonths = ((overdueYears - 1) * 12) + DateTime.Today.Month;
+                        if (isNewUnpaid && (detail?.AcceptedDate.HasValue == true || detail?.ApplicationDate.HasValue == true))
+                        {
+                            var joinDate = detail.AcceptedDate ?? detail.ApplicationDate.Value;
+                            totalOverdueMonths = ((DateTime.Today.Year - joinDate.Year) * 12) + DateTime.Today.Month - joinDate.Month;
+                            if (DateTime.Today.Day < joinDate.Day)
+                            {
+                                totalOverdueMonths--;
+                            }
+                            if (totalOverdueMonths < 0) totalOverdueMonths = 0;
+                        }
+                        else
+                        {
+                            // Calculate months as: (Full Years missing excluding current) * 12 + Current month
+                            // e.g. If March 2026 and missing 2026 only: 3 MOS
+                            //      If March 2026 and missing 2025/2026: 15 MOS (1 YR, 3 MOS)
+                            totalOverdueMonths = ((overdueYears - 1) * 12) + DateTime.Today.Month;
+                        }
                     }
 
                     string GetDurationLabel(int months)
@@ -989,7 +1005,14 @@
                     }
                     else if (!eligibility.Eligible || !currentPaid)
                     {
-                        duesStatus = $"Past Due {GetDurationLabel(totalOverdueMonths)}";
+                        if (isNewUnpaid)
+                        {
+                            duesStatus = $"Unpaid {GetDurationLabel(totalOverdueMonths)}";
+                        }
+                        else
+                        {
+                            duesStatus = $"Past Due {GetDurationLabel(totalOverdueMonths)}";
+                        }
                     }
 
                     // Enrich with card details
@@ -1258,7 +1281,7 @@
         var d = dues.Trim().ToLowerInvariant();
         
         if (d == "paid") return "dues-paid";
-        if (d.Contains("past due") || d.Contains("overdue") || d == "suspended") return "dues-overdue";
+        if (d.Contains("past due") || d.Contains("overdue") || d == "suspended" || d.Contains("unpaid")) return "dues-overdue";
         if (d.Contains("grace period")) return "dues-overdue"; // Keeping orange for grace but label differs
         if (d == "waived") return "dues-waived";
         if (d == "life") return "dues-life";

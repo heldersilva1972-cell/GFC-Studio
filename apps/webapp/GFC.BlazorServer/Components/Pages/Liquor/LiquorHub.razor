@@ -865,9 +865,14 @@
             <div class="count-view animate-fade-in h-100 d-flex flex-column">
                 <div class="tab-fixed-header pb-0">
                     <div class="audit-progress-container border shadow-sm">
-                        <div class="d-flex justify-content-between align-items-end mb-3">
+                        <div class="d-flex justify-content-between align-items-end mb-2">
                             <div>
                                 <h4 class="fw-black text-uppercase tracking-wider mb-1">Inventory Audit In-Progress</h4>
+                                <div class="d-flex gap-2 my-2">
+                                    <button class="btn btn-xs rounded-pill px-3 @(_auditLocation == "MAIN_STORAGE" ? "btn-primary fw-bold" : "btn-light text-muted")" @onclick='() => SetAuditLocation("MAIN_STORAGE")'>MAIN STORAGE (BACK STOCK)</button>
+                                    <button class="btn btn-xs rounded-pill px-3 @(_auditLocation == "DOWNSTAIRS_BAR" ? "btn-primary fw-bold" : "btn-light text-muted")" @onclick='() => SetAuditLocation("DOWNSTAIRS_BAR")'>DOWNSTAIRS BAR</button>
+                                    <button class="btn btn-xs rounded-pill px-3 @(_auditLocation == "UPSTAIRS_BAR" ? "btn-primary fw-bold" : "btn-light text-muted")" @onclick='() => SetAuditLocation("UPSTAIRS_BAR")'>UPSTAIRS BAR</button>
+                                </div>
                                 <p class="small text-muted mb-0 fw-bold">
                                     <i class="bi bi-info-circle me-1"></i> 
                                     Inventory counts are pre-filled with system expectations. **Adjust only the items that do not match the shelf.**
@@ -878,12 +883,16 @@
                                 </p>
                             </div>
                             <div class="text-end">
-                                <div class="h3 fw-black text-primary mb-0">@(Math.Round((double)_stockCounts.Count / (_items.Count(i => (!_filterBeerOnly || i.IsBeer)) > 0 ? _items.Count(i => (!_filterBeerOnly || i.IsBeer)) : 1) * 100))%</div>
+                                @{
+                                    var countedCount = _auditLocation == "MAIN_STORAGE" ? _stockCounts.Count : _barStockCounts.Count;
+                                    var totalToCount = _items.Count(i => (!_filterBeerOnly || i.IsBeer)) > 0 ? _items.Count(i => (!_filterBeerOnly || i.IsBeer)) : 1;
+                                }
+                                <div class="h3 fw-black text-primary mb-0">@(Math.Round((double)countedCount / totalToCount * 100))%</div>
                                 <div class="extra-small text-muted fw-black text-uppercase">Audit Completion</div>
                             </div>
                         </div>
                         <div class="reconcile-progress-bar mb-4">
-                            <div class="reconcile-progress-fill" style="width: @((double)_stockCounts.Count / (_items.Count(i => (!_filterBeerOnly || i.IsBeer)) > 0 ? _items.Count(i => (!_filterBeerOnly || i.IsBeer)) : 1) * 100)%"></div>
+                            <div class="reconcile-progress-fill" style="width: @((double)(_auditLocation == "MAIN_STORAGE" ? _stockCounts.Count : _barStockCounts.Count) / (_items.Count(i => (!_filterBeerOnly || i.IsBeer)) > 0 ? _items.Count(i => (!_filterBeerOnly || i.IsBeer)) : 1) * 100)%"></div>
                         </div>
                         
                         <div class="d-flex justify-content-between align-items-center">
@@ -896,23 +905,34 @@
                                 <button class="btn btn-sm rounded-pill px-3 fw-black @(_filterBeerOnly ? "btn-amber shadow" : "btn-outline-amber")" style="font-size: 0.75rem;" @onclick="() => _filterBeerOnly = true">BEER ONLY</button>
                             </div>
                             <div class="d-flex gap-2">
-                                <button class="btn btn-outline-danger rounded-pill px-3 fw-black btn-sm" @onclick="() => _stockCounts.Clear()">
+                                <button class="btn btn-outline-danger rounded-pill px-3 fw-black btn-sm" @onclick="() => { _stockCounts.Clear(); _barStockCounts.Clear(); }">
                                     <i class="bi bi-trash3 me-1"></i> RESET AUDIT
                                 </button>
-                                <button class="btn btn-success rounded-pill px-4 fw-black shadow-sm btn-sm" @onclick="() => _showReviewModal = true" disabled="@(!_stockCounts.Any())">
+                                <button class="btn btn-success rounded-pill px-4 fw-black shadow-sm btn-sm" @onclick="() => _showReviewModal = true" disabled="@(_auditLocation == "MAIN_STORAGE" ? !_stockCounts.Any() : !_barStockCounts.Any())">
                                     <i class="bi bi-shield-lock-fill me-1"></i> COMMIT RECONCILIATION
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
-
                 <div class="tab-scroll-area custom-scrollbar pb-5">
                     <div class="row g-2">
                         @foreach (var item in _items.Where(i => (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)) && (!_filterBeerOnly || i.IsBeer)).OrderBy(i => i.Name))
                         {
-                            var hasCount = _stockCounts.TryGetValue(item.Id, out var actual);
-                            var variance = hasCount ? actual - item.CurrentStock : 0;
+                            bool hasCount = false;
+                            decimal actualValue = 0;
+                            if (_auditLocation == "MAIN_STORAGE")
+                            {
+                                hasCount = _stockCounts.TryGetValue(item.Id, out var actInt);
+                                actualValue = actInt;
+                            }
+                            else
+                            {
+                                hasCount = _barStockCounts.TryGetValue(item.Id, out var actDec);
+                                actualValue = actDec;
+                            }
+                            var expectedVal = _auditLocation == "MAIN_STORAGE" ? item.CurrentStock : GetLocationStockValue(item.Id, _auditLocation);
+                            var variance = hasCount ? actualValue - expectedVal : 0;
                             
                             <div class="col-xxl-3 col-xl-4 col-md-6">
                                 <div class="reconcile-card @(hasCount ? "touched" : "")">
@@ -924,102 +944,144 @@
                                             {
                                                 <div class="variance-badge @(variance == 0 ? "perfect" : (variance < 0 ? "missing" : "over"))" style="padding: 2px 6px; font-size: 0.6rem; border-radius: 6px;">
                                                     @if (variance == 0) { <i class="bi bi-check-circle-fill"></i> }
-                                                    else if (variance < 0) { <span>-@Math.Abs(variance)</span> }
-                                                    else { <span>+@variance</span> }
+                                                    else if (variance < 0) { <span>-@Math.Abs(variance).ToString("F1")</span> }
+                                                    else { <span>+@variance.ToString("F1")</span> }
                                                 </div>
-                                                @if (actual != item.CurrentStock)
-                                                {
-                                                    <button class="btn btn-xs btn-outline-warning border rounded-3 px-1.5 py-0.5 fw-black shadow-sm" style="font-size: 0.55rem; line-height: 1;" @onclick="() => _stockCounts.Remove(item.Id)">
-                                                        UNDO
-                                                    </button>
-                                                }
+                                                <button class="btn btn-xs btn-outline-warning border rounded-3 px-1.5 py-0.5 fw-black shadow-sm" style="font-size: 0.55rem; line-height: 1;" @onclick="() => UndoReconciliation(item.Id)">
+                                                    UNDO
+                                                </button>
                                             }
                                         </div>
                                     </div>
                                     
-                                    @{
-                                        var currentVal = hasCount ? actual : item.CurrentStock;
-                                        var cases = currentVal / item.PackSize;
-                                        var bottles = currentVal % item.PackSize;
-                                    }
                                     <!-- Row 2: Expected and Controls -->
                                     <div class="d-flex justify-content-between align-items-center w-100 mt-1 gap-2">
-                                        <div class="d-flex flex-column flex-shrink-0">
-                                            <span class="text-muted text-uppercase tracking-wider fw-bold" style="font-size: 0.6rem; opacity: 0.75;">Expected</span>
-                                            <span class="text-dark fw-black" style="font-size: 0.75rem;">@item.StockSummary</span>
-                                        </div>
-                                        
-                                        <div class="d-flex align-items-center justify-content-end flex-grow-1">
-                                            @if (item.PackSize > 1)
-                                            {
-                                                @if (item.AllowLooseReconciliation)
+                                        @if (_auditLocation == "MAIN_STORAGE")
+                                        {
+                                            var currentVal = hasCount ? (int)actualValue : item.CurrentStock;
+                                            var cases = currentVal / item.PackSize;
+                                            var bottles = currentVal % item.PackSize;
+
+                                            <div class="d-flex flex-column flex-shrink-0">
+                                                <span class="text-muted text-uppercase tracking-wider fw-bold" style="font-size: 0.6rem; opacity: 0.75;">Expected</span>
+                                                <span class="text-dark fw-black" style="font-size: 0.75rem;">@item.StockSummary</span>
+                                            </div>
+                                            
+                                            <div class="d-flex align-items-center justify-content-end flex-grow-1">
+                                                @if (item.PackSize > 1)
                                                 {
-                                                    <div class="d-flex align-items-center gap-2 animate-fade-in">
-                                                        <!-- Cases Group -->
-                                                        <div class="d-flex flex-column align-items-center">
+                                                    @if (item.AllowLooseReconciliation)
+                                                    {
+                                                        <div class="d-flex align-items-center gap-2 animate-fade-in">
+                                                            <!-- Cases Group -->
+                                                            <div class="d-flex flex-column align-items-center">
+                                                                <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">cases</span>
+                                                                <div class="d-flex align-items-center">
+                                                                    <button class="btn-qty-adj minus" @onclick="() => AdjustItemCases(item.Id, -1, item.PackSize, item.CurrentStock)">-</button>
+                                                                    <input type="number" class="actual-input-hub text-center fw-black" 
+                                                                           id="audit-input-cases-@item.Id"
+                                                                           value="@cases"
+                                                                           @onchange="@(e => UpdateItemCasesCount(item.Id, e.Value, bottles, item.PackSize))"
+                                                                           @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
+                                                                           onfocus="this.select()" />
+                                                                    <button class="btn-qty-adj plus" @onclick="() => AdjustItemCases(item.Id, 1, item.PackSize, item.CurrentStock)">+</button>
+                                                                </div>
+                                                            </div>
+            
+                                                            <!-- Bottles Group -->
+                                                            <div class="d-flex flex-column align-items-center">
+                                                                <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">bottles</span>
+                                                                <div class="d-flex align-items-center">
+                                                                    <button class="btn-qty-adj minus" @onclick="() => AdjustItemBottles(item.Id, -1, item.PackSize, item.CurrentStock)">-</button>
+                                                                    <input type="number" class="actual-input-hub text-center fw-black" 
+                                                                           id="audit-input-bottles-@item.Id"
+                                                                           value="@bottles"
+                                                                           @onchange="@(e => UpdateItemBottlesCount(item.Id, e.Value, cases, item.PackSize))"
+                                                                           @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
+                                                                           onfocus="this.select()" />
+                                                                    <button class="btn-qty-adj plus" @onclick="() => AdjustItemBottles(item.Id, 1, item.PackSize, item.CurrentStock)">+</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="d-flex flex-column align-items-center animate-fade-in">
                                                             <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">cases</span>
                                                             <div class="d-flex align-items-center">
                                                                 <button class="btn-qty-adj minus" @onclick="() => AdjustItemCases(item.Id, -1, item.PackSize, item.CurrentStock)">-</button>
                                                                 <input type="number" class="actual-input-hub text-center fw-black" 
                                                                        id="audit-input-cases-@item.Id"
                                                                        value="@cases"
-                                                                       @onchange="@(e => UpdateItemCasesCount(item.Id, e.Value, bottles, item.PackSize))"
+                                                                       @onchange="@(e => UpdateItemCasesCount(item.Id, e.Value, 0, item.PackSize))"
                                                                        @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
                                                                        onfocus="this.select()" />
                                                                 <button class="btn-qty-adj plus" @onclick="() => AdjustItemCases(item.Id, 1, item.PackSize, item.CurrentStock)">+</button>
                                                             </div>
                                                         </div>
-        
-                                                        <!-- Bottles Group -->
-                                                        <div class="d-flex flex-column align-items-center">
-                                                            <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">bottles</span>
-                                                            <div class="d-flex align-items-center">
-                                                                <button class="btn-qty-adj minus" @onclick="() => AdjustItemBottles(item.Id, -1, item.PackSize, item.CurrentStock)">-</button>
-                                                                <input type="number" class="actual-input-hub text-center fw-black" 
-                                                                       id="audit-input-bottles-@item.Id"
-                                                                       value="@bottles"
-                                                                       @onchange="@(e => UpdateItemBottlesCount(item.Id, e.Value, cases, item.PackSize))"
-                                                                       @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
-                                                                       onfocus="this.select()" />
-                                                                <button class="btn-qty-adj plus" @onclick="() => AdjustItemBottles(item.Id, 1, item.PackSize, item.CurrentStock)">+</button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                                    }
                                                 }
                                                 else
                                                 {
                                                     <div class="d-flex flex-column align-items-center animate-fade-in">
-                                                        <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">cases</span>
+                                                        <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">bottles</span>
                                                         <div class="d-flex align-items-center">
-                                                            <button class="btn-qty-adj minus" @onclick="() => AdjustItemCases(item.Id, -1, item.PackSize, item.CurrentStock)">-</button>
+                                                            <button class="btn-qty-adj minus" @onclick="() => AdjustItemBottles(item.Id, -1, 1, item.CurrentStock)">-</button>
                                                             <input type="number" class="actual-input-hub text-center fw-black" 
-                                                                   id="audit-input-cases-@item.Id"
-                                                                   value="@cases"
-                                                                   @onchange="@(e => UpdateItemCasesCount(item.Id, e.Value, 0, item.PackSize))"
+                                                                   id="audit-input-@item.Id"
+                                                                   value="@bottles"
+                                                                   @onchange="@(e => UpdateItemBottlesCount(item.Id, e.Value, 0, 1))"
                                                                    @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
                                                                    onfocus="this.select()" />
-                                                            <button class="btn-qty-adj plus" @onclick="() => AdjustItemCases(item.Id, 1, item.PackSize, item.CurrentStock)">+</button>
+                                                            <button class="btn-qty-adj plus" @onclick="() => AdjustItemBottles(item.Id, 1, 1, item.CurrentStock)">+</button>
                                                         </div>
                                                     </div>
                                                 }
-                                            }
-                                            else
-                                            {
-                                                <div class="d-flex flex-column align-items-center animate-fade-in">
-                                                    <span class="text-muted fw-bold text-uppercase mb-1" style="font-size: 0.6rem; letter-spacing: 0.05em; line-height: 1;">units</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <!-- Visual portion-level bar stock audit layout -->
+                                            <div class="d-flex flex-column w-100 gap-2 animate-fade-in">
+                                                <div class="d-flex justify-content-between align-items-center w-100">
+                                                    <div class="d-flex flex-column flex-shrink-0">
+                                                        <span class="text-muted text-uppercase tracking-wider fw-bold" style="font-size: 0.6rem; opacity: 0.75;">Expected</span>
+                                                        <span class="text-dark fw-black" style="font-size: 0.75rem;">@expectedVal.ToString(item.IsUnitBased ? "F0" : "F2") @(item.IsUnitBased ? "units" : "bottles")</span>
+                                                    </div>
                                                     <div class="d-flex align-items-center">
-                                                        <button class="btn-qty-adj minus" @onclick="() => AdjustItemCount(item.Id, -1, item.CurrentStock)">-</button>
-                                                        <input type="number" class="actual-input-hub text-center fw-black" 
-                                                               id="audit-input-@item.Id"
-                                                               value="@(hasCount ? actual : item.CurrentStock)" 
-                                                               @onchange="@(e => UpdateItemCount(item.Id, e.Value))"
-                                                               @onkeydown="@(e => HandleAuditKeyDown(e, item.Id))"
+                                                        <span class="text-secondary fw-bold small me-2">@(item.IsUnitBased ? "Count:" : "Full Bottles:")</span>
+                                                        <button class="btn-qty-adj minus" @onclick="() => AdjustBarFullBottles(item.Id, -1)">-</button>
+                                                        <input type="number" class="actual-input-hub text-center fw-black" style="width: 50px;"
+                                                               value="@GetBarFullBottles(item.Id)" 
+                                                               @onchange="@(e => SetBarFullBottles(item.Id, e.Value))"
                                                                onfocus="this.select()" />
-                                                        <button class="btn-qty-adj plus" @onclick="() => AdjustItemCount(item.Id, 1, item.CurrentStock)">+</button>
+                                                        <button class="btn-qty-adj plus" @onclick="() => AdjustBarFullBottles(item.Id, 1)">+</button>
                                                     </div>
                                                 </div>
-                                            }
-                                        </div>
+
+                                                @if (!item.IsUnitBased)
+                                                {
+                                                    <div class="d-flex flex-column w-100 mt-1">
+                                                        <span class="text-secondary fw-bold mb-1" style="font-size: 0.65rem;">Open Bottle Level:</span>
+                                                        <div class="d-flex flex-wrap gap-1">
+                                                            @{
+                                                                var currentLevel = GetBarOpenBottleLevel(item.Id);
+                                                            }
+                                                            <button class="btn btn-xs @(currentLevel == 0 ? "btn-dark text-white fw-bold" : "btn-outline-secondary") rounded-pill px-2" @onclick="() => SetBarOpenBottleLevel(item.Id, 0)">0 (Empty)</button>
+                                                            <button class="btn btn-xs @(currentLevel == 0.25m ? "btn-primary text-white fw-black" : "btn-outline-secondary") rounded-pill px-2" @onclick="() => SetBarOpenBottleLevel(item.Id, 0.25m)">1/4</button>
+                                                            <button class="btn btn-xs @(currentLevel == 0.5m ? "btn-primary text-white fw-black" : "btn-outline-secondary") rounded-pill px-2" @onclick="() => SetBarOpenBottleLevel(item.Id, 0.5m)">1/2</button>
+                                                            <button class="btn btn-xs @(currentLevel == 0.75m ? "btn-primary text-white fw-black" : "btn-outline-secondary") rounded-pill px-2" @onclick="() => SetBarOpenBottleLevel(item.Id, 0.75m)">3/4</button>
+                                                            
+                                                            @for (int t = 1; t <= 9; t++)
+                                                            {
+                                                                decimal lvl = t / 10.0m;
+                                                                <button class="btn btn-xs @(currentLevel == lvl ? "btn-primary text-white fw-black" : "btn-outline-secondary") rounded-3 px-1.5" style="min-width: 25px;" @onclick="() => SetBarOpenBottleLevel(item.Id, lvl)">.@t</button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -1044,41 +1106,60 @@
                                 <button class="btn btn-close" @onclick="() => _showReviewModal = false"></button>
                             </div>
                             <div class="modal-body p-4 bg-light-subtle" style="max-height: 60vh; overflow-y: auto;">
-                                @{
-                                    var discrepancies = _stockCounts
-                                        .Select(kvp => new { Item = _items.FirstOrDefault(i => i.Id == kvp.Key), Actual = kvp.Value })
-                                        .Where(x => x.Item != null && x.Actual != x.Item.CurrentStock)
-                                        .ToList();
-                                }
+                                 @{
+                                     var hasDiscrepancies = false;
+                                     var discrepanciesMain = new List<dynamic>();
+                                     var discrepanciesBar = new List<dynamic>();
 
-                                @if (!discrepancies.Any())
-                                {
-                                    <div class="alert alert-success rounded-4 border-0 p-4 text-center">
-                                        <i class="bi bi-check-circle-fill display-5 d-block mb-3"></i>
-                                        <h5 class="fw-black">Perfect Audit!</h5>
-                                        <p class="mb-0">All physical stock matches the system expectations perfectly.</p>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="row g-2">
-                                        @foreach (var d in discrepancies.OrderBy(x => x.Actual - x.Item!.CurrentStock))
-                                        {
-                                            var diff = d.Actual - d.Item!.CurrentStock;
-                                            <div class="col-12">
-                                                <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded-4 border shadow-sm">
-                                                    <div>
-                                                        <div class="fw-black text-dark">@d.Item.Name</div>
-                                                        <div class="extra-small text-muted fw-bold">Expected: @d.Item.CurrentStock | Actual: @d.Actual</div>
-                                                    </div>
-                                                    <div class="variance-badge @(diff < 0 ? "missing" : "over") px-3 py-2 fs-6">
-                                                        @(diff > 0 ? "+" : "")@diff Units
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
-                                }
+                                     if (_auditLocation == "MAIN_STORAGE")
+                                     {
+                                         discrepanciesMain = _stockCounts
+                                             .Select(kvp => new { Item = _items.FirstOrDefault(i => i.Id == kvp.Key), Actual = (decimal)kvp.Value, Expected = (decimal)(_items.FirstOrDefault(i => i.Id == kvp.Key)?.CurrentStock ?? 0) })
+                                             .Where(x => x.Item != null && x.Actual != x.Expected)
+                                             .Select(x => (dynamic)x)
+                                             .ToList();
+                                         hasDiscrepancies = discrepanciesMain.Any();
+                                     }
+                                     else
+                                     {
+                                         discrepanciesBar = _barStockCounts
+                                             .Select(kvp => new { Item = _items.FirstOrDefault(i => i.Id == kvp.Key), Actual = kvp.Value, Expected = GetLocationStockValue(kvp.Key, _auditLocation) })
+                                             .Where(x => x.Item != null && x.Actual != x.Expected)
+                                             .Select(x => (dynamic)x)
+                                             .ToList();
+                                         hasDiscrepancies = discrepanciesBar.Any();
+                                     }
+                                     var activeDiscrepancies = _auditLocation == "MAIN_STORAGE" ? discrepanciesMain : discrepanciesBar;
+                                 }
+
+                                 @if (!hasDiscrepancies)
+                                 {
+                                     <div class="alert alert-success rounded-4 border-0 p-4 text-center">
+                                         <i class="bi bi-check-circle-fill display-5 d-block mb-3"></i>
+                                         <h5 class="fw-black">Perfect Audit!</h5>
+                                         <p class="mb-0">All physical stock matches the system expectations perfectly.</p>
+                                     </div>
+                                 }
+                                 else
+                                 {
+                                     <div class="row g-2">
+                                         @foreach (var d in activeDiscrepancies)
+                                         {
+                                             var diff = d.Actual - d.Expected;
+                                             <div class="col-12">
+                                                 <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded-4 border shadow-sm">
+                                                     <div>
+                                                         <div class="fw-black text-dark">@d.Item.Name</div>
+                                                         <div class="extra-small text-muted fw-bold">Expected: @d.Expected.ToString("F2") | Actual: @d.Actual.ToString("F2")</div>
+                                                     </div>
+                                                     <div class="variance-badge @(diff < 0 ? "missing" : "over") px-3 py-2 fs-6">
+                                                         @(diff > 0 ? "+" : "")@diff.ToString("F2") Units
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                         }
+                                     </div>
+                                 }
                             </div>
                             <div class="modal-footer p-4 bg-white border-top d-flex gap-3">
                                 <button class="btn btn-light btn-lg flex-grow-1 rounded-pill fw-bold" @onclick="() => _showReviewModal = false">GO BACK</button>
@@ -3764,6 +3845,9 @@
     
     // Count State
     private Dictionary<int, int> _stockCounts = new();
+    private Dictionary<int, decimal> _barStockCounts = new();
+    private string _auditLocation = "MAIN_STORAGE";
+    private List<LiquorLocationStock> _locationStocks = new();
     private LiquorItem? _selectedCountItem;
     private string _countEntry = "0";
     
@@ -3887,6 +3971,9 @@
         {
             _categories = await db.PosCategories.ToListAsync();
             _childItems = await db.LiquorItems.Where(i => i.IsActive && i.ParentItemId.HasValue).ToListAsync();
+            try {
+                _locationStocks = await db.LiquorLocationStocks.ToListAsync();
+            } catch {}
         }
         var allItems = (await itemsTask).ToList();
         _items = allItems.Where(i => IsLiquorInventoryItem(i)).ToList();
@@ -4117,20 +4204,98 @@
         }
         StateHasChanged();
     }
+    private void SetAuditLocation(string loc)
+    {
+        _auditLocation = loc;
+        _stockCounts.Clear();
+        _barStockCounts.Clear();
+        StateHasChanged();
+    }
+
+    private void UndoReconciliation(int itemId)
+    {
+        if (_auditLocation == "MAIN_STORAGE")
+        {
+            _stockCounts.Remove(itemId);
+        }
+        else
+        {
+            _barStockCounts.Remove(itemId);
+        }
+        StateHasChanged();
+    }
+
+    private decimal GetLocationStockValue(int itemId, string location)
+    {
+        var ls = _locationStocks.FirstOrDefault(s => s.ItemId == itemId && s.LocationName == location);
+        return ls?.Stock ?? 0;
+    }
+
+    private int GetBarFullBottles(int itemId)
+    {
+        decimal total = _barStockCounts.TryGetValue(itemId, out var val) ? val : GetLocationStockValue(itemId, _auditLocation);
+        return (int)Math.Truncate(total);
+    }
+
+    private void SetBarFullBottles(int itemId, object val)
+    {
+        if (decimal.TryParse(val?.ToString(), out var btls))
+        {
+            decimal currentOpen = GetBarOpenBottleLevel(itemId);
+            _barStockCounts[itemId] = Math.Max(0, Math.Truncate(btls)) + currentOpen;
+            StateHasChanged();
+        }
+    }
+
+    private void AdjustBarFullBottles(int itemId, int delta)
+    {
+        decimal current = _barStockCounts.TryGetValue(itemId, out var val) ? val : GetLocationStockValue(itemId, _auditLocation);
+        decimal currentOpen = current - Math.Truncate(current);
+        decimal newFull = Math.Max(0, Math.Truncate(current) + delta);
+        _barStockCounts[itemId] = newFull + currentOpen;
+        StateHasChanged();
+    }
+
+    private decimal GetBarOpenBottleLevel(int itemId)
+    {
+        decimal total = _barStockCounts.TryGetValue(itemId, out var val) ? val : GetLocationStockValue(itemId, _auditLocation);
+        return total - Math.Truncate(total);
+    }
+
+    private void SetBarOpenBottleLevel(int itemId, decimal level)
+    {
+        decimal current = _barStockCounts.TryGetValue(itemId, out var val) ? val : GetLocationStockValue(itemId, _auditLocation);
+        decimal full = Math.Truncate(current);
+        _barStockCounts[itemId] = full + level;
+        StateHasChanged();
+    }
+
     private async Task SubmitFullReconciliation()
     {
         if (_currentUser == null) return;
         
-        // Use current stock for anything not explicitly changed in the audit
-        var auditEntries = _items.Select(item => new GFC.Core.Models.StockReconcileEntry 
-        { 
-            ItemId = item.Id, 
-            ActualCount = _stockCounts.TryGetValue(item.Id, out var actual) ? actual : item.CurrentStock
+        var auditEntries = _items.Select(item => {
+            decimal actualValue = 0;
+            if (_auditLocation == "MAIN_STORAGE")
+            {
+                actualValue = _stockCounts.TryGetValue(item.Id, out var actual) ? actual : item.CurrentStock;
+            }
+            else
+            {
+                actualValue = _barStockCounts.TryGetValue(item.Id, out var actual) ? actual : GetLocationStockValue(item.Id, _auditLocation);
+            }
+            return new GFC.Core.Models.StockReconcileEntry 
+            { 
+                ItemId = item.Id, 
+                ActualCount = (int)Math.Round(actualValue),
+                ActualCountDecimal = actualValue
+            };
         }).ToList();
 
-        await LiquorService.ReconcileStockAsync(auditEntries, _currentUser.UserId);
+        await LiquorService.ReconcileLocationStockAsync(_auditLocation, auditEntries, _currentUser.UserId);
         
         _stockCounts.Clear();
+        _barStockCounts.Clear();
         await RefreshDataAsync();
         _activeTab = "ordering"; 
     }

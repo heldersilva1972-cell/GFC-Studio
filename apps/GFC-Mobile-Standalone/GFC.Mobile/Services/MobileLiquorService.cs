@@ -269,11 +269,16 @@ namespace GFC.Mobile.Services
             return new LiquorTransaction { ItemId = itemId, UserId = userId, Timestamp = DateTime.UtcNow };
         }
 
-        public async Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason)
+        public async Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason, string? locationName = null)
         {
             try
             {
-                var response = await _http.PostAsync($"api/liquor/adjust/{itemId}?userId={userId}&delta={delta}&reason={Uri.EscapeDataString(reason)}", null);
+                string url = $"api/liquor/adjust/{itemId}?userId={userId}&delta={delta}&reason={Uri.EscapeDataString(reason)}";
+                if (!string.IsNullOrEmpty(locationName))
+                {
+                    url += $"&locationName={Uri.EscapeDataString(locationName)}";
+                }
+                var response = await _http.PostAsync(url, null);
                 if (response.IsSuccessStatusCode)
                 {
                     var tx = await response.Content.ReadFromJsonAsync<LiquorTransaction>();
@@ -459,6 +464,54 @@ namespace GFC.Mobile.Services
         public async Task<IEnumerable<PosCategory>> GetAllCategoriesAsync()
         {
             return await GetCachedOrFetchAsync<List<PosCategory>>("gfc_liquor_categories", "api/liquor/categories", new List<PosCategory>());
+        }
+
+        public async Task<IEnumerable<LiquorLocationStock>> GetLocationStocksAsync(string? locationName = null)
+        {
+            try
+            {
+                string url = "api/liquor/locations/stocks";
+                if (!string.IsNullOrEmpty(locationName))
+                {
+                    url += $"?locationName={Uri.EscapeDataString(locationName)}";
+                }
+                return await _http.GetFromJsonAsync<List<LiquorLocationStock>>(url) ?? new List<LiquorLocationStock>();
+            }
+            catch { }
+            return new List<LiquorLocationStock>();
+        }
+
+        public async Task<IEnumerable<LiquorLocationStock>> GetItemStocksAsync(int itemId)
+        {
+            try
+            {
+                return await _http.GetFromJsonAsync<List<LiquorLocationStock>>($"api/liquor/item/stocks/{itemId}") ?? new List<LiquorLocationStock>();
+            }
+            catch { }
+            return new List<LiquorLocationStock>();
+        }
+
+        public async Task ReconcileLocationStockAsync(string locationName, IEnumerable<StockReconcileEntry> entries, int userId)
+        {
+            try
+            {
+                await _http.PostAsJsonAsync($"api/liquor/reconcile/location/{Uri.EscapeDataString(locationName)}?userId={userId}", entries);
+            }
+            catch { }
+        }
+
+        public async Task TransferStockAsync(int itemId, string fromLocation, string toLocation, decimal amount, int userId, string? notes = null)
+        {
+            try
+            {
+                string url = $"api/liquor/transfer?itemId={itemId}&fromLocation={Uri.EscapeDataString(fromLocation)}&toLocation={Uri.EscapeDataString(toLocation)}&amount={amount}&userId={userId}";
+                if (!string.IsNullOrEmpty(notes))
+                {
+                    url += $"&notes={Uri.EscapeDataString(notes)}";
+                }
+                await _http.PostAsync(url, null);
+            }
+            catch { }
         }
     }
 }
