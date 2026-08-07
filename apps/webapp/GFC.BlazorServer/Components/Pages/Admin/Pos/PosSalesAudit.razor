@@ -13,6 +13,7 @@
 @inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
 @inject GFC.Core.Interfaces.IVersionService VersionService
 @inject IJSRuntime JSRuntime
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>POS Sales Audit</PageTitle>
@@ -871,11 +872,23 @@
                                         <div class="d-flex align-items-center gap-2">
                                             <span class="text-muted fw-bold small text-uppercase" style="font-size: 0.7rem;">3. LEGACY ABSORBED:</span>
                                             <span class="fw-black text-warning fs-5">@(TokenYields.Sum(x => x.LegacyRedeemed))</span>
+                                            @if (TokenYields.Any(x => x.LegacyRedeemed > 0))
+                                            {
+                                                <span class="text-muted small" style="font-size: 0.75rem;">
+                                                    (@string.Join(", ", TokenYields.Where(x => x.LegacyRedeemed > 0).Select(x => $"{x.LegacyRedeemed} {x.Token.Name.Replace(" Token", "").Replace("Token ", "")}")))
+                                                </span>
+                                            }
                                         </div>
                                         <div class="border-end py-2"></div>
                                         <div class="d-flex align-items-center gap-2">
                                             <span class="text-muted fw-bold small text-uppercase" style="font-size: 0.7rem;">4. IN CIRCULATION:</span>
                                             <span class="fw-black text-primary fs-5">@(TokenYields.Sum(x => x.InCirculation))</span>
+                                            @if (TokenYields.Any(x => x.InCirculation > 0))
+                                            {
+                                                <span class="text-muted small" style="font-size: 0.75rem;">
+                                                    (@string.Join(", ", TokenYields.Where(x => x.InCirculation > 0).Select(x => $"{x.InCirculation} {x.Token.Name.Replace(" Token", "").Replace("Token ", "")}")))
+                                                </span>
+                                            }
                                         </div>
                                     </div>
                                     <div class="badge @(totalNetImpact >= 0 ? "bg-success text-white" : "bg-danger text-white") px-3 py-2 fs-6 rounded-pill shadow-sm">
@@ -941,7 +954,7 @@
                                             <span class="text-muted small">Compare physical chip counts vs expected stock</span>
                                         </div>
                                         <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" style="font-size: 0.72rem;" @onclick='() => _showHistoryModal = true'>
-                                            <i class="bi bi-clock-history me-1"></i>AUDIT HISTORY (@TokenAuditLogs.Count)
+                                            <i class="bi bi-clock-history me-1"></i>TOKEN HISTORY (@TokenAuditLogs.Count)
                                         </button>
                                     </div>
                                     <div class="card-body p-0">
@@ -953,8 +966,7 @@
                                                         <th class="text-center py-2">SOLD</th>
                                                         <th class="text-center py-2">REDEEMED</th>
                                                         <th class="text-center py-2">EXPECTED STOCK</th>
-                                                        <th class="text-center py-2">ACTUAL COUNT</th>
-                                                        <th class="text-center py-2">AUDIT SIGNAL</th>
+                                                        <th class="text-center py-2">LAST AUDITED STATUS</th>
                                                         <th class="pe-4 text-end py-2">ACTIONS</th>
                                                     </tr>
                                                 </thead>
@@ -971,29 +983,16 @@
                                                             <td class="text-center fw-bold text-primary">@y.Sold</td>
                                                             <td class="text-center fw-bold text-danger">@y.Redeemed</td>
                                                             <td class="text-center fw-black">@y.ExpectedPhysicalStock</td>
-                                                            <td class="text-center fw-black">
-                                                                @(y.ActualPhysicalCount < 0 ? "-" : y.ActualPhysicalCount.ToString())
-                                                            </td>
                                                             <td class="text-center">
-                                                                @if (y.DiscrepancyStatus == "UNAUDITED")
+                                                                @if (y.LastAuditStatus == "Never")
                                                                 {
-                                                                    <span class="badge bg-light text-muted border px-2 py-1" style="font-size: 0.65rem;">UNAUDITED</span>
-                                                                }
-                                                                else if (y.DiscrepancyStatus == "LEGACY_INFLOW")
-                                                                {
-                                                                    <span class="badge bg-success-subtle text-success border border-success fw-bold px-2 py-1" style="font-size: 0.65rem;">
-                                                                        +@y.StockVariance LEGACY INFLOW
-                                                                    </span>
-                                                                }
-                                                                else if (y.DiscrepancyStatus == "SHRINKAGE")
-                                                                {
-                                                                    <span class="badge bg-danger text-white fw-bold shadow-sm px-2 py-1" style="font-size: 0.65rem;">
-                                                                        @y.StockVariance MISSING
-                                                                    </span>
+                                                                    <span class="badge bg-light text-muted border px-2 py-1" style="font-size: 0.65rem;">NEVER AUDITED</span>
                                                                 }
                                                                 else
                                                                 {
-                                                                    <span class="badge bg-success text-white fw-bold px-2 py-1" style="font-size: 0.65rem;">BALANCED</span>
+                                                                    <span class="badge @(y.LastAuditStatus.Contains("shrinkage") ? "bg-danger text-white" : (y.LastAuditStatus.Contains("Balanced") ? "bg-success text-white" : "bg-warning text-dark")) fw-bold px-2 py-1" style="font-size: 0.65rem;">
+                                                                        @y.LastAuditStatus.ToUpper()
+                                                                    </span>
                                                                 }
                                                             </td>
                                                             <td class="pe-4 text-end" style="white-space: nowrap;">
@@ -2206,8 +2205,8 @@
                     <div class="d-flex align-items-center gap-2">
                         <i class="bi bi-clock-history text-primary fs-4"></i>
                         <div>
-                            <h5 class="modal-title fw-black text-dark mb-0">PHYSICAL TOKEN AUDIT HISTORY LOG</h5>
-                            <div class="small text-muted">Complete audit trail of physical chip counts, legacy reclaims, and stock replenishments</div>
+                            <h5 class="modal-title fw-black text-dark mb-0">TOKEN TRANSACTION & LIABILITY HISTORY LOG</h5>
+                            <div class="small text-muted">Complete audit trail of physical chip counts, legacy reclaims, stock replenishments, and liability adjustments</div>
                         </div>
                     </div>
                     <button type="button" class="btn-close" @onclick='() => _showHistoryModal = false'></button>
@@ -3112,6 +3111,7 @@
         public int ActualPhysicalCount { get; set; } = -1;
         public int StockVariance => ActualPhysicalCount < 0 ? 0 : ActualPhysicalCount - ExpectedPhysicalStock;
         public string DiscrepancyStatus => ActualPhysicalCount < 0 ? "UNAUDITED" : (StockVariance > 0 ? "LEGACY_INFLOW" : (StockVariance < 0 ? "SHRINKAGE" : "BALANCED"));
+        public string LastAuditStatus { get; set; } = "Never";
     }
 
     public class TokenUsageEntry {
@@ -3147,6 +3147,13 @@
         _objRef = DotNetObjectReference.Create(this);
         try {
             using var db = DbFactory.CreateDbContext();
+            
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                _currentUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == user.Identity.Name);
+            }
             
             // Load master price list for Z-Report lookups
             List<LiquorItem> items;
@@ -3504,6 +3511,9 @@
 
     private async Task CalculateLifetimeTokens(GfcDbContext db)
     {
+        // Load persistent token audit logs
+        TokenAuditLogs = await db.TokenAuditLogs.OrderByDescending(l => l.Timestamp).ToListAsync();
+
         // Use the same stats-based approach as the main analysis for consistency
         List<PosToken> tokens;
         try {
@@ -3574,17 +3584,7 @@
     private int _legacyStockAddCountInput = 0;
     private string _legacyStockAddNotesInput = "";
 
-    public class TokenAuditLogEntry {
-        public DateTime Timestamp { get; set; } = DateTime.Now;
-        public string TokenName { get; set; } = "";
-        public int ExpectedStock { get; set; }
-        public int ActualCount { get; set; }
-        public int Variance { get; set; }
-        public string Status { get; set; } = "";
-        public string Notes { get; set; } = "";
-        public string PerformedBy { get; set; } = "Manager";
-    }
-
+    private AppUser? _currentUser;
     private List<TokenAuditLogEntry> TokenAuditLogs = new();
 
     private async Task SetTokenFilterMode(string mode)
@@ -3602,11 +3602,12 @@
         _showPhysicalAuditModal = true;
     }
 
-    private void SavePhysicalAudit()
+    private async Task SavePhysicalAudit()
     {
         if (_auditTargetEntry == null) return;
         _auditTargetEntry.ActualPhysicalCount = _physicalAuditCountInput;
         
+        using var db = DbFactory.CreateDbContext();
         var log = new TokenAuditLogEntry
         {
             Timestamp = DateTime.Now,
@@ -3616,9 +3617,13 @@
             Variance = _auditTargetEntry.StockVariance,
             Status = _auditTargetEntry.DiscrepancyStatus,
             Notes = string.IsNullOrWhiteSpace(_physicalAuditNotesInput) ? (_auditTargetEntry.StockVariance > 0 ? "Legacy token inflow recorded" : (_auditTargetEntry.StockVariance < 0 ? "Physical stock shortage / shrinkage" : "Stock audit balanced")) : _physicalAuditNotesInput,
-            PerformedBy = "Manager"
+            PerformedBy = _currentUser?.Username ?? "Manager"
         };
-        TokenAuditLogs.Insert(0, log);
+        db.TokenAuditLogs.Add(log);
+        await db.SaveChangesAsync();
+        
+        await CalculateLifetimeTokens(db);
+        await CalculateTokenAnalysis(db);
         _showPhysicalAuditModal = false;
         StateHasChanged();
     }
@@ -3631,11 +3636,11 @@
         _showAddLegacyStockModal = true;
     }
 
-    private void SaveAddLegacyStock()
+    private async Task SaveAddLegacyStock()
     {
         if (_legacyStockTargetEntry == null || _legacyStockAddCountInput <= 0) return;
-        _legacyStockTargetEntry.MasterPhysicalStock += _legacyStockAddCountInput;
 
+        using var db = DbFactory.CreateDbContext();
         var log = new TokenAuditLogEntry
         {
             Timestamp = DateTime.Now,
@@ -3645,9 +3650,13 @@
             Variance = _legacyStockAddCountInput,
             Status = "STOCK_REPLENISHED",
             Notes = $"Replenished {_legacyStockAddCountInput} physical chips into available stock. {(_legacyStockAddNotesInput)}".Trim(),
-            PerformedBy = "Manager"
+            PerformedBy = _currentUser?.Username ?? "Manager"
         };
-        TokenAuditLogs.Insert(0, log);
+        db.TokenAuditLogs.Add(log);
+        await db.SaveChangesAsync();
+        
+        await CalculateLifetimeTokens(db);
+        await CalculateTokenAnalysis(db);
         _showAddLegacyStockModal = false;
         StateHasChanged();
     }
@@ -3661,7 +3670,7 @@
         _showReclaimModal = true;
     }
 
-    private void SaveReclaimAction()
+    private async Task SaveReclaimAction()
     {
         if (_reclaimTargetEntry == null || _reclaimQuantityInput <= 0) return;
         
@@ -3673,18 +3682,16 @@
 
         if (_reclaimOption == "RECLAIM_TO_STOCK")
         {
-            _reclaimTargetEntry.MasterPhysicalStock += qty;
-            _reclaimTargetEntry.ManuallyProcessedLegacyCount += qty;
             status = "LEGACY_RECLAIMED";
             note = $"Reclaimed {qty} returned legacy chips into active re-sellable stock. {(_reclaimNotesInput)}".Trim();
         }
         else
         {
-            _reclaimTargetEntry.ManuallyProcessedLegacyCount += qty;
             status = "LEGACY_RETIRED";
             note = $"Permanently retired/disposed of {qty} old legacy chips, removing them from circulation. {(_reclaimNotesInput)}".Trim();
         }
 
+        using var db = DbFactory.CreateDbContext();
         var log = new TokenAuditLogEntry
         {
             Timestamp = DateTime.Now,
@@ -3694,15 +3701,20 @@
             Variance = qty,
             Status = status,
             Notes = note,
-            PerformedBy = "Manager"
+            PerformedBy = _currentUser?.Username ?? "Manager"
         };
-        TokenAuditLogs.Insert(0, log);
+        db.TokenAuditLogs.Add(log);
+        await db.SaveChangesAsync();
+        
+        await CalculateLifetimeTokens(db);
+        await CalculateTokenAnalysis(db);
         _showReclaimModal = false;
         StateHasChanged();
     }
 
     private async Task CalculateTokenAnalysis(GfcDbContext db)
     {
+        TokenAuditLogs = await db.TokenAuditLogs.OrderByDescending(l => l.Timestamp).ToListAsync();
         MasterTokens = await db.PosTokens.AsNoTracking().ToListAsync();
         TokenYields.Clear();
         TokenUsages.Clear();
@@ -3839,6 +3851,67 @@
             }
         }
 
+        foreach (var entry in stats.Values)
+        {
+            var tokenLogs = TokenAuditLogs.Where(l => l.TokenName == entry.Token.Name).OrderBy(l => l.Timestamp).ToList();
+            int physicalStock = 0;
+            int manuallyProcessedLegacy = 0;
+            int lastAuditCount = -1;
+            
+            foreach (var log in tokenLogs)
+            {
+                if (log.Status == "STOCK_REPLENISHED")
+                {
+                    physicalStock += log.Variance;
+                }
+                else if (log.Status == "LEGACY_RECLAIMED")
+                {
+                    // Reclaiming to stock does not add to physical stock again (already counted in expected stock via +Redeemed)
+                    manuallyProcessedLegacy += log.Variance;
+                }
+                else if (log.Status == "LEGACY_RETIRED")
+                {
+                    // Retiring legacy chips means physically removing them from the drawer
+                    physicalStock -= log.Variance;
+                    manuallyProcessedLegacy += log.Variance;
+                }
+                else if (log.Status == "LEGACY_INFLOW" || log.Status == "SHRINKAGE" || log.Status == "BALANCED")
+                {
+                    lastAuditCount = log.ActualCount;
+                    physicalStock = log.ActualCount;
+                }
+            }
+            
+            entry.MasterPhysicalStock = physicalStock;
+            entry.ManuallyProcessedLegacyCount = manuallyProcessedLegacy;
+            if (lastAuditCount >= 0)
+            {
+                entry.ActualPhysicalCount = lastAuditCount;
+                var lastAuditLog = tokenLogs.LastOrDefault(l => l.Status == "LEGACY_INFLOW" || l.Status == "SHRINKAGE" || l.Status == "BALANCED");
+                if (lastAuditLog != null)
+                {
+                    int varVal = lastAuditLog.Variance;
+                    string timeStr = lastAuditLog.Timestamp.ToString("MMM dd, h:mm tt");
+                    if (lastAuditLog.Status == "BALANCED")
+                    {
+                        entry.LastAuditStatus = $"Balanced ({timeStr})";
+                    }
+                    else if (lastAuditLog.Status == "LEGACY_INFLOW")
+                    {
+                        entry.LastAuditStatus = $"+{varVal} Surplus ({timeStr})";
+                    }
+                    else if (lastAuditLog.Status == "SHRINKAGE")
+                    {
+                        entry.LastAuditStatus = $"{varVal} Shrinkage ({timeStr})";
+                    }
+                }
+            }
+            else
+            {
+                entry.LastAuditStatus = "Never";
+            }
+        }
+
         TokenYields = stats.Values.Where(y => y.Token.AllowCreditUpgrade != true).ToList();
     }
 
@@ -3857,10 +3930,27 @@
         var token = await db.PosTokens.FindAsync(_currentTokenToAdjust.Id);
         if (token != null)
         {
+            int oldVal = token.StartingLiabilityBalance;
             token.StartingLiabilityBalance = _adjustmentValue;
+
+            var log = new TokenAuditLogEntry
+            {
+                Timestamp = DateTime.Now,
+                TokenName = token.Name ?? "Token",
+                ExpectedStock = 0,
+                ActualCount = 0,
+                Variance = _adjustmentValue - oldVal,
+                Status = "LIABILITY_ADJUSTED",
+                Notes = $"Starting liability balance adjusted from {oldVal} to {_adjustmentValue}.",
+                PerformedBy = _currentUser?.Username ?? "Manager"
+            };
+            db.TokenAuditLogs.Add(log);
+
             await db.SaveChangesAsync();
+            
+            await CalculateLifetimeTokens(db);
+            await CalculateTokenAnalysis(db);
             _showAdjustmentModal = false;
-            await LoadSales(); // Refresh everything
         }
     }
 

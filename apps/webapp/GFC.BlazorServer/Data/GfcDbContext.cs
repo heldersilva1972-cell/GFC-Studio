@@ -150,6 +150,7 @@ public class GfcDbContext : DbContext
     public DbSet<PosMenuProfile> PosMenuProfiles => Set<PosMenuProfile>();
     public DbSet<PosMenuOverride> PosMenuOverrides => Set<PosMenuOverride>();
     public DbSet<PosTerminal> PosTerminals => Set<PosTerminal>();
+    public DbSet<TokenAuditLogEntry> TokenAuditLogs => Set<TokenAuditLogEntry>();
     
     // Events & Banquets
     public DbSet<EventTemplate> EventTemplates => Set<EventTemplate>();
@@ -186,6 +187,12 @@ public class GfcDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        modelBuilder.Entity<TokenAuditLogEntry>(entity =>
+        {
+            entity.ToTable("TokenAuditLogEntries", "dbo");
+            entity.HasKey(e => e.Id);
+        });
         
         // [PROFESSIONAL SYNC FIX] Configure Concurrency Tokens (RowVersion) for all entities inheriting from BaseEntity.
         // This replaces the [Timestamp] attribute, allowing the API to accept mobile data without 'RowVersion'
