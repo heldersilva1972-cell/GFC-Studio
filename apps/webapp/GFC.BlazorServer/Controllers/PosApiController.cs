@@ -749,6 +749,35 @@ public class PosApiController : ControllerBase
         });
     }
 
+    [HttpGet("darts-rounds-today/{terminalName}")]
+    public async Task<ActionResult<List<PosSaleDto>>> GetDartsRoundsToday(string terminalName)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var today = DateTime.Today;
+        var sales = await db.PosSales
+            .Where(s => s.TerminalName == terminalName && 
+                        s.Timestamp >= today && 
+                        s.PaymentType == "TOKEN/COMP" && 
+                        s.ItemsJson.Contains("(DARTS"))
+            .OrderByDescending(s => s.Timestamp)
+            .Select(s => new PosSaleDto
+            {
+                Id = s.Id,
+                Timestamp = s.Timestamp,
+                TerminalName = s.TerminalName,
+                BartenderName = s.BartenderName,
+                TotalAmount = s.TotalAmount,
+                PaymentType = s.PaymentType,
+                ItemsJson = s.ItemsJson,
+                AmountReceived = s.AmountReceived,
+                ChangeDue = s.ChangeDue,
+                OriginalTotal = s.OriginalTotal
+            })
+            .ToListAsync();
+        
+        return Ok(sales);
+    }
+
     [HttpGet("z-reports/{terminalName}")]
     public async Task<ActionResult<List<PosZReportDto>>> GetZReports(string terminalName)
     {

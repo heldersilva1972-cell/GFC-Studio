@@ -28,6 +28,7 @@ namespace GFC.Pos.UI.Services
         Task<int> GetTotalPendingAsync();
         Task<DateTime> GetLastZTimeAsync(string terminalName);
         Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName);
+        Task<List<PosSaleDto>> GetDartsRoundsTodayAsync(string terminalName);
         Task<bool> CheckConnectivityAsync();
         Task<List<LiquorOrder>> GetPendingLiquorOrdersAsync(bool force = false);
         Task ReceiveLiquorOrderAsync(LiquorOrderReceiptDto receipt);
@@ -361,6 +362,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
         public Task SaveZReportAsync(PosZReportDto report) { _zReports.Add(report); return Task.CompletedTask; }
 
         public Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName) => Task.FromResult<PosSaleDto?>(null);
+        public Task<List<PosSaleDto>> GetDartsRoundsTodayAsync(string terminalName) => Task.FromResult(new List<PosSaleDto>());
 
         public async Task<List<LiquorOrder>> GetPendingLiquorOrdersAsync(bool force = false)
         {

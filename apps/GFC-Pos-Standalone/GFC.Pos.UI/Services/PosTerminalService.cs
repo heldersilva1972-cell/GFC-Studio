@@ -712,6 +712,44 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         catch { return null; }
     }
 
+    public async Task<List<PosSaleDto>> GetDartsRoundsTodayAsync(string terminalName)
+    {
+        var list = new List<PosSaleDto>();
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind == JsonValueKind.Array)
+            {
+                var today = DateTime.Today;
+                foreach (var item in vaultItems.EnumerateArray())
+                {
+                    var key = item.GetProperty("key").GetString();
+                    if (key != null && key.StartsWith(VaultPrefixSales))
+                    {
+                        var sale = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
+                        if (sale != null && sale.Timestamp.Date == today && sale.ItemsJson.Contains("(DARTS"))
+                        {
+                            list.Add(sale);
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        if (list.Any()) return list;
+
+        try 
+        { 
+            if (!await _connectivity.GateAsync("GetDartsRoundsToday")) return list;
+            var serverSales = await _http.GetFromJsonAsync<List<PosSaleDto>>($"api/pos/darts-rounds-today/{terminalName}");
+            if (serverSales != null) list.AddRange(serverSales);
+        }
+        catch { }
+
+        return list;
+    }
+
     public async Task<List<PosZReportDto>> GetZReportsAsync(string terminalName)
     {
         var reports = new List<PosZReportDto>();

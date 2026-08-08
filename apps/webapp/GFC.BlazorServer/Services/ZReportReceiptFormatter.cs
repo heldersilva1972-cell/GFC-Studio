@@ -207,8 +207,9 @@ namespace GFC.BlazorServer.Services
                         product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
                     }
                     var category = product?.Category;
-                    if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                    if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
+                    if (kvp.Key.Contains("(DARTS")) category = "DARTS ROUND";
+                    else if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
+                    else if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
                     
                     decimal price = 0;
                     if (kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))

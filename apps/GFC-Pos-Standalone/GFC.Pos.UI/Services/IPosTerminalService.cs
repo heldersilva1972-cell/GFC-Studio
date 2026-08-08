@@ -25,6 +25,7 @@ public interface IPosTerminalService
     Task<int> GetTotalPendingAsync();
     Task<DateTime> GetLastZTimeAsync(string terminalName);
     Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName);
+    Task<List<PosSaleDto>> GetDartsRoundsTodayAsync(string terminalName);
     Task<bool> CheckConnectivityAsync();
     Task<List<LiquorOrder>> GetPendingLiquorOrdersAsync(bool force = false);
     Task ReceiveLiquorOrderAsync(LiquorOrderReceiptDto receipt);
