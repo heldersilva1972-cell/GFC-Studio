@@ -412,16 +412,18 @@ namespace GFC.BlazorServer.Services
                                     LiquorItem? liquor = null;
                                     if (item.Id > 0 && itemCostMap.TryGetValue(item.Id, out liquor))
                                     {
+                                        var costItem = liquor.ParentItemId.HasValue && itemCostMap.TryGetValue(liquor.ParentItemId.Value, out var parent) ? parent : liquor;
                                         if (liquor.IsUnitBased || liquor.IsBeer || (liquor.Category != null && liquor.Category.Trim().ToUpper() == "BEER"))
                                         {
-                                            itemUnitCost = liquor.PackSize > 0 ? (liquor.CurrentPrice / liquor.PackSize) : liquor.CurrentPrice;
+                                            itemUnitCost = costItem.PackSize > 0 ? (costItem.CurrentPrice / costItem.PackSize) : costItem.CurrentPrice;
                                         }
                                         else
                                         {
-                                            decimal vol = liquor.BottleVolumeOunces ?? 25.4m;
+                                            decimal vol = costItem.BottleVolumeOunces ?? 25.4m;
                                             decimal pour = liquor.PourVolumeOunces ?? liquor.PourSize;
+                                            if (pour == 0) pour = costItem.PourVolumeOunces ?? costItem.PourSize;
                                             if (pour == 0) pour = 1.5m;
-                                            itemUnitCost = vol > 0 ? (liquor.CurrentPrice / vol) * pour : 0m;
+                                            itemUnitCost = vol > 0 ? (costItem.CurrentPrice / vol) * pour : 0m;
                                         }
                                     }
 
@@ -446,16 +448,18 @@ namespace GFC.BlazorServer.Services
                                             LiquorItem? modLiquor = null;
                                             if (mod.Id > 0 && itemCostMap.TryGetValue(mod.Id, out modLiquor))
                                             {
+                                                var costItem = modLiquor.ParentItemId.HasValue && itemCostMap.TryGetValue(modLiquor.ParentItemId.Value, out var parent) ? parent : modLiquor;
                                                 if (modLiquor.IsUnitBased || modLiquor.IsBeer || (modLiquor.Category != null && modLiquor.Category.Trim().ToUpper() == "BEER"))
                                                 {
-                                                    modUnitCost = modLiquor.PackSize > 0 ? (modLiquor.CurrentPrice / modLiquor.PackSize) : modLiquor.CurrentPrice;
+                                                    modUnitCost = costItem.PackSize > 0 ? (costItem.CurrentPrice / costItem.PackSize) : costItem.CurrentPrice;
                                                 }
                                                 else
                                                 {
-                                                    decimal vol = modLiquor.BottleVolumeOunces ?? 25.4m;
+                                                    decimal vol = costItem.BottleVolumeOunces ?? 25.4m;
                                                     decimal pour = modLiquor.PourVolumeOunces ?? modLiquor.PourSize;
+                                                    if (pour == 0) pour = costItem.PourVolumeOunces ?? costItem.PourSize;
                                                     if (pour == 0) pour = 1.5m;
-                                                    modUnitCost = vol > 0 ? (modLiquor.CurrentPrice / vol) * pour : 0m;
+                                                    modUnitCost = vol > 0 ? (costItem.CurrentPrice / vol) * pour : 0m;
                                                 }
                                             }
 

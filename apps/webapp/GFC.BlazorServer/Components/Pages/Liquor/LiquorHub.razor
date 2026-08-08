@@ -4002,11 +4002,19 @@
                 var historyOrders = allOrders.Where(o => o.Status != "Placed").OrderByDescending(o => o.OrderDate).ToList();
                 
                 // Query actual depletions (sales/consumption) from database transactions instead of completed purchase orders
-                var itemOrderCounts = await db.LiquorTransactions
-                    .Where(t => t.ChangeAmount < 0)
+                var rawTxCounts = await db.LiquorTransactions
+                    .Include(t => t.Item)
+                    .Where(t => t.ChangeAmount < 0 && t.Item != null && t.Notes != null)
+                    .ToListAsync();
+                
+                var itemOrderCounts = rawTxCounts
+                    .Where(t => {
+                        var cat = t.Item.Category?.ToUpper() ?? "";
+                        return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                               ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+                    })
                     .GroupBy(t => t.ItemId)
-                    .Select(g => new { ItemId = g.Key, TotalSold = g.Sum(t => -t.ChangeAmount) })
-                    .ToDictionaryAsync(x => x.ItemId, x => x.TotalSold);
+                    .ToDictionary(g => g.Key, g => g.Sum(t => -t.ChangeAmount));
                 
                 var lastReconcileDate = recentTransactions
                     .Where(t => t.TransactionType == "Reconcile")

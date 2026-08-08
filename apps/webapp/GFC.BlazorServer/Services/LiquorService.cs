@@ -442,7 +442,7 @@ namespace GFC.BlazorServer.Services
             {
                 ItemId = itemId,
                 UserId = userId,
-                ChangeAmount = (int)Math.Round(actualDelta),
+                ChangeAmount = delta,
                 TransactionType = "Adjustment",
                 Notes = $"{reason} (Location: {targetLocation}, From {oldStock:F2} to {locStock.Stock:F2})",
                 Timestamp = DateTime.UtcNow
@@ -1124,9 +1124,16 @@ namespace GFC.BlazorServer.Services
             }
 
             // Get historical transactions for usages (checkouts & negative adjustments)
-            var allTransactions = await db.LiquorTransactions
-                .Where(t => t.ChangeAmount < 0)
+            var rawTransactions = await db.LiquorTransactions
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0 && t.Item != null && t.Notes != null)
                 .ToListAsync();
+
+            var allTransactions = rawTransactions.Where(t => {
+                var cat = t.Item.Category?.ToUpper() ?? "";
+                return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                       ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+            }).ToList();
 
             // Get recent order history for feedback loops (last 4 weeks)
             var fourWeeksAgo = now.AddDays(-28);

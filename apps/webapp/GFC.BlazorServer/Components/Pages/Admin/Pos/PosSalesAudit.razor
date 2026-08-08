@@ -255,6 +255,9 @@
                             <button class="btn btn-sm rounded-pill px-4 @(_inventorySubTab == "trends" ? "btn-primary fw-bold shadow-xs" : "btn-light text-muted fw-bold border-0")" style="font-size: 0.78rem;" @onclick='() => SetInventorySubTab("trends")'>
                                 <i class="bi bi-graph-up me-1"></i> PULL TRENDS
                             </button>
+                            <button class="btn btn-sm rounded-pill px-4 @(_inventorySubTab == "insights" ? "btn-primary fw-bold shadow-xs" : "btn-light text-muted fw-bold border-0")" style="font-size: 0.78rem;" @onclick='() => SetInventorySubTab("insights")'>
+                                <i class="bi bi-pie-chart me-1"></i> VISUAL INSIGHTS
+                            </button>
                         </div>
                         
                         @if (FilterShiftId.HasValue && SelectedZReport != null)
@@ -380,105 +383,132 @@
                                         <span class="badge bg-danger text-white px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">🔴 Low Stock (At/Below safety limit)</span>
                                     </small>
                                 </div>
-                                <div class="d-flex gap-2">
-                                    <select class="form-select fw-bold bg-light" style="max-width: 180px; font-size: 0.85rem;" @bind="_stockCategoryFilter">
+                                <div class="d-flex gap-2 align-items-center">
+                                    <div class="form-check form-switch bg-white rounded-pill px-3 py-1.5 border shadow-sm d-inline-flex align-items-center gap-2 cursor-pointer me-1">
+                                        <input class="form-check-input ms-0 cursor-pointer" type="checkbox" id="barStockStockTabSwitch" @bind="_includeBarStock" @bind:after="OnStockFiltersChanged" />
+                                        <label class="form-check-label fw-bold text-dark cursor-pointer mb-0" for="barStockStockTabSwitch" style="font-size: 0.72rem; user-select: none;">
+                                            <i class="bi bi-funnel-fill text-primary me-1"></i>BAR STOCK
+                                        </label>
+                                    </div>
+                                    <div class="btn-group btn-group-sm rounded-pill p-1 bg-light border me-2" style="font-size: 0.72rem;">
+                                        <button class="btn btn-sm rounded-pill px-3 @(_stockViewMode == "CARDS" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.75rem;" @onclick='() => SetStockViewMode("CARDS")'>CARD VIEW</button>
+                                        <button class="btn btn-sm rounded-pill px-3 @(_stockViewMode == "VISUAL" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.75rem;" @onclick='() => SetStockViewMode("VISUAL")'>VISUAL VIEW</button>
+                                    </div>
+                                    <select class="form-select fw-bold bg-light" style="max-width: 180px; font-size: 0.85rem;" @bind="_stockCategoryFilter" @bind:after="OnStockFiltersChanged">
                                         <option value="ALL">ALL CATEGORIES</option>
                                         @foreach (var cat in DbLiquorItems.Where(i => i.IsActive && IsLiquorInventoryItem(i) && !string.IsNullOrEmpty(i.Category)).Select(i => i.Category.ToUpper()).Distinct().OrderBy(c => c))
                                         {
                                             <option value="@cat">@cat</option>
                                         }
                                     </select>
+                                    <select class="form-select fw-bold bg-light" style="max-width: 180px; font-size: 0.85rem;" @bind="_stockSortOption" @bind:after="OnStockFiltersChanged">
+                                        <option value="NAME_ASC">SORT: NAME A-Z</option>
+                                        <option value="STOCK_DESC">SORT: STOCK HIGH-LOW</option>
+                                        <option value="STOCK_ASC">SORT: STOCK LOW-HIGH</option>
+                                        <option value="USAGE_DESC">SORT: USAGE HIGH-LOW</option>
+                                    </select>
                                     <div class="input-group" style="max-width: 250px;">
                                         <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
-                                        <input type="text" class="form-control fw-bold bg-light" placeholder="Search stock..." @bind="_stockSearchText" @bind:event="oninput" style="font-size: 0.85rem;" />
+                                        <input type="text" class="form-control fw-bold bg-light" placeholder="Search stock..." @bind="_stockSearchText" @bind:event="oninput" @onkeyup="OnStockSearchKeyup" style="font-size: 0.85rem;" />
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="flex-grow-1 overflow-auto custom-scrollbar px-5 py-4 bg-white">
-                            <div class="row g-3">
-                                @foreach (var item in DbLiquorItems.Where(i => i.IsActive && IsLiquorInventoryItem(i) && (_stockCategoryFilter == "ALL" || (i.Category ?? "").ToUpper() == _stockCategoryFilter) && (string.IsNullOrEmpty(_stockSearchText) || i.Name.Contains(_stockSearchText, StringComparison.OrdinalIgnoreCase))).OrderBy(i => (i.Category ?? "").ToUpper()).ThenBy(i => i.Name))
-                                {
-                                    var isMainLow = IsLocationLowStock(item, "MAIN_STORAGE");
-                                    var isDownLow = IsLocationLowStock(item, "DOWNSTAIRS_BAR");
-                                    var isUpLow = IsLocationLowStock(item, "UPSTAIRS_BAR");
-                                    var isTotalLow = IsLocationLowStock(item, "ALL");
+                            @if (_stockViewMode == "CARDS")
+                            {
+                                <div class="row g-3">
+                                    @foreach (var item in GetSortedStockItems(_stockPullsInPeriod))
+                                    {
+                                        var isMainLow = IsLocationLowStock(item, "MAIN_STORAGE");
+                                        var isDownLow = IsLocationLowStock(item, "DOWNSTAIRS_BAR");
+                                        var isUpLow = IsLocationLowStock(item, "UPSTAIRS_BAR");
+                                        var isTotalLow = _includeBarStock ? IsLocationLowStock(item, "ALL") : isMainLow;
 
-                                    var mainStock = GetStockSummaryForLocation(item, "MAIN_STORAGE");
-                                    var downStock = GetStockSummaryForLocation(item, "DOWNSTAIRS_BAR");
-                                    var upStock = GetStockSummaryForLocation(item, "UPSTAIRS_BAR");
-                                    var totalStock = GetStockSummaryForLocation(item, "ALL");
+                                        var mainStock = GetStockSummaryForLocation(item, "MAIN_STORAGE");
+                                        var downStock = GetStockSummaryForLocation(item, "DOWNSTAIRS_BAR");
+                                        var upStock = GetStockSummaryForLocation(item, "UPSTAIRS_BAR");
+                                        var totalStock = _includeBarStock ? GetStockSummaryForLocation(item, "ALL") : mainStock;
 
-                                    <div class="col-12 col-md-6 col-lg-4 col-xxl-3">
-                                        <div class="card border rounded-4 shadow-sm h-100 bg-white">
-                                            <div class="card-body p-3 d-flex flex-column justify-content-between">
-                                                <div>
-                                                    <!-- Title & Size -->
-                                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
-                                                        <h6 class="fw-black text-dark mb-0 text-uppercase text-truncate" style="font-size: 0.85rem; max-width: 70%;" title="@item.Name">@item.Name</h6>
-                                                        <span class="badge bg-light text-muted border text-uppercase" style="font-size: 0.65rem; flex-shrink: 0;">@item.BottleSize</span>
+                                        <div class="col-12 col-md-6 col-lg-4 col-xxl-3">
+                                            <div class="card border rounded-4 shadow-sm h-100 bg-white">
+                                                <div class="card-body p-3 d-flex flex-column justify-content-between">
+                                                    <div>
+                                                        <!-- Title & Size -->
+                                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                                                            <h6 class="fw-black text-dark mb-0 text-uppercase text-truncate" style="font-size: 0.85rem; max-width: 70%;" title="@item.Name">@item.Name</h6>
+                                                            <span class="badge bg-light text-muted border text-uppercase" style="font-size: 0.65rem; flex-shrink: 0;">@item.BottleSize</span>
+                                                        </div>
+                                                        <!-- Category Label -->
+                                                        <div class="mb-3">
+                                                            <span class="badge bg-secondary-subtle text-secondary text-uppercase" style="font-size: 0.62rem; font-weight: 700;">@item.Category</span>
+                                                            @if ((item.IsUnitBased || item.IsBeer) && !_includeBarStock)
+                                                            {
+                                                                <!-- Single Stock Display for Main Storage Only -->
+                                                                <div class="p-2 bg-light rounded text-center border border-light mb-2">
+                                                                    <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Main Storage Stock</div>
+                                                                    <span class="badge @(isMainLow ? "bg-danger" : "bg-success") text-white fw-bold px-3 py-1.5" style="font-size: 0.78rem; display: inline-block;">
+                                                                        @mainStock
+                                                                    </span>
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <!-- 3-Column Location Grid for Liquor and Wine -->
+                                                                <div class="row g-2 mb-2">
+                                                                    <!-- Main Storage -->
+                                                                    <div class="col-4">
+                                                                        <div class="p-2 bg-light rounded text-center h-100 border border-light">
+                                                                            <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Main</div>
+                                                                            <span class="badge @(isMainLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
+                                                                                @mainStock
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <!-- Downstairs Bar -->
+                                                                    <div class="col-4">
+                                                                        <div class="p-2 bg-light rounded text-center h-100 border border-light">
+                                                                            <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Down</div>
+                                                                            <span class="badge @(isDownLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
+                                                                                @downStock
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <!-- Upstairs Bar -->
+                                                                    <div class="col-4">
+                                                                        <div class="p-2 bg-light rounded text-center h-100 border border-light">
+                                                                            <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Up</div>
+                                                                            <span class="badge @(isUpLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
+                                                                                @upStock
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
                                                     </div>
-                                                    <!-- Category Label -->
-                                                    <div class="mb-3">
-                                                        <span class="badge bg-secondary-subtle text-secondary text-uppercase" style="font-size: 0.62rem; font-weight: 700;">@item.Category</span>
-                                                        @if (item.IsUnitBased || item.IsBeer)
-                                                        {
-                                                            <!-- Single Stock Display for Main Storage Only -->
-                                                            <div class="p-2 bg-light rounded text-center border border-light mb-2">
-                                                                <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Main Storage Stock</div>
-                                                                <span class="badge @(isMainLow ? "bg-danger" : "bg-success") text-white fw-bold px-3 py-1.5" style="font-size: 0.78rem; display: inline-block;">
-                                                                    @mainStock
-                                                                </span>
-                                                            </div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <!-- 3-Column Location Grid for Liquor and Wine -->
-                                                            <div class="row g-2 mb-2">
-                                                                <!-- Main Storage -->
-                                                                <div class="col-4">
-                                                                    <div class="p-2 bg-light rounded text-center h-100 border border-light">
-                                                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Main</div>
-                                                                        <span class="badge @(isMainLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
-                                                                            @mainStock
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                                <!-- Downstairs Bar -->
-                                                                <div class="col-4">
-                                                                    <div class="p-2 bg-light rounded text-center h-100 border border-light">
-                                                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Down</div>
-                                                                        <span class="badge @(isDownLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
-                                                                            @downStock
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                                <!-- Upstairs Bar -->
-                                                                <div class="col-4">
-                                                                    <div class="p-2 bg-light rounded text-center h-100 border border-light">
-                                                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.55rem; letter-spacing: 0.5px;">Up</div>
-                                                                        <span class="badge @(isUpLow ? "bg-danger" : "bg-success") text-white fw-bold px-1 py-1" style="font-size: 0.68rem; display: block; white-space: normal; line-height: 1.2; min-height: 1.8rem; display: flex; align-items: center; justify-content: center;">
-                                                                            @upStock
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                </div>
 
-                                                <!-- Total Footer -->
-                                                <div class="border-top pt-2 mt-2 d-flex justify-content-between align-items-center">
-                                                    <span class="text-muted fw-bold" style="font-size: 0.68rem; letter-spacing: 0.5px;">TOTAL STOCK:</span>
-                                                    <span class="badge @(isTotalLow ? "bg-danger" : "bg-success") text-white fw-black px-2 py-1" style="font-size: 0.72rem;">
-                                                        @totalStock
-                                                    </span>
+                                                    <!-- Total Footer -->
+                                                    <div class="border-top pt-2 d-flex justify-content-between align-items-center">
+                                                        <span class="text-muted fw-bold" style="font-size: 0.68rem; letter-spacing: 0.5px;">TOTAL STOCK:</span>
+                                                        <span class="badge @(isTotalLow ? "bg-danger" : "bg-success") text-white fw-black px-2 py-1" style="font-size: 0.72rem;">
+                                    @totalStock
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="card border rounded-4 shadow-sm p-4 bg-white">
+                                    <div class="chart-container" style="position: relative; width: 100%; min-height: 480px; height: 480px;">
+                                        <canvas id="currentStockLevelsChart"></canvas>
                                     </div>
-                                }
-                            </div>
+                                </div>
+                            }
                         </div>
                     }
                     else if (_inventorySubTab == "trends")
@@ -555,6 +585,119 @@
                                             }
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else if (_inventorySubTab == "insights")
+                    {
+                        <div class="flex-grow-1 d-flex flex-column bg-light p-4" style="overflow-y: auto;">
+                            <!-- BAR STOCK FILTER SWITCH -->
+                            <div class="d-flex justify-content-end mb-3">
+                                <div class="form-check form-switch bg-white rounded-pill px-4 py-2 border shadow-sm d-inline-flex align-items-center gap-2 cursor-pointer">
+                                    <input class="form-check-input ms-0 cursor-pointer" type="checkbox" id="barStockSwitch" @bind="_includeBarStock" @bind:after="OnBarStockToggleChanged" />
+                                    <label class="form-check-label fw-bold text-dark cursor-pointer extra-small mb-0" for="barStockSwitch" style="font-size: 0.72rem; user-select: none;">
+                                        <i class="bi bi-funnel-fill text-primary me-1"></i>INCLUDE ACTIVE BAR STOCK
+                                    </label>
+                                </div>
+                            </div>
+                            <!-- STATS CARDS GRID -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-12 col-md-3">
+                                    <div class="card border rounded-4 shadow-sm p-3 bg-white h-100" @onclick='() => OpenInsightsDetail("SALES")' style="cursor: pointer;">
+                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.65rem;">TOTAL POS SALES</div>
+                                        <div class="d-flex justify-content-between align-items-baseline">
+                                            <span class="fs-4 fw-black text-dark">@InsightsTotalSales.ToString("C")</span>
+                                            <span class="badge @(InsightsSalesDiffPercent >= 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger")" style="font-size: 0.72rem;">
+                                                @(InsightsSalesDiffPercent >= 0 ? "+" : "")@InsightsSalesDiffPercent.ToString("F1")%
+                                            </span>
+                                        </div>
+                                        <div class="text-muted extra-small mt-1" style="font-size: 0.62rem;">Tickets: @InsightsTotalTickets</div>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <div class="card border rounded-4 shadow-sm p-3 bg-white h-100" @onclick='() => OpenInsightsDetail("AVERAGE_TICKET")' style="cursor: pointer;">
+                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.65rem;">AVERAGE TICKET SIZE</div>
+                                        <div class="d-flex justify-content-between align-items-baseline">
+                                            <span class="fs-4 fw-black text-primary">@InsightsAverageTicket.ToString("C")</span>
+                                            <span class="badge @(InsightsAvgTicketDiffPercent >= 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger")" style="font-size: 0.72rem;">
+                                                @(InsightsAvgTicketDiffPercent >= 0 ? "+" : "")@InsightsAvgTicketDiffPercent.ToString("F1")%
+                                            </span>
+                                        </div>
+                                        <div class="text-muted extra-small mt-1" style="font-size: 0.62rem;">Per customer transaction</div>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <div class="card border rounded-4 shadow-sm p-3 bg-white h-100" @onclick='() => OpenInsightsDetail("POUR_COST")' style="cursor: pointer;">
+                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.65rem;">ESTIMATED POUR COST</div>
+                                        <div class="d-flex justify-content-between align-items-baseline">
+                                            @{
+                                                string pcColor = InsightsPourCostPercent > 25 ? "text-danger" : (InsightsPourCostPercent > 20 ? "text-warning" : "text-success");
+                                            }
+                                            <span class="fs-4 fw-black @pcColor">@InsightsPourCostPercent.ToString("F1")%</span>
+                                            <span class="badge @(InsightsPourCostDiffPercent <= 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger")" style="font-size: 0.72rem;">
+                                                @(InsightsPourCostDiffPercent >= 0 ? "+" : "")@InsightsPourCostDiffPercent.ToString("F1")% pts
+                                            </span>
+                                        </div>
+                                        <div class="text-muted extra-small mt-1" style="font-size: 0.62rem;">Cost: @InsightsPourCostCost.ToString("C")</div>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <div class="card border rounded-4 shadow-sm p-3 bg-white h-100" @onclick='() => OpenInsightsDetail("INVENTORY")' style="cursor: pointer;">
+                                        <div class="text-muted fw-bold extra-small text-uppercase mb-1" style="font-size: 0.65rem;">TOTAL ON-HAND INVENTORY VALUE</div>
+                                        <div class="d-flex justify-content-between align-items-baseline">
+                                            <span class="fs-4 fw-black text-success">@InsightsStockValue.ToString("C")</span>
+                                        </div>
+                                        <div class="text-muted extra-small mt-1" style="font-size: 0.62rem;">Wholesale asset value</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CHARTS ROW 1 -->
+                             <div class="row g-4 mb-4">
+                                 <div class="col-12 col-lg-4">
+                                     <div class="card border rounded-4 shadow-sm p-4 bg-white">
+                                         <div class="d-flex justify-content-between align-items-center mb-3">
+                                             <h6 class="fw-black mb-0 text-dark" style="font-size: 0.85rem;"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>STOCK VS. USAGE</h6>
+                                             <div class="btn-group btn-group-sm rounded-pill p-0 bg-light border" style="font-size: 0.7rem;">
+                                                 <button class="btn btn-sm rounded-pill py-0 px-2 @(_insightsChartFilter == "ALL" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.65rem;" @onclick='() => SetInsightsChartFilter("ALL")'>ALL</button>
+                                                 <button class="btn btn-sm rounded-pill py-0 px-2 @(_insightsChartFilter == "LIQUOR" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.65rem;" @onclick='() => SetInsightsChartFilter("LIQUOR")'>LIQ</button>
+                                                 <button class="btn btn-sm rounded-pill py-0 px-2 @(_insightsChartFilter == "BEER" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.65rem;" @onclick='() => SetInsightsChartFilter("BEER")'>BEER</button>
+                                                 <button class="btn btn-sm rounded-pill py-0 px-2 @(_insightsChartFilter == "SELTZER" ? "btn-primary text-white" : "btn-light text-muted border-0")" style="font-size: 0.65rem;" @onclick='() => SetInsightsChartFilter("SELTZER")'>SELTZ</button>
+                                             </div>
+                                         </div>
+                                         <div class="chart-container" style="position: relative; width: 100%; height: 320px;">
+                                             <canvas id="stockVsUsageChart"></canvas>
+                                         </div>
+                                     </div>
+                                 </div>
+                                 <div class="col-12 col-lg-4">
+                                     <div class="card border rounded-4 shadow-sm p-4 bg-white">
+                                         <h6 class="fw-black mb-3 text-dark"><i class="bi bi-pie-chart-fill me-2 text-primary"></i>REVENUE BY CATEGORY</h6>
+                                         <div class="chart-container" style="position: relative; width: 100%; height: 320px;">
+                                             <canvas id="categoryShareChart"></canvas>
+                                         </div>
+                                     </div>
+                                 </div>
+                                 <div class="col-12 col-lg-4">
+                                     <div class="card border rounded-4 shadow-sm p-4 bg-white">
+                                         <h6 class="fw-black mb-3 text-dark"><i class="bi bi-pie-chart-fill me-2 text-primary"></i>REVENUE BY PRODUCT (TOP 10)</h6>
+                                         <div class="chart-container" style="position: relative; width: 100%; height: 320px;">
+                                             <canvas id="productShareChart"></canvas>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+
+                            <!-- CHARTS ROW 2 (HISTORICAL TRENDS) -->
+                            <div class="row g-4">
+                                <div class="col-12">
+                                    <div class="card border rounded-4 shadow-sm p-4 bg-white">
+                                        <h6 class="fw-black mb-3 text-dark"><i class="bi bi-graph-up me-2 text-primary"></i>SALES REVENUE VS. COST OF GOODS USED (LAST 6 MONTHS)</h6>
+                                        <div class="chart-container" style="position: relative; width: 100%; height: 280px;">
+                                            <canvas id="insightsTrendChart"></canvas>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1537,15 +1680,31 @@
                                     <div class="label m-0 text-white opacity-75">TOTAL REMOVAL COST</div>
                                     <div class="value text-white" style="font-size: 1.5rem;">
                                         @{
-                                            var pulls = _ledgerTransactions
-                                                .Where(t => t.TransactionType == "Checkout" && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"));
-                                                
-                                            if (_inventorySubTab == "trends" && _selectedWeekStart.HasValue && _selectedWeekEnd.HasValue)
-                                            {
-                                                pulls = pulls.Where(t => t.Timestamp.ToLocalTime().Date >= _selectedWeekStart.Value && t.Timestamp.ToLocalTime().Date < _selectedWeekEnd.Value);
-                                            }
-                                            
-                                            var totalRemovalCost = pulls.Sum(t => Math.Abs(t.ChangeAmount) * (t.Item?.CurrentPrice ?? 0));
+                                            var totalRemovalCost = SummaryResults
+                                                .Where(s => {
+                                                    var cat = (s.Category ?? "").ToUpper();
+                                                    return cat == "BEER" || cat == "SELTZER" || cat == "CIDER" || cat == "LIQUOR" || cat == "WINE";
+                                                })
+                                                .Sum(s => {
+                                                    var item = DbLiquorItems.FirstOrDefault(i =>
+                                                        i.Name.Equals(s.Name, StringComparison.OrdinalIgnoreCase) ||
+                                                        CleanProductName(i.Name).Equals(CleanProductName(s.Name), StringComparison.OrdinalIgnoreCase));
+                                                    if (item == null) return 0m;
+                                                    
+                                                    decimal unitCost = 0m;
+                                                    if (item.IsUnitBased || item.IsBeer || (item.Category != null && item.Category.Trim().ToUpper() == "BEER"))
+                                                    {
+                                                        unitCost = item.PackSize > 1 ? item.CurrentPrice / item.PackSize : item.CurrentPrice;
+                                                    }
+                                                    else
+                                                    {
+                                                        decimal vol = item.BottleVolumeOunces ?? 25.4m;
+                                                        decimal pour = item.PourVolumeOunces ?? item.PourSize;
+                                                        if (pour == 0) pour = 1.5m;
+                                                        unitCost = vol > 0 ? (item.CurrentPrice / vol) * pour : 0m;
+                                                    }
+                                                    return s.Quantity * unitCost;
+                                                });
                                         }
                                         @totalRemovalCost.ToString("C")
                                     </div>
@@ -1558,26 +1717,44 @@
 
                         <div class="row g-2 mb-1">
                             @{
-                                var breakPulls = _ledgerTransactions
-                                    .Where(t => t.TransactionType == "Checkout" && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal") && t.Item != null);
-                                    
-                                if (_inventorySubTab == "trends" && _selectedWeekStart.HasValue && _selectedWeekEnd.HasValue)
-                                {
-                                    breakPulls = breakPulls.Where(t => t.Timestamp.ToLocalTime().Date >= _selectedWeekStart.Value && t.Timestamp.ToLocalTime().Date < _selectedWeekEnd.Value);
-                                }
-
-                                var groupedRemovalCosts = breakPulls
-                                    .GroupBy(t => (t.Item.Category ?? "MISC").ToUpper())
-                                    .ToDictionary(g => g.Key, g => g.Sum(t => Math.Abs(t.ChangeAmount) * t.Item.CurrentPrice));
+                                var inventoryByCat = SummaryResults
+                                    .Where(s => {
+                                        var cat = (s.Category ?? "").ToUpper();
+                                        return cat == "BEER" || cat == "SELTZER" || cat == "CIDER" || cat == "LIQUOR" || cat == "WINE";
+                                    })
+                                    .GroupBy(s => (s.Category ?? "MISC").ToUpper())
+                                    .ToDictionary(g => g.Key, g => g.Sum(s => {
+                                        var item = DbLiquorItems.FirstOrDefault(i =>
+                                            i.Name.Equals(s.Name, StringComparison.OrdinalIgnoreCase) ||
+                                            CleanProductName(i.Name).Equals(CleanProductName(s.Name), StringComparison.OrdinalIgnoreCase));
+                                        if (item == null) return 0m;
+                                        
+                                        decimal unitCost = 0m;
+                                        if (item.IsUnitBased || item.IsBeer || (item.Category != null && item.Category.Trim().ToUpper() == "BEER"))
+                                        {
+                                            unitCost = item.PackSize > 1 ? item.CurrentPrice / item.PackSize : item.CurrentPrice;
+                                        }
+                                        else
+                                        {
+                                            decimal vol = item.BottleVolumeOunces ?? 25.4m;
+                                            decimal pour = item.PourVolumeOunces ?? item.PourSize;
+                                            if (pour == 0) pour = 1.5m;
+                                            unitCost = vol > 0 ? (item.CurrentPrice / vol) * pour : 0m;
+                                        }
+                                        return s.Quantity * unitCost;
+                                    }));
                             }
-                            @foreach (var catCost in groupedRemovalCosts.OrderByDescending(c => c.Value))
+                            @if (inventoryByCat.Count > 1)
                             {
-                                <div class="col-6">
-                                    <div class="stat-card station-stat h-100 p-2 ps-3">
-                                        <div class="label" style="font-size: 0.55rem;">@catCost.Key</div>
-                                        <div class="value" style="font-size: 0.95rem !important;">@catCost.Value.ToString("C")</div>
+                                @foreach (var catCost in inventoryByCat.OrderByDescending(c => c.Value))
+                                {
+                                    <div class="col-6">
+                                        <div class="stat-card station-stat h-100 p-2 ps-3">
+                                            <div class="label" style="font-size: 0.55rem;">@catCost.Key</div>
+                                            <div class="value" style="font-size: 0.95rem !important;">@catCost.Value.ToString("C")</div>
+                                        </div>
                                     </div>
-                                </div>
+                                }
                             }
                         </div>
                     </div>
@@ -2134,6 +2311,143 @@
     </div>
 }
 
+@if (_showInsightsDetailModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header border-bottom py-3">
+                    <h5 class="modal-title fw-black text-primary">
+                        @if (_insightsDetailType == "SALES") { <span>POS SALES BREAKDOWN</span> }
+                        else if (_insightsDetailType == "AVERAGE_TICKET") { <span>AVERAGE TICKET SIZES BY STATION</span> }
+                        else if (_insightsDetailType == "POUR_COST") { <span>POUR COST & SHRINKAGE BREAKDOWN</span> }
+                        else if (_insightsDetailType == "INVENTORY") { <span>ON-HAND INVENTORY WHOLESALE VALUES</span> }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick='() => _showInsightsDetailModal = false'></button>
+                </div>
+                <div class="modal-body p-0" style="max-height: 500px; overflow-y: auto;">
+                    @if (_insightsDetailType == "INVENTORY")
+                    {
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="ps-4">PRODUCT</th>
+                                    <th>CATEGORY</th>
+                                    <th class="text-center">STOCK</th>
+                                    <th class="text-end">UNIT COST</th>
+                                    <th class="pe-4 text-end">TOTAL VALUE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in DbLiquorItems.Where(i => i.IsActive && IsLiquorInventoryItem(i) && GetEffectiveStock(i) > 0).OrderByDescending(i => GetEffectiveStock(i) * (i.PackSize > 1 ? i.CurrentPrice / i.PackSize : i.CurrentPrice)))
+                                {
+                                    var unitCost = item.PackSize > 1 ? item.CurrentPrice / item.PackSize : item.CurrentPrice;
+                                    var effectiveStock = GetEffectiveStock(item);
+                                    var val = effectiveStock * unitCost;
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-dark">@item.Name.ToUpper()</td>
+                                        <td><span class="badge bg-light text-muted border text-uppercase" style="font-size: 0.65rem;">@item.Category</span></td>
+                                        <td class="text-center fw-black">@effectiveStock @(effectiveStock == 1 ? "unit" : "units")</td>
+                                        <td class="text-end text-muted">@unitCost.ToString("C")</td>
+                                        <td class="pe-4 text-end fw-black text-success">@val.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else if (_insightsDetailType == "SALES")
+                    {
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="ps-4">ITEM NAME</th>
+                                    <th>CATEGORY</th>
+                                    <th class="text-center">QTY SOLD</th>
+                                    <th class="pe-4 text-end">REVENUE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in SummaryResults.OrderByDescending(x => x.Revenue))
+                                {
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-dark">@r.Name.ToUpper()</td>
+                                        <td><span class="badge bg-light text-muted border text-uppercase" style="font-size: 0.65rem;">@r.Category</span></td>
+                                        <td class="text-center fw-black">@r.Quantity</td>
+                                        <td class="pe-4 text-end fw-black text-dark">@r.Revenue.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else if (_insightsDetailType == "AVERAGE_TICKET")
+                    {
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="ps-4">STATION / TERMINAL</th>
+                                    <th class="text-center">TICKETS</th>
+                                    <th class="pe-4 text-end">AVERAGE SPEND</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var station in StationTotals)
+                                {
+                                    var count = Sales.Count(s => s.TerminalName == station.Key);
+                                    var avg = count > 0 ? station.Value / count : 0;
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-dark">@station.Key.ToUpper()</td>
+                                        <td class="text-center fw-bold text-muted">@count</td>
+                                        <td class="pe-4 text-end fw-black text-primary">@avg.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else if (_insightsDetailType == "POUR_COST")
+                    {
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="ps-4">LIQUOR BRAND</th>
+                                    <th class="text-center">PULLS COST</th>
+                                    <th class="text-center">RETAIL SALES</th>
+                                    <th class="pe-4 text-end">POUR COST %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var st = StartDate.Date.AddHours(3);
+                                    var en = EndDate.Date.AddDays(1).AddHours(3);
+                                    var pulls = _ledgerTransactions
+                                        .Where(t => t.TransactionType == "Checkout" && t.Timestamp >= st && t.Timestamp < en && t.Item != null);
+                                    var groupedPulls = pulls.GroupBy(p => p.Item);
+                                }
+                                @foreach (var group in groupedPulls.OrderByDescending(g => g.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice))))
+                                {
+                                    var cost = group.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice));
+                                    var salesVal = Sales.SelectMany(s => GetItemsList(s.ItemsJson))
+                                        .Where(i => i != null && i.Name.Equals(group.Key.Name, StringComparison.OrdinalIgnoreCase))
+                                        .Sum(i => i.Price * i.Quantity);
+                                    var pc = salesVal > 0 ? (cost / salesVal) * 100 : 0;
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-dark">@group.Key.Name.ToUpper()</td>
+                                        <td class="text-center fw-bold text-danger">@cost.ToString("C")</td>
+                                        <td class="text-center fw-bold text-success">@salesVal.ToString("C")</td>
+                                        <td class="pe-4 text-end fw-black">@(salesVal > 0 ? $"{pc:F1}%" : "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+                <div class="modal-footer border-top py-3">
+                    <button class="btn btn-secondary rounded-pill fw-bold px-4" @onclick='() => _showInsightsDetailModal = false'>CLOSE DETAILS</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showRedemptionListModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
@@ -2407,6 +2721,174 @@
     private string _stockCategoryFilter = "ALL";
     private string _inventorySubTab = "stock";
 
+    // Visual Insights Fields
+    private decimal InsightsTotalSales = 0;
+    private int InsightsTotalTickets = 0;
+    private decimal InsightsAverageTicket = 0;
+    private decimal InsightsPourCostCost = 0;
+    private decimal InsightsPourCostSales = 0;
+    private decimal InsightsPourCostPercent => InsightsPourCostSales > 0 ? (InsightsPourCostCost / InsightsPourCostSales) * 100 : 0;
+    private decimal InsightsTokenYield = 0;
+    private decimal InsightsStockValue = 0;
+    
+    // Comparison metrics (differences vs prior period)
+    private decimal InsightsSalesDiffPercent = 0;
+    private decimal InsightsTicketDiffPercent = 0;
+    private decimal InsightsAvgTicketDiffPercent = 0;
+    private decimal InsightsPourCostDiffPercent = 0;
+    private decimal InsightsTokenYieldDiffPercent = 0;
+
+    private bool _showInsightsDetailModal = false;
+    private string _insightsDetailType = "";
+    private void OpenInsightsDetail(string type)
+    {
+        _insightsDetailType = type;
+        _showInsightsDetailModal = true;
+    }
+
+    private string _insightsChartFilter = "ALL";
+    private async Task SetInsightsChartFilter(string filter)
+    {
+        _insightsChartFilter = filter;
+        await RenderInsightsCharts();
+    }
+
+    private bool _includeBarStock = false;
+    private void OnBarStockToggleChanged()
+    {
+        _ = Task.Run(async () => {
+            await InvokeAsync(async () => {
+                await CalculateVisualInsightsStats();
+                await RenderInsightsCharts();
+                if (_stockViewMode == "VISUAL")
+                {
+                    await RenderStockLevelsChart();
+                }
+                StateHasChanged();
+            });
+        });
+    }
+
+    private int GetEffectiveStock(LiquorItem item)
+    {
+        int baseStock = item.CurrentStock;
+        if (_includeBarStock && DbLocationStocks != null)
+        {
+            var barStock = DbLocationStocks
+                .Where(ls => ls.ItemId == item.Id && ls.LocationName != "MAIN_STORAGE")
+                .Sum(ls => (int)Math.Max(0, Math.Round(ls.Stock)));
+            return baseStock + barStock;
+        }
+        return baseStock;
+    }
+
+    private string _stockSortOption = "NAME_ASC";
+    private Dictionary<int, int> _stockPullsInPeriod = new();
+    private List<LiquorTransaction> _removalTransactions = new();
+    private string _stockViewMode = "VISUAL";
+    private async Task SetStockViewMode(string mode)
+    {
+        _stockViewMode = mode;
+        if (mode == "VISUAL")
+        {
+            await Task.Delay(100);
+            await RenderStockLevelsChart();
+        }
+        else
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnStockFiltersChanged()
+    {
+        if (_stockViewMode == "VISUAL")
+        {
+            await RenderStockLevelsChart();
+        }
+        else
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnStockSearchKeyup(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (_stockViewMode == "VISUAL")
+        {
+            await RenderStockLevelsChart();
+        }
+    }
+
+    private async Task RenderStockLevelsChart()
+    {
+        if (ActiveTab != "INVENTORY" || _inventorySubTab != "stock" || _stockViewMode != "VISUAL") return;
+
+        var stockUsageMap = new Dictionary<int, int>();
+
+        // Build usage entirely from actual POS sales (SummaryResults) for all categories
+        foreach (var sale in SummaryResults)
+        {
+            var item = DbLiquorItems.FirstOrDefault(i => 
+                i.Name.Equals(sale.Name, StringComparison.OrdinalIgnoreCase) ||
+                CleanProductName(i.Name).Equals(CleanProductName(sale.Name), StringComparison.OrdinalIgnoreCase));
+            if (item != null)
+            {
+                if (stockUsageMap.ContainsKey(item.Id))
+                    stockUsageMap[item.Id] += sale.Quantity;
+                else
+                    stockUsageMap[item.Id] = sale.Quantity;
+            }
+        }
+
+        _stockPullsInPeriod = stockUsageMap;
+
+        var filteredItems = GetSortedStockItems(stockUsageMap);
+
+        var labels = filteredItems.Select(x => x.Name.ToUpper()).ToArray();
+        var stockData = filteredItems.Select(x => GetEffectiveStock(x)).ToArray();
+        var usedData = filteredItems.Select(x => stockUsageMap.ContainsKey(x.Id) ? stockUsageMap[x.Id] : 0).ToArray();
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderStockLevels", "currentStockLevelsChart", new {
+                labels,
+                stockData,
+                usedData
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error rendering stock levels chart: " + ex.Message);
+        }
+    }
+
+    private List<LiquorItem> GetSortedStockItems(Dictionary<int, int> pullsInPeriod)
+    {
+        var filtered = DbLiquorItems
+            .Where(i => i.IsActive && IsLiquorInventoryItem(i) && 
+                        (_stockCategoryFilter == "ALL" || (i.Category ?? "").ToUpper() == _stockCategoryFilter) && 
+                        (string.IsNullOrEmpty(_stockSearchText) || i.Name.Contains(_stockSearchText, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (_stockSortOption == "STOCK_DESC")
+        {
+            return filtered.OrderByDescending(x => GetEffectiveStock(x)).ThenBy(x => x.Name).ToList();
+        }
+        else if (_stockSortOption == "STOCK_ASC")
+        {
+            return filtered.OrderBy(x => GetEffectiveStock(x)).ThenBy(x => x.Name).ToList();
+        }
+        else if (_stockSortOption == "USAGE_DESC")
+        {
+            return filtered.OrderByDescending(x => pullsInPeriod.ContainsKey(x.Id) ? pullsInPeriod[x.Id] : 0).ThenBy(x => x.Name).ToList();
+        }
+        else // NAME_ASC
+        {
+            return filtered.OrderBy(x => x.Name).ToList();
+        }
+    }
+
     private string _selectedTrendWeek = "";
     private List<string> _trendWeeksList = new();
     private List<WeeklyBreakdownItem> _weeklyBreakdownItems = new();
@@ -2431,6 +2913,16 @@
             await Task.Delay(100);
             await RenderPullsChart();
         }
+        else if (tab == "insights")
+        {
+            await Task.Delay(100);
+            await RenderInsightsCharts();
+        }
+        else if (tab == "stock" && _stockViewMode == "VISUAL")
+        {
+            await Task.Delay(100);
+            await RenderStockLevelsChart();
+        }
     }
 
     private async Task SwitchTab(string tab)
@@ -2440,6 +2932,16 @@
         {
             await Task.Delay(100);
             await RenderPullsChart();
+        }
+        else if (tab == "INVENTORY" && _inventorySubTab == "insights")
+        {
+            await Task.Delay(100);
+            await RenderInsightsCharts();
+        }
+        else if (tab == "INVENTORY" && _inventorySubTab == "stock" && _stockViewMode == "VISUAL")
+        {
+            await Task.Delay(100);
+            await RenderStockLevelsChart();
         }
     }
 
@@ -2542,6 +3044,215 @@
         catch (Exception ex)
         {
             Console.WriteLine("Error rendering pulls chart: " + ex.Message);
+        }
+    }
+
+    private async Task RenderInsightsCharts()
+    {
+        if (ActiveTab != "INVENTORY" || _inventorySubTab != "insights") return;
+
+        try
+        {
+            // 1. Stock vs. Usage Data
+            var st = StartDate.Date.AddHours(3);
+            var en = EndDate.Date.AddDays(1).AddHours(3);
+            
+            using var db = DbFactory.CreateDbContext();
+            var pullsInPeriodList = await db.LiquorTransactions.AsNoTracking()
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0 && t.Timestamp >= st && t.Timestamp < en && t.Item != null && t.Notes != null)
+                .ToListAsync();
+
+            var pullsInPeriod = pullsInPeriodList
+                .Where(t => {
+                    var cat = t.Item.Category?.ToUpper() ?? "";
+                    return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                           ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+                })
+                .GroupBy(t => t.ItemId)
+                .ToDictionary(g => g.Key, g => g.Sum(t => (int)Math.Abs(t.ChangeAmount)));
+
+            var topItemsQuery = DbLiquorItems.Where(i => i.IsActive && IsLiquorInventoryItem(i));
+            if (_insightsChartFilter == "LIQUOR")
+            {
+                topItemsQuery = topItemsQuery.Where(i => i.Category != null && i.Category.ToUpper() == "LIQUOR");
+            }
+            else if (_insightsChartFilter == "BEER")
+            {
+                topItemsQuery = topItemsQuery.Where(i => i.Category != null && (i.Category.ToUpper() == "BEER" || i.Category.ToUpper() == "CIDER"));
+            }
+            else if (_insightsChartFilter == "SELTZER")
+            {
+                topItemsQuery = topItemsQuery.Where(i => i.Category != null && i.Category.ToUpper() == "SELTZER");
+            }
+
+            var topItems = topItemsQuery
+                .Select(i => new {
+                    Item = i,
+                    Used = pullsInPeriod.ContainsKey(i.Id) ? pullsInPeriod[i.Id] : 0,
+                    Stock = GetEffectiveStock(i)
+                })
+                .OrderByDescending(x => x.Used)
+                .Take(10)
+                .ToList();
+
+            var labels = topItems.Select(x => x.Item.Name.ToUpper()).ToArray();
+            var stockData = topItems.Select(x => x.Stock).ToArray();
+            var usedData = topItems.Select(x => x.Used).ToArray();
+
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderStockVsUsage", "stockVsUsageChart", new {
+                labels,
+                stockData,
+                usedData
+            });
+
+            // 2. Category Share Data
+            var categorySales = SummaryResults
+                .GroupBy(r => r.Category)
+                .Select(g => new { Category = g.Key.ToUpper(), Revenue = g.Sum(r => r.Revenue) })
+                .OrderByDescending(x => x.Revenue)
+                .ToList();
+
+            var catLabels = categorySales.Select(x => x.Category).ToArray();
+            var catData = categorySales.Select(x => x.Revenue).ToArray();
+
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderCategoryShare", "categoryShareChart", new {
+                labels = catLabels,
+                data = catData
+            });
+
+            // 2.5 Top 10 Products Revenue Share Data
+            var productSales = SummaryResults
+                .Select(r => new { Name = r.Name.ToUpper(), Revenue = r.Revenue })
+                .OrderByDescending(x => x.Revenue)
+                .Take(10)
+                .ToList();
+
+            var prodLabels = productSales.Select(x => x.Name).ToArray();
+            var prodData = productSales.Select(x => x.Revenue).ToArray();
+
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderCategoryShare", "productShareChart", new {
+                labels = prodLabels,
+                data = prodData
+            });
+
+            // 3. Trend Line Chart (Last 6 months)
+            var monthsList = new List<string>();
+            var salesTrend = new List<decimal>();
+            var costTrend = new List<decimal>();
+
+            for (int i = 5; i >= 0; i--)
+            {
+                var date = DateTime.Today.AddMonths(-i);
+                var monthLabel = date.ToString("MMM yyyy").ToUpper();
+                monthsList.Add(monthLabel);
+
+                // Use the loaded monthly analytics or query sales for this specific month range
+                using var db2 = DbFactory.CreateDbContext();
+                var mStart = new DateTime(date.Year, date.Month, 1);
+                var mEnd = mStart.AddMonths(1);
+
+                var mSales = await db2.PosSales.AsNoTracking()
+                    .Where(s => s.Timestamp >= mStart && s.Timestamp < mEnd && !s.IsVoided)
+                    .SumAsync(s => s.TotalAmount);
+                salesTrend.Add(mSales);
+
+                var mPulls = await db2.LiquorTransactions.AsNoTracking()
+                    .Include(t => t.Item)
+                    .Where(t => t.TransactionType == "Checkout" && t.Timestamp >= mStart && t.Timestamp < mEnd && t.Item != null && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"))
+                    .ToListAsync();
+                var mPullsCost = mPulls.Sum(t => Math.Abs(t.ChangeAmount) * (t.Item.PackSize > 1 ? t.Item.CurrentPrice / t.Item.PackSize : t.Item.CurrentPrice));
+                costTrend.Add(mPullsCost);
+            }
+
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderTrendLine", "insightsTrendChart", new {
+                labels = monthsList.ToArray(),
+                salesData = salesTrend.ToArray(),
+                costData = costTrend.ToArray()
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error rendering insights charts: " + ex.Message);
+        }
+    }
+
+    private async Task CalculateVisualInsightsStats()
+    {
+        try
+        {
+            var st = StartDate.Date.AddHours(3);
+            var en = EndDate.Date.AddDays(1).AddHours(3);
+            var duration = en - st;
+            
+            var priorSt = st - duration;
+            var priorEn = st;
+
+            // Current period calculations
+            InsightsTotalSales = TodayTotal; // TodayTotal contains the filtered sales total
+            InsightsTotalTickets = Sales.Count;
+            InsightsAverageTicket = InsightsTotalTickets > 0 ? InsightsTotalSales / InsightsTotalTickets : 0;
+
+            using var db = DbFactory.CreateDbContext();
+            
+            var pullsList = await db.LiquorTransactions.AsNoTracking()
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0 && t.Timestamp >= st && t.Timestamp < en && t.Item != null && t.Notes != null &&
+                            (t.Notes.Contains("POS Sale") || t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"))
+                .ToListAsync();
+
+            var filteredPulls = pullsList.Where(t => {
+                var cat = t.Item.Category?.ToUpper() ?? "";
+                return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                       ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+            }).ToList();
+
+            InsightsPourCostCost = filteredPulls.Sum(t => Math.Abs(t.ChangeAmount) * (t.Item.PackSize > 1 ? t.Item.CurrentPrice / t.Item.PackSize : t.Item.CurrentPrice));
+                
+            InsightsPourCostSales = Sales.SelectMany(s => GetItemsList(s.ItemsJson))
+                .Where(i => i != null && (i.Category == "LIQUOR" || i.Category == "BEER" || i.Category == "WINE" || i.Category == "TOKENS"))
+                .Sum(i => i.Price * i.Quantity);
+
+            InsightsTokenYield = TokenYields.Sum(y => y.NetFinancialImpact);
+            InsightsStockValue = DbLiquorItems.Where(i => i.IsActive && IsLiquorInventoryItem(i)).Sum(i => GetEffectiveStock(i) * (i.PackSize > 1 ? i.CurrentPrice / i.PackSize : i.CurrentPrice));
+
+            // Prior period calculations
+            var priorSales = await db.PosSales.AsNoTracking()
+                .Where(s => s.Timestamp >= priorSt && s.Timestamp < priorEn && !s.IsVoided)
+                .ToListAsync();
+                
+            decimal priorSalesVal = priorSales.Sum(s => s.TotalAmount);
+            int priorTicketsVal = priorSales.Count;
+            decimal priorAvgTicket = priorTicketsVal > 0 ? priorSalesVal / priorTicketsVal : 0;
+
+            var rawPriorPulls = await db.LiquorTransactions.AsNoTracking()
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0 && t.Timestamp >= priorSt && t.Timestamp < priorEn && t.Item != null && t.Notes != null)
+                .ToListAsync();
+
+            var priorPulls = rawPriorPulls.Where(t => {
+                var cat = t.Item.Category?.ToUpper() ?? "";
+                return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                       ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+            }).ToList();
+
+            decimal priorPullsCost = priorPulls.Sum(t => Math.Abs(t.ChangeAmount) * (t.Item.PackSize > 1 ? t.Item.CurrentPrice / t.Item.PackSize : t.Item.CurrentPrice));
+
+            decimal priorPourCostSales = priorSales.SelectMany(s => GetItemsList(s.ItemsJson))
+                .Where(i => i != null && (i.Category == "LIQUOR" || i.Category == "BEER" || i.Category == "WINE" || i.Category == "TOKENS"))
+                .Sum(i => i.Price * i.Quantity);
+                
+            decimal priorPourCostPercent = priorPourCostSales > 0 ? (priorPullsCost / priorPourCostSales) * 100 : 0;
+
+            // Calculate differences
+            InsightsSalesDiffPercent = priorSalesVal > 0 ? ((InsightsTotalSales - priorSalesVal) / priorSalesVal) * 100 : 0;
+            InsightsTicketDiffPercent = priorTicketsVal > 0 ? ((decimal)(InsightsTotalTickets - priorTicketsVal) / priorTicketsVal) * 100 : 0;
+            InsightsAvgTicketDiffPercent = priorAvgTicket > 0 ? ((InsightsAverageTicket - priorAvgTicket) / priorAvgTicket) * 100 : 0;
+            InsightsPourCostDiffPercent = InsightsPourCostPercent - priorPourCostPercent;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error calculating visual insights: " + ex.Message);
         }
     }
 
@@ -3167,6 +3878,23 @@
             DbPosCategories = await db.PosCategories.AsNoTracking().ToListAsync();
             MasterTokens = await db.PosTokens.AsNoTracking().ToListAsync();
 
+            // Apply POS Menu Manager price/category overrides to raw items
+            foreach (var item in items)
+            {
+                var ovr = overrides.FirstOrDefault(o => o.LiquorItemId == item.Id);
+                if (ovr != null)
+                {
+                    if (ovr.OverridePrice.HasValue)
+                    {
+                        item.RetailPrice = ovr.OverridePrice.Value;
+                    }
+                    if (!string.IsNullOrEmpty(ovr.OverrideCategory))
+                    {
+                        item.Category = ovr.OverrideCategory;
+                    }
+                }
+            }
+
             DbItems = items.Select(i => {
                 var price = i.RetailPrice;
                 var category = i.Category ?? "MISC";
@@ -3406,11 +4134,40 @@
                 throw new global::System.Exception("Error in LoadLedgerData: " + ex.Message, ex);
             }
 
+            // Calculate visual insights stats
+            await CalculateVisualInsightsStats();
+
+            // Load Removal Transactions (including POS sales for beer/seltzer and checkouts for liquor/wine)
+            var removalList = await db.LiquorTransactions.AsNoTracking()
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0 && t.Timestamp >= st && t.Timestamp < en && t.Item != null && t.Notes != null)
+                .ToListAsync();
+
+            _removalTransactions = removalList.Where(t => {
+                var cat = t.Item.Category?.ToUpper() ?? "";
+                return ((cat == "BEER" || cat == "SELTZER" || cat == "CIDER") && t.Notes.Contains("POS Sale")) ||
+                       ((cat == "LIQUOR" || cat == "WINE") && (t.Notes.Contains("POS End-of-Shift Removal") || t.TransactionType == "Checkout"));
+            }).ToList();
+
             if (ActiveTab == "INVENTORY" && _inventorySubTab == "trends")
             {
                 _ = Task.Run(async () => {
                     await Task.Delay(150);
                     await InvokeAsync(async () => await RenderPullsChart());
+                });
+            }
+            else if (ActiveTab == "INVENTORY" && _inventorySubTab == "insights")
+            {
+                _ = Task.Run(async () => {
+                    await Task.Delay(150);
+                    await InvokeAsync(async () => await RenderInsightsCharts());
+                });
+            }
+            else if (ActiveTab == "INVENTORY" && _inventorySubTab == "stock" && _stockViewMode == "VISUAL")
+            {
+                _ = Task.Run(async () => {
+                    await Task.Delay(150);
+                    await InvokeAsync(async () => await RenderStockLevelsChart());
                 });
             }
             
@@ -4216,22 +4973,46 @@
                         bottlesUsed += pullsCount;
                         
                         decimal ounces = 33.8m;
-                        decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m;
-                        string bSize = liquorItem.BottleSize ?? "1L";
+                        
+                        // Resolve pour size: Use item-level PourVolumeOunces/PourSize, or WINE default (5.0 oz), or Global shot size
+                        decimal pour = liquorItem.PourVolumeOunces ?? liquorItem.PourSize;
+                        if (pour == 0)
+                        {
+                            pour = string.Equals(liquorItem.Category, "WINE", StringComparison.OrdinalIgnoreCase) 
+                                ? 5.0m 
+                                : (_settings?.GlobalLiquorPourSize ?? 1.5m);
+                        }
 
+                        string bSize = liquorItem.BottleSize ?? "1L";
                         if (bSize.Contains("750")) ounces = 25.4m;
                         if (bSize.Contains("1.75")) ounces = 59.2m;
                         
                         int expectedShots = (int)Math.Floor(ounces / (pour > 0 ? pour : 1.5m));
-                        expRev = expectedShots * liquorItem.RetailPrice * pullsCount;
+                        
+                        // Resolve retail price (price per glass/shot): if this is a parent bottle with child glass items, use the glass price
+                        var childGlass = DbLiquorItems.FirstOrDefault(c => c.ParentItemId == liquorItem.Id);
+                        decimal retailPrice = childGlass?.RetailPrice ?? liquorItem.RetailPrice;
+
+                        expRev = expectedShots * retailPrice * pullsCount;
                         expectedRevenue += expRev;
                     }
                     
                     if (pullsCount > 0 || actRev > 0)
                     {
                         var bSize = liquorItem?.BottleSize ?? "1L";
-                        decimal retailPrice = liquorItem?.RetailPrice ?? 0;
-                        decimal pourSize = _settings?.GlobalLiquorPourSize ?? 1.5m;
+                        
+                        // Resolve pour size and retail price for display
+                        decimal pourSize = liquorItem?.PourVolumeOunces ?? liquorItem?.PourSize ?? 0m;
+                        if (pourSize == 0)
+                        {
+                            pourSize = string.Equals(liquorItem?.Category, "WINE", StringComparison.OrdinalIgnoreCase) 
+                                ? 5.0m 
+                                : (_settings?.GlobalLiquorPourSize ?? 1.5m);
+                        }
+
+                        var childGlass = liquorItem != null ? DbLiquorItems.FirstOrDefault(c => c.ParentItemId == liquorItem.Id) : null;
+                        decimal retailPrice = childGlass?.RetailPrice ?? liquorItem?.RetailPrice ?? 0m;
+
                         decimal ounces = 33.8m;
                         if (bSize.Contains("750")) ounces = 25.4m;
                         if (bSize.Contains("1.75")) ounces = 59.2m;
