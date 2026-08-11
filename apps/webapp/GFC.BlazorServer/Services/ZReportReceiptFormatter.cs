@@ -218,13 +218,16 @@ namespace GFC.BlazorServer.Services
                     }
                     else
                     {
-                        if (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token"))
+                        if (product != null)
+                        {
+                            price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
+                        }
+                        if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
                         {
                             var tokenMatch = tokenList.OrderByDescending(t => t.Name.Length)
                                 .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
                             if (tokenMatch != null) price = tokenMatch.SalePrice;
                         }
-                        if (price == 0) price = product?.RetailPrice ?? product?.CurrentPrice ?? 0;
                     }
                     
                     if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))

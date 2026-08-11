@@ -13,4 +13,8 @@ public class UpdateEventTallyRequest
     public decimal InitialAmount { get; set; }
     public decimal CurrentBalance { get; set; }
     public bool CloseEvent { get; set; }
+    public int DonatedBeerClaimedCount { get; set; }
+    public int DonatedBeerReDonatedCount { get; set; }
+    public int DonatedBeerSoldCount { get; set; }
+    public string? DonatedItemIdsJson { get; set; }
 }

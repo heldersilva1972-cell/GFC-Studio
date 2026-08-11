@@ -34,6 +34,133 @@ public class PosApiController : ControllerBase
         return Ok(new { Pages = pages, RecentPermissions = perms });
     }
 
+    [HttpGet("debug-menu")]
+    public async Task<IActionResult> DebugMenu([FromQuery] string? terminalName = null)
+    {
+        var steps = new List<string>();
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            steps.Add("DB context created");
+
+            steps.Add("Loading PosTerminal...");
+            if (!string.IsNullOrWhiteSpace(terminalName))
+            {
+                var t = await db.PosTerminals.Include(x => x.MenuProfile).FirstOrDefaultAsync(x => x.TerminalName == terminalName);
+                steps.Add($"Terminal: {(t == null ? "not found" : t.TerminalName)}");
+            }
+
+            steps.Add("Loading PosCategories (active, non-modifier)...");
+            var cats = await db.PosCategories.Where(c => c.IsActive && !c.IsModifierCategory).ToListAsync();
+            steps.Add($"PosCategories OK: {cats.Count}");
+
+            steps.Add("Loading modifier categories...");
+            var modCats = await db.PosCategories.Where(c => c.IsActive && c.IsModifierCategory).ToListAsync();
+            steps.Add($"Modifier categories OK: {modCats.Count}");
+
+            steps.Add("Loading LiquorItems...");
+            var liquorItems = await db.LiquorItems.AsNoTracking().ToListAsync();
+            steps.Add($"LiquorItems OK: {liquorItems.Count}");
+
+            steps.Add("Loading PosMenuOverrides...");
+            var overrides = await db.PosMenuOverrides.AsNoTracking().ToListAsync();
+            steps.Add($"PosMenuOverrides OK: {overrides.Count}");
+
+            steps.Add("Building override map...");
+            var overrideMap = overrides.GroupBy(o => o.LiquorItemId).ToDictionary(g => g.Key, g => g.First());
+            steps.Add($"Override map OK: {overrideMap.Count} entries");
+
+            steps.Add("Loading PosTokens...");
+            var tokens = await db.PosTokens.AsNoTracking().Where(t => t.IsActive).ToListAsync();
+            steps.Add($"PosTokens OK: {tokens.Count}");
+
+            steps.Add("Loading ActiveEvents (ALL statuses)...");
+            var allEvents = await db.ActiveEvents.AsNoTracking().ToListAsync();
+            steps.Add($"Total ActiveEvents in DB: {allEvents.Count}");
+            foreach (var ev in allEvents)
+                steps.Add($"  Event '{ev.Name}' | Status={ev.Status} | IsDeleted={ev.IsDeleted} | Id={ev.Id}");
+
+            steps.Add("Loading ActiveEvents (Open + not deleted)...");
+            var activeEvents = await db.ActiveEvents.AsNoTracking()
+                .Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)
+                .ToListAsync();
+            steps.Add($"ActiveEvents OK: {activeEvents.Count}");
+
+            steps.Add("Loading EventTemplates...");
+            var templates = await db.EventTemplates.AsNoTracking().Where(t => !t.IsDeleted).ToListAsync();
+            steps.Add($"EventTemplates OK: {templates.Count}");
+
+            steps.Add("Loading SystemSettings...");
+            var settings = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+            steps.Add($"SystemSettings OK: {(settings != null ? "found" : "null")}");
+
+            steps.Add("Building PosMenuDto...");
+            var dto = new GFC.Core.DTOs.PosMenuDto
+            {
+                Categories = cats.Select(c => c.Name).ToList(),
+                Items = new(),
+                Tokens = tokens,
+                ActiveEvents = activeEvents,
+                EventTemplates = templates,
+                PayoutCategories = new List<string> { "FOOD" },
+                ProfileName = "Debug"
+            };
+            steps.Add("PosMenuDto built OK");
+
+            steps.Add("Serializing to JSON...");
+            var json = System.Text.Json.JsonSerializer.Serialize(dto, new System.Text.Json.JsonSerializerOptions
+            {
+                ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
+            steps.Add($"Serialization OK: {json.Length} chars");
+
+            return Ok(new { Success = true, Steps = steps });
+        }
+        catch (Exception ex)
+        {
+            steps.Add($"FAILED: {ex.Message}");
+            if (ex.InnerException != null) steps.Add($"Inner: {ex.InnerException.Message}");
+            return StatusCode(500, new { Success = false, Steps = steps, Error = ex.Message, InnerError = ex.InnerException?.Message });
+        }
+    }
+
+    [HttpGet("debug-create-event")]
+    public async Task<IActionResult> DebugCreateEvent()
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        // Create a test event with Open status
+        var testEvent = new GFC.Core.Models.ActiveEvent
+        {
+            Name = "DEBUG_TEST_EVENT",
+            Type = GFC.Core.Enums.EventTabType.RunningTab,
+            Status = GFC.Core.Enums.EventTabStatus.Open,
+            InitialAmount = 0,
+            CurrentBalance = 0,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.ActiveEvents.Add(testEvent);
+        await db.SaveChangesAsync();
+
+        // Read it back from a fresh context
+        using var db2 = await _dbFactory.CreateDbContextAsync();
+        var saved = await db2.ActiveEvents.AsNoTracking().FirstOrDefaultAsync(e => e.Id == testEvent.Id);
+
+        // Clean up
+        using var db3 = await _dbFactory.CreateDbContextAsync();
+        var toDelete = await db3.ActiveEvents.FindAsync(testEvent.Id);
+        if (toDelete != null) { db3.ActiveEvents.Remove(toDelete); await db3.SaveChangesAsync(); }
+
+        return Ok(new
+        {
+            CreatedWithStatus = testEvent.Status.ToString(),
+            CreatedWithStatusInt = (int)testEvent.Status,
+            SavedInDbStatus = saved?.Status.ToString() ?? "NOT FOUND",
+            SavedInDbStatusInt = saved != null ? (int)saved.Status : -1,
+            Match = saved?.Status == GFC.Core.Enums.EventTabStatus.Open
+        });
+    }
+
     public PosApiController(
         IDbContextFactory<GfcDbContext> dbFactory,
         ILiquorService liquorService,
@@ -57,43 +184,76 @@ public class PosApiController : ControllerBase
             string profileName = "Default Retail (No Profile)";
             if (!string.IsNullOrWhiteSpace(terminalName))
             {
-                var searchName = terminalName.Trim();
-                var terminal = await db.PosTerminals
-                    .Include(t => t.MenuProfile)
-                    .FirstOrDefaultAsync(t => t.TerminalName.Trim() == searchName);
-                
-                // Fallback to case-insensitive match if not found exactly
-                if (terminal == null)
+                try
                 {
-                    terminal = await db.PosTerminals
+                    var searchName = terminalName.Trim();
+                    var terminal = await db.PosTerminals
                         .Include(t => t.MenuProfile)
-                        .FirstOrDefaultAsync(t => t.TerminalName.ToLower().Trim() == searchName.ToLower());
-                }
-
-                if (terminal == null)
-                {
-                    terminal = new PosTerminal
+                        .FirstOrDefaultAsync(t => t.TerminalName.Trim() == searchName);
+                    
+                    // Fallback to case-insensitive match if not found exactly
+                    if (terminal == null)
                     {
-                        TerminalName = searchName,
-                        MenuProfileId = null,
-                        LastSeenAt = DateTime.UtcNow
-                    };
-                    db.PosTerminals.Add(terminal);
-                    await db.SaveChangesAsync();
-                }
-                else
-                {
-                    if (terminal.IsDeleted)
-                    {
-                        terminal.IsDeleted = false;
+                        terminal = await db.PosTerminals
+                            .Include(t => t.MenuProfile)
+                            .FirstOrDefaultAsync(t => t.TerminalName.ToLower().Trim() == searchName.ToLower());
                     }
-                    terminal.LastSeenAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync();
+
+                    if (terminal == null)
+                    {
+                        terminal = new PosTerminal
+                        {
+                            TerminalName = searchName,
+                            MenuProfileId = null,
+                            LastSeenAt = DateTime.UtcNow
+                        };
+                        db.PosTerminals.Add(terminal);
+                        try
+                        {
+                            await db.SaveChangesAsync();
+                        }
+                        catch (Exception innerEx)
+                        {
+                            // Clean up tracking of the failed entity
+                            db.Entry(terminal).State = EntityState.Detached;
+                            // Retrieve the one that was inserted by the concurrent request
+                            terminal = await db.PosTerminals
+                                .Include(t => t.MenuProfile)
+                                .FirstOrDefaultAsync(t => t.TerminalName.ToLower().Trim() == searchName.ToLower());
+                            
+                            _logger.LogWarning(innerEx, "Handled terminal creation conflict for {TerminalName}", searchName);
+                        }
+                    }
+                    else
+                    {
+                        if (terminal.IsDeleted)
+                        {
+                            terminal.IsDeleted = false;
+                        }
+                        terminal.LastSeenAt = DateTime.UtcNow;
+                        try
+                        {
+                            await db.SaveChangesAsync();
+                        }
+                        catch (Exception innerEx)
+                        {
+                            // Ignore concurrency/db conflicts on LastSeenAt updates
+                            _logger.LogWarning(innerEx, "Handled terminal update conflict for {TerminalName}", searchName);
+                        }
+                    }
+                    
+                    if (terminal != null)
+                    {
+                        profileId = terminal.MenuProfileId;
+                        if (terminal.MenuProfile != null)
+                        {
+                            profileName = terminal.MenuProfile.Name;
+                        }
+                    }
                 }
-                profileId = terminal.MenuProfileId;
-                if (terminal.MenuProfile != null)
+                catch (Exception termEx)
                 {
-                    profileName = terminal.MenuProfile.Name;
+                    _logger.LogWarning(termEx, "Error during terminal registration for '{TerminalName}'. Proceeding with default menu profile.", terminalName);
                 }
             }
 
@@ -145,7 +305,7 @@ public class PosApiController : ControllerBase
                 ? await db.PosMenuOverrides.Where(o => o.MenuProfileId == profileId.Value).ToListAsync()
                 : new List<PosMenuOverride>();
 
-            var overrideMap = overrides.ToDictionary(o => o.LiquorItemId);
+            var overrideMap = overrides.GroupBy(o => o.LiquorItemId).ToDictionary(g => g.Key, g => g.First());
             var resolvedVisibility = new Dictionary<int, bool>();
             foreach (var i in liquorItems)
             {
@@ -164,9 +324,10 @@ public class PosApiController : ControllerBase
 
             var items = new List<PosItemDto>();
 
-            var catZGroupMap = await db.PosCategories
-                .Where(c => c.IsActive)
-                .ToDictionaryAsync(c => c.Name.Trim().ToUpper(), c => c.ZReportGroup, StringComparer.OrdinalIgnoreCase);
+            var posCats = await db.PosCategories.Where(c => c.IsActive && !string.IsNullOrWhiteSpace(c.Name)).ToListAsync();
+            var catZGroupMap = posCats
+                .GroupBy(c => (c.Name ?? "MISC").Trim().ToUpper(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().ZReportGroup, StringComparer.OrdinalIgnoreCase);
 
             foreach (var i in liquorItems)
             {
@@ -203,14 +364,15 @@ public class PosApiController : ControllerBase
 
                 if (showInPos)
                 {
-                    string displayName = i.Name;
-                    if (category.Trim().ToUpper() == "WINE" && parentIdsWithChildren.Contains(i.Id))
+                    string displayName = i.Name ?? "";
+                    string cleanCat = (category ?? "MISC").Trim().ToUpper();
+                    if (cleanCat == "WINE" && parentIdsWithChildren.Contains(i.Id))
                     {
-                        displayName = i.Name + " (Bottle)";
+                        displayName = displayName + " (Bottle)";
                     }
 
                     int effectiveZGroup = i.ZReportGroup;
-                    if (effectiveZGroup == 0 && catZGroupMap.TryGetValue(category.Trim().ToUpper(), out var catZ))
+                    if (effectiveZGroup == 0 && catZGroupMap.TryGetValue(cleanCat, out var catZ))
                     {
                         effectiveZGroup = catZ;
                     }
@@ -220,7 +382,7 @@ public class PosApiController : ControllerBase
                         Id = i.Id,
                         Name = displayName,
                         Price = price,
-                        Category = category.Trim().ToUpper(),
+                        Category = cleanCat,
                         DisplayOrder = displayOrder,
                         ZReportGroup = effectiveZGroup
                     });
@@ -240,9 +402,11 @@ public class PosApiController : ControllerBase
 
             var parentIdLookup = liquorItems
                 .Where(x => x.ParentItemId.HasValue)
-                .ToDictionary(x => x.Id, x => x.ParentItemId!.Value);
+                .GroupBy(x => x.Id)
+                .ToDictionary(g => g.Key, g => g.First().ParentItemId!.Value);
 
-            var liquorItemMap = liquorItems.ToDictionary(x => x.Id);
+            var liquorItemMap = liquorItems.GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First());
+
 
             items = items
                 .OrderBy(x => {
@@ -255,22 +419,44 @@ public class PosApiController : ControllerBase
                 .ThenBy(x => {
                     if (parentIdLookup.TryGetValue(x.Id, out var parentId) && liquorItemMap.TryGetValue(parentId, out var parent))
                     {
-                        return parent.Name;
+                        return parent.Name ?? "";
                     }
-                    return x.Name;
+                    return x.Name ?? "";
                 })
                 .ThenBy(x => parentIdLookup.ContainsKey(x.Id) ? 1 : 0)
-                .ThenBy(x => x.Name)
+                .ThenBy(x => x.Name ?? "")
                 .ThenBy(x => x.Id)
                 .ToList();
+
 
             if (!categories.Contains("TOKENS")) categories.Add("TOKENS");
 
             var tokens = await db.PosTokens.Where(t => t.IsActive).OrderBy(t => t.Name).ToListAsync();
-            var activeEvents = await db.ActiveEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted).ToListAsync();
-            var templates = await db.EventTemplates.Where(t => !t.IsDeleted).ToListAsync();
+            
+            var activeEvents = new List<ActiveEvent>();
+            try {
+                activeEvents = await db.ActiveEvents
+                    .AsNoTracking()
+                    .Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)
+                    .ToListAsync();
+                // Null out navigation properties to prevent JSON circular reference during serialization
+                foreach (var ae in activeEvents) ae.Template = null;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error querying ActiveEvents table in GetMenu");
+            }
 
-            var settings = await db.SystemSettings.FirstOrDefaultAsync();
+            var templates = new List<EventTemplate>();
+            try {
+                templates = await db.EventTemplates
+                    .AsNoTracking()
+                    .Where(t => !t.IsDeleted)
+                    .ToListAsync();
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error querying EventTemplates table in GetMenu");
+            }
+
+            var settings = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+
             var payoutCategories = new List<string>();
             if (settings != null && !string.IsNullOrEmpty(settings.PayoutCategories))
             {
@@ -296,6 +482,7 @@ public class PosApiController : ControllerBase
                 PayoutCategories = payoutCategories,
                 ProfileName = profileName
             });
+
         }
         catch (Exception ex)
         {
@@ -311,6 +498,7 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             newEvent.Id = 0; // Force new identity
+            newEvent.Template = null; // Clear navigation property to prevent EF Core identity insert errors
             newEvent.CreatedAt = DateTime.UtcNow;
             db.ActiveEvents.Add(newEvent);
             await db.SaveChangesAsync();
@@ -318,9 +506,11 @@ public class PosApiController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Error starting active event");
             return StatusCode(500, ex.Message);
         }
     }
+
 
     [HttpPost("events/add-funds")]
     public async Task<IActionResult> AddFunds([FromBody] AddFundsRequest? request)
@@ -358,6 +548,10 @@ public class PosApiController : ControllerBase
             ev.BeerTalliesJson = request.BeerTalliesJson;
             ev.InitialAmount = request.InitialAmount;
             ev.CurrentBalance = request.CurrentBalance;
+            ev.DonatedBeerClaimedCount = request.DonatedBeerClaimedCount;
+            ev.DonatedBeerReDonatedCount = request.DonatedBeerReDonatedCount;
+            ev.DonatedBeerSoldCount = request.DonatedBeerSoldCount;
+            ev.DonatedItemIdsJson = request.DonatedItemIdsJson;
             if (request.CloseEvent)
             {
                 ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
@@ -646,7 +840,7 @@ public class PosApiController : ControllerBase
                         IsRentalHall = false,
                         CreatedAt = DateTime.UtcNow,
                         CreatedBy = reportDto.BartenderName,
-                        Status = "Draft"
+                        Status = reportDto.RecordSalesToBar ? "Submitted" : "Draft"
                     };
                     db.BarSaleEntries.Add(barEntry);
                 }
@@ -659,6 +853,7 @@ public class PosApiController : ControllerBase
                 if (reportDto.RecordSalesToBar)
                 {
                     barEntry.TotalSales = reportDto.TotalGrossSales;
+                    barEntry.Status = "Submitted";
                 }
 
                 barEntry.ModifiedAt = DateTime.UtcNow;

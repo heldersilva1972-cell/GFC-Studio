@@ -1109,7 +1109,7 @@
                                                         <th class="text-center py-2">SOLD</th>
                                                         <th class="text-center py-2">REDEEMED</th>
                                                         <th class="text-center py-2">EXPECTED STOCK</th>
-                                                        <th class="text-center py-2">LAST AUDITED STATUS</th>
+                                                        <th class="text-center py-2">LEGACY COUNT</th>
                                                         <th class="pe-4 text-end py-2">ACTIONS</th>
                                                     </tr>
                                                 </thead>
@@ -1125,26 +1125,26 @@
                                                             </td>
                                                             <td class="text-center fw-bold text-primary">@y.Sold</td>
                                                             <td class="text-center fw-bold text-danger">@y.Redeemed</td>
-                                                            <td class="text-center fw-black">@y.ExpectedPhysicalStock</td>
-                                                            <td class="text-center">
-                                                                @if (y.LastAuditStatus == "Never")
+                                                            <td class="text-center fw-black fs-6 text-dark">@y.ExpectedPhysicalStock</td>
+                                                            <td class="text-center fw-bold text-warning">
+                                                                @if (y.LegacyRedeemed > 0)
                                                                 {
-                                                                    <span class="badge bg-light text-muted border px-2 py-1" style="font-size: 0.65rem;">NEVER AUDITED</span>
+                                                                    <span class="badge bg-warning bg-opacity-10 text-warning border border-warning-subtle px-2 py-1" style="font-size: 0.75rem;">
+                                                                        <i class="bi bi-clock-history me-1"></i>@y.LegacyRedeemed Returned
+                                                                    </span>
                                                                 }
                                                                 else
                                                                 {
-                                                                    <span class="badge @(y.LastAuditStatus.Contains("shrinkage") ? "bg-danger text-white" : (y.LastAuditStatus.Contains("Balanced") ? "bg-success text-white" : "bg-warning text-dark")) fw-bold px-2 py-1" style="font-size: 0.65rem;">
-                                                                        @y.LastAuditStatus.ToUpper()
-                                                                    </span>
+                                                                    <span class="text-muted opacity-50" style="font-size: 0.75rem;">0</span>
                                                                 }
                                                             </td>
                                                             <td class="pe-4 text-end" style="white-space: nowrap;">
                                                                 <div class="d-flex justify-content-end gap-1.5" style="white-space: nowrap;">
-                                                                    <button class="btn btn-outline-primary btn-sm rounded-pill fw-bold px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenPhysicalAuditModal(y)" title="Audit Count">
-                                                                        <i class="bi bi-clipboard-check me-1"></i> AUDIT
+                                                                    <button class="btn btn-outline-primary btn-sm rounded-pill fw-bold px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenPhysicalAuditModal(y)" title="Set Verified Physical Drawer Count">
+                                                                        <i class="bi bi-clipboard-check me-1"></i> AUDIT COUNT
                                                                     </button>
-                                                                    <button class="btn btn-warning btn-sm rounded-pill fw-bold text-dark @(y.LegacyRedeemed <= 0 ? "opacity-75" : "")" @onclick="() => OpenReclaimModal(y)" title="Reclaim returned pre-Aug 1 chips into active stock or permanently retire them from circulation">
-                                                                        <i class="bi bi-arrow-repeat me-1"></i>RECLAIM / RETIRE LEGACY
+                                                                    <button class="btn btn-outline-warning btn-sm rounded-pill fw-bold text-dark px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenResetLegacyModal(y)" title="Reset Legacy Count to 0 or baseline">
+                                                                        <i class="bi bi-arrow-counterclockwise me-1"></i> RESET LEGACY
                                                                     </button>
                                                                     <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold px-2.5 py-1" style="font-size: 0.72rem; white-space: nowrap;" @onclick="() => OpenAddLegacyStockModal(y)" title="Replenish stock">
                                                                         <i class="bi bi-plus-lg me-1"></i> REPLENISH
@@ -2326,29 +2326,136 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4 shadow border-0">
                 <div class="modal-header border-bottom py-3">
-                    <h5 class="modal-title fw-black text-primary">AUDIT PHYSICAL CHIP COUNT: @_auditTargetEntry.Token.Name</h5>
+                    <h5 class="modal-title fw-black text-primary"><i class="bi bi-clipboard-check me-2"></i>AUDIT PHYSICAL STOCK: @_auditTargetEntry.Token.Name</h5>
                     <button type="button" class="btn-close" @onclick='() => _showPhysicalAuditModal = false'></button>
                 </div>
                 <div class="modal-body p-4">
                     <div class="p-3 bg-light rounded-3 mb-3 border">
                         <div class="d-flex justify-content-between mb-1">
-                            <span class="text-muted fw-bold">Expected Available Chips:</span>
-                            <span class="fw-black fs-5">@_auditTargetEntry.ExpectedPhysicalStock chips</span>
+                            <span class="text-muted fw-bold">Current Expected Stock:</span>
+                            <span class="fw-black fs-5 text-dark">@_auditTargetEntry.ExpectedPhysicalStock chips</span>
                         </div>
-                        <div class="small text-muted">Calculated as: Master Stock - POS Sold + POS Redeemed + Legacy Inflows</div>
+                        <div class="small text-muted">Entering a count will set the new verified baseline expected stock for this token.</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Actual Counted Chips on Hand:</label>
-                        <input type="number" class="form-control form-control-lg fw-bold" @bind="_physicalAuditCountInput" min="0" />
+                        <label class="form-label fw-bold">Actual Counted Chips in Cash Drawer:</label>
+                        <input type="number" class="form-control form-control-lg fw-bold text-center" @bind="_physicalAuditCountInput" min="0" />
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Audit Notes (Optional):</label>
-                        <input type="text" class="form-control" @bind="_physicalAuditNotesInput" placeholder="e.g. End of shift count by Downstairs bartender" />
+                        <input type="text" class="form-control" @bind="_physicalAuditNotesInput" placeholder="e.g. Verified physical drawer count by Manager" />
                     </div>
                 </div>
                 <div class="modal-footer border-top py-3">
                     <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showPhysicalAuditModal = false'>CANCEL</button>
-                    <button class="btn btn-primary rounded-pill fw-bold px-4" @onclick="SavePhysicalAudit">SAVE AUDIT RECORD</button>
+                    <button class="btn btn-primary rounded-pill fw-bold px-4" @onclick="PromptConfirmAudit">PROCEED TO CONFIRM</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showConfirmAuditModal && _auditTargetEntry != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.6); z-index: 10600;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header bg-primary text-white py-3">
+                    <h5 class="modal-title fw-black"><i class="bi bi-exclamation-triangle-fill me-2"></i>CONFIRM STOCK AUDIT BASELINE</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick='() => _showConfirmAuditModal = false'></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="fw-bold mb-3" style="font-size: 1rem;">Are you sure you want to update the verified physical stock baseline for <strong>@_auditTargetEntry.Token.Name</strong>?</p>
+                    
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted fw-bold">Previous Expected Stock:</span>
+                            <span class="fw-bold">@_auditTargetEntry.ExpectedPhysicalStock chips</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted fw-bold">New Verified Audit Count:</span>
+                            <span class="fw-black text-primary fs-5">@_physicalAuditCountInput chips</span>
+                        </div>
+                        <div class="d-flex justify-content-between pt-2 border-top">
+                            <span class="text-muted fw-bold">Variance Adjustment:</span>
+                            <span class="fw-black @(_physicalAuditCountInput - _auditTargetEntry.ExpectedPhysicalStock < 0 ? "text-danger" : "text-success")">
+                                @(_physicalAuditCountInput - _auditTargetEntry.ExpectedPhysicalStock > 0 ? "+" : "")@(_physicalAuditCountInput - _auditTargetEntry.ExpectedPhysicalStock) chips
+                            </span>
+                        </div>
+                    </div>
+                    <div class="small text-muted">All future sales and redemptions will calculate relative to this new verified @_physicalAuditCountInput chip baseline.</div>
+                </div>
+                <div class="modal-footer border-top py-3">
+                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showConfirmAuditModal = false'>CANCEL</button>
+                    <button class="btn btn-primary rounded-pill fw-bold px-4 shadow-sm" @onclick="ExecuteSavePhysicalAudit">CONFIRM & SAVE AUDIT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showResetLegacyModal && _legacyTargetEntry != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header border-bottom py-3">
+                    <h5 class="modal-title fw-black text-warning"><i class="bi bi-arrow-counterclockwise me-2"></i>RESET LEGACY COUNT: @_legacyTargetEntry.Token.Name</h5>
+                    <button type="button" class="btn-close" @onclick='() => _showResetLegacyModal = false'></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="p-3 bg-warning-subtle text-dark rounded-3 mb-3 border border-warning">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="fw-bold">Current Accrued Legacy Count:</span>
+                            <span class="fw-black fs-5">@_legacyTargetEntry.LegacyRedeemed tokens</span>
+                        </div>
+                        <div class="small opacity-90">Resetting sets the legacy tally for this token type. Any future un-tracked token redemptions will continue tracking from your new setting.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">New Legacy Count Value (Set 0 to Clear):</label>
+                        <input type="number" class="form-control form-control-lg fw-bold text-center" @bind="_pendingResetLegacyValue" min="0" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Manager Reset Notes (Optional):</label>
+                        <input type="text" class="form-control" @bind="_resetLegacyNotesInput" placeholder="e.g. Legacy migration transition complete" />
+                    </div>
+                </div>
+                <div class="modal-footer border-top py-3">
+                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showResetLegacyModal = false'>CANCEL</button>
+                    <button class="btn btn-warning rounded-pill fw-bold px-4 text-dark" @onclick="PromptConfirmLegacyReset">PROCEED TO CONFIRM</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showConfirmLegacyResetModal && _legacyTargetEntry != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.6); z-index: 10600;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 shadow border-0">
+                <div class="modal-header bg-warning text-dark py-3">
+                    <h5 class="modal-title fw-black"><i class="bi bi-exclamation-triangle-fill me-2"></i>CONFIRM LEGACY COUNT RESET</h5>
+                    <button type="button" class="btn-close" @onclick='() => _showConfirmLegacyResetModal = false'></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="fw-bold mb-3" style="font-size: 1rem;">Are you sure you want to reset the Legacy Token Count for <strong>@_legacyTargetEntry.Token.Name</strong>?</p>
+                    
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted fw-bold">Current Accrued Legacy Count:</span>
+                            <span class="fw-bold text-danger">@_legacyTargetEntry.LegacyRedeemed tokens</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted fw-bold">New Reset Legacy Count:</span>
+                            <span class="fw-black text-success fs-5">@_pendingResetLegacyValue tokens</span>
+                        </div>
+                    </div>
+                    <div class="small text-muted">This reset will be permanently logged in the Token Audit History with your username and timestamp.</div>
+                </div>
+                <div class="modal-footer border-top py-3">
+                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showConfirmLegacyResetModal = false'>CANCEL</button>
+                    <button class="btn btn-warning rounded-pill fw-bold px-4 text-dark shadow-sm" @onclick="ExecuteResetLegacyCount">CONFIRM & RESET LEGACY</button>
                 </div>
             </div>
         </div>
@@ -2361,87 +2468,66 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4 shadow border-0">
                 <div class="modal-header border-bottom py-3">
-                    <h5 class="modal-title fw-black text-warning">REPLENISH PHYSICAL CHIPS: @_legacyStockTargetEntry.Token.Name</h5>
+                    <h5 class="modal-title fw-black text-secondary"><i class="bi bi-plus-circle me-2"></i>REPLENISH CHIP STOCK: @_legacyStockTargetEntry.Token.Name</h5>
                     <button type="button" class="btn-close" @onclick='() => _showAddLegacyStockModal = false'></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="p-3 bg-warning-subtle text-dark rounded-3 mb-3 border border-warning">
-                        <div class="small fw-bold">
-                            Add physical chips brought from the safe or back office directly into active bar stock.
+                    <div class="p-3 bg-light rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-muted fw-bold">Current Expected Stock:</span>
+                            <span class="fw-black fs-5 text-dark">@_legacyStockTargetEntry.ExpectedPhysicalStock chips</span>
                         </div>
+                        <div class="small text-muted">Add physical chips brought from a vendor or back office safe directly into cash drawer stock.</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Quantity of Physical Chips to Add to Available Stock:</label>
-                        <input type="number" class="form-control form-control-lg fw-bold" @bind="_legacyStockAddCountInput" min="1" />
+                        <label class="form-label fw-bold">Quantity of New Physical Chips Added to Drawer:</label>
+                        <input type="number" class="form-control form-control-lg fw-bold text-center" @bind="_legacyStockAddCountInput" min="1" />
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Transfer / Stock Notes:</label>
-                        <input type="text" class="form-control" @bind="_legacyStockAddNotesInput" placeholder="e.g. Transferred 20 chips from safe to bar drawer" />
+                        <label class="form-label fw-bold">Replenishment Notes (Optional):</label>
+                        <input type="text" class="form-control" @bind="_legacyStockAddNotesInput" placeholder="e.g. Added 50 new chips purchased from vendor" />
                     </div>
                 </div>
                 <div class="modal-footer border-top py-3">
                     <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showAddLegacyStockModal = false'>CANCEL</button>
-                    <button class="btn btn-warning rounded-pill fw-bold px-4 text-dark" @onclick="SaveAddLegacyStock">REPLENISH AVAILABLE STOCK</button>
+                    <button class="btn btn-secondary rounded-pill fw-bold px-4" @onclick="PromptConfirmReplenish">PROCEED TO CONFIRM</button>
                 </div>
             </div>
         </div>
     </div>
 }
 
-@if (_showReclaimModal && _reclaimTargetEntry != null)
+@if (_showConfirmReplenishModal && _legacyStockTargetEntry != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 10500;">
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.6); z-index: 10600;">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4 shadow border-0">
-                <div class="modal-header border-bottom py-3">
-                    <h5 class="modal-title fw-black text-dark">CONFIRM LEGACY CHIPS ACTION: @_reclaimTargetEntry.Token.Name</h5>
-                    <button type="button" class="btn-close" @onclick='() => _showReclaimModal = false'></button>
+                <div class="modal-header bg-secondary text-white py-3">
+                    <h5 class="modal-title fw-black"><i class="bi bi-exclamation-triangle-fill me-2"></i>CONFIRM STOCK REPLENISHMENT</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick='() => _showConfirmReplenishModal = false'></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="p-3 bg-warning-subtle text-dark rounded-3 mb-4 border border-warning">
-                        <div class="fw-bold fs-6 mb-1">
-                            <i class="bi bi-info-circle me-1"></i>@_reclaimTargetEntry.LegacyRedeemed Returned Pre-Aug 1 Chips Detected
+                    <p class="fw-bold mb-3" style="font-size: 1rem;">Are you sure you want to add <strong>+@_legacyStockAddCountInput chips</strong> to available stock for <strong>@_legacyStockTargetEntry.Token.Name</strong>?</p>
+                    
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted fw-bold">Current Expected Stock:</span>
+                            <span class="fw-bold">@_legacyStockTargetEntry.ExpectedPhysicalStock chips</span>
                         </div>
-                        <div class="small opacity-90">
-                            Select how you want to handle these physical chips returned by customers.
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted fw-bold">Quantity Adding:</span>
+                            <span class="fw-black text-success fs-5">+@_legacyStockAddCountInput chips</span>
                         </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">Quantity of Chips to Process (Max: @_reclaimTargetEntry.LegacyRedeemed):</label>
-                        <input type="number" class="form-control form-control-lg fw-bold" @bind="_reclaimQuantityInput" min="1" max="@_reclaimTargetEntry.LegacyRedeemed" />
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label fw-bold mb-2">Select Action to Perform for these @_reclaimQuantityInput Chips:</label>
-                        <div class="list-group border-0 gap-2">
-                            <label class="list-group-item d-flex align-items-start gap-3 p-3 rounded-3 cursor-pointer border @(_reclaimOption == "RECLAIM_TO_STOCK" ? "border-warning border-2 bg-warning-subtle text-dark shadow-sm" : "bg-light text-dark opacity-75")">
-                                <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="reclaimOpt" value="RECLAIM_TO_STOCK" checked="@(_reclaimOption == "RECLAIM_TO_STOCK")" @onchange='() => _reclaimOption = "RECLAIM_TO_STOCK"' />
-                                <div>
-                                    <div class="fw-bold fs-6 text-dark"><i class="bi bi-box-arrow-in-down me-1 text-warning"></i>Option 1: Add Back to Active Stock (To Re-Sell)</div>
-                                    <div class="small text-muted mt-1">Puts these <strong>@_reclaimQuantityInput</strong> physical chips into your active drawer stock so your staff can re-sell them at the POS.</div>
-                                </div>
-                            </label>
-                            <label class="list-group-item d-flex align-items-start gap-3 p-3 rounded-3 cursor-pointer border @(_reclaimOption == "RETIRE_CHIPS" ? "border-danger border-2 bg-danger-subtle text-dark shadow-sm" : "bg-light text-dark opacity-75")">
-                                <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="reclaimOpt" value="RETIRE_CHIPS" checked="@(_reclaimOption == "RETIRE_CHIPS")" @onchange='() => _reclaimOption = "RETIRE_CHIPS"' />
-                                <div>
-                                    <div class="fw-bold fs-6 text-danger"><i class="bi bi-trash3 me-1"></i>Option 2: Retire & Remove From Circulation (Throw Away / Destroy)</div>
-                                    <div class="small text-muted mt-1">Permanently retires these <strong>@_reclaimQuantityInput</strong> old, damaged, or obsolete design chips so they are removed from circulation and will NOT be re-sold.</div>
-                                </div>
-                            </label>
+                        <div class="d-flex justify-content-between pt-2 border-top">
+                            <span class="text-muted fw-bold">New Expected Stock:</span>
+                            <span class="fw-black text-dark fs-5">@(_legacyStockTargetEntry.ExpectedPhysicalStock + _legacyStockAddCountInput) chips</span>
                         </div>
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Manager Notes (Optional):</label>
-                        <input type="text" class="form-control" @bind="_reclaimNotesInput" placeholder="e.g. Disposed of 4 bent old design chips" />
-                    </div>
+                    <div class="small text-muted">This addition will be permanently logged in the Token Audit History with your username and timestamp.</div>
                 </div>
                 <div class="modal-footer border-top py-3">
-                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showReclaimModal = false'>CANCEL</button>
-                    <button class="btn @(_reclaimOption == "RECLAIM_TO_STOCK" ? "btn-warning text-dark" : "btn-danger") rounded-pill fw-bold px-4" @onclick="SaveReclaimAction">
-                        CONFIRM & @(_reclaimOption == "RECLAIM_TO_STOCK" ? "ADD TO STOCK" : "RETIRE FROM CIRCULATION")
-                    </button>
+                    <button class="btn btn-light rounded-pill fw-bold" @onclick='() => _showConfirmReplenishModal = false'>CANCEL</button>
+                    <button class="btn btn-secondary rounded-pill fw-bold px-4 shadow-sm" @onclick="ExecuteSaveAddLegacyStock">CONFIRM & REPLENISH STOCK</button>
                 </div>
             </div>
         </div>
@@ -4132,7 +4218,10 @@
         public int StartingBalance => IsLifetimeMode ? Token.StartingLiabilityBalance : 0;
         public int TotalSold => Sold + StartingBalance;
         public int RawLegacyRedeemed => Math.Max(0, Redeemed - TotalSold);
-        public int LegacyRedeemed => Math.Max(0, RawLegacyRedeemed - ManuallyProcessedLegacyCount);
+        
+        public int LegacyResetBaseline { get; set; } = -1;
+        public int LegacyRedeemed => LegacyResetBaseline >= 0 ? LegacyResetBaseline : Math.Max(0, RawLegacyRedeemed - ManuallyProcessedLegacyCount);
+        
         public int InCirculation => Math.Max(0, TotalSold - Redeemed);
         public decimal ActualCashCollected { get; set; }
         public decimal TotalRevenue => ActualCashCollected + (StartingBalance * Token.SalePrice);
@@ -4141,7 +4230,15 @@
         
         // Physical Token Stock & Audit properties
         public int MasterPhysicalStock { get; set; } = 0;
-        public int ExpectedPhysicalStock => Math.Max(0, MasterPhysicalStock - Sold + Redeemed);
+        public int AuditedBaselineStock { get; set; } = -1;
+        public int SalesSinceAudit { get; set; } = 0;
+        public int RedemptionsSinceAudit { get; set; } = 0;
+        public int ReplenishedSinceAudit { get; set; } = 0;
+        
+        public int ExpectedPhysicalStock => AuditedBaselineStock >= 0 
+            ? Math.Max(0, AuditedBaselineStock - SalesSinceAudit + RedemptionsSinceAudit + ReplenishedSinceAudit)
+            : Math.Max(0, MasterPhysicalStock - Sold + Redeemed);
+
         public int ActualPhysicalCount { get; set; } = -1;
         public int StockVariance => ActualPhysicalCount < 0 ? 0 : ActualPhysicalCount - ExpectedPhysicalStock;
         public string DiscrepancyStatus => ActualPhysicalCount < 0 ? "UNAUDITED" : (StockVariance > 0 ? "LEGACY_INFLOW" : (StockVariance < 0 ? "SHRINKAGE" : "BALANCED"));
@@ -4654,10 +4751,20 @@
 
     private bool _showRedemptionListModal = false;
     private bool _showHistoryModal = false;
+    
+    // Audit Modal State & Confirmation
     private bool _showPhysicalAuditModal = false;
+    private bool _showConfirmAuditModal = false;
     private TokenYieldEntry? _auditTargetEntry = null;
     private int _physicalAuditCountInput = 0;
     private string _physicalAuditNotesInput = "";
+
+    // Reset Legacy Modal State & Confirmation
+    private bool _showResetLegacyModal = false;
+    private bool _showConfirmLegacyResetModal = false;
+    private TokenYieldEntry? _legacyTargetEntry = null;
+    private int _pendingResetLegacyValue = 0;
+    private string _resetLegacyNotesInput = "";
 
     private bool _showAddLegacyStockModal = false;
     private TokenYieldEntry? _legacyStockTargetEntry = null;
@@ -4682,7 +4789,13 @@
         _showPhysicalAuditModal = true;
     }
 
-    private async Task SavePhysicalAudit()
+    private void PromptConfirmAudit()
+    {
+        if (_auditTargetEntry == null) return;
+        _showConfirmAuditModal = true;
+    }
+
+    private async Task ExecuteSavePhysicalAudit()
     {
         if (_auditTargetEntry == null) return;
         _auditTargetEntry.ActualPhysicalCount = _physicalAuditCountInput;
@@ -4694,9 +4807,9 @@
             TokenName = _auditTargetEntry.Token.Name ?? "Token",
             ExpectedStock = _auditTargetEntry.ExpectedPhysicalStock,
             ActualCount = _physicalAuditCountInput,
-            Variance = _auditTargetEntry.StockVariance,
-            Status = _auditTargetEntry.DiscrepancyStatus,
-            Notes = string.IsNullOrWhiteSpace(_physicalAuditNotesInput) ? (_auditTargetEntry.StockVariance > 0 ? "Legacy token inflow recorded" : (_auditTargetEntry.StockVariance < 0 ? "Physical stock shortage / shrinkage" : "Stock audit balanced")) : _physicalAuditNotesInput,
+            Variance = _physicalAuditCountInput - _auditTargetEntry.ExpectedPhysicalStock,
+            Status = "AUDIT_BASELINE_SET",
+            Notes = string.IsNullOrWhiteSpace(_physicalAuditNotesInput) ? $"Audited physical count set to {_physicalAuditCountInput} chips" : _physicalAuditNotesInput,
             PerformedBy = _currentUser?.Username ?? "Manager"
         };
         db.TokenAuditLogs.Add(log);
@@ -4704,9 +4817,52 @@
         
         await CalculateLifetimeTokens(db);
         await CalculateTokenAnalysis(db);
+        _showConfirmAuditModal = false;
         _showPhysicalAuditModal = false;
         StateHasChanged();
     }
+
+    private void OpenResetLegacyModal(TokenYieldEntry entry)
+    {
+        _legacyTargetEntry = entry;
+        _pendingResetLegacyValue = 0;
+        _resetLegacyNotesInput = "";
+        _showResetLegacyModal = true;
+    }
+
+    private void PromptConfirmLegacyReset()
+    {
+        if (_legacyTargetEntry == null) return;
+        _showConfirmLegacyResetModal = true;
+    }
+
+    private async Task ExecuteResetLegacyCount()
+    {
+        if (_legacyTargetEntry == null) return;
+        
+        using var db = DbFactory.CreateDbContext();
+        var log = new TokenAuditLogEntry
+        {
+            Timestamp = DateTime.Now,
+            TokenName = _legacyTargetEntry.Token.Name ?? "Token",
+            ExpectedStock = _legacyTargetEntry.LegacyRedeemed,
+            ActualCount = _pendingResetLegacyValue,
+            Variance = _pendingResetLegacyValue - _legacyTargetEntry.LegacyRedeemed,
+            Status = "LEGACY_RESET",
+            Notes = string.IsNullOrWhiteSpace(_resetLegacyNotesInput) ? $"Reset legacy count to {_pendingResetLegacyValue} tokens" : _resetLegacyNotesInput,
+            PerformedBy = _currentUser?.Username ?? "Manager"
+        };
+        db.TokenAuditLogs.Add(log);
+        await db.SaveChangesAsync();
+        
+        await CalculateLifetimeTokens(db);
+        await CalculateTokenAnalysis(db);
+        _showConfirmLegacyResetModal = false;
+        _showResetLegacyModal = false;
+        StateHasChanged();
+    }
+
+    private bool _showConfirmReplenishModal = false;
 
     private void OpenAddLegacyStockModal(TokenYieldEntry entry)
     {
@@ -4716,7 +4872,13 @@
         _showAddLegacyStockModal = true;
     }
 
-    private async Task SaveAddLegacyStock()
+    private void PromptConfirmReplenish()
+    {
+        if (_legacyStockTargetEntry == null || _legacyStockAddCountInput <= 0) return;
+        _showConfirmReplenishModal = true;
+    }
+
+    private async Task ExecuteSaveAddLegacyStock()
     {
         if (_legacyStockTargetEntry == null || _legacyStockAddCountInput <= 0) return;
 
@@ -4726,7 +4888,7 @@
             Timestamp = DateTime.Now,
             TokenName = _legacyStockTargetEntry.Token.Name ?? "Token",
             ExpectedStock = _legacyStockTargetEntry.ExpectedPhysicalStock,
-            ActualCount = _legacyStockTargetEntry.ExpectedPhysicalStock,
+            ActualCount = _legacyStockTargetEntry.ExpectedPhysicalStock + _legacyStockAddCountInput,
             Variance = _legacyStockAddCountInput,
             Status = "STOCK_REPLENISHED",
             Notes = $"Replenished {_legacyStockAddCountInput} physical chips into available stock. {(_legacyStockAddNotesInput)}".Trim(),
@@ -4737,6 +4899,7 @@
         
         await CalculateLifetimeTokens(db);
         await CalculateTokenAnalysis(db);
+        _showConfirmReplenishModal = false;
         _showAddLegacyStockModal = false;
         StateHasChanged();
     }
@@ -4934,61 +5097,61 @@
         foreach (var entry in stats.Values)
         {
             var tokenLogs = TokenAuditLogs.Where(l => l.TokenName == entry.Token.Name).OrderBy(l => l.Timestamp).ToList();
-            int physicalStock = 0;
-            int manuallyProcessedLegacy = 0;
-            int lastAuditCount = -1;
             
-            foreach (var log in tokenLogs)
+            // Check for latest Audit Baseline Set log
+            var lastAuditLog = tokenLogs.LastOrDefault(l => l.Status == "AUDIT_BASELINE_SET" || l.Status == "BALANCED" || l.Status == "LEGACY_INFLOW" || l.Status == "SHRINKAGE");
+            if (lastAuditLog != null)
             {
-                if (log.Status == "STOCK_REPLENISHED")
+                entry.AuditedBaselineStock = lastAuditLog.ActualCount;
+                var cutoffTime = lastAuditLog.Timestamp;
+
+                // Calculate sales, redemptions, and replenishments since audit timestamp
+                int soldSince = 0;
+                int redeemedSince = 0;
+                foreach (var sale in allSales.Where(s => s.Timestamp >= cutoffTime))
                 {
-                    physicalStock += log.Variance;
-                }
-                else if (log.Status == "LEGACY_RECLAIMED")
-                {
-                    // Reclaiming to stock does not add to physical stock again (already counted in expected stock via +Redeemed)
-                    manuallyProcessedLegacy += log.Variance;
-                }
-                else if (log.Status == "LEGACY_RETIRED")
-                {
-                    // Retiring legacy chips means physically removing them from the drawer
-                    physicalStock -= log.Variance;
-                    manuallyProcessedLegacy += log.Variance;
-                }
-                else if (log.Status == "LEGACY_INFLOW" || log.Status == "SHRINKAGE" || log.Status == "BALANCED")
-                {
-                    lastAuditCount = log.ActualCount;
-                    physicalStock = log.ActualCount;
-                }
-            }
-            
-            entry.MasterPhysicalStock = physicalStock;
-            entry.ManuallyProcessedLegacyCount = manuallyProcessedLegacy;
-            if (lastAuditCount >= 0)
-            {
-                entry.ActualPhysicalCount = lastAuditCount;
-                var lastAuditLog = tokenLogs.LastOrDefault(l => l.Status == "LEGACY_INFLOW" || l.Status == "SHRINKAGE" || l.Status == "BALANCED");
-                if (lastAuditLog != null)
-                {
-                    int varVal = lastAuditLog.Variance;
-                    string timeStr = lastAuditLog.Timestamp.ToString("MMM dd, h:mm tt");
-                    if (lastAuditLog.Status == "BALANCED")
+                    var items = GetItemsList(sale.ItemsJson);
+                    foreach (var item in items)
                     {
-                        entry.LastAuditStatus = $"Balanced ({timeStr})";
-                    }
-                    else if (lastAuditLog.Status == "LEGACY_INFLOW")
-                    {
-                        entry.LastAuditStatus = $"+{varVal} Surplus ({timeStr})";
-                    }
-                    else if (lastAuditLog.Status == "SHRINKAGE")
-                    {
-                        entry.LastAuditStatus = $"{varVal} Shrinkage ({timeStr})";
+                        if (item.Category == "TOKENS")
+                        {
+                            var match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
+                            if (match != null && match.Name == entry.Token.Name) soldSince += item.Quantity;
+                        }
+                        
+                        bool isRedem = item.IsTokenApplied || (item.Name ?? "").Contains("(TOKEN") || (item.Name ?? "").Contains("(CREDITED") || item.Category == "TOKEN_CREDIT";
+                        if (isRedem)
+                        {
+                            PosToken? match = null;
+                            if (item.AppliedTokenId.HasValue && item.AppliedTokenId.Value > 0) match = MasterTokens.FirstOrDefault(t => t.Id == item.AppliedTokenId.Value);
+                            if (match == null)
+                            {
+                                var nameUpper = (item.Name ?? "").ToUpper();
+                                if (nameUpper.Contains("BEER") || nameUpper.Contains("SELTZER") || nameUpper.Contains("CIDER")) match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == true || t.Name?.ToUpper().Contains("SELTZER") == true);
+                                else match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == false && t.Name?.ToUpper().Contains("SELTZER") == false);
+                            }
+                            if (match != null && match.Name == entry.Token.Name) redeemedSince += item.Quantity;
+                        }
                     }
                 }
+
+                int replenishedSince = tokenLogs.Where(l => l.Timestamp >= cutoffTime && l.Status == "STOCK_REPLENISHED").Sum(l => l.Variance);
+
+                entry.SalesSinceAudit = soldSince;
+                entry.RedemptionsSinceAudit = redeemedSince;
+                entry.ReplenishedSinceAudit = replenishedSince;
+                entry.LastAuditStatus = $"Baseline {lastAuditLog.ActualCount} ({lastAuditLog.Timestamp:MMM dd, h:mm tt})";
             }
             else
             {
                 entry.LastAuditStatus = "Never";
+            }
+
+            // Check for latest Legacy Reset log
+            var lastLegacyResetLog = tokenLogs.LastOrDefault(l => l.Status == "LEGACY_RESET");
+            if (lastLegacyResetLog != null)
+            {
+                entry.LegacyResetBaseline = lastLegacyResetLog.ActualCount;
             }
         }
 

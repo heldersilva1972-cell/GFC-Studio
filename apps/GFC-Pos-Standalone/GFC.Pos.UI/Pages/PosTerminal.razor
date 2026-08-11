@@ -2561,6 +2561,39 @@
                     </div>
 
                     <div class="banquet-grid">
+                        @if (DbActiveEvents != null && DbActiveEvents.Any(e => !IsEventDirect(e)))
+                        {
+                            <div class="mb-4">
+                                <div class="banquet-section-title text-success fw-black mb-2">
+                                    <i class="bi bi-play-circle-fill me-2"></i> CURRENTLY ACTIVE EVENT
+                                </div>
+                                <div class="bg-white p-3 rounded-4 border border-2 border-warning shadow-sm">
+                                    @foreach (var ev in DbActiveEvents.Where(e => !IsEventDirect(e)))
+                                    {
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <h5 class="fw-black m-0 text-dark">@GetEventDisplayName(ev.Name).ToUpper()</h5>
+                                                <div class="small text-muted fw-bold">
+                                                    TYPE: @(ev.Type == GFC.Core.Enums.EventTabType.PrePaid ? "PREPAID TAB" : "RUNNING TAB") | BAL: @ev.CurrentBalance.ToString("C")
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                @if (ev.Type == GFC.Core.Enums.EventTabType.PrePaid)
+                                                {
+                                                    <button class="btn btn-sm btn-success rounded-pill fw-bold px-3" @onclick="() => OpenAddFunds(ev)">
+                                                        <i class="bi bi-plus-circle me-1"></i> Add Funds
+                                                    </button>
+                                                }
+                                                <button class="btn btn-sm btn-danger rounded-pill fw-bold px-3" @onclick="() => CloseBanquet(ev)">
+                                                    <i class="bi bi-stop-circle me-1"></i> Close Event
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
                         <div class="d-flex flex-column">
                             <div class="banquet-section-title">Start New Event</div>
                             <div class="bg-light p-4 rounded-4 border-2 border border-white shadow-sm flex-grow-1">
@@ -2672,73 +2705,156 @@
                     </div>
                 </div>
         </div>
-    }
-
-    @if (_selectedBanquetToAddFunds != null)
+    }    @if (showDonatedPrizeModal && _donatedActionTargetEvent != null)
     {
-        <div class="shift-overlay" style="z-index: 1070; background: rgba(0,0,0,0.4);">
-            <div class="banquet-modal-compact animate__animated animate__zoomIn animate__faster mx-auto">
-                <div class="text-center mb-3">
-                    <h2 class="fw-black m-0" style="color: @(_isDeductFundsMode ? "#dc2626" : "#1e3a8a"); letter-spacing: -1.5px; transition: color 0.2s;">
-                        @(_isDeductFundsMode ? "DEDUCT / VOID" : "ADD FUNDS")
-                    </h2>
-                    <div class="small fw-bold text-muted text-uppercase">@_selectedBanquetToAddFunds.Name</div>
+        <div class="banquet-modal-backdrop animate__animated animate__fadeIn animate__faster" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+            <div class="banquet-modal-compact animate__animated animate__zoomIn animate__faster mx-auto bg-white p-4 rounded-4 shadow-lg border" style="max-width: 480px; width: 95%;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-black mb-0 text-dark"><i class="bi bi-trophy-fill text-warning me-2"></i>Donated Beer Prize Manager</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDonatedPrizeModal = false"></button>
                 </div>
+                
+                <p class="small text-muted mb-2">Handle allocated donation cases directly. Select the beer, quantity, and choose the winner's outcome.</p>
 
-                <div class="d-flex justify-content-center mb-4">
-                    <div class="btn-group rounded-pill p-1 bg-light border" style="width: 100%; max-width: 280px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.06);">
-                        <button type="button" class="btn btn-sm rounded-pill fw-black transition-all @(!_isDeductFundsMode ? "btn-success text-white shadow-sm" : "btn-light text-muted")"
-                                style="font-size: 0.8rem; letter-spacing: 0.5px; border: none;"
-                                @onclick="() => { _isDeductFundsMode = false; }">
-                            <i class="bi bi-plus-circle-fill me-1"></i> ADD FUNDS
-                        </button>
-                        <button type="button" class="btn btn-sm rounded-pill fw-black transition-all @(_isDeductFundsMode ? "btn-danger text-white shadow-sm" : "btn-light text-muted")"
-                                style="font-size: 0.8rem; letter-spacing: 0.5px; border: none;"
-                                @onclick="() => { _isDeductFundsMode = true; }">
-                            <i class="bi bi-dash-circle-fill me-1"></i> DEDUCT / VOID
-                        </button>
-                    </div>
-                </div>
-
-                <div class="mb-4">
-                    <div class="input-group">
-                        <span class="input-group-text bg-white border-2 fw-bold fs-4">$</span>
-                        <input type="number" step="0.01" class="form-control border-2 fs-4 fw-black @(_isDeductFundsMode ? "text-danger" : "text-success")" @bind="_addFundsAmount" readonly style="transition: color 0.2s;" />
-                    </div>
-                </div>
-
-                <div class="banquet-numpad mb-4">
-                    @foreach (var n in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "C" })
-                    {
-                        <div class="numpad-key @(n == "C" ? "key-clear" : "")" @onclick="() => HandleBanquetNumpad(n)">
-                            @if (n == "C")
-                            {
-                                <span style="font-size: 0.9rem; font-weight: 800; text-transform: lowercase;">clear</span>
-                            }
-                            else
-                            {
-                                @n
-                            }
-                        </div>
+                <!-- STATUS SUMMARY CARD -->
+                <div class="p-3 bg-light rounded-4 border mb-3">
+                    @{
+                        int draftClaimedCans = _donatedDrafts.Where(d => d.ActionType == "prize").Sum(d => d.Cases * 24);
+                        int draftReDonatedCans = _donatedDrafts.Where(d => d.ActionType == "redonate").Sum(d => d.Cases * 24);
+                        int totalClaimed = _donatedActionTargetEvent.DonatedBeerClaimedCount + draftClaimedCans;
+                        int totalReDonated = _donatedActionTargetEvent.DonatedBeerReDonatedCount + draftReDonatedCans;
                     }
+                    <div class="row text-center g-2">
+                        <div class="col-4 border-end">
+                            <span class="d-block text-muted small fw-bold text-uppercase">Allocated</span>
+                            <span class="fs-5 fw-black text-dark">@_donatedActionTargetEvent.ClubDonatedCasesCap Cases</span>
+                        </div>
+                        <div class="col-4 border-end">
+                            <span class="d-block text-muted small fw-bold text-uppercase">Awarded</span>
+                            <span class="fs-5 fw-black text-warning">@(totalClaimed / 24) Cases</span>
+                        </div>
+                        <div class="col-4">
+                            <span class="d-block text-muted small fw-bold text-uppercase">Donated Back</span>
+                            <span class="fs-5 fw-black text-danger">@(totalReDonated / 24) Cases</span>
+                        </div>
+                    </div>
+                    <div class="text-center mt-2 pt-2 border-top border-2 border-white small fw-bold text-muted text-uppercase">
+                        Remaining: <span class="fw-black text-success">@Math.Max(0, _donatedActionTargetEvent.ClubDonatedCasesCap - (totalClaimed / 24) - (totalReDonated / 24)) Cases</span>
+                    </div>
                 </div>
 
-                <div class="d-grid gap-2">
-                    <button class="btn @(_isDeductFundsMode ? "btn-danger" : "btn-success") py-3 rounded-pill fw-black shadow-sm" @onclick="ConfirmAddFunds" disabled="@(_addFundsAmount <= 0)" style="transition: all 0.2s;">
-                        @if (_isDeductFundsMode)
+                <!-- 1. SELECT BEER -->
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-muted">1. Select Beer Item</label>
+                    <select class="form-select form-select-lg border-2 fw-bold" @bind="_selectedDonatedItemId">
+                        @{
+                            // Parse template allocated beers
+                            var allocatedIds = new List<int>();
+                            if (!string.IsNullOrEmpty(_donatedActionTargetEvent.DonatedItemIdsJson))
+                            {
+                                try
+                                {
+                                    var dict = JsonSerializer.Deserialize<Dictionary<int, int>>(_donatedActionTargetEvent.DonatedItemIdsJson);
+                                    if (dict != null) allocatedIds = dict.Keys.ToList();
+                                }
+                                catch
+                                {
+                                    try { allocatedIds = JsonSerializer.Deserialize<List<int>>(_donatedActionTargetEvent.DonatedItemIdsJson) ?? new(); } catch {}
+                                }
+                            }
+                            var beerItems = DbItems?.Where(i => allocatedIds.Contains(i.Id)).ToList() ?? new();
+                        }
+                        @if (beerItems.Any())
                         {
-                            <i class="bi bi-dash-circle-fill me-2"></i> @("DEDUCT & RECORD CORRECTION")
+                            <option value="0">-- Select Beer --</option>
+                            @foreach (var b in beerItems)
+                            {
+                                <option value="@b.Id">@b.Name</option>
+                            }
                         }
                         else
                         {
-                            <i class="bi bi-plus-circle-fill me-2"></i> @("COLLECT CASH & ADD")
+                            <option value="0">No Allocated Event Beers Found</option>
                         }
+                    </select>
+                </div>
+
+                <!-- 2. QUANTITY IN CASES -->
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-muted">2. Quantity (Cases)</label>
+                    <div class="d-flex align-items-center gap-3">
+                        <button type="button" class="btn btn-outline-secondary px-3 fw-bold" @onclick="() => _donatedCaseQuantity = Math.Max(1, _donatedCaseQuantity - 1)">-</button>
+                        <span class="fs-4 fw-black text-center flex-grow-1" style="min-width: 60px;">@_donatedCaseQuantity Cases</span>
+                        <button type="button" class="btn btn-outline-secondary px-3 fw-bold" @onclick="() => _donatedCaseQuantity = Math.Min(10, _donatedCaseQuantity + 1)">+</button>
+                    </div>
+                </div>
+
+                <!-- 3. CHOOSE OUTCOME ACTION -->
+                <div class="mb-2">
+                    <label class="form-label small fw-bold text-uppercase text-muted">3. Action / Outcome</label>
+                </div>
+                <div class="d-flex flex-column gap-2 mb-3">
+                    <button type="button" class="btn p-2.5 rounded-3 border text-start d-flex align-items-center gap-3 transition-all @(_donatedActionType == "prize" ? "btn-dark text-white border-dark" : "btn-light text-dark border-2")"
+                            @onclick='() => _donatedActionType = "prize"'>
+                        <div class="d-flex align-items-center justify-content-center rounded-circle bg-warning text-dark" style="width: 32px; height: 32px; min-width: 32px;">
+                            <i class="bi bi-gift-fill fs-6 text-dark"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold" style="font-size: 0.85rem;">Award as Winner Prize</div>
+                        </div>
                     </button>
-                    <button class="btn btn-light py-3 rounded-pill fw-bold" @onclick="() => { _selectedBanquetToAddFunds = null; _isDeductFundsMode = false; }">CANCEL</button>
+
+                    <button type="button" class="btn p-2.5 rounded-3 border text-start d-flex align-items-center gap-3 transition-all @(_donatedActionType == "redonate" ? "btn-warning text-dark border-warning" : "btn-light text-dark border-2")"
+                            @onclick='() => _donatedActionType = "redonate"'>
+                        <div class="d-flex align-items-center justify-content-center rounded-circle bg-danger text-white" style="width: 32px; height: 32px; min-width: 32px;">
+                            <i class="bi bi-heart-fill fs-6"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold" style="font-size: 0.85rem;">Donate back to @(string.IsNullOrWhiteSpace(_donatedActionTargetEvent.RecipientEventName) ? "Horseshoes" : _donatedActionTargetEvent.RecipientEventName)</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- ADD TO LIST BUTTON -->
+                <div class="mb-3 text-end">
+                    <button type="button" class="btn btn-outline-dark rounded-pill fw-bold btn-sm"
+                            disabled="@(_selectedDonatedItemId == 0)"
+                            @onclick="AddDonatedActionDraft">
+                        <i class="bi bi-plus-circle me-1"></i> Add Selected Cases
+                    </button>
+                </div>
+
+                <!-- DRAFT LIST PREVIEW -->
+                @if (_donatedDrafts.Any())
+                {
+                    <div class="mb-3 p-2 bg-light rounded-3 border" style="max-height: 110px; overflow-y: auto;">
+                        <label class="small text-muted fw-bold d-block mb-1 text-uppercase">Pending Actions List:</label>
+                        @foreach (var draft in _donatedDrafts)
+                        {
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1 small text-dark">
+                                <div>
+                                    <span class="fw-black text-primary">@draft.Cases Case(s)</span> of @draft.BeerName
+                                    <span class="badge ms-1 @(draft.ActionType == "prize" ? "bg-warning text-dark" : "bg-danger text-white")">
+                                        @(draft.ActionType == "prize" ? "Winner Prize" : "Donated Back")
+                                    </span>
+                                </div>
+                                <button type="button" class="btn-close" style="font-size: 0.6rem;" @onclick="() => _donatedDrafts.Remove(draft)"></button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-light rounded-pill flex-grow-1 fw-bold" @onclick="() => showDonatedPrizeModal = false">Cancel</button>
+                    <button class="btn btn-success text-white rounded-pill flex-grow-1 fw-bold" 
+                            disabled="@(!_donatedDrafts.Any())"
+                            @onclick="ConfirmProcessDonatedBeer">
+                        <i class="bi bi-check-circle-fill me-1"></i> Save &amp; Close
+                    </button>
                 </div>
             </div>
         </div>
-    }
+    }   }
 
     @if (showSettingsModal)
     {
@@ -3588,25 +3704,14 @@
                                             <i class="bi bi-cash-coin me-1"></i> ADD FUNDS
                                         </button>
                                     }
-
-                                    @if (!IsEventDirect(ev))
+                                    
+                                    @if (ev.ClubDonatedCasesCap > 0 || ev.DonatedBeerReDonatedCount > 0 || ev.Enable100PercentDonatedProceeds)
                                     {
-                                        <button type="button" class="btn rounded-pill fw-black transition-all"
-                                            style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
-                                                   background: @(isSelected ? "#10b981" : "white") !important;
-                                                   color: @(isSelected ? "white" : "#334155") !important;
-                                                   border: 2px solid @(isSelected ? "#10b981" : "#94a3b8") !important;
-                                                   box-shadow: @(isSelected ? "0 4px 12px rgba(16, 185, 129, 0.2)" : "none") !important;"
-                                              @onclick="async () => await SetOrderMode(isSelected ? null : ev)">
-                                            @if (isSelected)
-                                            {
-                                                <i class="bi bi-check-circle-fill me-1"></i> @("BANQUET SALES ACTIVE")
-                                            }
-                                            else
-                                            {
-                                                <i class="bi bi-lightning-charge me-1"></i> @("SWITCH TO BANQUET SALES")
-                                            }
-                                        </button>
+                                        <div class="w-100 mt-2 pt-2 border-top border-warning border-opacity-25 d-flex align-items-center justify-content-end">
+                                            <button type="button" class="btn btn-sm btn-dark text-white rounded-pill fw-bold" @onclick="() => OpenDonatedPrizeManager(ev)">
+                                                <i class="bi bi-gift-fill me-1 text-warning"></i> Handle Donated Beer Prize
+                                            </button>
+                                        </div>
                                     }
                                     
                                     <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-2"
@@ -6019,6 +6124,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (Http.BaseAddress == null)
+        {
+            try
+            {
+                Http.BaseAddress = new Uri(Navigation.BaseUri);
+            }
+            catch {}
+        }
+
         _isInitialLoading = true;
         try
         {
@@ -6993,6 +7107,16 @@
         else
         {
             _selectedActiveEvent = directEvent;
+        }
+
+        if (_donatedActionTargetEvent != null)
+        {
+            var matchedDonated = DbActiveEvents.FirstOrDefault(ev => ev.Id == _donatedActionTargetEvent.Id || ev.Name == _donatedActionTargetEvent.Name);
+            if (matchedDonated != null)
+            {
+                _donatedActionTargetEvent = matchedDonated;
+                Console.WriteLine($"[POS] Remapped target donation event '{matchedDonated.Name}' to ID: {matchedDonated.Id}");
+            }
         }
         
         DbItems = menu.Items.Select(i => new ProductItem { 
@@ -8929,13 +9053,16 @@
                 }
                 else
                 {
-                    if (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token"))
+                    if (product != null)
+                    {
+                        price = product.Price;
+                    }
+                    if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
                     {
                         var tokenMatch = DbTokens.OrderByDescending(t => t.Name.Length)
                             .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
                         if (tokenMatch != null) price = tokenMatch.SalePrice;
                     }
-                    if (price == 0) price = product?.Price ?? 0;
                 }
                 
                 if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
@@ -9917,7 +10044,9 @@
     private async Task OpenManageBanquets()
     {
         showOptionsMenu = false;
-        if (DbActiveEvents != null && DbActiveEvents.Any())
+        await RefreshData();
+
+        if (DbActiveEvents != null && DbActiveEvents.Any(e => !IsEventDirect(e)))
         {
             Toast.ShowWarning("An event is already active. Please close it before starting a new one.");
             return;
@@ -9928,13 +10057,6 @@
         _isFirstKeyAfterFocus = true;
         _selectedBanquetToAddFunds = null;
         StateHasChanged();
-        _ = Task.Run(async () =>
-        {
-            await InvokeAsync(async () =>
-            {
-                await RefreshData();
-            });
-        });
     }
 
     private void OpenAddFunds(ActiveEvent ev)
@@ -10061,6 +10183,10 @@
                 Status = GFC.Core.Enums.EventTabStatus.Open,
                 InitialAmount = _newBanquetAmount,
                 EnableBeerTally = template.EnableBeerTally,
+                ClubDonatedCasesCap = template.ClubDonatedCasesCap,
+                DonatedItemIdsJson = template.DonatedItemIdsJson,
+                Enable100PercentDonatedProceeds = template.Enable100PercentDonatedProceeds,
+                RecipientEventName = template.RecipientEventName,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -10130,9 +10256,13 @@
             if (response != null && response.IsSuccessStatusCode)
             {
                 var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
-                if (_newBanquetAmount > 0)
+                if (created != null)
                 {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, created?.Id, isInitial: true);
+                    _selectedActiveEvent = created;
+                    if (_newBanquetAmount > 0)
+                    {
+                        await LogTabDeposit(template.Name, _newBanquetAmount, created.Id, isInitial: true);
+                    }
                 }
                 Toast.ShowSuccess("Event started!");
                 _newBanquetTemplateId = 0;
@@ -10254,6 +10384,172 @@
             Toast.ShowWarning("Funds added locally. Server sync pending.");
         }
     }
+
+    private ActiveEvent? _donatedActionTargetEvent = null;
+    private bool showDonatedPrizeModal = false;
+    private int _selectedDonatedItemId = 0;
+    private int _donatedCaseQuantity = 1;
+    private string _donatedActionType = "prize"; // "prize" or "redonate"
+
+    private void OpenDonatedPrizeManager(ActiveEvent ev)
+    {
+        _donatedActionTargetEvent = ev;
+        _selectedDonatedItemId = 0;
+        _donatedCaseQuantity = 1;
+        _donatedActionType = "prize";
+        showDonatedPrizeModal = true;
+    }
+
+    public class DonatedActionDraft
+    {
+        public int BeerItemId { get; set; }
+        public string BeerName { get; set; } = "";
+        public int Cases { get; set; }
+        public string ActionType { get; set; } = "prize"; // "prize" or "redonate"
+    }
+
+    private List<DonatedActionDraft> _donatedDrafts = new();
+
+    private void AddDonatedActionDraft()
+    {
+        if (_donatedActionTargetEvent == null || _selectedDonatedItemId == 0 || _donatedCaseQuantity <= 0) return;
+        var selectedItem = DbItems?.FirstOrDefault(i => i.Id == _selectedDonatedItemId);
+        if (selectedItem == null) return;
+
+        _donatedDrafts.Add(new DonatedActionDraft
+        {
+            BeerItemId = _selectedDonatedItemId,
+            BeerName = selectedItem.Name,
+            Cases = _donatedCaseQuantity,
+            ActionType = _donatedActionType
+        });
+
+        // Reset selector defaults for next entry
+        _selectedDonatedItemId = 0;
+        _donatedCaseQuantity = 1;
+        _donatedActionType = "prize";
+        StateHasChanged();
+    }
+
+    private async Task ConfirmProcessDonatedBeer()
+    {
+        if (_donatedActionTargetEvent == null || !_donatedDrafts.Any()) return;
+
+        foreach (var draft in _donatedDrafts)
+        {
+            int cans = draft.Cases * 24;
+
+            if (draft.ActionType == "prize")
+            {
+                // Award as Winner Prize ($0)
+                _donatedActionTargetEvent.DonatedBeerClaimedCount += cans;
+
+                // Automatically record a $0 sale transaction under this event tab to log the inventory deduction
+                var prizeSale = new PosSaleDto
+                {
+                    Id = Guid.NewGuid(),
+                    Timestamp = DateTime.Now,
+                    TerminalName = TerminalName,
+                    PaymentType = "TAB",
+                    TotalAmount = 0,
+                    ActiveEventId = _donatedActionTargetEvent.Id,
+                    ItemsJson = JsonSerializer.Serialize(new List<ProductItem>
+                    {
+                        new ProductItem
+                        {
+                            Name = $"PRIZE: {draft.BeerName} (Winner)",
+                            Price = 0,
+                            Quantity = cans,
+                            Category = "BEER"
+                        }
+                    })
+                };
+                await PosService.SaveSaleAsync(prizeSale);
+                await PosService.AddSaleToShiftAsync(prizeSale);
+            }
+            else
+            {
+                // Donate Back to Event Pool (100% Proceeds)
+                _donatedActionTargetEvent.DonatedBeerReDonatedCount += cans;
+                
+                // Append or update the donated item IDs list to track which item is allowed for 100% proceeds
+                List<int> donatedIds = new();
+                if (!string.IsNullOrEmpty(_donatedActionTargetEvent.DonatedItemIdsJson))
+                {
+                    try
+                    {
+                        var existing = JsonSerializer.Deserialize<Dictionary<int, int>>(_donatedActionTargetEvent.DonatedItemIdsJson);
+                        if (existing != null) donatedIds = existing.Keys.ToList();
+                    }
+                    catch
+                    {
+                        try { donatedIds = JsonSerializer.Deserialize<List<int>>(_donatedActionTargetEvent.DonatedItemIdsJson) ?? new(); } catch {}
+                    }
+                }
+                if (!donatedIds.Contains(draft.BeerItemId))
+                {
+                    donatedIds.Add(draft.BeerItemId);
+                    _donatedActionTargetEvent.DonatedItemIdsJson = JsonSerializer.Serialize(donatedIds);
+                }
+            }
+        }
+
+        // 1. Send update request to server first and await the database write completion
+        if (_donatedActionTargetEvent.Id > 0)
+        {
+            var request = new UpdateEventTallyRequest
+            {
+                Id = _donatedActionTargetEvent.Id,
+                BeerTalliesJson = _donatedActionTargetEvent.BeerTalliesJson,
+                InitialAmount = _donatedActionTargetEvent.InitialAmount,
+                CurrentBalance = _donatedActionTargetEvent.CurrentBalance,
+                DonatedBeerClaimedCount = _donatedActionTargetEvent.DonatedBeerClaimedCount,
+                DonatedBeerReDonatedCount = _donatedActionTargetEvent.DonatedBeerReDonatedCount,
+                DonatedBeerSoldCount = _donatedActionTargetEvent.DonatedBeerSoldCount,
+                DonatedItemIdsJson = _donatedActionTargetEvent.DonatedItemIdsJson,
+                CloseEvent = false
+            };
+
+            try
+            {
+                var syncResponse = await Http.PostAsJsonAsync("api/pos/events/update-tally", request);
+                if (syncResponse.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("[POS] Server update-tally sync success");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] Failed to sync tally to server: {ex.Message}");
+            }
+        }
+
+        // 2. Update the event directly inside our local memory list
+        var matchedActive = DbActiveEvents?.FirstOrDefault(e => e.Id == _donatedActionTargetEvent.Id);
+        if (matchedActive != null)
+        {
+            matchedActive.DonatedBeerClaimedCount = _donatedActionTargetEvent.DonatedBeerClaimedCount;
+            matchedActive.DonatedBeerReDonatedCount = _donatedActionTargetEvent.DonatedBeerReDonatedCount;
+            matchedActive.DonatedItemIdsJson = _donatedActionTargetEvent.DonatedItemIdsJson;
+        }
+
+        if (_cachedMenu != null)
+        {
+            _cachedMenu.ActiveEvents = DbActiveEvents;
+            if (!forceTrainingMode)
+            {
+                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+            }
+        }
+
+        Toast.ShowSuccess($"Saved {_donatedDrafts.Sum(d => d.Cases)} case(s) of beer actions successfully!");
+
+        showDonatedPrizeModal = false;
+        _donatedDrafts.Clear();
+
+        await RefreshData();
+    }
+
 
     private bool _showBanquetCloseModal = false;
     private bool _showPrepaidDepositWarningModal = false;

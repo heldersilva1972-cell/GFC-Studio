@@ -224,6 +224,7 @@ namespace GFC.BlazorServer.Components.Pages
             _shifts = shifts
                 .OrderByDescending(s => s.ShiftDate.Date)
                 .ThenBy(s => s.ShiftType == "Day" ? 0 : s.ShiftType == "Night" ? 1 : 2)
+                .ThenBy(s => s.Status == "Draft" ? 0 : 1)
                 .ToList();
         }
 

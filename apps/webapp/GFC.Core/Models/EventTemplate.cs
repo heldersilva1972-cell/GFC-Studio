@@ -17,4 +17,16 @@ public class EventTemplate : BaseEntity
     public string? ItemsOverrideJson { get; set; }
 
     public bool EnableBeerTally { get; set; }
+
+    public int ClubDonatedCasesCap { get; set; } = 3;
+
+    public string? DonatedItemIdsJson { get; set; }
+
+    public bool Enable100PercentDonatedProceeds { get; set; } = true;
+
+
+    public bool IsRecurring { get; set; }
+
+    [MaxLength(100)]
+    public string? RecipientEventName { get; set; }
 }

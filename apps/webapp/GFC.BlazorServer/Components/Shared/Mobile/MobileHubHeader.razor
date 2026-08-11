@@ -206,9 +206,27 @@
                         {
                             // Try to push to server (SILENTLY)
                             try {
-                                await ReportingService.SaveShiftReportAsync(data, "System.Outbox");
-                                // Success? Remove from device. Job done.
-                                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+                                bool isFinal = false;
+                                if (root.TryGetProperty("IsFinalSubmission", out var finalProp))
+                                {
+                                    isFinal = finalProp.GetBoolean();
+                                }
+
+                                bool success = false;
+                                if (isFinal || data.Status == "Submitted")
+                                {
+                                    success = await ReportingService.SubmitFinalReportAsync(data, "System.Outbox");
+                                }
+                                else
+                                {
+                                    success = await ReportingService.SaveShiftReportAsync(data, "System.Outbox");
+                                }
+
+                                if (success)
+                                {
+                                    // Success? Remove from device. Job done.
+                                    await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+                                }
                             } catch {
                                 // Network still down? Ignore and try again on next timer tick.
                             }

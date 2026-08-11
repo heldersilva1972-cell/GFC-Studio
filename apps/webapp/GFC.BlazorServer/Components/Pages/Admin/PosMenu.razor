@@ -1623,14 +1623,25 @@
                             <input type="text" class="form-control form-control-lg rounded-3 border-2" @bind="editingEventTemplate.Name" placeholder="e.g. Annual Gala" />
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-bold text-muted text-uppercase">Default Tab Type</label>
+                            <label class="form-label small fw-bold text-muted text-uppercase mb-1">Default Tab Type</label>
                             <select class="form-select form-select-lg rounded-3 border-2" @bind="editingEventTemplate.DefaultType">
                                 @foreach (var type in Enum.GetValues(typeof(EventTabType)).Cast<EventTabType>())
                                 {
                                     <option value="@type">@type</option>
                                 }
                             </select>
+                            <div class="small text-muted mt-1.5 p-2 bg-light rounded-3 border" style="font-size: 0.78rem; line-height: 1.35;">
+                                @if (editingEventTemplate.DefaultType == GFC.Core.Enums.EventTabType.RunningTab)
+                                {
+                                    <span><i class="bi bi-info-circle-fill me-1 text-primary"></i><strong>Running Tab:</strong> Sales &amp; tallies accumulate on an open tab for final settlement at closing. Ideal for tournaments &amp; open-ended events.</span>
+                                }
+                                else
+                                {
+                                    <span><i class="bi bi-info-circle-fill me-1 text-success"></i><strong>Pre-Paid Tab:</strong> Requires an upfront deposit balance that decrements as items are ordered. Ideal when a sponsor deposits funds upfront.</span>
+                                }
+                            </div>
                         </div>
+
                         <div class="mb-3 p-3 bg-light rounded-3 border">
                             <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
                                 <div>
@@ -1643,7 +1654,7 @@
                             </div>
                         </div>
                         <div class="mb-3 p-3 bg-light rounded-3 border">
-                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0 mb-2">
                                 <div>
                                     <label class="form-check-label fw-bold text-dark mb-0" for="beerTallySwitchTemplate" style="font-size: 0.9rem; cursor: pointer;">
                                         Beer Inventory Tracking
@@ -1652,7 +1663,92 @@
                                 </div>
                                 <input class="form-check-input ms-2" type="checkbox" role="switch" id="beerTallySwitchTemplate" @bind="editingEventTemplate.EnableBeerTally" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
                             </div>
+                            
+                            <hr class="my-2 text-muted" />
+
+                            <label class="fw-bold text-dark mb-1 d-block" style="font-size: 0.9rem;"><i class="bi bi-gift-fill me-1 text-warning"></i> Club Donated Beer & Proceeds Rules</label>
+                            <div class="row g-2 align-items-center mb-2">
+                                <div class="col-6">
+                                    <label class="small text-muted mb-0">Donated Case Cap</label>
+                                    <select class="form-select form-select-sm rounded-3 border-2" value="@editingEventTemplate.ClubDonatedCasesCap" @onchange="(e) => OnDonatedCapChanged(e.Value)">
+                                        <option value="0">0 Cases (None)</option>
+                                        <option value="1">1 Case (24 Cans)</option>
+                                        <option value="2">2 Cases (48 Cans)</option>
+                                        <option value="3">3 Cases (72 Cans)</option>
+                                    </select>
+                                </div>
+
+                                <div class="col-6">
+                                    <label class="small text-muted mb-0">Recipient Sub-Event</label>
+                                    <select class="form-select form-select-sm rounded-3 border-2" @bind="editingEventTemplate.RecipientEventName">
+                                        <option value="">-- Select Recipient Event --</option>
+                                        <option value="Horseshoes Event">Horseshoes Event</option>
+                                        @if (eventTemplates != null)
+                                        {
+                                            @foreach (var t in eventTemplates.Where(t => t.Id != editingEventTemplate.Id))
+                                            {
+                                                var name = GetEventDisplayName(t.Name);
+                                                <option value="@name">@name</option>
+                                            }
+                                        }
+                                    </select>
+                                </div>
+
+                            </div>
+
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="small text-muted mb-0 fw-bold"><i class="bi bi-card-checklist me-1"></i>Donate Cases Per Beer Brand</label>
+                                    <span class="badge @(GetTotalAllocatedCases() == editingEventTemplate.ClubDonatedCasesCap ? "bg-success" : "bg-warning text-dark") rounded-pill" style="font-size: 0.8rem;">
+                                        Allocated: @GetTotalAllocatedCases() / @editingEventTemplate.ClubDonatedCasesCap Cases
+                                    </span>
+                                </div>
+                                @{
+                                    var beerItems = allItemsForTokens?.Where(i => i.Category?.Trim().ToUpper() == "BEER").ToList() ?? new();
+                                    var allocations = GetDonatedBeerAllocations();
+                                }
+                                @if (beerItems.Any())
+                                {
+                                    <div class="d-flex flex-column gap-2 p-2 bg-white rounded-3 border" style="max-height: 180px; overflow-y: auto;">
+                                        @foreach (var bItem in beerItems)
+                                        {
+                                            var currentCases = allocations.TryGetValue(bItem.Id, out var count) ? count : 0;
+                                            <div class="d-flex align-items-center justify-content-between p-2 rounded-3 border bg-light">
+                                                <div class="fw-bold small text-dark me-2">
+                                                    @bItem.Name <span class="text-muted fw-normal">(@bItem.RetailPrice.ToString("C"))</span>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-1">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle py-0 px-2 fw-bold" 
+                                                            @onclick="() => SetDonatedBeerItemCases(bItem.Id, currentCases - 1)" disabled="@(currentCases <= 0)">-</button>
+                                                    <span class="fw-black px-2 small text-dark" style="min-width: 65px; text-align: center;">
+                                                        @currentCases @(currentCases == 1 ? "Case" : "Cases")
+                                                    </span>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-circle py-0 px-2 fw-bold" 
+                                                            @onclick="() => SetDonatedBeerItemCases(bItem.Id, currentCases + 1)" disabled="@(GetTotalAllocatedCases() >= editingEventTemplate.ClubDonatedCasesCap)">+</button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="small text-muted fst-italic">No beer items found.</div>
+                                }
+                            </div>
+
+
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0 mt-2">
+                                <div>
+                                    <label class="form-check-label fw-bold text-dark mb-0" for="proceedsSwitchTemplate" style="font-size: 0.85rem; cursor: pointer;">
+                                        100% Proceeds to Recipient Event
+                                    </label>
+                                    <div class="small text-muted" style="font-size: 0.75rem;">Allocates 100% of sales proceeds to recipient event until donated beers are depleted.</div>
+                                </div>
+                                <input class="form-check-input ms-2" type="checkbox" role="switch" id="proceedsSwitchTemplate" @bind="editingEventTemplate.Enable100PercentDonatedProceeds" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                            </div>
                         </div>
+
+
                     }
                     else if (activeEventTemplateTab == "menu")
                     {
@@ -2466,9 +2562,67 @@
         activeEventTemplateTab = "general";
     }
     
+    private Dictionary<int, int> GetDonatedBeerAllocations()
+    {
+        if (editingEventTemplate == null || string.IsNullOrEmpty(editingEventTemplate.DonatedItemIdsJson))
+            return new Dictionary<int, int>();
+        try {
+            return global::System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(editingEventTemplate.DonatedItemIdsJson) ?? new Dictionary<int, int>();
+        } catch {
+            try {
+                var list = global::System.Text.Json.JsonSerializer.Deserialize<List<int>>(editingEventTemplate.DonatedItemIdsJson);
+                if (list != null) return list.ToDictionary(id => id, id => 1);
+            } catch {}
+            return new Dictionary<int, int>();
+        }
+    }
+
+    private int GetTotalAllocatedCases()
+    {
+        return GetDonatedBeerAllocations().Values.Sum();
+    }
+
+    private void SetDonatedBeerItemCases(int itemId, int cases)
+    {
+        if (editingEventTemplate == null) return;
+        var dict = GetDonatedBeerAllocations();
+        int currentTotalExceptThis = dict.Where(kvp => kvp.Key != itemId).Sum(kvp => kvp.Value);
+        int maxAllowedForThis = Math.Max(0, editingEventTemplate.ClubDonatedCasesCap - currentTotalExceptThis);
+        
+        int finalCases = Math.Min(Math.Max(0, cases), maxAllowedForThis);
+        if (finalCases > 0)
+        {
+            dict[itemId] = finalCases;
+        }
+        editingEventTemplate.DonatedItemIdsJson = global::System.Text.Json.JsonSerializer.Serialize(dict);
+    }
+
+    private void OnDonatedCapChanged(object? value)
+    {
+        if (editingEventTemplate == null || value == null || !int.TryParse(value.ToString(), out var newCap)) return;
+        editingEventTemplate.ClubDonatedCasesCap = newCap;
+        
+        // Clear all allocations so admin can start fresh for the new cap
+        editingEventTemplate.DonatedItemIdsJson = "{}";
+    }
+
+
+
+
     private void OpenEditEventTemplateModal(EventTemplate t)
     {
-        editingEventTemplate = new EventTemplate { Id = t.Id, Name = t.Name, DefaultType = t.DefaultType, ItemsOverrideJson = t.ItemsOverrideJson, EnableBeerTally = t.EnableBeerTally };
+        editingEventTemplate = new EventTemplate { 
+            Id = t.Id, 
+            Name = t.Name, 
+            DefaultType = t.DefaultType, 
+            ItemsOverrideJson = t.ItemsOverrideJson, 
+            EnableBeerTally = t.EnableBeerTally,
+            ClubDonatedCasesCap = t.ClubDonatedCasesCap,
+            DonatedItemIdsJson = t.DonatedItemIdsJson,
+            Enable100PercentDonatedProceeds = t.Enable100PercentDonatedProceeds,
+            IsRecurring = t.IsRecurring,
+            RecipientEventName = t.RecipientEventName
+        };
         _templateDirectCheckout = t.Name.EndsWith(" [Direct]") || t.Name.EndsWith("[Direct]");
         if (editingEventTemplate.Name.EndsWith(" [Direct]"))
             editingEventTemplate.Name = editingEventTemplate.Name.Substring(0, editingEventTemplate.Name.Length - 9);
@@ -2591,6 +2745,11 @@
                     orig.DefaultType = editingEventTemplate.DefaultType;
                     orig.ItemsOverrideJson = editingEventTemplate.ItemsOverrideJson;
                     orig.EnableBeerTally = editingEventTemplate.EnableBeerTally;
+                    orig.ClubDonatedCasesCap = editingEventTemplate.ClubDonatedCasesCap;
+                    orig.DonatedItemIdsJson = editingEventTemplate.DonatedItemIdsJson;
+                    orig.Enable100PercentDonatedProceeds = editingEventTemplate.Enable100PercentDonatedProceeds;
+                    orig.IsRecurring = editingEventTemplate.IsRecurring;
+                    orig.RecipientEventName = editingEventTemplate.RecipientEventName;
                     await ToastService.ShowSuccess("Template updated.");
                 }
             }
@@ -2633,21 +2792,34 @@
             InitialAmount = 0, 
             CurrentBalance = 0,
             Status = EventTabStatus.Open,
-            EnableBeerTally = t.EnableBeerTally
+            EnableBeerTally = t.EnableBeerTally,
+            ClubDonatedCasesCap = t.ClubDonatedCasesCap,
+            DonatedItemIdsJson = t.DonatedItemIdsJson,
+            Enable100PercentDonatedProceeds = t.Enable100PercentDonatedProceeds,
+            IsRecurring = t.IsRecurring,
+            RecipientEventName = t.RecipientEventName
         };
     }
+
+
     
     private async Task StartActiveEvent()
     {
         if (creatingActiveEvent == null) return;
         try {
-            if (_newEventDirectCheckout)
-            {
-                creatingActiveEvent.Name += " [Direct]";
-            }
+            var cleanName = creatingActiveEvent.Name;
+            if (cleanName.EndsWith(" [Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 9);
+            else if (cleanName.EndsWith("[Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 8);
+
+            var yearSuffix = (!creatingActiveEvent.IsRecurring && !cleanName.Contains(DateTime.Now.Year.ToString())) ? $" ({DateTime.Now.Year})" : "";
+            creatingActiveEvent.Name = cleanName + yearSuffix + (_newEventDirectCheckout ? " [Direct]" : "");
+
             creatingActiveEvent.CurrentBalance = creatingActiveEvent.Type == EventTabType.PrePaid ? creatingActiveEvent.InitialAmount : 0;
+            creatingActiveEvent.Template = null; // Clear navigation property to prevent EF Core identity insert errors
+
             using var db = await DbFactory.CreateDbContextAsync();
             db.ActiveEvents.Add(creatingActiveEvent);
+
             await db.SaveChangesAsync();
             // Close the modal immediately so no intermediate render shows it open
             creatingActiveEvent = null;

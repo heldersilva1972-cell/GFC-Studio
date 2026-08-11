@@ -143,7 +143,13 @@ public class Program
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         });
         
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+                options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+            });
+
         builder.Services.AddAuthentication(options =>
         {
             options.DefaultScheme = "GfcAuth";

@@ -1200,9 +1200,9 @@ namespace GFC.BlazorServer.Services
                 EndDate = end
             };
 
-            // 1. Bar Sales
+            // 1. Bar Sales - include submitted entries as well as active POS entries with TotalSales > 0
             var barEntries = await db.BarSaleEntries.AsNoTracking()
-                .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
+                .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
                 .ToListAsync();
 
             summary.TotalBarSales = barEntries.Sum(b => b.TotalSales);

@@ -8,4 +8,6 @@ public class BanquetOverrideDto
     public bool TrackTally { get; set; }
     public bool EnableClubSplit { get; set; }
     public decimal ClubSplitAmount { get; set; }
+    public bool IsDonatedItem { get; set; }
+    public decimal EventProceedsPercent { get; set; } = 100m;
 }

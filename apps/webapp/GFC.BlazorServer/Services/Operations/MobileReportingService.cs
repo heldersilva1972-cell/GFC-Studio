@@ -212,8 +212,21 @@ public class MobileReportingService : IMobileReportingService
 
         if (!protectExistingValues)
         {
-            existingBar.TotalSales = data.BarSales ?? 0;
-            existingBar.TotalHours = data.TotalHours;
+            // [SAFE BAR SALES]: Only update TotalSales if data.BarSales is explicitly provided and > 0,
+            // OR if existingBar.TotalSales is currently 0. Never overwrite POS-recorded sales with 0/null!
+            if (data.BarSales.HasValue && data.BarSales.Value > 0)
+            {
+                existingBar.TotalSales = data.BarSales.Value;
+            }
+            else if (existingBar.TotalSales == 0 && data.BarSales.HasValue)
+            {
+                existingBar.TotalSales = data.BarSales.Value;
+            }
+
+            if (data.TotalHours.HasValue)
+            {
+                existingBar.TotalHours = data.TotalHours;
+            }
             
             // [NOTES MERGE] Don't overwrite notes if they already contain data the tablet might not have seen
             if (!string.IsNullOrEmpty(existingBar.Notes) && existingBar.Notes != data.Notes && !string.IsNullOrEmpty(data.Notes))
@@ -234,7 +247,16 @@ public class MobileReportingService : IMobileReportingService
 
             existingBar.ModifiedAt = DateTime.UtcNow;
             existingBar.ModifiedBy = effectiveUsername;
-            existingBar.Status = data.Status;
+            
+            if (data.Status == "Submitted")
+            {
+                existingBar.Status = "Submitted";
+            }
+            else if (existingBar.Status != "Submitted")
+            {
+                existingBar.Status = data.Status;
+            }
+
             existingBar.EmployeeUsername = effectiveUsername;
         }
 
