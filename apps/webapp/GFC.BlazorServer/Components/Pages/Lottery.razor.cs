@@ -2,10 +2,12 @@ using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using GFC.Core.Models.Finance;
+using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Components;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.JSInterop;
+using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Components.Pages
 {
@@ -19,6 +21,9 @@ namespace GFC.BlazorServer.Components.Pages
 
         [Inject]
         public ILogger<Lottery> Logger { get; set; } = null!;
+
+        [Inject]
+        public NavigationManager Navigation { get; set; } = null!;
 
         [Inject]
         public GFC.BlazorServer.Services.IFinancialAnalyticsService FinancialService { get; set; } = null!;
@@ -35,11 +40,19 @@ namespace GFC.BlazorServer.Components.Pages
         [Inject]
         public IFinanceService FinanceService { get; set; } = null!;
 
+        [Inject]
+        public IDbContextFactory<GfcDbContext> DbFactory { get; set; } = null!;
+
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
         private List<LotteryShiftSummaryDto> _weeklySummaries = new();
         private List<LotteryShiftSummaryDto> _monthlySummaries = new();
         private List<string> _employeeNames = new();
+        private List<LotteryWeeklyStat> _weeklyCommissionsStats = new();
+        private bool _showMetricCommissions = true;
+        private bool _showMetricCashBonus = true;
+        private bool _showMetricClaimsBonus = true;
+        private bool _showMetricFees = true;
         private List<(string Username, string FullName)> _employeeMetadata = new();
         private bool _loading = true;
         private string _error = string.Empty;
@@ -70,17 +83,95 @@ namespace GFC.BlazorServer.Components.Pages
         private LotteryAnalyticsStats _stats = new();
         private List<LotteryShift> _analyticsShifts = new();
 
+        // Breakdown State
+        private LotteryBreakdownStats _breakdownStats = new();
+        private List<DailyBreakdownItem> _breakdownDailyItems = new();
+        private HashSet<DateTime> _expandedBreakdownDays = new();
+        private bool _showMetricEnvelope = true;
+        private bool _showMetricNetDue = false;
+        private bool _showMetricSales = false;
+        private bool _showMetricVariance = false;
+        private bool _showMetricWeeklyDue = false;
+        private string _breakdownRangeType = "week"; // "week", "month", "year", "custom"
+        private DateTime _breakdownCustomStart = DateTime.Today.AddDays(-14);
+        private DateTime _breakdownCustomEnd = DateTime.Today;
+
+        private async Task SetBreakdownRangeType(string type)
+        {
+            _breakdownRangeType = type;
+            if (type == "week")
+            {
+                _filterStartDate = GetWeekStart(_filterStartDate);
+                _filterEndDate = _filterStartDate.AddDays(6);
+            }
+            else if (type == "month")
+            {
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (type == "year")
+            {
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (type == "custom")
+            {
+                _filterStartDate = _breakdownCustomStart;
+                _filterEndDate = _breakdownCustomEnd;
+            }
+            await LoadData();
+        }
+
+        private async Task OnBreakdownCustomDatesChanged()
+        {
+            if (_breakdownCustomEnd < _breakdownCustomStart)
+            {
+                _breakdownCustomEnd = _breakdownCustomStart;
+            }
+            _filterStartDate = _breakdownCustomStart;
+            _filterEndDate = _breakdownCustomEnd;
+            await LoadData();
+        }
+
+        public class LotteryBreakdownStats
+        {
+            public decimal TotalEnvelopeDrops { get; set; }
+            public string PeakDropDayLabel { get; set; } = "N/A";
+            public decimal PeakDropDayAmount { get; set; }
+            public int TotalShifts { get; set; }
+            public decimal TotalWeeklyStatementDue { get; set; }
+        }
+
+        public class DailyBreakdownItem
+        {
+            public DateTime Date { get; set; }
+            public string DayName { get; set; } = string.Empty;
+            public string DateLabel { get; set; } = string.Empty;
+            public decimal EnvelopeAmount { get; set; }
+            public decimal NetDue { get; set; }
+            public decimal TotalSales { get; set; }
+            public decimal Variance { get; set; }
+            public decimal WeeklyStatementDue { get; set; }
+            public int ShiftCount { get; set; }
+            public double PercentageOfTotal { get; set; }
+            public List<LotteryShiftDto> Shifts { get; set; } = new();
+        }
+
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly" || _viewMode == "weekly_sweep" || _viewMode == "analytics")
+            if (_viewMode == "weekly" || _viewMode == "analytics" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
             {
-                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
-                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
-            else if (_viewMode == "monthly")
+            else if (_viewMode == "monthly" || (_viewMode == "breakdown" && _breakdownRangeType == "year"))
             {
-                _filterStartDate = new DateTime(_selectedYear, 1, 1);
-                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
             
             await LoadData();
@@ -146,6 +237,16 @@ namespace GFC.BlazorServer.Components.Pages
 
         protected override async Task OnInitializedAsync()
         {
+            var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+            if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("tab", out var tabValue))
+            {
+                var tab = tabValue.ToString().ToLower();
+                if (tab == "imported")
+                {
+                    _viewMode = "imported";
+                }
+            }
+
             InitializeWeeks();
             await LoadData();
         }
@@ -174,21 +275,21 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadWeeklySummaries();
                 }
-                else if (_viewMode == "weekly_sweep")
-                {
-                    await LoadWeeklyData();
-                }
                 else if (_viewMode == "monthly")
                 {
                     await LoadMonthlySummaries();
                 }
                 else if (_viewMode == "commissions")
                 {
-                    await LoadDailySummaries();
+                    await LoadCommissionsData();
                 }
                 else if (_viewMode == "analytics")
                 {
                     await LoadAnalyticsData();
+                }
+                else if (_viewMode == "breakdown")
+                {
+                    await LoadBreakdownData();
                 }
             }
             catch (Exception ex)
@@ -257,6 +358,62 @@ namespace GFC.BlazorServer.Components.Pages
         {
             var diff = (7 + (date.DayOfWeek - DayOfWeek.Sunday)) % 7;
             return date.AddDays(-1 * diff).Date;
+        }
+
+        private static (DateTime Start, DateTime End) GetSnappedMonthRange(int year, int month)
+        {
+            var firstDayOfMonth = new DateTime(year, month, 1);
+            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+
+            // Find all Saturdays in the month
+            var saturdays = new List<DateTime>();
+            for (var date = firstDayOfMonth; date <= lastDayOfMonth; date = date.AddDays(1))
+            {
+                if (date.DayOfWeek == DayOfWeek.Saturday)
+                {
+                    saturdays.Add(date);
+                }
+            }
+
+            if (!saturdays.Any())
+            {
+                return (firstDayOfMonth, lastDayOfMonth);
+            }
+
+            var firstSaturday = saturdays.Min();
+            var lastSaturday = saturdays.Max();
+
+            var start = GetWeekStart(firstSaturday); // Sunday of the week ending on first Saturday
+            var end = lastSaturday; // The last Saturday itself
+            return (start, end);
+        }
+
+        private static (DateTime Start, DateTime End) GetSnappedYearRange(int year)
+        {
+            var firstDayOfYear = new DateTime(year, 1, 1);
+            var lastDayOfYear = new DateTime(year, 12, 31);
+
+            // Find all Saturdays in the year
+            var saturdays = new List<DateTime>();
+            for (var date = firstDayOfYear; date <= lastDayOfYear; date = date.AddDays(1))
+            {
+                if (date.DayOfWeek == DayOfWeek.Saturday)
+                {
+                    saturdays.Add(date);
+                }
+            }
+
+            if (!saturdays.Any())
+            {
+                return (firstDayOfYear, lastDayOfYear);
+            }
+
+            var firstSaturday = saturdays.Min();
+            var lastSaturday = saturdays.Max();
+
+            var start = GetWeekStart(firstSaturday); // Sunday of the week ending on first Saturday
+            var end = lastSaturday; // The last Saturday itself
+            return (start, end);
         }
 
         private async Task LoadDailySummaries()
@@ -362,29 +519,54 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
 
             // INTELLIGENT DATE SNAPPING
-            if (_viewMode == "daily" || _viewMode == "commissions")
+            if (_viewMode == "daily" || _viewMode == "breakdown" || _viewMode == "commissions")
             {
-                // Snap back to a clean Sunday-to-Saturday week if entering daily mode
-                _filterStartDate = GetWeekStart(_filterStartDate);
-                _filterEndDate = _filterStartDate.AddDays(6);
+                if (_viewMode == "daily" || _breakdownRangeType == "week")
+                {
+                    _filterStartDate = GetWeekStart(_filterStartDate);
+                    _filterEndDate = _filterStartDate.AddDays(6);
+                }
+                else if (_breakdownRangeType == "month")
+                {
+                    var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                    _filterStartDate = range.Start;
+                    _filterEndDate = range.End;
+                }
+                else if (_breakdownRangeType == "year")
+                {
+                    var range = GetSnappedYearRange(_selectedYear);
+                    _filterStartDate = range.Start;
+                    _filterEndDate = range.End;
+                }
+                else if (_breakdownRangeType == "custom")
+                {
+                    // Keep custom date ranges
+                }
             }
-            else if (_viewMode == "weekly" || _viewMode == "weekly_sweep")
+            else if (_viewMode == "weekly")
             {
                 // Snap to the full month for the weekly totals view
-                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
-                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
             else if (_viewMode == "analytics")
             {
                 // Snap to the full month for analytics view as requested
-                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
-                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
             else if (_viewMode == "monthly")
             {
                 // Snap to the full year for the monthly totals (Yearly View)
-                _filterStartDate = new DateTime(_selectedYear, 1, 1);
-                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (_viewMode == "imported")
+            {
+                // No special date snapping needed for imported reports workspace
             }
 
             await LoadData();
@@ -395,8 +577,9 @@ namespace GFC.BlazorServer.Components.Pages
             _selectedYear = year;
             if (_viewMode == "monthly")
             {
-                _filterStartDate = new DateTime(_selectedYear, 1, 1);
-                _filterEndDate = new DateTime(_selectedYear, 12, 31);
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
             await LoadData();
         }
@@ -902,6 +1085,391 @@ namespace GFC.BlazorServer.Components.Pages
             });
         }
 
+        private async Task LoadBreakdownData()
+        {
+            try
+            {
+                await LoadShifts();
+
+                using var db = await DbFactory.CreateDbContextAsync();
+                var startDate = _filterStartDate.Date;
+                var endDate = _filterEndDate.Date;
+
+                var weeklyStats = await db.LotteryWeeklyStats
+                    .Where(w => w.WeekEndingDate >= startDate.AddDays(-7) && w.WeekEndingDate <= endDate.AddDays(7))
+                    .ToListAsync();
+
+                _breakdownDailyItems.Clear();
+                decimal periodTotalEnvelope = _shifts.Sum(s => s.EnvelopeAmount);
+                int totalDays = (endDate - startDate).Days + 1;
+
+                if (totalDays <= 14)
+                {
+                    // Daily aggregation
+                    var currentDate = startDate;
+                    while (currentDate <= endDate)
+                    {
+                        var dayShifts = _shifts.Where(s => s.ShiftDate.Date == currentDate.Date).ToList();
+                        decimal dayEnvelope = dayShifts.Sum(s => s.EnvelopeAmount);
+
+                        var nightShift = dayShifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+
+                        decimal dayNetDue = nightShift != null ? nightShift.NetDue : 0;
+                        decimal daySales = nightShift != null ? nightShift.TotalCancels : 0;
+                        decimal dayVariance = nightShift != null ? nightShift.Variance : 0;
+
+                        double pct = periodTotalEnvelope > 0 ? (double)(dayEnvelope / periodTotalEnvelope * 100) : 0;
+
+                        var dayStatement = weeklyStats.FirstOrDefault(w => w.WeekEndingDate.Date == currentDate.Date);
+                        decimal dayStatementDue = dayStatement != null ? Math.Abs(dayStatement.TotalDue) : 0;
+
+                        _breakdownDailyItems.Add(new DailyBreakdownItem
+                        {
+                            Date = currentDate,
+                            DayName = currentDate.ToString("dddd"),
+                            DateLabel = currentDate.ToString("ddd MM/dd"),
+                            EnvelopeAmount = dayEnvelope,
+                            NetDue = dayNetDue,
+                            TotalSales = daySales,
+                            Variance = dayVariance,
+                            WeeklyStatementDue = dayStatementDue,
+                            ShiftCount = dayShifts.Count,
+                            PercentageOfTotal = Math.Round(pct, 1),
+                            Shifts = dayShifts
+                        });
+
+                        currentDate = currentDate.AddDays(1);
+                    }
+                }
+                else if (totalDays <= 60)
+                {
+                    // Weekly aggregation
+                    var weekStart = GetWeekStart(startDate);
+                    while (weekStart <= endDate)
+                    {
+                        var weekEnd = weekStart.AddDays(6);
+                        var weekShifts = _shifts.Where(s => s.ShiftDate.Date >= weekStart && s.ShiftDate.Date <= weekEnd).ToList();
+                        decimal weekEnvelope = weekShifts.Sum(s => s.EnvelopeAmount);
+
+                        decimal weekNetDue = weekShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.NetDue : 0;
+                            });
+
+                        decimal weekSales = weekShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.TotalCancels : 0;
+                            });
+
+                        decimal weekVariance = weekShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.Variance : 0;
+                            });
+
+                        double pct = periodTotalEnvelope > 0 ? (double)(weekEnvelope / periodTotalEnvelope * 100) : 0;
+
+                        var weekStatements = weeklyStats.Where(w => w.WeekEndingDate.Date >= weekStart && w.WeekEndingDate.Date <= weekEnd).ToList();
+                        decimal weekStatementDue = weekStatements.Sum(w => Math.Abs(w.TotalDue));
+
+                        _breakdownDailyItems.Add(new DailyBreakdownItem
+                        {
+                            Date = weekStart,
+                            DayName = $"Week of {weekStart:MMM d}",
+                            DateLabel = $"{weekStart:MMM d} - {weekEnd:MMM d}",
+                            EnvelopeAmount = weekEnvelope,
+                            NetDue = weekNetDue,
+                            TotalSales = weekSales,
+                            Variance = weekVariance,
+                            WeeklyStatementDue = weekStatementDue,
+                            ShiftCount = weekShifts.Count,
+                            PercentageOfTotal = Math.Round(pct, 1),
+                            Shifts = weekShifts
+                        });
+
+                        weekStart = weekStart.AddDays(7);
+                    }
+                }
+                else
+                {
+                    // Monthly aggregation
+                    var mStart = new DateTime(startDate.Year, startDate.Month, 1);
+                    var mLimit = new DateTime(endDate.Year, endDate.Month, 1);
+                    while (mStart <= mLimit)
+                    {
+                        var mEnd = mStart.AddMonths(1).AddDays(-1);
+                        var monthShifts = _shifts.Where(s => s.ShiftDate.Date >= mStart && s.ShiftDate.Date <= mEnd).ToList();
+                        decimal mEnvelope = monthShifts.Sum(s => s.EnvelopeAmount);
+
+                        decimal mNetDue = monthShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.NetDue : 0;
+                            });
+
+                        decimal mSales = monthShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.TotalCancels : 0;
+                            });
+
+                        decimal mVariance = monthShifts
+                            .GroupBy(s => s.ShiftDate.Date)
+                            .Sum(g => {
+                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                                return night != null ? night.Variance : 0;
+                            });
+
+                        double pct = periodTotalEnvelope > 0 ? (double)(mEnvelope / periodTotalEnvelope * 100) : 0;
+
+                        var monthStatements = weeklyStats.Where(w => w.WeekEndingDate.Date >= mStart && w.WeekEndingDate.Date <= mEnd).ToList();
+                        decimal monthStatementDue = monthStatements.Sum(w => Math.Abs(w.TotalDue));
+
+                        _breakdownDailyItems.Add(new DailyBreakdownItem
+                        {
+                            Date = mStart,
+                            DayName = mStart.ToString("MMMM yyyy"),
+                            DateLabel = mStart.ToString("MMM yyyy"),
+                            EnvelopeAmount = mEnvelope,
+                            NetDue = mNetDue,
+                            TotalSales = mSales,
+                            Variance = mVariance,
+                            WeeklyStatementDue = monthStatementDue,
+                            ShiftCount = monthShifts.Count,
+                            PercentageOfTotal = Math.Round(pct, 1),
+                            Shifts = monthShifts
+                        });
+
+                        mStart = mStart.AddMonths(1);
+                    }
+                }
+
+                _breakdownStats.TotalEnvelopeDrops = periodTotalEnvelope;
+                _breakdownStats.TotalWeeklyStatementDue = _breakdownDailyItems.Sum(d => d.WeeklyStatementDue);
+
+                var peakDay = _breakdownDailyItems.OrderByDescending(d => d.EnvelopeAmount).FirstOrDefault();
+                if (peakDay != null && peakDay.EnvelopeAmount > 0)
+                {
+                    _breakdownStats.PeakDropDayLabel = peakDay.DateLabel;
+                    _breakdownStats.PeakDropDayAmount = peakDay.EnvelopeAmount;
+                }
+                else
+                {
+                    _breakdownStats.PeakDropDayLabel = "N/A";
+                    _breakdownStats.PeakDropDayAmount = 0;
+                }
+                _breakdownStats.TotalShifts = _shifts.Count;
+
+                _ = Task.Delay(100).ContinueWith(async _ => await UpdateBreakdownChart());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading breakdown data");
+                _error = "Failed to load breakdown: " + ex.Message;
+            }
+        }
+
+        private async Task ToggleBreakdownMetric(string metric)
+        {
+            if (metric == "envelope") _showMetricEnvelope = !_showMetricEnvelope;
+            else if (metric == "netdue") _showMetricNetDue = !_showMetricNetDue;
+            else if (metric == "sales") _showMetricSales = !_showMetricSales;
+            else if (metric == "variance") _showMetricVariance = !_showMetricVariance;
+            else if (metric == "weeklydue") _showMetricWeeklyDue = !_showMetricWeeklyDue;
+
+            await UpdateBreakdownChart();
+        }
+
+        private async Task UpdateBreakdownChart()
+        {
+            if (!_breakdownDailyItems.Any()) return;
+
+            var labels = _breakdownDailyItems.Select(d => d.DateLabel).ToList();
+            var datasets = new List<object>();
+
+            if (_showMetricEnvelope)
+            {
+                datasets.Add(new { 
+                    label = "Envelope Drops", 
+                    data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
+                    color = "#10b981", 
+                    bg = "rgba(16, 185, 129, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (_showMetricNetDue)
+            {
+                datasets.Add(new { 
+                    label = "Net Due to Lottery", 
+                    data = _breakdownDailyItems.Select(d => d.NetDue).ToList(), 
+                    color = "#3b82f6", 
+                    bg = "rgba(59, 130, 246, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (_showMetricSales)
+            {
+                datasets.Add(new { 
+                    label = "Tickets", 
+                    data = _breakdownDailyItems.Select(d => d.TotalSales).ToList(), 
+                    color = "#6366f1", 
+                    bg = "rgba(99, 102, 241, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (_showMetricVariance)
+            {
+                datasets.Add(new { 
+                    label = "Cash Variance", 
+                    data = _breakdownDailyItems.Select(d => d.Variance).ToList(), 
+                    color = "#ef4444", 
+                    bg = "rgba(239, 68, 68, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (_showMetricWeeklyDue)
+            {
+                datasets.Add(new { 
+                    label = "Weekly Statement Due", 
+                    data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
+                    color = "#ec4899", 
+                    bg = "rgba(236, 72, 153, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (!datasets.Any())
+            {
+                _showMetricEnvelope = true;
+                datasets.Add(new { 
+                    label = "Envelope Drops", 
+                    data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
+                    color = "#10b981", 
+                    bg = "rgba(16, 185, 129, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "breakdownEnvelopeChart", new { 
+                type = "bar", 
+                labels = labels, 
+                datasets = datasets 
+            });
+        }
+
+        private async Task LoadCommissionsData()
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var startDate = _filterStartDate.Date;
+                var endDate = _filterEndDate.Date;
+
+                _weeklyCommissionsStats = await db.LotteryWeeklyStats
+                    .Where(w => w.WeekEndingDate >= startDate && w.WeekEndingDate <= endDate)
+                    .OrderBy(w => w.WeekEndingDate)
+                    .ToListAsync();
+
+                _ = Task.Delay(100).ContinueWith(async _ => await UpdateCommissionsChart());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading weekly commissions data");
+                _error = "Failed to load commissions: " + ex.Message;
+            }
+        }
+
+        private async Task ToggleCommissionsMetric(string metric)
+        {
+            if (metric == "commissions") _showMetricCommissions = !_showMetricCommissions;
+            else if (metric == "cashbonus") _showMetricCashBonus = !_showMetricCashBonus;
+            else if (metric == "claimsbonus") _showMetricClaimsBonus = !_showMetricClaimsBonus;
+            else if (metric == "fees") _showMetricFees = !_showMetricFees;
+
+            await UpdateCommissionsChart();
+        }
+
+        private async Task UpdateCommissionsChart()
+        {
+            if (!_weeklyCommissionsStats.Any()) return;
+
+            var labels = _weeklyCommissionsStats.Select(w => w.WeekEndingDate.ToString("MM/dd")).ToList();
+            var datasets = new List<object>();
+
+            if (_showMetricCommissions)
+            {
+                datasets.Add(new { 
+                    label = "Commissions", 
+                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission)).ToList(), 
+                    color = "#10b981", 
+                    bg = "rgba(16, 185, 129, 0.7)", 
+                    type = "bar",
+                    stack = "earnings"
+                });
+            }
+
+            if (_showMetricCashBonus)
+            {
+                datasets.Add(new { 
+                    label = "Cash Bonus", 
+                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus)).ToList(), 
+                    color = "#3b82f6", 
+                    bg = "rgba(59, 130, 246, 0.7)", 
+                    type = "bar",
+                    stack = "earnings"
+                });
+            }
+
+            if (_showMetricClaimsBonus)
+            {
+                datasets.Add(new { 
+                    label = "Claims Bonus", 
+                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)).ToList(), 
+                    color = "#8b5cf6", 
+                    bg = "rgba(139, 92, 246, 0.7)", 
+                    type = "bar",
+                    stack = "earnings"
+                });
+            }
+
+            if (_showMetricFees)
+            {
+                datasets.Add(new { 
+                    label = "Weekly Fees", 
+                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)).ToList(), 
+                    color = "#ef4444", 
+                    bg = "rgba(239, 68, 68, 0.7)", 
+                    type = "bar",
+                    stack = "fees"
+                });
+            }
+
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "commissionsReportChart", new { 
+                type = "bar", 
+                labels = labels, 
+                datasets = datasets 
+            });
+        }
+
+        private void ToggleBreakdownDayDetail(DateTime date)
+        {
+            if (_expandedBreakdownDays.Contains(date.Date))
+                _expandedBreakdownDays.Remove(date.Date);
+            else
+                _expandedBreakdownDays.Add(date.Date);
+        }
+
         public class LotteryAnalyticsStats
         {
             public decimal TotalIncome { get; set; }
@@ -915,110 +1483,7 @@ namespace GFC.BlazorServer.Components.Pages
             public string? TopShortUser { get; set; }
         }
 
-        // Weekly Net Due / Sweep methods
-        private List<LotteryWeeklySettlement> _weeklySettlements = new();
-        private bool _loadingWeekly = false;
-        private LotteryWeeklySettlement? _selectedWeeklySettlement;
-        private DateTime _manualSettleDate = DateTime.Today;
-        private string _manualRefNum = string.Empty;
-        private SystemSettings? _settings;
-        private List<FinanceCategory> _categories = new();
-        private bool _savingSettings = false;
 
-        private async Task LoadWeeklyData()
-        {
-            _loadingWeekly = true;
-            try
-            {
-                _weeklySettlements = (await LotterySettlementService.GetWeeklySettlementsForYearAsync(_selectedYear)).ToList();
-                _weeklySettlements = _weeklySettlements
-                    .Where(s => s.WeekEndDate.Month == _selectedMonth)
-                    .OrderBy(s => s.WeekStartDate)
-                    .ToList();
-
-                _settings = await SettingsService.GetSettingsAsync();
-                _categories = (await FinanceService.GetAllCategoriesAsync()).ToList();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error loading weekly settlement data");
-                _error = "Failed to load weekly settlement data: " + ex.Message;
-            }
-            finally
-            {
-                _loadingWeekly = false;
-            }
-        }
-
-        private void OpenManualSettleModal(LotteryWeeklySettlement settlement)
-        {
-            _selectedWeeklySettlement = settlement;
-            _manualSettleDate = DateTime.Today;
-            _manualRefNum = string.Empty;
-        }
-
-        private void OnToggle1Changed()
-        {
-            if (_settings != null && _settings.LotteryBillCreationEnabled)
-            {
-                _settings.LotteryRecordPaidHistoryEnabled = false;
-            }
-        }
-
-        private async Task SaveSettings()
-        {
-            if (_settings == null) return;
-            _savingSettings = true;
-            try
-            {
-                if (_settings.LotteryBillCreationEnabled)
-                {
-                    if (!_settings.LotterySettingsLastEnabledUtc.HasValue)
-                    {
-                        _settings.LotterySettingsLastEnabledUtc = DateTime.UtcNow;
-                    }
-                }
-                else
-                {
-                    _settings.LotterySettingsLastEnabledUtc = null;
-                }
-
-                await SettingsService.SaveSettingsAsync(_settings);
-                await JS.InvokeVoidAsync("alert", "Settings saved successfully.");
-                await LoadWeeklyData();
-            }
-            catch (Exception ex)
-            {
-                await JS.InvokeVoidAsync("alert", "Error saving settings: " + ex.Message);
-            }
-            finally
-            {
-                _savingSettings = false;
-            }
-        }
-
-        private async Task ConfirmManualSettle()
-        {
-            if (_selectedWeeklySettlement == null) return;
-            try
-            {
-                var username = AuthStateProvider.GetCurrentUser()?.Username ?? "Unknown";
-                
-                await LotterySettlementService.SettleWeekManualAsync(
-                    _selectedWeeklySettlement.Id, 
-                    username, 
-                    _manualRefNum, 
-                    _manualSettleDate);
-
-                _selectedWeeklySettlement = null;
-                await LoadWeeklyData();
-                await JS.InvokeVoidAsync("alert", "Week marked as Settled successfully.");
-            }
-            catch (Exception ex)
-            {
-                await JS.InvokeVoidAsync("alert", "Error settling week: " + ex.Message);
-            }
-        }
 
         private async Task CreateClosedShift(DateTime date, string shiftType)
         {

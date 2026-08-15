@@ -35,9 +35,12 @@ window.financialCharts = {
                 pointRadius: config.type === 'line' ? 4 : 0,
                 pointHoverRadius: 6,
                 barPercentage: 0.9,
-                categoryPercentage: 0.8
+                categoryPercentage: 0.8,
+                stack: dataset.stack || undefined
             };
         });
+
+        const isStacked = config.datasets.some(d => d.stack);
 
         this.charts[canvasId] = new Chart(ctx, {
             type: config.type || 'bar',
@@ -79,13 +82,13 @@ window.financialCharts = {
                 },
                 scales: {
                     x: {
-                        stacked: false,
+                        stacked: isStacked,
                         offset: true,
                         grid: { display: false },
                         ticks: { font: { size: 10 } }
                     },
                     y: {
-                        stacked: false,
+                        stacked: isStacked,
                         beginAtZero: true,
                         grid: { color: 'rgba(0,0,0,0.05)' },
                         ticks: {

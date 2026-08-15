@@ -22,7 +22,9 @@
     .imported-reports-container {
         padding: 1.5rem;
         background: #f8fafc;
-        min-height: calc(100vh - 90px);
+        flex: 1;
+        overflow-y: auto;
+        max-height: calc(100vh - 200px);
         font-family: 'Outfit', 'Inter', sans-serif;
     }
 
@@ -355,18 +357,72 @@
 </style>
 
 <div class="imported-reports-container">
-    @if (_isFetchingEmail)
+    @if (_isFetchingEmail || _syncCompleted)
     {
         <div class="sync-overlay">
-            <div class="sync-status-card">
-                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                    <span class="visually-hidden">Syncing...</span>
-                </div>
-                <h4 class="fw-bold mb-2">Syncing with Gmail</h4>
-                <p class="text-muted text-center px-2 mb-4" style="font-size: 0.9rem; min-height: 40px;">@_syncStatusMessage</p>
-                <button class="btn btn-outline-danger btn-sm px-4" style="border-radius: 8px;" @onclick="CancelSync">
-                    <i class="bi bi-x-circle me-1"></i> Cancel Sync
-                </button>
+            <div class="sync-status-card" style="max-width: 500px; width: 90%;">
+                @if (_isFetchingEmail)
+                {
+                    <div class="spinner-border text-primary mb-3" role="status" style="width: 2.5rem; height: 2.5rem;">
+                        <span class="visually-hidden">Syncing...</span>
+                    </div>
+                    <h4 class="fw-bold mb-2 text-slate-800">Syncing with Gmail</h4>
+                    <p class="text-muted text-center px-2 mb-2" style="font-size: 0.9rem; min-height: 40px;">@_syncStatusMessage</p>
+                    
+                    <button class="btn btn-sm btn-link text-decoration-none mb-3 p-0" style="font-size: 0.8rem;" @onclick="() => _showDetailedLogs = !_showDetailedLogs">
+                        @(_showDetailedLogs ? "Hide Live Log Details" : "Show Live Log Details")
+                    </button>
+
+                    @if (_showDetailedLogs && _syncLogs.Any())
+                    {
+                        <div class="border rounded bg-light p-2 mb-3 text-start w-100" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; line-height: 1.4;">
+                            @foreach (var log in _syncLogs)
+                            {
+                                <div style="border-bottom: 1px solid #e2e8f0; padding: 2px 0; color: #475569;">• @log</div>
+                            }
+                        </div>
+                    }
+
+                    <button class="btn btn-outline-danger btn-sm px-4" style="border-radius: 8px;" @onclick="CancelSync">
+                        <i class="bi bi-x-circle me-1"></i> Cancel Sync
+                    </button>
+                }
+                else if (_syncCompleted)
+                {
+                    @if (string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <i class="bi bi-check-circle-fill text-success fs-1 mb-2"></i>
+                        <h4 class="fw-bold mb-2 text-slate-800">Sync Completed</h4>
+                        <div class="alert alert-success small text-center w-100 mb-3">@_successMessage</div>
+                    }
+                    else
+                    {
+                        <i class="bi bi-exclamation-triangle-fill text-danger fs-1 mb-2"></i>
+                        <h4 class="fw-bold mb-2 text-slate-800">Sync Finished</h4>
+                        <div class="alert alert-danger small text-center w-100 mb-3">@_errorMessage</div>
+                    }
+
+                    <div class="d-flex justify-content-between align-items-center w-100 mb-2">
+                        <h5 class="fw-bold mb-0" style="font-size: 0.85rem; color: #475569;">Detailed Sync Logs:</h5>
+                        <button class="btn btn-sm btn-link text-decoration-none p-0" style="font-size: 0.8rem;" @onclick="() => _showDetailedLogs = !_showDetailedLogs">
+                            @(_showDetailedLogs ? "Hide Logs" : "Show Logs")
+                        </button>
+                    </div>
+                    
+                    @if (_showDetailedLogs)
+                    {
+                        <div class="border rounded bg-light p-2 mb-3 text-start w-100" style="max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; line-height: 1.4;">
+                            @foreach (var log in _syncLogs)
+                            {
+                                <div style="border-bottom: 1px solid #e2e8f0; padding: 2px 0; color: #475569;">• @log</div>
+                            }
+                        </div>
+                    }
+
+                    <button class="btn btn-primary btn-sm px-4 w-100" style="border-radius: 8px; font-weight: 600;" @onclick="CloseSyncModal">
+                        Close Log View
+                    </button>
+                }
             </div>
         </div>
     }
@@ -446,6 +502,16 @@
                             <div class="text-muted small mt-1">Only fetch messages containing this word in the subject.</div>
                         </div>
                         <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Daily Folder / Label Path</label>
+                            <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.DailyGmailLabel" />
+                            <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Daily logs.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Weekly Folder / Label Path</label>
+                            <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.WeeklyGmailLabel" />
+                            <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Weekly invoices.</div>
+                        </div>
+                        <div class="col-md-6">
                             <div class="form-check mt-4 pt-2">
                                 <input class="form-check-input" type="checkbox" id="autoSyncCheck" @bind="_emailSettings.AutoSyncEnabled" />
                                 <label class="form-check-label fw-bold text-slate-700 font-size-sm" for="autoSyncCheck">
@@ -487,18 +553,6 @@
 
         @if (!_isHistoricalView && !_hasDataLoaded)
         {
-            <!-- QUICK GETTING STARTED GUIDE -->
-            <div class="premium-card mb-4" style="background-color: #f0fdf4; border-color: #bbf7d0; border-left: 4px solid #10b981;">
-                <h3 class="fw-bold mb-2 text-success" style="font-size: 1.15rem;">
-                    <i class="bi bi-info-circle-fill me-2"></i>How to Use This Workspace
-                </h3>
-                <ol class="text-success-emphasis mb-0 ps-3 small" style="line-height: 1.6; font-weight: 500;">
-                    <li>Ensure your Gmail address and Google App Password are entered in the <strong>Gmail Auto-Fetch Settings</strong> panel above.</li>
-                    <li>Click the <strong>Sync Gmail Inbox</strong> button on the dashboard below to download new lottery report CSVs from your email.</li>
-                    <li>The system will automatically organize your daily CSV reports and weekly statements into <strong>Pending Weekly Batches</strong>.</li>
-                    <li>Click <strong>Review & Process</strong> next to any week group to run the comparison and save it to the database.</li>
-                </ol>
-            </div>
 
             <!-- PENDING WEEKLY BATCHES WORKSPACE -->
             <div class="premium-card mb-4">
@@ -626,6 +680,24 @@
                     }
                 </div>
 
+                @if (!_isHistoricalView)
+                {
+                    <div class="mb-4 d-flex align-items-center gap-2 flex-wrap bg-light p-2 rounded-3 border" style="border-color: #e2e8f0 !important;">
+                        <span class="fw-bold text-slate-700 small" style="font-size: 0.8rem;"><i class="bi bi-sliders text-primary me-1"></i>Display View Mode:</span>
+                        <div class="btn-group" role="group" aria-label="Display View Mode">
+                            <button type="button" class="btn btn-xs @(_displayMode == ComparisonDisplayMode.Compare ? "btn-primary text-white" : "btn-outline-primary")" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 6px 0 0 6px;" @onclick="() => SetDisplayMode(ComparisonDisplayMode.Compare)" disabled="@(!HasBothData)">
+                                <i class="bi bi-arrow-left-right me-1"></i>Sync & Compare
+                            </button>
+                            <button type="button" class="btn btn-xs @(_displayMode == ComparisonDisplayMode.WeeklyOnly ? "btn-primary text-white" : "btn-outline-primary")" style="font-size: 0.75rem; padding: 4px 10px;" @onclick="() => SetDisplayMode(ComparisonDisplayMode.WeeklyOnly)" disabled="@(!HasWeeklyData)">
+                                <i class="bi bi-file-earmark-text me-1"></i>Weekly Statement Only
+                            </button>
+                            <button type="button" class="btn btn-xs @(_displayMode == ComparisonDisplayMode.DailyOnly ? "btn-primary text-white" : "btn-outline-primary")" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 0 6px 6px 0;" @onclick="() => SetDisplayMode(ComparisonDisplayMode.DailyOnly)" disabled="@(!HasDailyData)">
+                                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Daily Shift Logs Only
+                            </button>
+                        </div>
+                    </div>
+                }
+
                 @if (_isHistoricalView)
                 {
                     <div class="alert alert-info border-0 shadow-sm mb-4">
@@ -636,7 +708,7 @@
                 {
                     <div class="alert alert-light border shadow-sm mb-4" style="background-color: #f8fafc; border-color: #e2e8f0 !important; border-radius: 12px;">
                         <div class="row">
-                            @if (_isDailyOnlyMode)
+                            @if (_displayMode == ComparisonDisplayMode.DailyOnly)
                             {
                                 <div class="col-md-6 border-md-end">
                                     <div class="fw-bold text-slate-700 mb-1"><i class="bi bi-calendar3 text-primary me-1"></i>Daily Shift Reports Summary (Sunday to Saturday Week)</div>
@@ -654,6 +726,14 @@
                                             </span>
                                         }
                                     </div>
+                                </div>
+                            }
+                            else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                            {
+                                <div class="col-12">
+                                    <div class="fw-bold text-slate-700 mb-1"><i class="bi bi-file-earmark-text-fill text-primary me-1"></i>Weekly Invoice Statement</div>
+                                    <div class="text-muted small">File name: <strong>@_weeklyFile?.FileName</strong></div>
+                                    <div class="text-muted small">Statement Week Ending: <strong class="text-primary">@_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy")</strong></div>
                                 </div>
                             }
                             else
@@ -683,16 +763,22 @@
 
                 <!-- COMPACT SUMMARY BAR -->
                 <div class="d-flex justify-content-between align-items-center p-3 rounded-3 bg-light border mb-3 flex-wrap gap-3">
-                    <div>
-                        <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem;">TOTAL DAILY SUM DUE</span>
-                        <span class="fw-bold text-slate-800" style="font-size: 1.25rem;">@_totalDailyDue.ToString("C2")</span>
-                    </div>
-                    @if (!_isDailyOnlyMode)
+                    @if (_displayMode == ComparisonDisplayMode.Compare || _displayMode == ComparisonDisplayMode.DailyOnly)
+                    {
+                        <div>
+                            <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem;">TOTAL DAILY SUM DUE</span>
+                            <span class="fw-bold text-slate-800" style="font-size: 1.25rem;">@_totalDailyDue.ToString("C2")</span>
+                        </div>
+                    }
+                    @if (_displayMode == ComparisonDisplayMode.Compare || _displayMode == ComparisonDisplayMode.WeeklyOnly)
                     {
                         <div>
                             <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem;">TOTAL WEEKLY STATEMENT DUE</span>
                             <span class="fw-bold text-slate-800" style="font-size: 1.25rem;">@_totalWeeklyDue.ToString("C2")</span>
                         </div>
+                    }
+                    @if (_displayMode == ComparisonDisplayMode.Compare)
+                    {
                         <div>
                             <span class="small text-muted fw-bold d-block" style="font-size: 0.75rem; margin-bottom: 2px;">VARIANCE STATUS</span>
                             @if (_totalDueVariance == 0)
@@ -718,11 +804,19 @@
                             <thead>
                                 <tr>
                                     <th style="width: 40%;">Metric Field</th>
-                                    <th style="text-align: right;">Daily</th>
-                                    @if (!_isDailyOnlyMode)
+                                    @if (_displayMode == ComparisonDisplayMode.Compare)
                                     {
+                                        <th style="text-align: right;">Daily</th>
                                         <th style="text-align: right;">Weekly</th>
                                         <th style="text-align: right;">Variance</th>
+                                    }
+                                    else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                                    {
+                                        <th style="text-align: right;">Weekly Value</th>
+                                    }
+                                    else if (_displayMode == ComparisonDisplayMode.DailyOnly)
+                                    {
+                                        <th style="text-align: right;">Daily Sum</th>
                                     }
                                 </tr>
                             </thead>
@@ -731,20 +825,28 @@
                                 {
                                     <tr>
                                         <td class="fw-bold text-slate-700">@row.Name</td>
-                                        <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
-                                        @if (!_isDailyOnlyMode)
+                                        @if (_displayMode == ComparisonDisplayMode.Compare)
                                         {
+                                            <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
                                             <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
                                             <td style="text-align: right;">
-                                                @if (row.Variance == 0)
+                                                @if (row.VarianceValue == 0)
                                                 {
                                                     <span class="text-success small fw-bold">$0.00</span>
                                                 }
                                                 else
                                                 {
-                                                    <span class="text-danger small fw-bold">@(row.Variance > 0 ? "+" : "")@row.Variance.ToString("C2")</span>
+                                                    <span class="text-danger small fw-bold">@(row.VarianceValue > 0 ? "+" : "")@row.VarianceValue.ToString("C2")</span>
                                                 }
                                             </td>
+                                        }
+                                        else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                                        {
+                                            <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
+                                        }
+                                        else if (_displayMode == ComparisonDisplayMode.DailyOnly)
+                                        {
+                                            <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
                                         }
                                     </tr>
                                 }
@@ -761,11 +863,19 @@
                             <thead>
                                 <tr>
                                     <th style="width: 40%;">Metric Field</th>
-                                    <th style="text-align: right;">Daily</th>
-                                    @if (!_isDailyOnlyMode)
+                                    @if (_displayMode == ComparisonDisplayMode.Compare)
                                     {
+                                        <th style="text-align: right;">Daily</th>
                                         <th style="text-align: right;">Weekly</th>
                                         <th style="text-align: right;">Variance</th>
+                                    }
+                                    else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                                    {
+                                        <th style="text-align: right;">Weekly Value</th>
+                                    }
+                                    else if (_displayMode == ComparisonDisplayMode.DailyOnly)
+                                    {
+                                        <th style="text-align: right;">Daily Sum</th>
                                     }
                                 </tr>
                             </thead>
@@ -774,20 +884,28 @@
                                 {
                                     <tr>
                                         <td class="fw-bold text-slate-700">@row.Name</td>
-                                        <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
-                                        @if (!_isDailyOnlyMode)
+                                        @if (_displayMode == ComparisonDisplayMode.Compare)
                                         {
+                                            <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
                                             <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
                                             <td style="text-align: right;">
-                                                @if (row.Variance == 0)
+                                                @if (row.VarianceValue == 0)
                                                 {
                                                     <span class="text-success small fw-bold">$0.00</span>
                                                 }
                                                 else
                                                 {
-                                                    <span class="text-danger small fw-bold">@(row.Variance > 0 ? "+" : "")@row.Variance.ToString("C2")</span>
+                                                    <span class="text-danger small fw-bold">@(row.VarianceValue > 0 ? "+" : "")@row.VarianceValue.ToString("C2")</span>
                                                 }
                                             </td>
+                                        }
+                                        else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                                        {
+                                            <td style="text-align: right;">@row.WeeklyValue.ToString("C2")</td>
+                                        }
+                                        else if (_displayMode == ComparisonDisplayMode.DailyOnly)
+                                        {
+                                            <td style="text-align: right;">@row.DailyValue.ToString("C2")</td>
                                         }
                                     </tr>
                                 }
@@ -801,9 +919,13 @@
                     <!-- COMMIT ACTIONS -->
                     <div class="d-flex justify-content-between align-items-center mt-4">
                         <div class="text-muted small">
-                            @if (_isDailyOnlyMode)
+                            @if (_displayMode == ComparisonDisplayMode.DailyOnly)
                             {
                                 <span class="text-success"><i class="bi bi-info-circle-fill me-1"></i> Daily-Only Mode. Ready to save aggregated totals as week ending @_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy").</span>
+                            }
+                            else if (_displayMode == ComparisonDisplayMode.WeeklyOnly)
+                            {
+                                <span class="text-success"><i class="bi bi-info-circle-fill me-1"></i> Weekly-Only Mode. Ready to save weekly invoice values as week ending @_weeklyMeta?.WeekEndingDate?.ToString("MM/dd/yyyy").</span>
                             }
                             else if (_totalDueVariance == 0)
                             {
@@ -1010,12 +1132,39 @@
     private List<ComparisonRow> _instantRows = new();
     private bool _isDailyOnlyMode = false;
     private bool _isFetchingEmail = false;
+    private bool _syncCompleted = false;
+    private List<string> _syncLogs = new();
     private string _syncStatusMessage = string.Empty;
     private CancellationTokenSource? _syncCts = null;
+    private enum ComparisonDisplayMode
+    {
+        Compare,
+        WeeklyOnly,
+        DailyOnly
+    }
+
+    private ComparisonDisplayMode _displayMode = ComparisonDisplayMode.Compare;
+    private bool _showDetailedLogs = false;
     private bool _showSettings = false;
+
+    private void CloseSyncModal()
+    {
+        _syncCompleted = false;
+        _showDetailedLogs = false;
+        _successMessage = string.Empty;
+        _errorMessage = string.Empty;
+    }
     private LotteryEmailSettings _emailSettings = new();
 
     private bool CanCompare => _dailyFiles.Any();
+    private bool HasBothData => _dailyFiles.Any() && _weeklyFile != null;
+    private bool HasWeeklyData => _weeklyFile != null;
+    private bool HasDailyData => _dailyFiles.Any();
+
+    private void SetDisplayMode(ComparisonDisplayMode mode)
+    {
+        _displayMode = mode;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1240,6 +1389,8 @@
         _errorMessage = string.Empty;
         _successMessage = string.Empty;
         _isFetchingEmail = true;
+        _syncCompleted = false;
+        _syncLogs.Clear();
         _syncStatusMessage = "Starting email sync...";
         _syncCts = new CancellationTokenSource();
 
@@ -1250,19 +1401,21 @@
                 _errorMessage = "Please configure your Gmail Address and App Password in Gmail Settings first.";
                 _showSettings = true;
                 _isFetchingEmail = false;
+                _syncCompleted = false;
                 return;
             }
 
             var progress = new Progress<string>(status =>
             {
                 _syncStatusMessage = status;
+                _syncLogs.Insert(0, status);
                 InvokeAsync(StateHasChanged);
             });
 
             var files = await EmailService.FetchLotteryReportsAsync(_emailSettings, progress, _syncCts.Token);
             if (files == null || files.Count == 0)
             {
-                _successMessage = "Sync completed. No new unread lottery report emails found in your Gmail inbox.";
+                _errorMessage = "Sync completed. No new unread lottery report emails found in your Gmail inbox.";
                 return;
             }
 
@@ -1303,6 +1456,7 @@
         finally
         {
             _isFetchingEmail = false;
+            _syncCompleted = true;
             _syncCts?.Dispose();
             _syncCts = null;
         }
@@ -1528,6 +1682,19 @@
         _weeklyFile = group.MatchingWeeklyFile;
         _weeklyMeta = _weeklyFile != null ? ParseWeeklyMetadata(_weeklyFile.FileName, _weeklyFile.Content) : null;
         
+        if (_dailyFiles.Any() && _weeklyFile != null)
+        {
+            _displayMode = ComparisonDisplayMode.Compare;
+        }
+        else if (_weeklyFile != null)
+        {
+            _displayMode = ComparisonDisplayMode.WeeklyOnly;
+        }
+        else
+        {
+            _displayMode = ComparisonDisplayMode.DailyOnly;
+        }
+
         ProcessComparison();
     }
 
@@ -1611,91 +1778,83 @@
         _errorMessage = string.Empty;
         _successMessage = string.Empty;
 
-        if (!_dailyFiles.Any()) return;
+        if (!_dailyFiles.Any() && _weeklyFile == null) return;
 
         try
         {
             _isDailyOnlyMode = (_weeklyFile == null);
 
-            // 1. Parse daily aggregates
-            var dailyData = ParseDailyFiles(_dailyFiles);
+            var dailyData = _dailyFiles.Any() ? ParseDailyFiles(_dailyFiles) : new DailyAggregate();
+            LotteryWeeklyStat weeklyData = null;
 
-            if (_isDailyOnlyMode)
+            if (_weeklyFile != null)
             {
-                // Calculate week ending date based on max daily date (Saturday of that week)
+                weeklyData = ParseWeeklyFile(_weeklyFile.FileName, _weeklyFile.Content);
+            }
+            else
+            {
+                // Compile daily aggregates into weekly format
                 var maxDate = _dailyFiles.Where(f => f.ParsedDate.HasValue).Select(f => f.ParsedDate.Value).Max();
                 int diff = ((int)DayOfWeek.Saturday - (int)maxDate.DayOfWeek + 7) % 7;
                 var weekEndingDate = maxDate.Date.AddDays(diff);
+
+                weeklyData = new LotteryWeeklyStat
+                {
+                    WeekEndingDate = weekEndingDate,
+                    OnlineNetSales = dailyData.NetOnlineSales,
+                    OnlineCommission = dailyData.OnlineCommission,
+                    OnlineCashes = dailyData.OnlineCashes,
+                    OnlineCashBonus = dailyData.OnlineCashBonus,
+                    OnlineClaimsBonus = dailyData.OnlineClaimsBonus,
+                    OnlineAdjustments = dailyData.OnlineAdjustments,
+                    OnlineServiceFee = dailyData.OnlineServiceFee,
+                    OnlineBondingFee = dailyData.OnlineBondingFee,
+                    OnlineDue = dailyData.OnlineDue,
+                    InstantGrossSales = dailyData.GrossInstantSales,
+                    InstantReturnSales = dailyData.InstantReturnSales,
+                    InstantCommission = dailyData.InstantCommission,
+                    InstantCashes = dailyData.InstantCashes,
+                    InstantCashBonus = dailyData.InstantCashBonus,
+                    InstantClaimsBonus = dailyData.InstantClaimsBonus,
+                    InstantAdjustments = dailyData.InstantAdjustments,
+                    InstantDue = dailyData.InstantDue,
+                    TotalDue = dailyData.OnlineDue + dailyData.InstantDue
+                };
 
                 _weeklyMeta = new WeeklyMetadata
                 {
                     AgentCode = "DAILY-ONLY",
                     WeekEndingDate = weekEndingDate
                 };
-
-                // In Daily Only mode, we just map daily aggregates and set weekly targets to 0
-                _onlineRows = new List<ComparisonRow>
-                {
-                    new("Net Sales", dailyData.NetOnlineSales, 0),
-                    new("Commission", dailyData.OnlineCommission, 0),
-                    new("Cashes", dailyData.OnlineCashes, 0),
-                    new("Cash Bonus", dailyData.OnlineCashBonus, 0),
-                    new("Claims Bonus", dailyData.OnlineClaimsBonus, 0),
-                    new("Adjustments", dailyData.OnlineAdjustments, 0),
-                    new("Service Fee", dailyData.OnlineServiceFee, 0),
-                    new("Bonding Fee", dailyData.OnlineBondingFee, 0),
-                    new("Online Due", dailyData.OnlineDue, 0)
-                };
-
-                _instantRows = new List<ComparisonRow>
-                {
-                    new("Gross Sales", dailyData.GrossInstantSales, 0),
-                    new("Return Sales", dailyData.InstantReturnSales, 0),
-                    new("Commission", dailyData.InstantCommission, 0),
-                    new("Cashes", dailyData.InstantCashes, 0),
-                    new("Cash Bonus", dailyData.InstantCashBonus, 0),
-                    new("Claims Bonus", dailyData.InstantClaimsBonus, 0),
-                    new("Adjustments", dailyData.InstantAdjustments, 0),
-                    new("Instant Due", dailyData.InstantDue, 0)
-                };
-
-                _totalDailyDue = dailyData.OnlineDue + dailyData.InstantDue;
-                _totalWeeklyDue = 0;
             }
-            else
+
+            _onlineRows = new List<ComparisonRow>
             {
-                // 2. Parse weekly invoice
-                var weeklyData = ParseWeeklyFile(_weeklyFile!.FileName, _weeklyFile!.Content);
+                new("Net Sales", dailyData.NetOnlineSales, weeklyData.OnlineNetSales),
+                new("Commission", dailyData.OnlineCommission, weeklyData.OnlineCommission),
+                new("Cashes", dailyData.OnlineCashes, weeklyData.OnlineCashes),
+                new("Cash Bonus", dailyData.OnlineCashBonus, weeklyData.OnlineCashBonus),
+                new("Claims Bonus", dailyData.OnlineClaimsBonus, weeklyData.OnlineClaimsBonus),
+                new("Adjustments", dailyData.OnlineAdjustments, weeklyData.OnlineAdjustments),
+                new("Service Fee", dailyData.OnlineServiceFee, weeklyData.OnlineServiceFee),
+                new("Bonding Fee", dailyData.OnlineBondingFee, weeklyData.OnlineBondingFee),
+                new("Online Due", dailyData.OnlineDue, weeklyData.OnlineDue)
+            };
 
-                // 3. Map comparison rows
-                _onlineRows = new List<ComparisonRow>
-                {
-                    new("Net Sales", dailyData.NetOnlineSales, weeklyData.OnlineNetSales),
-                    new("Commission", dailyData.OnlineCommission, weeklyData.OnlineCommission),
-                    new("Cashes", dailyData.OnlineCashes, weeklyData.OnlineCashes),
-                    new("Cash Bonus", dailyData.OnlineCashBonus, weeklyData.OnlineCashBonus),
-                    new("Claims Bonus", dailyData.OnlineClaimsBonus, weeklyData.OnlineClaimsBonus),
-                    new("Adjustments", dailyData.OnlineAdjustments, weeklyData.OnlineAdjustments),
-                    new("Service Fee", dailyData.OnlineServiceFee, weeklyData.OnlineServiceFee),
-                    new("Bonding Fee", dailyData.OnlineBondingFee, weeklyData.OnlineBondingFee),
-                    new("Online Due", dailyData.OnlineDue, weeklyData.OnlineDue)
-                };
+            _instantRows = new List<ComparisonRow>
+            {
+                new("Gross Sales", dailyData.GrossInstantSales, weeklyData.InstantGrossSales),
+                new("Return Sales", dailyData.InstantReturnSales, weeklyData.InstantReturnSales),
+                new("Commission", dailyData.InstantCommission, weeklyData.InstantCommission),
+                new("Cashes", dailyData.InstantCashes, weeklyData.InstantCashes),
+                new("Cash Bonus", dailyData.InstantCashBonus, weeklyData.InstantCashBonus),
+                new("Claims Bonus", dailyData.InstantClaimsBonus, weeklyData.InstantClaimsBonus),
+                new("Adjustments", dailyData.InstantAdjustments, weeklyData.InstantAdjustments),
+                new("Instant Due", dailyData.InstantDue, weeklyData.InstantDue)
+            };
 
-                _instantRows = new List<ComparisonRow>
-                {
-                    new("Gross Sales", dailyData.GrossInstantSales, weeklyData.InstantGrossSales),
-                    new("Return Sales", dailyData.InstantReturnSales, weeklyData.InstantReturnSales),
-                    new("Commission", dailyData.InstantCommission, weeklyData.InstantCommission),
-                    new("Cashes", dailyData.InstantCashes, weeklyData.InstantCashes),
-                    new("Cash Bonus", dailyData.InstantCashBonus, weeklyData.InstantCashBonus),
-                    new("Claims Bonus", dailyData.InstantClaimsBonus, weeklyData.InstantClaimsBonus),
-                    new("Adjustments", dailyData.InstantAdjustments, weeklyData.InstantAdjustments),
-                    new("Instant Due", dailyData.InstantDue, weeklyData.InstantDue)
-                };
-
-                _totalDailyDue = dailyData.OnlineDue + dailyData.InstantDue;
-                _totalWeeklyDue = weeklyData.TotalDue;
-            }
+            _totalDailyDue = dailyData.OnlineDue + dailyData.InstantDue;
+            _totalWeeklyDue = weeklyData.TotalDue;
 
             _hasDataLoaded = true;
         }
@@ -1707,7 +1866,7 @@
 
     private async Task CommitToDatabase()
     {
-        if (!_dailyFiles.Any()) return;
+        if (!_dailyFiles.Any() && _weeklyFile == null) return;
 
         try
         {
@@ -1717,7 +1876,7 @@
 
             using var db = await DbFactory.CreateDbContextAsync();
 
-            if (_isDailyOnlyMode)
+            if (_displayMode == ComparisonDisplayMode.DailyOnly)
             {
                 // In daily-only mode, we compile the Daily stats into a weekly model
                 var dailyData = ParseDailyFiles(_dailyFiles);

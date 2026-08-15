@@ -516,7 +516,7 @@
                         <!-- Pull Trends Graph & Weekly Details -->
                         <div class="flex-grow-1 d-flex flex-column bg-white p-5" style="overflow-y: auto;">
                             <h5 class="fw-black mb-3 text-dark d-flex align-items-center">
-                                <i class="bi bi-graph-up me-2 text-primary"></i>INVENTORY PULL TRENDS (WEEKLY BOTTLES REMOVED)
+                                <i class="bi bi-graph-up me-2 text-primary"></i>INVENTORY PULL TRENDS (BOTTLES REMOVED BY PRODUCT)
                             </h5>
                             
                             <div class="chart-container bg-light rounded-4 border p-4 mb-4" style="position: relative; width: 100%; min-height: 350px; height: 350px; flex-shrink: 0;">
@@ -528,18 +528,9 @@
                                 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                                     <div>
                                         <h6 class="fw-black mb-1 text-dark d-flex align-items-center">
-                                            <i class="bi bi-list-ul me-2 text-primary"></i>WEEKLY REMOVAL BREAKDOWN
+                                            <i class="bi bi-list-ul me-2 text-primary"></i>ITEM REMOVAL BREAKDOWN
                                         </h6>
-                                        <span class="text-muted small">Select a week from the trend timeline to inspect what actual items were removed</span>
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <label class="fw-bold small text-muted mb-0" style="font-size: 0.75rem;">Week starting:</label>
-                                        <select class="form-select form-select-sm fw-bold border bg-light py-1 px-3 rounded-pill" style="width: auto; cursor: pointer; font-size: 0.8rem;" @bind="_selectedTrendWeek" @bind:after="UpdateWeeklyBreakdown">
-                                            @foreach (var wk in _trendWeeksList)
-                                            {
-                                                <option value="@wk">@wk</option>
-                                            }
-                                        </select>
+                                        <span class="text-muted small">Detailed list of all products removed from inventory for the selected period</span>
                                     </div>
                                 </div>
 
@@ -559,7 +550,7 @@
                                             {
                                                 <tr>
                                                     <td colspan="5" class="text-center py-4 text-muted fw-bold">
-                                                        No removals recorded for the week of @_selectedTrendWeek.
+                                                        No removals recorded for the selected filter range.
                                                     </td>
                                                 </tr>
                                             }
@@ -2615,7 +2606,7 @@
                             <tbody>
                                 @foreach (var station in StationTotals)
                                 {
-                                    var count = Sales.Count(s => s.TerminalName == station.Key);
+                                    var count = _allSalesForStats.Count(s => s.TerminalName == station.Key);
                                     var avg = count > 0 ? station.Value / count : 0;
                                     <tr>
                                         <td class="ps-4 fw-bold text-dark">@station.Key.ToUpper()</td>
@@ -2648,7 +2639,7 @@
                                 @foreach (var group in groupedPulls.OrderByDescending(g => g.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice))))
                                 {
                                     var cost = group.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice));
-                                    var salesVal = Sales.SelectMany(s => GetItemsList(s.ItemsJson))
+                                    var salesVal = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson))
                                         .Where(i => i != null && i.Name.Equals(group.Key.Name, StringComparison.OrdinalIgnoreCase))
                                         .Sum(i => i.Price * i.Quantity);
                                     var pc = salesVal > 0 ? (cost / salesVal) * 100 : 0;
@@ -2809,6 +2800,7 @@
         if (string.IsNullOrEmpty(rawName)) return "";
         var name = rawName.Trim();
         if (name.StartsWith("> ")) name = name.Substring(2).Trim();
+        if (name.StartsWith("PRIZE:")) name = name.Substring(6).Trim();
         
         // Preserve Gift Box Token Sale details (e.g. "Mixed Drink Token (Tito's) (TOKEN SALE)")
         if (name.Contains("(TOKEN SALE)"))
@@ -2821,7 +2813,7 @@
         {
             name = name.Substring(0, parenIndex).Trim();
         }
-        return name;
+        return name.Trim();
     }
 
     private List<string> MenuCategories = new();
@@ -2865,6 +2857,7 @@
 
     private string ActiveTab = "SALES";
     private List<PosSale> Sales = new();
+    private List<PosSale> _allSalesForStats = new();
     private List<PosZReport> ZReports = new();
     private Dictionary<Guid, (DateTime? FirstSale, string FirstBartender, DateTime? LastSale, string LastBartender)> ZReportWindows = new();
     private string FilterTerminal = "";
@@ -3005,7 +2998,7 @@
         return baseStock;
     }
 
-    private string _stockSortOption = "NAME_ASC";
+    private string _stockSortOption = "USAGE_DESC";
     private Dictionary<int, int> _stockPullsInPeriod = new();
     private List<LiquorTransaction> _removalTransactions = new();
     private string _stockViewMode = "VISUAL";
@@ -3364,58 +3357,82 @@
     {
         if (ActiveTab != "INVENTORY") return;
 
-        var pullList = _ledgerTransactions
-            .Where(t => t.TransactionType == "Checkout" && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"))
+        using var db = DbFactory.CreateDbContext();
+        var st = StartDate.Date;
+        var en = EndDate.Date.AddDays(1);
+
+        var query = db.LiquorTransactions.AsNoTracking()
+            .Include(t => t.Item)
+            .Where(t => t.TransactionType == "Checkout" && t.Item != null && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"));
+
+        // Apply Shift Filter
+        if (FilterShiftId.HasValue)
+        {
+            var selectedShift = ZReports.FirstOrDefault(z => z.Id == FilterShiftId.Value) 
+                ?? await db.PosZReports.AsNoTracking().FirstOrDefaultAsync(z => z.Id == FilterShiftId.Value);
+
+            if (selectedShift != null)
+            {
+                var prevZ = await db.PosZReports.AsNoTracking()
+                    .Where(r => r.TerminalName == selectedShift.TerminalName && r.Timestamp < selectedShift.Timestamp)
+                    .OrderByDescending(r => r.Timestamp)
+                    .FirstOrDefaultAsync();
+
+                var shiftStart = prevZ?.Timestamp ?? DateTime.MinValue;
+                var shiftEnd = selectedShift.Timestamp;
+
+                query = query.Where(t => t.Timestamp >= shiftStart && t.Timestamp <= shiftEnd);
+            }
+        }
+        else
+        {
+            query = query.Where(t => t.Timestamp >= st && t.Timestamp < en);
+        }
+
+        // Apply Terminal Filter
+        if (!string.IsNullOrEmpty(FilterTerminal))
+        {
+            query = query.Where(t => t.Notes.Contains($"[{FilterTerminal}]"));
+        }
+
+        var pullList = await query.ToListAsync();
+
+        // Group pulls by product name string to avoid duplicate key crash
+        var productPullsMap = pullList
+            .GroupBy(t => t.Item.Name.ToUpper())
+            .ToDictionary(g => g.Key, g => g.Sum(t => (int)Math.Abs(t.ChangeAmount)));
+
+        // Sort products by quantity pulled (high to low)
+        var sortedProducts = productPullsMap.OrderByDescending(p => p.Value).ToList();
+        var productLabels = sortedProducts.Select(p => p.Key).ToArray();
+        var productValues = sortedProducts.Select(p => p.Value).ToArray();
+
+        // Populate breakdown items directly
+        _weeklyBreakdownItems = pullList
+            .GroupBy(t => t.Item)
+            .Select(g => new WeeklyBreakdownItem
+            {
+                Name = g.Key.Name,
+                Size = g.Key.BottleSize ?? "1L",
+                Category = g.Key.Category ?? "LIQUOR",
+                Quantity = g.Sum(t => (int)Math.Abs(t.ChangeAmount)),
+                UnitCost = g.Key.CurrentPrice
+            })
+            .OrderByDescending(b => b.Quantity)
             .ToList();
-
-        // Generate all weeks in the selected date range to ensure a continuous weekly timeline
-        var dateMap = new Dictionary<string, int>();
-        var currentDate = GetStartOfWeek(StartDate.Date);
-        var lastDate = GetStartOfWeek(EndDate.Date);
-        
-        while (currentDate <= lastDate)
-        {
-            dateMap[$"Wk {currentDate:MM/dd}"] = 0;
-            currentDate = currentDate.AddDays(7);
-        }
-
-        // Overlay actual pull values
-        foreach (var pull in pullList)
-        {
-            var weekStart = GetStartOfWeek(pull.Timestamp.ToLocalTime().Date);
-            var label = $"Wk {weekStart:MM/dd}";
-            if (dateMap.ContainsKey(label))
-            {
-                dateMap[label] += (int)Math.Abs(pull.ChangeAmount);
-            }
-            else
-            {
-                dateMap[label] = (int)Math.Abs(pull.ChangeAmount);
-            }
-        }
-
-        var sortedKeys = dateMap.Keys.OrderBy(k => k).ToArray();
-        var sortedValues = sortedKeys.Select(k => dateMap[k]).ToArray();
-
-        _trendWeeksList = sortedKeys.ToList();
-        if (string.IsNullOrEmpty(_selectedTrendWeek) || !_trendWeeksList.Contains(_selectedTrendWeek))
-        {
-            _selectedTrendWeek = _trendWeeksList.LastOrDefault() ?? "";
-        }
-        UpdateWeeklyBreakdown();
 
         var chartConfig = new
         {
             type = "bar",
             data = new
             {
-                labels = sortedKeys,
+                labels = productLabels,
                 datasets = new[]
                 {
                     new
                     {
                         label = "Bottles Pulled",
-                        data = sortedValues,
+                        data = productValues,
                         backgroundColor = "rgba(109, 40, 217, 0.75)",
                         borderColor = "rgb(109, 40, 217)",
                         borderWidth = 1,
@@ -3599,7 +3616,7 @@
 
             // Current period calculations
             InsightsTotalSales = TodayTotal; // TodayTotal contains the filtered sales total
-            InsightsTotalTickets = Sales.Count;
+            InsightsTotalTickets = _allSalesForStats.Count;
             InsightsAverageTicket = InsightsTotalTickets > 0 ? InsightsTotalSales / InsightsTotalTickets : 0;
 
             using var db = DbFactory.CreateDbContext();
@@ -3618,7 +3635,7 @@
 
             InsightsPourCostCost = filteredPulls.Sum(t => Math.Abs(t.ChangeAmount) * (t.Item.PackSize > 1 ? t.Item.CurrentPrice / t.Item.PackSize : t.Item.CurrentPrice));
                 
-            InsightsPourCostSales = Sales.SelectMany(s => GetItemsList(s.ItemsJson))
+            InsightsPourCostSales = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson))
                 .Where(i => i != null && (i.Category == "LIQUOR" || i.Category == "BEER" || i.Category == "WINE" || i.Category == "TOKENS"))
                 .Sum(i => i.Price * i.Quantity);
 
@@ -3668,9 +3685,8 @@
     [JSInvokable]
     public async Task OnChartBarClicked(string label)
     {
-        _selectedTrendWeek = label;
-        UpdateWeeklyBreakdown();
-        await InvokeAsync(StateHasChanged);
+        // X-axis is now product name, clicking does not change selected week.
+        await Task.CompletedTask;
     }
 
     public void Dispose()
@@ -3678,7 +3694,7 @@
         _objRef?.Dispose();
     }
 
-    private void UpdateWeeklyBreakdown()
+    private async Task UpdateWeeklyBreakdown()
     {
         _weeklyBreakdownItems.Clear();
         _selectedWeekStart = null;
@@ -3698,14 +3714,45 @@
         _selectedWeekStart = weekStart;
         _selectedWeekEnd = weekEnd;
 
-        var pullList = _ledgerTransactions
-            .Where(t => t.TransactionType == "Checkout" && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"))
-            .Where(t => t.Timestamp.ToLocalTime().Date >= weekStart && t.Timestamp.ToLocalTime().Date < weekEnd)
-            .ToList();
+        using var db = DbFactory.CreateDbContext();
+        var query = db.LiquorTransactions.AsNoTracking()
+            .Include(t => t.Item)
+            .Where(t => t.TransactionType == "Checkout" && t.Item != null && t.Notes != null && t.Notes.Contains("POS End-of-Shift Removal"));
+
+        // Apply Shift Filter
+        if (FilterShiftId.HasValue)
+        {
+            var selectedShift = ZReports.FirstOrDefault(z => z.Id == FilterShiftId.Value) 
+                ?? await db.PosZReports.AsNoTracking().FirstOrDefaultAsync(z => z.Id == FilterShiftId.Value);
+
+            if (selectedShift != null)
+            {
+                var prevZ = await db.PosZReports.AsNoTracking()
+                    .Where(r => r.TerminalName == selectedShift.TerminalName && r.Timestamp < selectedShift.Timestamp)
+                    .OrderByDescending(r => r.Timestamp)
+                    .FirstOrDefaultAsync();
+
+                var shiftStart = prevZ?.Timestamp ?? DateTime.MinValue;
+                var shiftEnd = selectedShift.Timestamp;
+
+                query = query.Where(t => t.Timestamp >= shiftStart && t.Timestamp <= shiftEnd);
+            }
+        }
+        else
+        {
+            query = query.Where(t => t.Timestamp >= weekStart && t.Timestamp < weekEnd);
+        }
+
+        // Apply Terminal Filter
+        if (!string.IsNullOrEmpty(FilterTerminal))
+        {
+            query = query.Where(t => t.Notes.Contains($"[{FilterTerminal}]"));
+        }
+
+        var pullList = await query.ToListAsync();
 
         _weeklyBreakdownItems = pullList
             .GroupBy(t => t.Item)
-            .Where(g => g.Key != null)
             .Select(g => new WeeklyBreakdownItem
             {
                 Name = g.Key.Name,
@@ -4163,7 +4210,7 @@
 
     private void GenerateSummary()
     {
-        var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).Where(i => i != null).ToList();
+        var allItems = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson)).Where(i => i != null).ToList();
         
         var cleanItems = allItems.Select(i => {
             var cleanName = CleanProductName(i.Name);
@@ -4476,13 +4523,14 @@
                 }
 
                 Sales = await salesQuery.OrderByDescending(s => s.Timestamp).Take(500).ToListAsync();
+                _allSalesForStats = await salesQuery.ToListAsync();
+                TodayTotal = _allSalesForStats.Sum(s => s.TotalAmount);
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
             }
 
             // Calculate Totals
-            TodayTotal = Sales.Sum(s => s.TotalAmount);
-            StationTotals = Sales.GroupBy(s => s.TerminalName ?? "UNKNOWN STATION")
+            StationTotals = _allSalesForStats.GroupBy(s => s.TerminalName ?? "UNKNOWN STATION")
                                 .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
 
             // Get unique terminal names
@@ -4500,7 +4548,7 @@
             }
 
             // Token Tracking (Daily)
-            var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
+            var allItems = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
             TotalTokensSold = allItems.Where(i => i != null && i.Category == "TOKENS").Sum(i => i.Quantity);
             TotalTokensRedeemed = allItems.Where(i => i != null && (i.Name ?? "").Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
 
@@ -4619,7 +4667,7 @@
         _settings = await SystemSettingsService.GetAsync();
 
         // A. Get all drinks sold in this period from POS
-        var allSalesItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).Where(i => i != null);
+        var allSalesItems = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson)).Where(i => i != null);
         var posGrouped = allSalesItems.GroupBy(i => i.Name ?? "UNKNOWN ITEM")
                                       .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
 

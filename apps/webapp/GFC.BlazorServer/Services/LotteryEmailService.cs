@@ -16,6 +16,8 @@ namespace GFC.BlazorServer.Services
         public string AppPassword { get; set; } = string.Empty;
         public string SenderAddress { get; set; } = "reports@lottery.com";
         public string SubjectKeyword { get; set; } = "Lottery";
+        public string DailyGmailLabel { get; set; } = "INBOX";
+        public string WeeklyGmailLabel { get; set; } = "INBOX";
         public bool AutoSyncEnabled { get; set; } = false;
         public int SyncIntervalHours { get; set; } = 6;
         public DateTime? LastSyncTime { get; set; }
@@ -79,97 +81,131 @@ namespace GFC.BlazorServer.Services
             progress?.Report("Authenticating credentials...");
             await client.AuthenticateAsync(settings.EmailAddress, settings.AppPassword, cancellationToken);
 
-            progress?.Report("Opening inbox...");
-            await client.Inbox.OpenAsync(FolderAccess.ReadWrite, cancellationToken);
+            var foldersToSearch = new List<string>();
+            var dailyFolder = string.IsNullOrWhiteSpace(settings.DailyGmailLabel) ? "INBOX" : settings.DailyGmailLabel.Trim();
+            var weeklyFolder = string.IsNullOrWhiteSpace(settings.WeeklyGmailLabel) ? "INBOX" : settings.WeeklyGmailLabel.Trim();
 
-            // Query for unread emails only
-            var query = SearchQuery.NotSeen;
-
-            if (!string.IsNullOrEmpty(settings.SenderAddress))
+            foldersToSearch.Add(dailyFolder);
+            if (!foldersToSearch.Contains(weeklyFolder))
             {
-                query = query.And(SearchQuery.FromContains(settings.SenderAddress));
+                foldersToSearch.Add(weeklyFolder);
             }
 
-            if (!string.IsNullOrEmpty(settings.SubjectKeyword))
-            {
-                query = query.And(SearchQuery.SubjectContains(settings.SubjectKeyword));
-            }
-
-            progress?.Report("Searching inbox for new matching unread messages...");
-            var matchedUniqueIds = await client.Inbox.SearchAsync(query, cancellationToken);
-
-            int totalEmails = matchedUniqueIds.Count;
-            if (totalEmails == 0)
-            {
-                progress?.Report("No new matching emails found.");
-                await client.DisconnectAsync(true, cancellationToken);
-                return results;
-            }
-
-            progress?.Report("Scanning matching emails to count report files...");
-            int totalCsvFiles = 0;
-            var emailFilesList = new List<(UniqueId Uid, List<MimePart> CsvParts)>();
-
-            foreach (var uid in matchedUniqueIds)
+            int folderIdx = 0;
+            foreach (var folderName in foldersToSearch)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var message = await client.Inbox.GetMessageAsync(uid, cancellationToken);
-                var csvParts = message.Attachments
-                    .OfType<MimePart>()
-                    .Where(a => a.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (csvParts.Count > 0)
+                folderIdx++;
+                progress?.Report($"[{folderIdx}/{foldersToSearch.Count}] Opening folder '{folderName}'...");
+                
+                IMailFolder folder = null;
+                if (!folderName.Equals("INBOX", StringComparison.OrdinalIgnoreCase))
                 {
-                    totalCsvFiles += csvParts.Count;
-                    emailFilesList.Add((uid, csvParts));
+                    try
+                    {
+                        folder = await client.GetFolderAsync(folderName, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        progress?.Report($"Warning: Could not open folder '{folderName}': {ex.Message}. Falling back to INBOX.");
+                    }
                 }
-            }
 
-            if (totalCsvFiles == 0)
-            {
-                progress?.Report("No lottery CSV attachments found in matching emails.");
-                await client.DisconnectAsync(true, cancellationToken);
-                return results;
-            }
+                if (folder == null)
+                {
+                    folder = client.Inbox;
+                }
 
-            progress?.Report($"Found {totalCsvFiles} CSV file(s). Starting download...");
+                await folder.OpenAsync(FolderAccess.ReadWrite, cancellationToken);
 
-            int currentFileIdx = 0;
-            foreach (var item in emailFilesList)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                foreach (var mimePart in item.CsvParts)
+                // Query for unread emails only
+                var query = SearchQuery.NotSeen;
+
+                if (!string.IsNullOrEmpty(settings.SenderAddress))
+                {
+                    query = query.And(SearchQuery.FromContains(settings.SenderAddress));
+                }
+
+                if (!string.IsNullOrEmpty(settings.SubjectKeyword))
+                {
+                    query = query.And(SearchQuery.SubjectContains(settings.SubjectKeyword));
+                }
+
+                progress?.Report($"Searching '{folderName}' for new matching unread messages...");
+                var matchedUniqueIds = await folder.SearchAsync(query, cancellationToken);
+
+                int totalEmails = matchedUniqueIds.Count;
+                if (totalEmails == 0)
+                {
+                    progress?.Report($"No new matching emails in '{folderName}'.");
+                    continue;
+                }
+
+                progress?.Report($"Found {totalEmails} email(s) in '{folderName}'. Scanning attachments...");
+                int totalCsvFiles = 0;
+                var emailFilesList = new List<(UniqueId Uid, List<MimePart> CsvParts)>();
+
+                foreach (var uid in matchedUniqueIds)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    currentFileIdx++;
-                    
-                    progress?.Report($"Downloading file {currentFileIdx} of {totalCsvFiles} ({mimePart.FileName})...");
-                    
-                    using var memoryStream = new MemoryStream();
-                    await mimePart.Content.DecodeToAsync(memoryStream, cancellationToken);
-                    memoryStream.Position = 0;
+                    var message = await folder.GetMessageAsync(uid, cancellationToken);
+                    var csvParts = message.Attachments
+                        .OfType<MimePart>()
+                        .Where(a => a.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
 
-                    progress?.Report($"Extracting file {currentFileIdx} of {totalCsvFiles} ({mimePart.FileName})...");
-                    using var reader = new StreamReader(memoryStream);
-                    var content = await reader.ReadToEndAsync(cancellationToken);
-
-                    results.Add(new EmailAttachmentFile
+                    if (csvParts.Count > 0)
                     {
-                        FileName = mimePart.FileName,
-                        FileSize = memoryStream.Length,
-                        Content = content
-                    });
+                        totalCsvFiles += csvParts.Count;
+                        emailFilesList.Add((uid, csvParts));
+                    }
                 }
 
-                // Mark email as read/seen so it is skipped next time
-                await client.Inbox.AddFlagsAsync(item.Uid, MessageFlags.Seen, true, cancellationToken);
+                if (totalCsvFiles == 0)
+                {
+                    progress?.Report($"No CSV attachments in matching emails of '{folderName}'.");
+                    continue;
+                }
+
+                progress?.Report($"Found {totalCsvFiles} CSV file(s) in '{folderName}'. Downloading...");
+
+                int currentFileIdx = 0;
+                foreach (var item in emailFilesList)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    foreach (var mimePart in item.CsvParts)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        currentFileIdx++;
+                        
+                        progress?.Report($"Downloading {currentFileIdx}/{totalCsvFiles} ({mimePart.FileName}) from '{folderName}'...");
+                        
+                        using var memoryStream = new MemoryStream();
+                        await mimePart.Content.DecodeToAsync(memoryStream, cancellationToken);
+                        memoryStream.Position = 0;
+
+                        progress?.Report($"Extracting {currentFileIdx}/{totalCsvFiles} ({mimePart.FileName})...");
+                        using var reader = new StreamReader(memoryStream);
+                        var content = await reader.ReadToEndAsync(cancellationToken);
+
+                        results.Add(new EmailAttachmentFile
+                        {
+                            FileName = mimePart.FileName,
+                            FileSize = memoryStream.Length,
+                            Content = content
+                        });
+                    }
+
+                    // Mark email as read/seen so it is skipped next time
+                    await folder.AddFlagsAsync(item.Uid, MessageFlags.Seen, true, cancellationToken);
+                }
             }
 
             progress?.Report("Sync completed. Closing secure connection...");
             await client.DisconnectAsync(true, cancellationToken);
             return results;
         }
+
     }
 
     public class EmailAttachmentFile

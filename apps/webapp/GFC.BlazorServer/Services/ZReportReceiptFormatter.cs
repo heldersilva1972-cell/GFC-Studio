@@ -196,8 +196,10 @@ namespace GFC.BlazorServer.Services
                 .Select(kvp => {
                     var cleanKey = kvp.Key;
                     if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
-                    if (cleanKey.Contains(" (TOKEN SALE)")) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
-                    if (cleanKey.Contains(" (TOKEN REDEEMED)")) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
+                    bool isTokenSale = cleanKey.Contains(" (TOKEN SALE)");
+                    if (isTokenSale) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
+                    bool isTokenRedeemed = cleanKey.Contains(" (TOKEN REDEEMED)");
+                    if (isTokenRedeemed) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
                     
                     var product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                     if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
@@ -212,9 +214,16 @@ namespace GFC.BlazorServer.Services
                     else if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
                     
                     decimal price = 0;
-                    if (kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))
+                    if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))
                     {
                         price = 0;
+                    }
+                    else if (isTokenSale || kvp.Key.Contains("(TOKEN SALE)") || kvp.Key.Contains("TOKEN SALE"))
+                    {
+                        var tokenMatch = tokenList.OrderByDescending(t => t.Name.Length)
+                            .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
+                        if (tokenMatch != null) price = tokenMatch.SalePrice;
+                        else if (product != null) price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
                     }
                     else
                     {

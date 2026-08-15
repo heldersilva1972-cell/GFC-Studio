@@ -552,6 +552,7 @@ public class PosApiController : ControllerBase
             ev.DonatedBeerReDonatedCount = request.DonatedBeerReDonatedCount;
             ev.DonatedBeerSoldCount = request.DonatedBeerSoldCount;
             ev.DonatedItemIdsJson = request.DonatedItemIdsJson;
+            ev.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
             if (request.CloseEvent)
             {
                 ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
