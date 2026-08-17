@@ -92,6 +92,7 @@ namespace GFC.BlazorServer.Components.Pages
         private bool _showMetricSales = false;
         private bool _showMetricVariance = false;
         private bool _showMetricWeeklyDue = false;
+        private bool _showMetricOnlineDue = false;
         private string _breakdownRangeType = "week"; // "week", "month", "year", "custom"
         private DateTime _breakdownCustomStart = DateTime.Today.AddDays(-14);
         private DateTime _breakdownCustomEnd = DateTime.Today;
@@ -142,6 +143,7 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal PeakDropDayAmount { get; set; }
             public int TotalShifts { get; set; }
             public decimal TotalWeeklyStatementDue { get; set; }
+            public decimal TotalOnlineDue { get; set; }
         }
 
         public class DailyBreakdownItem
@@ -154,6 +156,7 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal TotalSales { get; set; }
             public decimal Variance { get; set; }
             public decimal WeeklyStatementDue { get; set; }
+            public decimal OnlineDue { get; set; }
             public int ShiftCount { get; set; }
             public double PercentageOfTotal { get; set; }
             public List<LotteryShiftDto> Shifts { get; set; } = new();
@@ -334,13 +337,51 @@ namespace GFC.BlazorServer.Components.Pages
         private void InitializeWeeks()
         {
             _availableWeeks.Clear();
-            // Start from the current Sat-Fri week and go back 12 weeks
-            var currentSat = GetWeekStart(DateTime.Today);
-            for (int i = 0; i < 12; i++)
+            
+            // Find the earliest shift date in the database to dynamically determine how far back to go
+            DateTime earliestDate = DateTime.Today.AddMonths(-18); // Default to 18 months back
+            try
             {
-                var start = currentSat.AddDays(-7 * i);
+                using var db = DbFactory.CreateDbContext();
+                var firstShift = db.LotteryShifts.AsNoTracking()
+                    .OrderBy(s => s.ShiftDate)
+                    .Select(s => (DateTime?)s.ShiftDate)
+                    .FirstOrDefault();
+                if (firstShift.HasValue)
+                {
+                    earliestDate = firstShift.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error fetching earliest shift date for available weeks");
+            }
+
+            var currentSat = GetWeekStart(DateTime.Today);
+            var earliestWeekStart = GetWeekStart(earliestDate);
+            
+            var temp = currentSat;
+            int count = 0;
+            // Limit to at most 156 weeks (3 years) to avoid select element performance issues
+            while (temp >= earliestWeekStart && count < 156)
+            {
+                var start = temp;
                 var end = start.AddDays(6);
                 _availableWeeks.Add((start, end, $"{start:MMM d} - {end:MMM d, yyyy}"));
+                temp = temp.AddDays(-7);
+                count++;
+            }
+            
+            // Fallback to at least 52 weeks (1 year) if database is empty or date range is small
+            if (_availableWeeks.Count < 52)
+            {
+                _availableWeeks.Clear();
+                for (int i = 0; i < 52; i++)
+                {
+                    var start = currentSat.AddDays(-7 * i);
+                    var end = start.AddDays(6);
+                    _availableWeeks.Add((start, end, $"{start:MMM d} - {end:MMM d, yyyy}"));
+                }
             }
         }
 
@@ -1122,6 +1163,7 @@ namespace GFC.BlazorServer.Components.Pages
 
                         var dayStatement = weeklyStats.FirstOrDefault(w => w.WeekEndingDate.Date == currentDate.Date);
                         decimal dayStatementDue = dayStatement != null ? Math.Abs(dayStatement.TotalDue) : 0;
+                        decimal dayOnlineDue = dayStatement != null ? Math.Abs(dayStatement.OnlineDue) : 0;
 
                         _breakdownDailyItems.Add(new DailyBreakdownItem
                         {
@@ -1133,6 +1175,7 @@ namespace GFC.BlazorServer.Components.Pages
                             TotalSales = daySales,
                             Variance = dayVariance,
                             WeeklyStatementDue = dayStatementDue,
+                            OnlineDue = dayOnlineDue,
                             ShiftCount = dayShifts.Count,
                             PercentageOfTotal = Math.Round(pct, 1),
                             Shifts = dayShifts
@@ -1176,6 +1219,7 @@ namespace GFC.BlazorServer.Components.Pages
 
                         var weekStatements = weeklyStats.Where(w => w.WeekEndingDate.Date >= weekStart && w.WeekEndingDate.Date <= weekEnd).ToList();
                         decimal weekStatementDue = weekStatements.Sum(w => Math.Abs(w.TotalDue));
+                        decimal weekOnlineDue = weekStatements.Sum(w => Math.Abs(w.OnlineDue));
 
                         _breakdownDailyItems.Add(new DailyBreakdownItem
                         {
@@ -1187,6 +1231,7 @@ namespace GFC.BlazorServer.Components.Pages
                             TotalSales = weekSales,
                             Variance = weekVariance,
                             WeeklyStatementDue = weekStatementDue,
+                            OnlineDue = weekOnlineDue,
                             ShiftCount = weekShifts.Count,
                             PercentageOfTotal = Math.Round(pct, 1),
                             Shifts = weekShifts
@@ -1231,6 +1276,7 @@ namespace GFC.BlazorServer.Components.Pages
 
                         var monthStatements = weeklyStats.Where(w => w.WeekEndingDate.Date >= mStart && w.WeekEndingDate.Date <= mEnd).ToList();
                         decimal monthStatementDue = monthStatements.Sum(w => Math.Abs(w.TotalDue));
+                        decimal monthOnlineDue = monthStatements.Sum(w => Math.Abs(w.OnlineDue));
 
                         _breakdownDailyItems.Add(new DailyBreakdownItem
                         {
@@ -1242,6 +1288,7 @@ namespace GFC.BlazorServer.Components.Pages
                             TotalSales = mSales,
                             Variance = mVariance,
                             WeeklyStatementDue = monthStatementDue,
+                            OnlineDue = monthOnlineDue,
                             ShiftCount = monthShifts.Count,
                             PercentageOfTotal = Math.Round(pct, 1),
                             Shifts = monthShifts
@@ -1253,6 +1300,7 @@ namespace GFC.BlazorServer.Components.Pages
 
                 _breakdownStats.TotalEnvelopeDrops = periodTotalEnvelope;
                 _breakdownStats.TotalWeeklyStatementDue = _breakdownDailyItems.Sum(d => d.WeeklyStatementDue);
+                _breakdownStats.TotalOnlineDue = _breakdownDailyItems.Sum(d => d.OnlineDue);
 
                 var peakDay = _breakdownDailyItems.OrderByDescending(d => d.EnvelopeAmount).FirstOrDefault();
                 if (peakDay != null && peakDay.EnvelopeAmount > 0)
@@ -1283,6 +1331,7 @@ namespace GFC.BlazorServer.Components.Pages
             else if (metric == "sales") _showMetricSales = !_showMetricSales;
             else if (metric == "variance") _showMetricVariance = !_showMetricVariance;
             else if (metric == "weeklydue") _showMetricWeeklyDue = !_showMetricWeeklyDue;
+            else if (metric == "onlinedue") _showMetricOnlineDue = !_showMetricOnlineDue;
 
             await UpdateBreakdownChart();
         }
@@ -1345,6 +1394,17 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
                     color = "#ec4899", 
                     bg = "rgba(236, 72, 153, 0.7)", 
+                    type = "bar" 
+                });
+            }
+
+            if (_showMetricOnlineDue)
+            {
+                datasets.Add(new { 
+                    label = "Online Due", 
+                    data = _breakdownDailyItems.Select(d => d.OnlineDue).ToList(), 
+                    color = "#a855f7", 
+                    bg = "rgba(168, 85, 247, 0.7)", 
                     type = "bar" 
                 });
             }
