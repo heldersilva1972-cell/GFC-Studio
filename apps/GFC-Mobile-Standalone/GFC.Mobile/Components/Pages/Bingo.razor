@@ -943,29 +943,53 @@
                                         </div>
 
                                         <div class="tile-games-list">
-                                            @foreach (var game in sheet.Games)
-                                            {
-                                                <div class="tile-game-item py-1">
-                                                    <div class="d-flex justify-content-between align-items-center w-100">
-                                                        <span class="game-name" style="font-size: 0.65rem;">@game.Name</span>
-                                                        <div class="text-end">
-                                                            <span class="game-payout text-primary fw-black" style="font-size: 0.75rem;">@CalculateGamePayout(sheet, game).ToString("C2")</span>
-                                                            @if (game.WinnerCount > 1)
-                                                            {
-                                                                <div class="extra-small fw-black text-primary opacity-75" style="font-size: 0.45rem; line-height: 1;">
-                                                                    @game.WinnerCount WINS @@ @((CalculateGamePayout(sheet, game) / game.WinnerCount).ToString("C2"))
-                                                                </div>
-                                                            }
-                                                            else if (game.WinnerCount == 1)
-                                                            {
-                                                                <div class="extra-small fw-bold text-muted" style="font-size: 0.45rem; line-height: 1;">
-                                                                    1 WINNER
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            }
+                                             @foreach (var game in sheet.Games)
+                                             {
+                                                 <div class="tile-game-item py-1">
+                                                     <div class="d-flex justify-content-between align-items-center w-100">
+                                                         <span class="game-name" style="font-size: 0.65rem;">
+                                                             @game.Name
+                                                             @if (!sheet.IsAdmissionOnly && !game.IsProgressive && game.IncludeInTargetProfit)
+                                                             {
+                                                                 <span class="badge bg-primary text-white ms-1" style="font-size: 0.45rem; padding: 1px 3px; font-weight: 800; border-radius: 3px; letter-spacing: 0.02em;">TARGET PROFIT</span>
+                                                             }
+                                                         </span>
+                                                         <div class="text-end">
+                                                             <span class="game-payout text-primary fw-black" style="font-size: 0.75rem;">@CalculateGamePayout(sheet, game).ToString("C2")</span>
+                                                             @if (game.WinnerCount > 1)
+                                                             {
+                                                                 <div class="extra-small fw-black text-primary opacity-75" style="font-size: 0.45rem; line-height: 1;">
+                                                                     @game.WinnerCount WINS @@ @((CalculateGamePayout(sheet, game) / game.WinnerCount).ToString("C2"))
+                                                                 </div>
+                                                             }
+                                                             else if (game.WinnerCount == 1)
+                                                             {
+                                                                 <div class="extra-small fw-bold text-muted" style="font-size: 0.45rem; line-height: 1;">
+                                                                     1 WINNER
+                                                                 </div>
+                                                             }
+                                                             @if ((sheet.IsAdmissionOnly || (!game.IsProgressive && game.IncludeInTargetProfit)) && !game.CustomPayoutOverride.HasValue)
+                                                             {
+                                                                 var curPayout = CalculateGamePayout(sheet, game);
+                                                                 if (curPayout < game.DefaultPayout)
+                                                                 {
+                                                                     <div class="extra-small text-muted font-monospace" style="font-size: 0.42rem; line-height: 1.1; margin-top: 1px;">
+                                                                         @if (sheet.IsAdmissionOnly)
+                                                                         {
+                                                                             <span>Scaled from @game.DefaultPayout.ToString("C0") (@(GetCurrentPayoutPercentage().ToString("F0"))%)</span>
+                                                                         }
+                                                                         else
+                                                                         {
+                                                                             var isMin = game.MinimumPayout > 0 && curPayout == game.MinimumPayout;
+                                                                             <span>Scaled by sales (Target: @(_targetProfitPercentage.ToString("F0"))%@(isMin ? " | Min Payout" : ""))</span>
+                                                                         }
+                                                                     </div>
+                                                                 }
+                                                             }
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             }
                                         </div>
                                     </div>
 
@@ -2398,6 +2422,24 @@
                                 }
 
                                 <div class="mt-1 extra-small fw-bold text-dark opacity-75" style="font-size: 0.62rem; line-height: 1.2;">
+                                    @if ((_selectedSheet.IsAdmissionOnly || (!game.IsProgressive && game.IncludeInTargetProfit)) && !game.CustomPayoutOverride.HasValue)
+                                    {
+                                        var payoutVal = CalculateGamePayout(_selectedSheet, game);
+                                        if (payoutVal < game.DefaultPayout)
+                                        {
+                                            <div class="mb-1 text-primary fw-black" style="font-size: 0.65rem;">
+                                                @if (_selectedSheet.IsAdmissionOnly)
+                                                {
+                                                    <span>Scaled from @game.DefaultPayout.ToString("C2") (@(GetCurrentPayoutPercentage().ToString("F0"))% Scale)</span>
+                                                }
+                                                else
+                                                {
+                                                    var isMin = game.MinimumPayout > 0 && payoutVal == game.MinimumPayout;
+                                                    <span>Scaled by sales (Target: @(_targetProfitPercentage.ToString("F0"))% Profit@(isMin ? " | Minimum Payout" : ""))</span>
+                                                }
+                                            </div>
+                                        }
+                                    }
                                     Orig Calc: <span class="text-decoration-underline text-dark fw-bold">@origTotal.ToString("C2")</span>
                                     @if (game.WinnerCount > 1)
                                     {
@@ -3364,6 +3406,14 @@
                                             </span>
                                         }
                                     </div>
+                                    @if (item.ProgressiveGoal.HasValue && item.ProgressiveGoal.Value > 0)
+                                    {
+                                        <div class="mt-1">
+                                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 fw-black px-2 py-1" style="font-size: 0.6rem; letter-spacing: 0.05em;">
+                                                <i class="bi bi-rocket-takeoff-fill me-1"></i> GOAL: @item.ProgressiveGoal.Value BALLS
+                                            </span>
+                                        </div>
+                                    }
                                 </div>
                                 <div class="d-flex align-items-center gap-3">
                                     <div class="text-end">
@@ -4969,6 +5019,8 @@
                         Payout = g.DefaultPayout,
                         PayoutMode = g.PayoutMode,
                         IsProgressive = g.IsProgressive,
+                        IncludeInTargetProfit = g.IncludeInTargetProfit,
+                        MinimumPayout = g.MinimumPayout,
                         CurrentBallGoal = g.CurrentProgressiveBallGoal,
                         JackpotAmount = g.ProgressiveJackpotAmount,
                         ConsolationAmount = g.ProgressiveConsolationAmount
@@ -5090,6 +5142,8 @@
                     { 
                         Name = g.GameName,
                         IsProgressive = g.IsProgressive,
+                        IncludeInTargetProfit = g.IncludeInTargetProfit,
+                        MinimumPayout = g.MinimumPayout,
                         JackpotAmount = g.ProgressiveJackpotAmount,
                         ConsolationAmount = g.ProgressiveConsolationAmount,
                         DefaultPayout = g.DefaultPayout,
@@ -5733,6 +5787,11 @@
 
     private void RecalculateSheetTotals()
     {
+        if (!_useManualScaling)
+        {
+            _targetProfitPercentage = CalculateTargetProfitForStandardPayoutScale(GetCurrentPayoutPercentage());
+        }
+
         foreach (var sheet in Sheets)
         {
             // Reset to manual entry
@@ -6012,6 +6071,7 @@
                 }
             }
         }
+
         return total;
     }
 
@@ -6097,7 +6157,30 @@
             return sheet.Games.Count > 0 ? (availableForPrizes / sheet.Games.Count) : availableForPrizes;
         }
 
-        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets only)
+        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets or flagged target-profit games)
+        if (!sheet.IsAdmissionOnly && !game.IsProgressive && game.IncludeInTargetProfit)
+        {
+            var gross = sheet.Sold * sheet.Price;
+            var lottery = gross * sheet.LotteryPercentage;
+            var targetProfit = gross * (_targetProfitPercentage / 100m);
+            
+            decimal otherPayouts = 0;
+            foreach (var otherGame in sheet.Games.Where(g => g != game))
+            {
+                if (otherGame.IsProgressive)
+                {
+                    otherPayouts += otherGame.ConsolationAmount;
+                }
+                else if (!otherGame.IncludeInTargetProfit)
+                {
+                    otherPayouts += CalculateSystemGamePayoutRaw(sheet, otherGame);
+                }
+            }
+            
+            var maxAvailable = gross - lottery - targetProfit - otherPayouts;
+            return Math.Min(game.DefaultPayout, Math.Max(game.MinimumPayout, maxAvailable));
+        }
+
         var pct = sheet.IsAdmissionOnly ? (GetCurrentPayoutPercentage() / 100m) : 1.0m;
         return game.DefaultPayout * pct;
     }
@@ -6314,7 +6397,7 @@
             
             foreach (var g in s.Games)
             {
-                var gameEntries = sheetEntries.Where(e => e.GameName == g.Name).ToList();
+                var gameEntries = sheetEntries.Where(e => string.Equals(e.GameName?.Trim(), g.Name?.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
                 
                 var entryWithBalls = gameEntries.FirstOrDefault(e => e.BallsCalled > 0);
                 g.BallsCalled = entryWithBalls?.BallsCalled ?? 0;
@@ -6415,7 +6498,7 @@
                         s.IsClosedOut = dSheet.IsClosedOut;
                         foreach (var dGame in dSheet.Games)
                         {
-                            var g = s.Games.FirstOrDefault(x => x.Name == dGame.Name);
+                            var g = s.Games.FirstOrDefault(x => string.Equals(x.Name?.Trim(), dGame.Name?.Trim(), StringComparison.OrdinalIgnoreCase));
                             if (g != null) 
                             {
                                 g.Payout = dGame.Payout;
@@ -6775,6 +6858,8 @@
         public int WinnerCount { get; set; } = 1;
         public int PayoutMode { get; set; }
         public bool IsProgressive { get; set; }
+        public bool IncludeInTargetProfit { get; set; }
+        public decimal MinimumPayout { get; set; }
         public int CurrentBallGoal { get; set; }
         public decimal JackpotAmount { get; set; }
         public decimal ConsolationAmount { get; set; }
@@ -6849,7 +6934,7 @@
         }
     }
 
-    private decimal CalculateGamePayoutForDraftSheet(BingoSheet sheet, BingoGame game, int prevPacksSold, decimal prevPayoutPercentage, bool prevUseManualScaling)
+    private decimal CalculateGamePayoutForDraftSheet(BingoSheet sheet, BingoGame game, int prevPacksSold, decimal prevPayoutPercentage, bool prevUseManualScaling, decimal prevTargetProfitPercentage)
     {
         if (game.CustomPayoutOverride.HasValue) return game.CustomPayoutOverride.Value;
 
@@ -6889,7 +6974,30 @@
             return roundedShare * game.WinnerCount;
         }
 
-        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets only)
+        // Mode 0: Fixed Prize (Adjusted by attendance for standard admission sheets or flagged target-profit games)
+        if (!sheet.IsAdmissionOnly && !game.IsProgressive && game.IncludeInTargetProfit)
+        {
+            var gross = sold * sheet.Price;
+            var lottery = gross * sheet.LotteryPercentage;
+            var targetProfit = gross * (prevTargetProfitPercentage / 100m);
+            
+            decimal otherPayouts = 0;
+            foreach (var otherGame in sheet.Games.Where(g => g != game))
+            {
+                if (otherGame.IsProgressive)
+                {
+                    otherPayouts += otherGame.ConsolationAmount;
+                }
+                else if (!otherGame.IncludeInTargetProfit)
+                {
+                    otherPayouts += CalculateGamePayoutForDraftSheet(sheet, otherGame, prevPacksSold, prevPayoutPercentage, prevUseManualScaling, prevTargetProfitPercentage);
+                }
+            }
+            
+            var maxAvailable = gross - lottery - targetProfit - otherPayouts;
+            return Math.Min(game.DefaultPayout, Math.Max(game.MinimumPayout, maxAvailable));
+        }
+
         decimal pct = 100m;
         if (sheet.IsAdmissionOnly)
         {
@@ -6962,7 +7070,7 @@
             {
                 foreach (var g in s.Games)
                 {
-                    prevSheetPrizes += g.CustomPayoutOverride ?? CalculateGamePayoutForDraftSheet(s, g, prevPacksSold, draft.PayoutPercentage, draft.UseManualScaling);
+                    prevSheetPrizes += g.CustomPayoutOverride ?? CalculateGamePayoutForDraftSheet(s, g, prevPacksSold, draft.PayoutPercentage, draft.UseManualScaling, draft.TargetProfitPercentage);
                 }
             }
         }
@@ -6994,7 +7102,7 @@
         {
             foreach (var g in progObj.Games)
             {
-                progPrizes += g.CustomPayoutOverride ?? CalculateGamePayoutForDraftSheet(progObj, g, prevPacksSold, draft.PayoutPercentage, draft.UseManualScaling);
+                progPrizes += g.CustomPayoutOverride ?? CalculateGamePayoutForDraftSheet(progObj, g, prevPacksSold, draft.PayoutPercentage, draft.UseManualScaling, draft.TargetProfitPercentage);
             }
         }
         
@@ -7238,6 +7346,9 @@
                             item.TotalPrizes = totalPrizes;
                             item.TotalNet = item.TotalGross - item.TotalPrizes - totalLotteryTake;
                             
+                            var progGame = draft.Sheets?.SelectMany(s => s.Games).FirstOrDefault(g => g.IsProgressive);
+                            item.ProgressiveGoal = progGame?.CurrentBallGoal;
+                            
                             _historyItems.Add(item);
                         }
                     }
@@ -7255,6 +7366,7 @@
                         // Check if we already have this date in history from IndexedDB drafts
                         if (!_historyItems.Any(i => i.Date.Date == s.SessionDate.Date))
                         {
+                            var progEntry = s.GameEntries?.FirstOrDefault(e => e.ProgressiveBallGoal.HasValue && e.ProgressiveBallGoal.Value > 0);
                             _historyItems.Add(new SessionHistoryItem
                             {
                                 Date = s.SessionDate,
@@ -7262,7 +7374,8 @@
                                 AdmissionCount = s.AdmissionCount,
                                 TotalGross = s.TotalGrossReceipts,
                                 TotalPrizes = s.TotalPrizesPaid,
-                                TotalNet = s.TotalGrossReceipts - s.TotalPrizesPaid - s.TotalLotteryTake
+                                TotalNet = s.TotalGrossReceipts - s.TotalPrizesPaid - s.TotalLotteryTake,
+                                ProgressiveGoal = progEntry?.ProgressiveBallGoal
                             });
                         }
                     }
@@ -7275,6 +7388,7 @@
 
             // Ensure the active in-memory session (whether saved, new, or modified) is always present and up-to-the-second accurate
             _historyItems.RemoveAll(i => i.Date.Date == SessionDate.Date);
+            var activeProgGame = Sheets?.SelectMany(s => s.Games).FirstOrDefault(g => g.IsProgressive);
             _historyItems.Add(new SessionHistoryItem
             {
                 Date = SessionDate,
@@ -7282,7 +7396,8 @@
                 AdmissionCount = AdmissionCount,
                 TotalGross = TotalGross,
                 TotalPrizes = TotalPrizes,
-                TotalNet = TotalNetProceeds
+                TotalNet = TotalNetProceeds,
+                ProgressiveGoal = activeProgGame?.CurrentBallGoal
             });
 
             _historyItems = _historyItems.OrderByDescending(i => i.Date).ToList();
@@ -7377,6 +7492,7 @@
         public decimal TotalGross { get; set; }
         public decimal TotalPrizes { get; set; }
         public decimal TotalNet { get; set; }
+        public int? ProgressiveGoal { get; set; }
     }
 
     private async Task OnInputFocus(FocusEventArgs e)

@@ -20,6 +20,8 @@ namespace GFC.Core.Models
         public DateTime? DateLastProgressed { get; set; }
         public decimal? LotteryPercentage { get; set; }
         public decimal? ClubPercentage { get; set; }
+        public bool IncludeInTargetProfit { get; set; }
+        public decimal MinimumPayout { get; set; }
         public virtual BingoSheetDefinition Sheet { get; set; } = null!;
     }
 }

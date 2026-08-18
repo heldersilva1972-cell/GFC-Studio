@@ -47,5 +47,10 @@ namespace GFC.Core.Models
 
         [Column(TypeName = "decimal(18, 4)")]
         public decimal? ClubPercentage { get; set; }
+
+        public bool IncludeInTargetProfit { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal MinimumPayout { get; set; }
     }
 }

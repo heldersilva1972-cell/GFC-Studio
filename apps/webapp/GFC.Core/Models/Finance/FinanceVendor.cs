@@ -28,6 +28,7 @@ namespace GFC.Core.Models.Finance
 
         [StringLength(100)]
         public string? AccountNumber { get; set; }
+        public int? PaymentTermsDays { get; set; }
 
         public int? DefaultCategoryId { get; set; }
 

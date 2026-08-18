@@ -76,6 +76,13 @@
                                             <i class="bi bi-plus-circle-fill h4 mb-0"></i>
                                         </button>
                                     </div>
+                                    @if (SelectedVendor != null && !string.IsNullOrWhiteSpace(SelectedVendor.ContactInfo) && Bill.Id == 0)
+                                    {
+                                        <div class="alert alert-info py-2 px-3 mt-2 rounded-4 shadow-sm border-info-subtle w-100 mb-0" style="background: rgba(14, 165, 233, 0.05); font-size: 0.75rem;">
+                                            <div class="fw-bold text-info"><i class="bi bi-info-circle-fill me-1"></i>Vendor Note:</div>
+                                            <div class="text-dark mt-1" style="white-space: pre-wrap;">@SelectedVendor.ContactInfo</div>
+                                        </div>
+                                    }
                                 }
                                 else
                                 {
@@ -131,7 +138,10 @@
                         <!-- Invoice Date, Due Date & Warning -->
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-muted">Invoice Date (Optional)</label>
-                            <InputDate @bind-Value="Bill.InvoiceDate" class="form-control" />
+                            <InputDate ValueExpression="@(() => Bill.InvoiceDate)" 
+                                       Value="@Bill.InvoiceDate" 
+                                       ValueChanged="@((DateTime? val) => OnInvoiceDateChanged(val))" 
+                                       class="form-control" />
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-muted">Due Date</label>
@@ -299,13 +309,39 @@
 
     private FinanceVendor? SelectedVendor => Vendors.FirstOrDefault(v => v.Id == Bill.VendorId);
 
+    private void OnInvoiceDateChanged(DateTime? val)
+    {
+        Bill.InvoiceDate = val;
+        RecalculateDueDate();
+    }
+
+    private void RecalculateDueDate()
+    {
+        if (Bill.Id == 0 && Bill.InvoiceDate.HasValue)
+        {
+            var vendor = Vendors.FirstOrDefault(v => v.Id == Bill.VendorId);
+            if (vendor != null && vendor.PaymentTermsDays.HasValue && vendor.PaymentTermsDays.Value > 0)
+            {
+                Bill.DueDate = Bill.InvoiceDate.Value.AddDays(vendor.PaymentTermsDays.Value);
+            }
+        }
+    }
+
     private void OnVendorChanged(int vendorId)
     {
         Bill.VendorId = vendorId;
         var vendor = Vendors.FirstOrDefault(v => v.Id == vendorId);
-        if (vendor != null && vendor.DefaultCategoryId.HasValue)
+        if (vendor != null)
         {
-            Bill.CategoryId = vendor.DefaultCategoryId.Value;
+            if (vendor.DefaultCategoryId.HasValue)
+            {
+                Bill.CategoryId = vendor.DefaultCategoryId.Value;
+            }
+            if (Bill.Id == 0 && !string.IsNullOrWhiteSpace(vendor.ContactInfo) && string.IsNullOrWhiteSpace(Bill.Description))
+            {
+                Bill.Description = vendor.ContactInfo;
+            }
+            RecalculateDueDate();
         }
     }
 

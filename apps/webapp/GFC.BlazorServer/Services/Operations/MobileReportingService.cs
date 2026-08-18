@@ -637,6 +637,7 @@ public class MobileReportingService : IMobileReportingService
     {
         using var db = await _dbFactory.CreateDbContextAsync();
         return await db.BingoSessions
+            .Include(s => s.GameEntries)
             .Where(s => !s.IsDeleted)
             .OrderByDescending(s => s.SessionDate)
             .Take(20)

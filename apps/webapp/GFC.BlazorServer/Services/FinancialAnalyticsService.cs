@@ -356,6 +356,10 @@ namespace GFC.BlazorServer.Services
                     .Where(s => s.Timestamp >= start && s.Timestamp < end.AddDays(1))
                     .ToListAsync();
 
+                currentStep = "Fetching SystemSettings for Cost calculation";
+                var settings = await db.SystemSettings.FirstOrDefaultAsync(x => x.Id == 1);
+                decimal globalPour = settings?.GlobalLiquorPourSize ?? 1.5m;
+
                 currentStep = "Fetching LiquorItems for Cost calculation";
                 var liquorItems = await db.LiquorItems.AsNoTracking().ToListAsync();
                 var itemCostMap = liquorItems.ToDictionary(i => i.Id);
@@ -422,7 +426,7 @@ namespace GFC.BlazorServer.Services
                                             decimal vol = costItem.BottleVolumeOunces ?? 25.4m;
                                             decimal pour = liquor.PourVolumeOunces ?? liquor.PourSize;
                                             if (pour == 0) pour = costItem.PourVolumeOunces ?? costItem.PourSize;
-                                            if (pour == 0) pour = 1.5m;
+                                            if (pour == 0) pour = globalPour;
                                             itemUnitCost = vol > 0 ? (costItem.CurrentPrice / vol) * pour : 0m;
                                         }
                                     }
@@ -458,7 +462,7 @@ namespace GFC.BlazorServer.Services
                                                     decimal vol = costItem.BottleVolumeOunces ?? 25.4m;
                                                     decimal pour = modLiquor.PourVolumeOunces ?? modLiquor.PourSize;
                                                     if (pour == 0) pour = costItem.PourVolumeOunces ?? costItem.PourSize;
-                                                    if (pour == 0) pour = 1.5m;
+                                                    if (pour == 0) pour = globalPour;
                                                     modUnitCost = vol > 0 ? (costItem.CurrentPrice / vol) * pour : 0m;
                                                 }
                                             }
