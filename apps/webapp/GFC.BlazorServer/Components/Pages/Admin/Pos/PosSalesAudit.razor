@@ -971,6 +971,9 @@
                                     </div>
                                     <div class="d-flex gap-2 align-items-center">
                                         <div class="btn-group shadow-sm" role="group">
+                                            <button class="btn btn-sm @(TokenFilterMode == "FILTERED_DATES" ? "btn-primary fw-bold" : "btn-outline-secondary bg-white")" @onclick='() => SetTokenFilterMode("FILTERED_DATES")'>
+                                                <i class="bi bi-calendar-range me-1"></i>FILTERED DATES (@StartDate.ToString("MMM dd") - @EndDate.ToString("MMM dd"))
+                                            </button>
                                             <button class="btn btn-sm @(TokenFilterMode == "SINCE_AUG_1" ? "btn-primary fw-bold" : "btn-outline-secondary bg-white")" @onclick='() => SetTokenFilterMode("SINCE_AUG_1")'>
                                                 <i class="bi bi-filter-circle me-1"></i>SINCE AUG 1, 2026
                                             </button>
@@ -1031,8 +1034,21 @@
                             </div>
 
                             <!-- STACKED FULL-WIDTH SECTIONS (DISTRIBUTED PROPORTIONATELY) -->
-                            <div class="flex-grow-1 p-4 overflow-hidden d-flex flex-column gap-3" style="min-height: 0;">
+                            <div class="flex-grow-1 p-4 overflow-auto custom-scrollbar d-flex flex-column gap-3" style="min-height: 0;">
                                 
+                                <!-- VISUAL TOKEN FLOW COMPARISON CHART -->
+                                <div class="card border shadow-sm rounded-4 p-4 bg-white flex-shrink-0">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="fw-black mb-0 text-dark d-flex align-items-center" style="font-size: 0.88rem;">
+                                            <i class="bi bi-bar-chart-line text-success me-2 fs-6"></i>TOKEN FLOW VISUAL COMPARISON (SOLD VS REDEEMED)
+                                        </h6>
+                                        <span class="text-muted extra-small fw-bold">Comparing Units Sold, Redeemed & Legacy Returned per Token Type</span>
+                                    </div>
+                                    <div class="chart-container" style="position: relative; width: 100%; min-height: 280px; height: 280px;">
+                                        <canvas id="tokenFlowChart"></canvas>
+                                    </div>
+                                </div>
+
                                 <!-- 1. TOKEN SALES BREAKDOWN TABLE (FULL WIDTH) -->
                                 <div class="card border shadow-sm rounded-4 flex-shrink-0">
                                     <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
@@ -1384,10 +1400,19 @@
 
                                 <!-- TOP OVERVIEW CARDS (Compressed & Locked) -->
                                 @{
-                                    var totalSales24 = _revenueAnalysisMonths.Sum(x => x.TotalPosSales);
-                                    var literalSales24 = _revenueAnalysisMonths.Sum(x => x.LiteralLiquorSales);
-                                    var bottlesUsed24 = _revenueAnalysisMonths.Sum(x => x.BottlesUsed);
-                                    var expected24 = _revenueAnalysisMonths.Sum(x => x.ExpectedRevenue);
+                                    var trackingMonths = _revenueAnalysisMonths.Where(x => x.Date >= new DateTime(2026, 8, 1)).ToList();
+                                    if (SelectedYear > 0)
+                                    {
+                                        trackingMonths = trackingMonths.Where(x => x.Date.Year == SelectedYear).ToList();
+                                    }
+                                    if (SelectedMonth > 0)
+                                    {
+                                        trackingMonths = trackingMonths.Where(x => x.Date.Month == SelectedMonth).ToList();
+                                    }
+                                    var totalSales24 = trackingMonths.Sum(x => x.TotalPosSales);
+                                    var literalSales24 = trackingMonths.Sum(x => x.LiteralLiquorSales);
+                                    var bottlesUsed24 = trackingMonths.Sum(x => x.BottlesUsed);
+                                    var expected24 = trackingMonths.Sum(x => x.ExpectedRevenue);
                                     var netGap24 = literalSales24 - expected24;
                                     var actualPerBottle24 = bottlesUsed24 == 0 ? 0 : literalSales24 / bottlesUsed24;
                                     var expectedPerBottle24 = bottlesUsed24 == 0 ? 0 : expected24 / bottlesUsed24;
@@ -1443,7 +1468,7 @@
                                                 <div class="col-md-4">
                                                     <div class="card h-100 border rounded-3 p-3 bg-white shadow-xs" style="border-radius: 12px;">
                                                         <div class="form-check form-switch mb-2">
-                                                            <input class="form-check-input" type="checkbox" role="switch" id="cat-@cat" checked="@_categoryOptions[cat]" @onchange="@((e) => ToggleCategory(cat, (bool)e.Value))" />
+                                                            <input class="form-check-input" type="checkbox" role="switch" id="cat-@cat" checked="@_categoryOptions.GetValueOrDefault(cat, true)" @onchange="@((e) => ToggleCategory(cat, (bool)(e.Value ?? true)))" />
                                                             <label class="form-check-label fw-black text-primary small" for="cat-@cat">@cat</label>
                                                         </div>
                                                         <hr class="my-2" style="opacity: 0.1;" />
@@ -1451,7 +1476,7 @@
                                                             @foreach (var item in DbLiquorItems.Where(i => !i.IsUnitBased && !i.IsBeer && (i.Category ?? "MISC").ToUpper() == cat).OrderBy(i => i.Name))
                                                             {
                                                                 <div class="form-check">
-                                                                    <input class="form-check-input" type="checkbox" id="item-@item.Id" checked="@_itemOptions[item.Name]" @onchange="@((e) => ToggleItem(item.Name, (bool)e.Value))" />
+                                                                    <input class="form-check-input" type="checkbox" id="item-@item.Id" checked="@_itemOptions.GetValueOrDefault(item.Name, true)" @onchange="@((e) => ToggleItem(item.Name, (bool)(e.Value ?? true)))" />
                                                                     <label class="form-check-label text-muted small" style="font-size: 0.75rem;" for="item-@item.Id">@item.Name</label>
                                                                 </div>
                                                             }
@@ -1464,9 +1489,9 @@
                                 }
 
                                 <h5 class="fw-bold text-dark mb-3">Monthly Breakdown</h5>
-                                <div class="table-responsive rounded-4 border mb-5" style="border-radius: 16px;">
+                                <div class="table-responsive rounded-4 border mb-5" style="border-radius: 16px; position: relative;">
                                     <table class="table table-hover align-middle mb-0">
-                                        <thead class="bg-light">
+                                        <thead class="bg-light sticky-top" style="position: sticky; top: 0; z-index: 10; background-color: #f8fafc;">
                                             <tr class="text-muted text-uppercase small" style="font-size: 0.75rem;">
                                                 <th class="py-3 ps-4">Month</th>
                                                 <th class="text-end">Total POS Sales</th>
@@ -1478,7 +1503,18 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var m in _revenueAnalysisMonths)
+                                            @{
+                                                var displayedRevenueMonths = _revenueAnalysisMonths.AsEnumerable();
+                                                if (SelectedYear > 0)
+                                                {
+                                                    displayedRevenueMonths = displayedRevenueMonths.Where(m => m.Date.Year == SelectedYear);
+                                                }
+                                                if (SelectedMonth > 0)
+                                                {
+                                                    displayedRevenueMonths = displayedRevenueMonths.Where(m => m.Date.Month == SelectedMonth);
+                                                }
+                                            }
+                                            @foreach (var m in displayedRevenueMonths)
                                             {
                                                 var actualPerBottle = m.ActualRevPerBottle;
                                                 var expectedPerBottle = m.ExpectedRevPerBottle;
@@ -1772,7 +1808,7 @@
                                 </button>
                             </div>
                             <div class="col-4">
-                                <button class="audit-tab-btn @(ActiveTab == "TOKENS" ? "active" : "") shadow-xs" @onclick='() => ActiveTab = "TOKENS"'>
+                                <button class="audit-tab-btn @(ActiveTab == "TOKENS" ? "active" : "") shadow-xs" @onclick='() => SwitchTab("TOKENS")'>
                                     <i class="bi bi-coin me-2"></i>TOKENS
                                 </button>
                             </div>
@@ -1782,7 +1818,7 @@
                                 </button>
                             </div>
                             <div class="col-4">
-                                <button class="audit-tab-btn @(ActiveTab == "REVENUE" ? "active" : "") shadow-xs" @onclick='() => ActiveTab = "REVENUE"'>
+                                <button class="audit-tab-btn @(ActiveTab == "REVENUE" ? "active" : "") shadow-xs" @onclick='() => SwitchTab("REVENUE")'>
                                     <i class="bi bi-calculator me-2"></i>REVENUE
                                 </button>
                             </div>
@@ -1940,92 +1976,116 @@
                             }
                         }
                     </div>
-                    @if (ActiveTab != "TOKENS")
-                    {
-                        <!-- FILTERS -->
-                        <div class="sidebar-section mb-4">
-                            <label class="sidebar-label">DATE & STATION FILTERS</label>
-                            <div class="p-2 px-3 bg-light rounded-4 mb-3 border">
-                                <div class="row g-2">
-                                    <div class="col-6 border-end">
-                                        <label class="small fw-black text-muted opacity-75 mb-0" style="font-size: 0.55rem;">START DATE</label>
-                                        <input type="date" class="form-control form-control-sm border-0 fw-bold bg-transparent p-0" @bind="StartDate" @bind:after="OnDateManualChanged" style="font-size: 0.8rem;">
-                                    </div>
-                                    <div class="col-6 ps-3">
-                                        <label class="small fw-black text-muted opacity-75 mb-0" style="font-size: 0.55rem;">END DATE</label>
-                                        <input type="date" class="form-control form-control-sm border-0 fw-bold bg-transparent p-0" @bind="EndDate" @bind:after="OnDateManualChanged" style="font-size: 0.8rem;">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row g-2 mb-2">
-                                @foreach (var p in new[] { "today", "yesterday", "thisweek" })
-                                {
-                                    <div class="col-4">
-                                        <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == p ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset(p)' style="font-size: 0.65rem; padding: 6px 0;">@p.ToUpper()</button>
-                                    </div>
-                                }
-                            </div>
-                            <div class="row g-2 mb-3">
-                                @foreach (var p in new[] { "lastweek", "thismonth", "lastmonth" })
-                                {
-                                    <div class="col-4">
-                                        <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == p ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset(p)' style="font-size: 0.65rem; padding: 6px 0;">@p.ToUpper()</button>
-                                    </div>
-                                }
-                            </div>
-                            <div class="row g-2 mb-3">
-                                <div class="col-12">
-                                    <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == "thisyear" ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset("thisyear")' style="font-size: 0.65rem; padding: 6px 0;">THIS YEAR</button>
-                                </div>
-                            </div>
-
-                            <div class="row g-2 border-top pt-3">
-                                <div class="col-4">
-                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedMonth" @bind:after="OnMonthYearChanged">
-                                        <option value="0">SELECT MONTH</option>
-                                        @for(int i=1; i<=12; i++) {
-                                            <option value="@i">@(global::System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(i).ToUpper())</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-3">
-                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedYear" @bind:after="OnMonthYearChanged">
-                                        @for(int y=DateTime.Today.Year; y>=2024; y--) {
-                                            <option value="@y">@y</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-5">
-                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="FilterTerminal" @bind:after="LoadSales">
-                                        <option value="">ALL POS</option>
-                                        @foreach (var terminal in TerminalList) {
-                                            <option value="@terminal">@terminal</option>
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="mt-2 border-top pt-2">
-                                <label class="small fw-black text-muted opacity-75 mb-1 d-block" style="font-size: 0.55rem; letter-spacing: 0.5px;">SHIFT FILTER</label>
-                                <div class="d-flex gap-1">
-                                    <select class="form-select border-0 bg-light fw-bold rounded-4 py-2 flex-grow-1" style="font-size: 0.82rem;" @bind="FilterShiftValue" @bind:after="OnShiftFilterChanged">
-                                        <option value="">ALL SHIFTS (@ZReports.Count)</option>
-                                        <option value="CURRENT" class="text-success fw-bold">⚡ OPEN / ACTIVE SHIFT (LIVE)</option>
-                                        @foreach (var z in ZReports)
-                                        {
-                                            <option value="@z.Id.ToString()">@z.Timestamp.ToString("MM/dd h:mm tt") - @(string.IsNullOrEmpty(z.BartenderName) ? "Unknown" : z.BartenderName) (@z.TerminalName)</option>
-                                        }
-                                    </select>
-                                    @if (!string.IsNullOrEmpty(FilterShiftValue))
-                                    {
-                                        <button class="btn btn-outline-danger btn-sm rounded-4 px-2" @onclick="ClearShiftFilter" title="Clear Shift Filter">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
+                <!-- FILTERS -->
+                @if (ActiveTab == "REVENUE")
+                {
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">MONTH & YEAR FILTERS</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedMonth" @bind:after="OnMonthYearChanged">
+                                    <option value="0">ALL MONTHS</option>
+                                    @for(int i=1; i<=12; i++) {
+                                        <option value="@i">@(global::System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(i).ToUpper())</option>
                                     }
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedYear" @bind:after="OnMonthYearChanged">
+                                    @for(int y=DateTime.Today.Year; y>=2024; y--) {
+                                        <option value="@y">@y</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">DATE & STATION FILTERS</label>
+                        <div class="p-2 px-3 bg-light rounded-4 mb-3 border">
+                            <div class="row g-2">
+                                <div class="col-6 border-end">
+                                    <label class="small fw-black text-muted opacity-75 mb-0" style="font-size: 0.55rem;">START DATE</label>
+                                    <input type="date" class="form-control form-control-sm border-0 fw-bold bg-transparent p-0" @bind="StartDate" @bind:after="OnDateManualChanged" style="font-size: 0.8rem;">
+                                </div>
+                                <div class="col-6 ps-3">
+                                    <label class="small fw-black text-muted opacity-75 mb-0" style="font-size: 0.55rem;">END DATE</label>
+                                    <input type="date" class="form-control form-control-sm border-0 fw-bold bg-transparent p-0" @bind="EndDate" @bind:after="OnDateManualChanged" style="font-size: 0.8rem;">
                                 </div>
                             </div>
                         </div>
+
+                        <div class="row g-2 mb-2">
+                            @foreach (var p in new[] { "today", "yesterday", "thisweek" })
+                            {
+                                <div class="col-4">
+                                    <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == p ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset(p)' style="font-size: 0.65rem; padding: 6px 0;">@p.ToUpper()</button>
+                                </div>
+                            }
+                        </div>
+                        <div class="row g-2 mb-3">
+                            @foreach (var p in new[] { "lastweek", "thismonth", "lastmonth" })
+                            {
+                                <div class="col-4">
+                                    <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == p ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset(p)' style="font-size: 0.65rem; padding: 6px 0;">@p.ToUpper()</button>
+                                </div>
+                            }
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-12">
+                                <button class="btn btn-xs w-100 rounded-pill fw-bold @(ActivePreset == "thisyear" ? "btn-primary shadow-sm" : "btn-outline-secondary bg-white")" @onclick='() => SetPreset("thisyear")' style="font-size: 0.65rem; padding: 6px 0;">THIS YEAR</button>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 border-top pt-3">
+                            <div class="col-4">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedMonth" @bind:after="OnMonthYearChanged">
+                                    <option value="0">SELECT MONTH</option>
+                                    @for(int i=1; i<=12; i++) {
+                                        <option value="@i">@(global::System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(i).ToUpper())</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="SelectedYear" @bind:after="OnMonthYearChanged">
+                                    @for(int y=DateTime.Today.Year; y>=2024; y--) {
+                                        <option value="@y">@y</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-5">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2" style="font-size: 0.85rem;" @bind="FilterTerminal" @bind:after="LoadSales">
+                                    <option value="">ALL POS</option>
+                                    @foreach (var terminal in TerminalList) {
+                                        <option value="@terminal">@terminal</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mt-2 border-top pt-2">
+                            <label class="small fw-black text-muted opacity-75 mb-1 d-block" style="font-size: 0.55rem; letter-spacing: 0.5px;">SHIFT FILTER</label>
+                            <div class="d-flex gap-1">
+                                <select class="form-select border-0 bg-light fw-bold rounded-4 py-2 flex-grow-1" style="font-size: 0.82rem;" @bind="FilterShiftValue" @bind:after="OnShiftFilterChanged">
+                                    <option value="">ALL SHIFTS (@ZReports.Count)</option>
+                                    <option value="CURRENT" class="text-success fw-bold">⚡ OPEN / ACTIVE SHIFT (LIVE)</option>
+                                    @foreach (var z in ZReports)
+                                    {
+                                        <option value="@z.Id.ToString()">@z.Timestamp.ToString("MM/dd h:mm tt") - @(string.IsNullOrEmpty(z.BartenderName) ? "Unknown" : z.BartenderName) (@z.TerminalName)</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrEmpty(FilterShiftValue))
+                                {
+                                    <button class="btn btn-outline-danger btn-sm rounded-4 px-2" @onclick="ClearShiftFilter" title="Clear Shift Filter">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
 
                         <!-- FINANCIAL INSIGHT (Integrated in sidebar) -->
                         <div class="bg-primary bg-opacity-10 border-primary border-opacity-25 border rounded-4 p-4 text-primary mt-2">
@@ -2045,7 +2105,6 @@
                                 }
                             </div>
                         </div>
-                    }
                 </div>
             </div>
         </div>
@@ -2631,18 +2690,19 @@
                                     var st = StartDate.Date.AddHours(3);
                                     var en = EndDate.Date.AddDays(1).AddHours(3);
                                     var pulls = _ledgerTransactions
-                                        .Where(t => t.TransactionType == "Checkout" && t.Timestamp >= st && t.Timestamp < en && t.Item != null);
-                                    var groupedPulls = pulls.GroupBy(p => p.Item);
+                                        .Where(t => t.TransactionType == "Checkout" && t.Timestamp >= st && t.Timestamp < en && t.Item != null && !t.Item.IsUnitBased && !t.Item.IsBeer);
+                                    var groupedPulls = pulls.GroupBy(p => CleanProductName(p.Item.Name).ToUpper());
                                 }
                                 @foreach (var group in groupedPulls.OrderByDescending(g => g.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice))))
                                 {
+                                    var brandName = group.Key;
                                     var cost = group.Sum(p => Math.Abs(p.ChangeAmount) * (p.Item.PackSize > 1 ? p.Item.CurrentPrice / p.Item.PackSize : p.Item.CurrentPrice));
                                     var salesVal = _allSalesForStats.SelectMany(s => GetItemsList(s.ItemsJson))
-                                        .Where(i => i != null && i.Name.Equals(group.Key.Name, StringComparison.OrdinalIgnoreCase))
+                                        .Where(i => i != null && CleanProductName(i.Name).Equals(brandName, StringComparison.OrdinalIgnoreCase))
                                         .Sum(i => i.Price * i.Quantity);
                                     var pc = salesVal > 0 ? (cost / salesVal) * 100 : 0;
                                     <tr>
-                                        <td class="ps-4 fw-bold text-dark">@group.Key.Name.ToUpper()</td>
+                                        <td class="ps-4 fw-bold text-dark">@brandName</td>
                                         <td class="text-center fw-bold text-danger">@cost.ToString("C")</td>
                                         <td class="text-center fw-bold text-success">@salesVal.ToString("C")</td>
                                         <td class="pe-4 text-end fw-black">@(salesVal > 0 ? $"{pc:F1}%" : "-")</td>
@@ -3290,6 +3350,15 @@
             await Task.Delay(100);
             await RenderDartsChart();
         }
+        else if (tab == "TOKENS")
+        {
+            await Task.Delay(100);
+            await RenderTokenFlowChart();
+        }
+        else if (tab == "REVENUE")
+        {
+            await LoadRevenueAnalysisData();
+        }
     }
 
     private async Task RenderDartsChart()
@@ -3557,6 +3626,7 @@
                     Used = pullsInPeriod.ContainsKey(i.Id) ? pullsInPeriod[i.Id] : 0,
                     Stock = GetEffectiveStock(i)
                 })
+                .Where(x => x.Used > 0)
                 .OrderByDescending(x => x.Used)
                 .Take(10)
                 .ToList();
@@ -4006,11 +4076,20 @@
 
     private async Task OnMonthYearChanged()
     {
+        if (ActiveTab == "REVENUE")
+        {
+            await LoadRevenueAnalysisData();
+            return;
+        }
+
         if (SelectedMonth > 0)
         {
             ActivePreset = "";
             StartDate = new DateTime(SelectedYear, SelectedMonth, 1);
             EndDate = StartDate.AddMonths(1).AddDays(-1);
+            TokenFilterMode = "FILTERED_DATES";
+            FilterShiftValue = "";
+            SelectedZReport = null;
             await LoadSales();
         }
     }
@@ -4168,6 +4247,9 @@
     private async Task SetPreset(string preset)
     {
         ActivePreset = preset;
+        TokenFilterMode = "FILTERED_DATES";
+        FilterShiftValue = "";
+        SelectedZReport = null;
         var today = DateTime.Today;
         
         // Reset dropdowns to neutral for non-monthly presets
@@ -4219,6 +4301,7 @@
 
     private async Task OnShiftFilterChanged()
     {
+        TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
     }
 
@@ -4226,6 +4309,7 @@
     {
         FilterShiftValue = "";
         SelectedZReport = null;
+        TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
     }
 
@@ -4239,12 +4323,16 @@
         {
             FilterShiftValue = shiftId.ToString();
         }
+        TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
     }
 
     private async Task OnDateManualChanged()
     {
         ActivePreset = ""; // Clear highlighted preset if user touches dates
+        TokenFilterMode = "FILTERED_DATES";
+        FilterShiftValue = "";
+        SelectedZReport = null;
         await LoadSales();
     }
 
@@ -4307,7 +4395,11 @@
         public int RawLegacyRedeemed => Math.Max(0, Redeemed - TotalSold);
         
         public int LegacyResetBaseline { get; set; } = -1;
-        public int LegacyRedeemed => LegacyResetBaseline >= 0 ? LegacyResetBaseline : Math.Max(0, RawLegacyRedeemed - ManuallyProcessedLegacyCount);
+        public int SoldSinceReset { get; set; } = 0;
+        public int RedeemedSinceReset { get; set; } = 0;
+        public int LegacyRedeemed => LegacyResetBaseline >= 0 
+            ? (LegacyResetBaseline + Math.Max(0, RedeemedSinceReset - SoldSinceReset)) 
+            : Math.Max(0, RawLegacyRedeemed - ManuallyProcessedLegacyCount);
         
         public int InCirculation => Math.Max(0, TotalSold - Redeemed);
         public decimal ActualCashCollected { get; set; }
@@ -4442,8 +4534,8 @@
             } catch {}
 
             // Initialize Category and Item Selection Options
-            var allActiveLiquor = items.Where(i => !i.IsUnitBased && !i.IsBeer && i.IsActive).ToList();
-            foreach (var item in allActiveLiquor)
+            var allLiquor = items.Where(i => !i.IsUnitBased && !i.IsBeer).ToList();
+            foreach (var item in allLiquor)
             {
                 var cat = (item.Category ?? "MISC").ToUpper();
                 if (!_categoryOptions.ContainsKey(cat))
@@ -4451,7 +4543,17 @@
                     _categoryOptions[cat] = true; // Enabled by default
                 }
                 _itemOptions[item.Name] = true; // Enabled by default
+                var cleaned = CleanProductName(item.Name);
+                if (!string.IsNullOrEmpty(cleaned))
+                {
+                    _itemOptions[cleaned] = true;
+                }
+
                 _itemLookup[item.Name] = item; // Quick lookup
+                if (!string.IsNullOrEmpty(cleaned))
+                {
+                    _itemLookup[cleaned] = item;
+                }
             }
 
             try {
@@ -4679,6 +4781,13 @@
                     await InvokeAsync(async () => await RenderStockLevelsChart());
                 });
             }
+            else if (ActiveTab == "TOKENS")
+            {
+                _ = Task.Run(async () => {
+                    await Task.Delay(150);
+                    await InvokeAsync(async () => await RenderTokenFlowChart());
+                });
+            }
             
             try {
                 await CalculateTokenAnalysis(db);
@@ -4830,8 +4939,52 @@
         LifetimeMixedUsed = mixedUsed;
     }
 
+    private async Task SetTokenFilterMode(string mode)
+    {
+        TokenFilterMode = mode;
+        using var db = DbFactory.CreateDbContext();
+        await CalculateTokenAnalysis(db);
+        await Task.Delay(100);
+        await RenderTokenFlowChart();
+        StateHasChanged();
+    }
+
+    private async Task RenderTokenFlowChart()
+    {
+        if (ActiveTab != "TOKENS") return;
+
+        var labels = TokenYields.Select(x => x.Token.Name.Replace(" Token", "").Replace("Token ", "").ToUpper()).ToArray();
+        var soldData = TokenYields.Select(x => x.Sold).ToArray();
+        var redeemedData = TokenYields.Select(x => x.Redeemed).ToArray();
+        var legacyData = TokenYields.Select(x => x.LegacyRedeemed).ToArray();
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('tokenFlowChart');
+                    if (el && window.Chart) {
+                        var chart = window.Chart.getChart(el);
+                        if (chart) { try { chart.destroy(); } catch(e){} }
+                    }
+                })()
+            ");
+            await Task.Delay(20);
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderTokenFlowChart", "tokenFlowChart", new {
+                labels,
+                soldData,
+                redeemedData,
+                legacyData
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error rendering token flow chart: " + ex.Message);
+        }
+    }
+
     private DateTime TokenTrackingStartDate = new DateTime(2026, 8, 1);
-    private string TokenFilterMode = "SINCE_AUG_1"; // "SINCE_AUG_1" or "LIFETIME"
+    private string TokenFilterMode = "SINCE_AUG_1"; // "SINCE_AUG_1", "LIFETIME", or "FILTERED_DATES"
     private bool _showReclaimModal = false;
     private TokenYieldEntry? _reclaimTargetEntry = null;
     private string _reclaimOption = "RECLAIM_TO_STOCK"; // "RECLAIM_TO_STOCK" or "RETIRE_CHIPS"
@@ -4862,13 +5015,6 @@
 
     private AppUser? _currentUser;
     private List<TokenAuditLogEntry> TokenAuditLogs = new();
-
-    private async Task SetTokenFilterMode(string mode)
-    {
-        TokenFilterMode = mode;
-        using var db = DbFactory.CreateDbContext();
-        await CalculateTokenAnalysis(db);
-    }
 
     private void OpenPhysicalAuditModal(TokenYieldEntry entry)
     {
@@ -5052,12 +5198,33 @@
         TokenUsages.Clear();
         TokenSalesList.Clear();
 
-        var salesQuery = db.PosSales.AsNoTracking();
+        List<PosSale> allSales;
         if (TokenFilterMode == "SINCE_AUG_1")
         {
-            salesQuery = salesQuery.Where(s => s.Timestamp >= TokenTrackingStartDate);
+            allSales = await db.PosSales.AsNoTracking().Where(s => s.Timestamp >= TokenTrackingStartDate).ToListAsync();
         }
-        var allSales = await salesQuery.ToListAsync();
+        else if (TokenFilterMode == "LIFETIME")
+        {
+            allSales = await db.PosSales.AsNoTracking().ToListAsync();
+        }
+        else
+        {
+            if (_allSalesForStats != null && _allSalesForStats.Any())
+            {
+                allSales = _allSalesForStats;
+            }
+            else
+            {
+                var st = StartDate.Date.AddHours(3);
+                var en = EndDate.Date.AddDays(1).AddHours(3);
+                var salesQuery = db.PosSales.AsNoTracking().Where(s => s.Timestamp >= st && s.Timestamp < en);
+                if (!string.IsNullOrEmpty(FilterTerminal))
+                {
+                    salesQuery = salesQuery.Where(s => s.TerminalName == FilterTerminal);
+                }
+                allSales = await salesQuery.ToListAsync();
+            }
+        }
         
         bool isLifetime = TokenFilterMode == "LIFETIME";
         var stats = MasterTokens.Where(t => t.Name != null)
@@ -5070,7 +5237,12 @@
             foreach (var item in items)
             {
                 // SALE
-                if (item.Category == "TOKENS")
+                bool isTokenSale = item.Category == "TOKENS" || 
+                                   item.Category == "TOKEN" || 
+                                   (item.Name ?? "").ToUpper().Contains("TOKEN SALE") || 
+                                   (MasterTokens.Any(t => t.Name != null && (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper())) && !item.IsTokenApplied && !(item.Name ?? "").Contains("(TOKEN") && !(item.Name ?? "").Contains("(CREDITED"));
+
+                if (isTokenSale)
                 {
                     var match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
                     if (match != null && stats.ContainsKey(match.Name)) 
@@ -5241,6 +5413,40 @@
             if (lastLegacyResetLog != null)
             {
                 entry.LegacyResetBaseline = lastLegacyResetLog.ActualCount;
+                var resetTime = lastLegacyResetLog.Timestamp;
+
+                int soldSinceReset = 0;
+                int redeemedSinceReset = 0;
+
+                foreach (var sale in allSales.Where(s => s.Timestamp >= resetTime))
+                {
+                    var items = GetItemsList(sale.ItemsJson);
+                    foreach (var item in items)
+                    {
+                        if (item.Category == "TOKENS")
+                        {
+                            var match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => (item.Name ?? "").ToUpper().Contains(t.Name.ToUpper()));
+                            if (match != null && match.Name == entry.Token.Name) soldSinceReset += item.Quantity;
+                        }
+                        
+                        bool isRedem = item.IsTokenApplied || (item.Name ?? "").Contains("(TOKEN") || (item.Name ?? "").Contains("(CREDITED") || item.Category == "TOKEN_CREDIT";
+                        if (isRedem)
+                        {
+                            PosToken? match = null;
+                            if (item.AppliedTokenId.HasValue && item.AppliedTokenId.Value > 0) match = MasterTokens.FirstOrDefault(t => t.Id == item.AppliedTokenId.Value);
+                            if (match == null)
+                            {
+                                var nameUpper = (item.Name ?? "").ToUpper();
+                                if (nameUpper.Contains("BEER") || nameUpper.Contains("SELTZER") || nameUpper.Contains("CIDER")) match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == true || t.Name?.ToUpper().Contains("SELTZER") == true);
+                                else match = MasterTokens.OrderByDescending(t => t.Name.Length).FirstOrDefault(t => t.Name?.ToUpper().Contains("BEER") == false && t.Name?.ToUpper().Contains("SELTZER") == false);
+                            }
+                            if (match != null && match.Name == entry.Token.Name) redeemedSinceReset += item.Quantity;
+                        }
+                    }
+                }
+
+                entry.SoldSinceReset = soldSinceReset;
+                entry.RedeemedSinceReset = redeemedSinceReset;
             }
         }
 
@@ -5432,11 +5638,16 @@
     {
         _categoryOptions[category] = isChecked;
         
-        foreach (var kvp in _itemLookup)
+        foreach (var item in DbLiquorItems)
         {
-            if ((kvp.Value.Category ?? "MISC").ToUpper().Equals(category, StringComparison.OrdinalIgnoreCase))
+            if ((item.Category ?? "MISC").ToUpper().Equals(category, StringComparison.OrdinalIgnoreCase))
             {
-                _itemOptions[kvp.Key] = isChecked;
+                _itemOptions[item.Name] = isChecked;
+                var cleaned = CleanProductName(item.Name);
+                if (!string.IsNullOrEmpty(cleaned))
+                {
+                    _itemOptions[cleaned] = isChecked;
+                }
             }
         }
         
@@ -5446,6 +5657,11 @@
     private async Task ToggleItem(string itemName, bool isChecked)
     {
         _itemOptions[itemName] = isChecked;
+        var cleaned = CleanProductName(itemName);
+        if (!string.IsNullOrEmpty(cleaned))
+        {
+            _itemOptions[cleaned] = isChecked;
+        }
         await LoadRevenueAnalysisData();
     }
 
@@ -5460,8 +5676,7 @@
             _settings = await SystemSettingsService.GetAsync();
             using var db = DbFactory.CreateDbContext();
             
-            var twoYearsAgo = DateTime.Today.AddMonths(-24);
-            var startDate = new DateTime(twoYearsAgo.Year, twoYearsAgo.Month, 1);
+            var startDate = new DateTime(2026, 8, 1); // Inventory removal tracking start date
             
             var sales = await db.PosSales.AsNoTracking()
                 .Where(s => s.Timestamp >= startDate && !s.IsVoided)
@@ -5478,6 +5693,7 @@
             for (int i = 0; i < 24; i++)
             {
                 var currentMonth = monthStart.AddMonths(-i);
+                if (currentMonth < startDate) break;
                 
                 var monthSales = sales.Where(s => s.Timestamp.Year == currentMonth.Year && s.Timestamp.Month == currentMonth.Month).ToList();
                 var monthPulls = pulls.Where(t => t.Timestamp.Year == currentMonth.Year && t.Timestamp.Month == currentMonth.Month).ToList();
@@ -5497,11 +5713,11 @@
                     foreach (var item in itemsList)
                     {
                         var cleanName = CleanProductName(item.Name);
-                        if (_itemLookup.TryGetValue(cleanName, out var liquorItem))
+                        if (_itemLookup.TryGetValue(cleanName, out var liquorItem) || _itemLookup.TryGetValue(item.Name, out liquorItem))
                         {
                             var cat = (liquorItem.Category ?? "MISC").ToUpper();
-                            bool isCategoryEnabled = _categoryOptions.ContainsKey(cat) && _categoryOptions[cat];
-                            bool isItemEnabled = _itemOptions.ContainsKey(cleanName) && _itemOptions[cleanName];
+                            bool isCategoryEnabled = _categoryOptions.GetValueOrDefault(cat, true);
+                            bool isItemEnabled = _itemOptions.GetValueOrDefault(cleanName, true) && _itemOptions.GetValueOrDefault(liquorItem.Name, true);
                             
                             if (isCategoryEnabled && isItemEnabled)
                             {
@@ -5523,11 +5739,11 @@
                 {
                     var brandName = group.Key;
                     var pullsCount = group.Sum(t => (int)Math.Abs(t.ChangeAmount));
-                    if (_itemLookup.TryGetValue(brandName, out var liquorItem))
+                    if (_itemLookup.TryGetValue(brandName, out var liquorItem) || _itemLookup.TryGetValue(CleanProductName(brandName), out liquorItem))
                     {
                         var cat = (liquorItem.Category ?? "MISC").ToUpper();
-                        bool isCategoryEnabled = _categoryOptions.ContainsKey(cat) && _categoryOptions[cat];
-                        bool isItemEnabled = _itemOptions.ContainsKey(brandName) && _itemOptions[brandName];
+                        bool isCategoryEnabled = _categoryOptions.GetValueOrDefault(cat, true);
+                        bool isItemEnabled = _itemOptions.GetValueOrDefault(brandName, true) && _itemOptions.GetValueOrDefault(liquorItem.Name, true);
                         if (isCategoryEnabled && isItemEnabled)
                         {
                             brandPulls[brandName] = pullsCount;
