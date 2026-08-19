@@ -40,7 +40,13 @@ window.inventoryCharts = {
                     tooltip: { mode: 'index', intersect: false }
                 },
                 scales: {
-                    y: { beginAtZero: true }
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: config.yAxisTitle || 'Bottles Amount'
+                        }
+                    }
                 }
             }
         });
@@ -70,6 +76,8 @@ window.inventoryCharts = {
                     {
                         label: 'Quantity Consumed (Used)',
                         data: config.usedData,
+                        rawUnits: config.rawUsedData,
+                        pourSizes: config.pourSizes,
                         backgroundColor: 'rgba(239, 68, 68, 0.75)', // red
                         borderColor: '#ef4444',
                         borderWidth: 1.5,
@@ -82,10 +90,28 @@ window.inventoryCharts = {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'top' },
-                    tooltip: { mode: 'index', intersect: false }
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                if (context.datasetIndex === 1) {
+                                    const rawVal = context.dataset.rawUnits ? context.dataset.rawUnits[context.dataIndex] : context.raw;
+                                    return context.dataset.label + ': ' + rawVal + ' units';
+                                }
+                                return context.dataset.label + ': ' + context.formattedValue + ' bottles';
+                            }
+                        }
+                    }
                 },
                 scales: {
-                    y: { beginAtZero: true }
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: config.yAxisTitle || 'Bottles Amount'
+                        }
+                    }
                 }
             }
         });

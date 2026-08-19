@@ -378,9 +378,7 @@
                                 <div>
                                     <h5 class="fw-black mb-0 text-dark">CURRENT LIQUOR STOCK LEVELS</h5>
                                     <small class="text-muted fw-bold d-flex align-items-center gap-2 mt-1" style="font-size: 0.72rem;">
-                                        <span>Status Indicator Legend:</span>
-                                        <span class="badge bg-success text-white px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">🟢 Healthy Stock</span>
-                                        <span class="badge bg-danger text-white px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">🔴 Low Stock (At/Below safety limit)</span>
+                                        <span class="badge bg-primary-subtle text-primary border px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">🥃 Shot Standard: @(_settings?.GlobalLiquorPourSize.ToString("F2") ?? "2.00") oz</span>
                                     </small>
                                 </div>
                                 <div class="d-flex gap-2 align-items-center">
@@ -3062,21 +3060,62 @@
         var filteredItems = GetSortedStockItems(stockUsageMap);
 
         var labels = filteredItems.Select(x => x.Name.ToUpper()).ToArray();
-        var stockData = filteredItems.Select(x => GetEffectiveStock(x)).ToArray();
-        var usedData = filteredItems.Select(x => stockUsageMap.ContainsKey(x.Id) ? stockUsageMap[x.Id] : 0).ToArray();
+        var stockData = filteredItems.Select(x => (double)GetEffectiveStock(x)).ToArray();
+        var rawUsedData = filteredItems.Select(x => stockUsageMap.ContainsKey(x.Id) ? stockUsageMap[x.Id] : 0).ToArray();
+        var usedData = filteredItems.Select(x => {
+            int soldQty = stockUsageMap.ContainsKey(x.Id) ? stockUsageMap[x.Id] : 0;
+            return GetBottleEquivalent(x, soldQty);
+        }).ToArray();
+        var pourSizes = filteredItems.Select(x => $"{GetItemPourSize(x):F2} oz").ToArray();
 
         try
         {
             await JSRuntime.InvokeVoidAsync("inventoryCharts.renderStockLevels", "currentStockLevelsChart", new {
                 labels,
                 stockData,
-                usedData
+                usedData,
+                rawUsedData,
+                pourSizes,
+                yAxisTitle = "Bottles Amount"
             });
         }
         catch (Exception ex)
         {
             Console.WriteLine("Error rendering stock levels chart: " + ex.Message);
         }
+    }
+
+    private decimal GetItemPourSize(LiquorItem item)
+    {
+        var cat = (item.Category ?? "").ToUpper();
+        decimal itemPour = item.PourVolumeOunces ?? item.PourSize;
+        if (itemPour > 0) return itemPour;
+        if (cat == "WINE" || cat == "CHAMPAGNE") return 5.0m;
+        return _settings?.GlobalLiquorPourSize > 0 ? _settings.GlobalLiquorPourSize : 1.5m;
+    }
+
+    private double GetBottleEquivalent(LiquorItem item, int quantitySold)
+    {
+        if (quantitySold <= 0) return 0;
+
+        var cat = (item.Category ?? "").ToUpper();
+        if (cat == "BEER" || cat == "SELTZER" || cat == "CIDER" || item.IsUnitBased)
+        {
+            return quantitySold;
+        }
+
+        decimal pourSize = GetItemPourSize(item);
+
+        string bSize = item.BottleSize ?? "";
+        decimal ounces = 33.8m;
+        if (bSize.Contains("750")) ounces = 25.4m;
+        else if (bSize.Contains("1.75")) ounces = 59.2m;
+
+        decimal shotsPerBottle = ounces / (pourSize > 0 ? pourSize : 1.5m);
+        if (shotsPerBottle <= 0) shotsPerBottle = 22.5m;
+
+        double bottles = (double)(quantitySold / shotsPerBottle);
+        return Math.Round(bottles, 2);
     }
 
     private List<LiquorItem> GetSortedStockItems(Dictionary<int, int> pullsInPeriod)
@@ -3529,7 +3568,8 @@
             await JSRuntime.InvokeVoidAsync("inventoryCharts.renderStockVsUsage", "stockVsUsageChart", new {
                 labels,
                 stockData,
-                usedData
+                usedData,
+                yAxisTitle = "Bottles Amount"
             });
 
             // 2. Category Share Data
@@ -4324,6 +4364,7 @@
     {
         _objRef = DotNetObjectReference.Create(this);
         try {
+            _settings = await SystemSettingsService.GetAsync();
             using var db = DbFactory.CreateDbContext();
             
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
