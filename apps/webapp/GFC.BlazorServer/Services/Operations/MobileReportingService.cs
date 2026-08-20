@@ -99,7 +99,8 @@ public class MobileReportingService : IMobileReportingService
 
         if (lottoEntry == null && barEntry != null)
         {
-            data.Status = barEntry.Status;
+            // For standard bar/lottery shifts, if lottery entry is missing, status must remain Draft until lottery data is saved
+            data.Status = isRental ? barEntry.Status : "Draft";
         }
 
 
@@ -440,9 +441,16 @@ public class MobileReportingService : IMobileReportingService
 
             if (status != null)
             {
-                status.Submitted = (bar != null && string.Equals(bar.Status, "Submitted", StringComparison.OrdinalIgnoreCase)) || 
-                                   (lotto != null && string.Equals(lotto.Status, "Submitted", StringComparison.OrdinalIgnoreCase));
-                status.HasData = (bar != null || lotto != null);
+                if (isRental)
+                {
+                    status.Submitted = (bar != null && string.Equals(bar.Status, "Submitted", StringComparison.OrdinalIgnoreCase));
+                    status.HasData = (bar != null);
+                }
+                else
+                {
+                    status.Submitted = (lotto != null && string.Equals(lotto.Status, "Submitted", StringComparison.OrdinalIgnoreCase));
+                    status.HasData = (bar != null || lotto != null);
+                }
                 status.Closer = lotto?.ModifiedBy ?? bar?.ModifiedBy ?? lotto?.CreatedBy ?? bar?.CreatedBy;
                 status.Modified = lotto?.ModifiedDate != null || bar?.ModifiedAt != null;
             }
