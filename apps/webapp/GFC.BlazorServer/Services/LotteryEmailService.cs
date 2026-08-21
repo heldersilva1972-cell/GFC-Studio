@@ -19,8 +19,11 @@ namespace GFC.BlazorServer.Services
         public string DailyGmailLabel { get; set; } = "INBOX";
         public string WeeklyGmailLabel { get; set; } = "INBOX";
         public bool AutoSyncEnabled { get; set; } = false;
+        public bool AutoCommitEnabled { get; set; } = false;
         public int SyncIntervalHours { get; set; } = 6;
         public DateTime? LastSyncTime { get; set; }
+        public string? LastSyncStatus { get; set; }
+        public int LastSyncFileCount { get; set; } = 0;
     }
 
     public class LotteryEmailService

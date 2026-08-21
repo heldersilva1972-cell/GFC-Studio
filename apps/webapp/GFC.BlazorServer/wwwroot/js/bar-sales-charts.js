@@ -1,16 +1,9 @@
 window.barSalesCharts = {
     charts: {},
     renderChart: function (canvasId, config) {
-        console.log('renderChart called with:', canvasId, config);
-        console.log('Labels:', config.labels);
-        console.log('Datasets:', config.datasets);
-
-        const ctx = document.getElementById(canvasId).getContext('2d');
-
-        // Destroy existing chart if it exists
-        if (this.charts[canvasId]) {
-            this.charts[canvasId].destroy();
-        }
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        const ctx = el.getContext('2d');
 
         // Define color palette for multiple years
         const colorPalette = [
@@ -35,6 +28,18 @@ window.barSalesCharts = {
             };
         });
 
+        // In-place smooth update if chart already exists
+        if (this.charts[canvasId]) {
+            const chart = this.charts[canvasId];
+            chart.data.labels = config.labels;
+            chart.data.datasets = datasets;
+            chart.update({
+                duration: 750,
+                easing: 'easeInOutCubic'
+            });
+            return;
+        }
+
         const chartConfig = {
             type: 'bar',
             data: {
@@ -44,6 +49,10 @@ window.barSalesCharts = {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 750,
+                    easing: 'easeInOutCubic'
+                },
                 interaction: {
                     mode: 'index',
                     intersect: false,
@@ -60,21 +69,11 @@ window.barSalesCharts = {
                         }
                     },
                     tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        titleFont: { size: 14, weight: 'bold' },
-                        bodyFont: { size: 13 },
-                        padding: 12,
-                        displayColors: true,
                         callbacks: {
                             label: function (context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
-                                if (context.parsed.y !== null) {
-                                    label += new Intl.NumberFormat('en-US', {
-                                        style: 'currency',
-                                        currency: 'USD'
-                                    }).format(context.parsed.y);
-                                }
+                                label += '$' + context.parsed.y.toLocaleString();
                                 return label;
                             }
                         }
@@ -83,24 +82,10 @@ window.barSalesCharts = {
                 scales: {
                     y: {
                         beginAtZero: true,
-                        grace: '5%',
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.05)',
-                            drawBorder: false
-                        },
                         ticks: {
                             callback: function (value) {
                                 return '$' + value.toLocaleString();
-                            },
-                            font: { size: 11 }
-                        }
-                    },
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            font: { size: 11 }
+                            }
                         }
                     }
                 }

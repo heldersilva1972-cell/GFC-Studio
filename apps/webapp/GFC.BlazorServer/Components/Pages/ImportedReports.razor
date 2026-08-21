@@ -443,7 +443,27 @@
                 <p>Compare daily shift totals with the weekly official invoice statement to ensure perfect alignment.</p>
             </div>
             
-            <div class="history-controls">
+            <div class="history-controls d-flex align-items-center gap-2">
+                @if (_emailSettings.AutoSyncEnabled && !string.IsNullOrEmpty(_emailSettings.LastSyncStatus))
+                {
+                    <span class="badge @(_emailSettings.LastSyncStatus.StartsWith("Error") ? "bg-danger-subtle text-danger border border-danger-subtle" : "bg-success-subtle text-success border border-success-subtle") rounded-pill px-3 py-1.5 extra-small" title="Last background check status">
+                        <i class="bi @(_emailSettings.LastSyncStatus.StartsWith("Error") ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-1"></i> @_emailSettings.LastSyncStatus
+                    </span>
+                }
+                <button class="btn btn-primary btn-sm rounded-pill px-3 py-1.5 fw-bold shadow-sm" @onclick="FetchEmails" disabled="@_isFetchingEmail">
+                    @if (_isFetchingEmail)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        <span>Syncing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-envelope-check me-1"></i><span>Sync Gmail Inbox</span>
+                    }
+                </button>
+                <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 py-1.5 fw-bold shadow-sm" @onclick="ToggleSettings">
+                    <i class="bi bi-gear-fill me-1 text-primary"></i> Gmail Settings
+                </button>
                 @if (_isHistoricalView || _hasDataLoaded)
                 {
                     <button class="btn-action-secondary" @onclick="GoBackToDashboard"><i class="bi bi-arrow-left"></i> Back to Dashboard</button>
@@ -459,87 +479,95 @@
             </div>
         }
 
-        <!-- EMAIL CONFIGURATION SETTINGS PANEL -->
-        @if (!_isHistoricalView && !_hasDataLoaded)
+        <!-- EMAIL CONFIGURATION SETTINGS MODAL -->
+        @if (_showSettings)
         {
-            <div class="premium-card mb-4" style="border-left: 4px solid var(--bs-primary);">
-                <div class="d-flex justify-content-between align-items-center cursor-pointer" @onclick="ToggleSettings">
-                    <h3 class="fw-bold mb-0 text-slate-800" style="font-size: 1.15rem; cursor: pointer;">
-                        <i class="bi bi-envelope-fill text-primary me-2"></i>Gmail Auto-Fetch Settings
-                    </h3>
-                    <button class="btn btn-sm btn-link text-decoration-none p-0">
-                        @if (_showSettings)
-                        {
-                            <span class="text-muted"><i class="bi bi-chevron-up"></i> Hide Settings</span>
-                        }
-                        else
-                        {
-                            <span class="text-primary"><i class="bi bi-chevron-down"></i> Show Settings</span>
-                        }
-                    </button>
-                </div>
-
-                @if (_showSettings)
-                {
-                    <hr class="my-3" />
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Address</label>
-                            <input type="email" class="form-control" placeholder="your-email@gmail.com" @bind="_emailSettings.EmailAddress" />
+            <div class="modal fade show d-block" style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 1055;" tabindex="-1">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content shadow-lg border-0 rounded-4">
+                        <div class="modal-header bg-light border-bottom px-4 py-3">
+                            <h5 class="modal-title fw-black text-slate-800" style="font-size: 1.1rem;">
+                                <i class="bi bi-envelope-fill text-primary me-2"></i>Gmail Auto-Fetch Settings
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="ToggleSettings" aria-label="Close"></button>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Google App Password</label>
-                            <input type="password" class="form-control" placeholder="16-character app code" @bind="_emailSettings.AppPassword" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Sender Filter Address</label>
-                            <input type="text" class="form-control" placeholder="reports@lottery.com" @bind="_emailSettings.SenderAddress" />
-                            <div class="text-muted small mt-1">Only fetch messages from this email address.</div>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Subject Keyword Filter</label>
-                            <input type="text" class="form-control" placeholder="e.g. Weekly Report" @bind="_emailSettings.SubjectKeyword" />
-                            <div class="text-muted small mt-1">Only fetch messages containing this word in the subject.</div>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Daily Folder / Label Path</label>
-                            <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.DailyGmailLabel" />
-                            <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Daily logs.</div>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Weekly Folder / Label Path</label>
-                            <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.WeeklyGmailLabel" />
-                            <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Weekly invoices.</div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-check mt-4 pt-2">
-                                <input class="form-check-input" type="checkbox" id="autoSyncCheck" @bind="_emailSettings.AutoSyncEnabled" />
-                                <label class="form-check-label fw-bold text-slate-700 font-size-sm" for="autoSyncCheck">
-                                    Enable Background Auto-Sync
-                                </label>
-                                <div class="text-muted small">Periodically downloads reports in the background.</div>
+                        <div class="modal-body p-4">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Address</label>
+                                    <input type="email" class="form-control" placeholder="your-email@gmail.com" @bind="_emailSettings.EmailAddress" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Google App Password</label>
+                                    <input type="password" class="form-control" placeholder="16-character app code" @bind="_emailSettings.AppPassword" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Sender Filter Address</label>
+                                    <input type="text" class="form-control" placeholder="reports@lottery.com" @bind="_emailSettings.SenderAddress" />
+                                    <div class="text-muted small mt-1">Only fetch messages from this email address.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Subject Keyword Filter</label>
+                                    <input type="text" class="form-control" placeholder="e.g. Weekly Report" @bind="_emailSettings.SubjectKeyword" />
+                                    <div class="text-muted small mt-1">Only fetch messages containing this word in the subject.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Daily Folder / Label Path</label>
+                                    <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.DailyGmailLabel" />
+                                    <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Daily logs.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Gmail Weekly Folder / Label Path</label>
+                                    <input type="text" class="form-control" placeholder="INBOX" @bind="_emailSettings.WeeklyGmailLabel" />
+                                    <div class="text-muted small mt-1">Enter "INBOX" or a custom Gmail label for Weekly invoices.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check mt-3">
+                                        <input class="form-check-input" type="checkbox" id="autoSyncCheck" @bind="_emailSettings.AutoSyncEnabled" />
+                                        <label class="form-check-label fw-bold text-slate-700 font-size-sm" for="autoSyncCheck">
+                                            Enable Background Auto-Sync
+                                        </label>
+                                        <div class="text-muted small">Periodically downloads reports in the background.</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check mt-3">
+                                        <input class="form-check-input" type="checkbox" id="autoCommitCheck" @bind="_emailSettings.AutoCommitEnabled" />
+                                        <label class="form-check-label fw-bold text-slate-700 font-size-sm" for="autoCommitCheck">
+                                            Auto-Commit / Direct Import (Skip Review & Process)
+                                        </label>
+                                        <div class="text-muted small">Automatically saves synced reports directly to database without requiring manual review.</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-12">
+                                    <label class="form-label fw-bold text-slate-700 font-size-sm">Check Frequency</label>
+                                    <select class="form-select" @bind="_emailSettings.SyncIntervalHours">
+                                        <option value="1">Every Hour</option>
+                                        <option value="6">Every 6 Hours</option>
+                                        <option value="12">Every 12 Hours</option>
+                                        <option value="24">Every 24 Hours (Daily)</option>
+                                    </select>
+                                    @if (_emailSettings.LastSyncTime.HasValue)
+                                    {
+                                        <div class="p-2.5 mt-2 rounded-3 border @(_emailSettings.LastSyncStatus?.StartsWith("Error") == true ? "bg-danger-subtle border-danger-subtle text-danger" : "bg-light border-slate-200 text-slate-700") small">
+                                            <div><i class="bi bi-clock-history me-1"></i> Last Background Check: <strong>@_emailSettings.LastSyncTime.Value.ToString("g")</strong></div>
+                                            @if (!string.IsNullOrEmpty(_emailSettings.LastSyncStatus))
+                                            {
+                                                <div class="mt-1 fw-semibold"><i class="bi @(_emailSettings.LastSyncStatus.StartsWith("Error") ? "bi-exclamation-circle-fill text-danger" : "bi-check-circle-fill text-success") me-1"></i> @_emailSettings.LastSyncStatus</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold text-slate-700 font-size-sm">Check Frequency</label>
-                            <select class="form-select" @bind="_emailSettings.SyncIntervalHours">
-                                <option value="1">Every Hour</option>
-                                <option value="6">Every 6 Hours</option>
-                                <option value="12">Every 12 Hours</option>
-                                <option value="24">Every 24 Hours (Daily)</option>
-                            </select>
-                            @if (_emailSettings.LastSyncTime.HasValue)
-                            {
-                                <div class="text-success small mt-1">Last background check: <strong>@_emailSettings.LastSyncTime.Value.ToString("g")</strong></div>
-                            }
+                        <div class="modal-footer bg-light border-top px-4 py-3">
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-4" @onclick="ToggleSettings">Cancel</button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm" @onclick="SaveEmailSettings">
+                                <i class="bi bi-save me-1"></i> Save Settings
+                            </button>
                         </div>
                     </div>
-                    <div class="d-flex justify-content-end mt-3">
-                        <button class="btn btn-primary btn-sm px-4" @onclick="SaveEmailSettings">
-                            <i class="bi bi-save me-1"></i> Save Settings
-                        </button>
-                    </div>
-                }
+                </div>
             </div>
         }
 
@@ -551,115 +579,86 @@
             </div>
         }
 
-        @if (!_isHistoricalView && !_hasDataLoaded)
+        @if (!_isHistoricalView && !_hasDataLoaded && _weekGroups.Any())
         {
-
-            <!-- PENDING WEEKLY BATCHES WORKSPACE -->
+            <!-- PENDING WEEKLY BATCHES WORKSPACE (Only shown when pending batches exist) -->
             <div class="premium-card mb-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h2 class="fw-bold mb-0 text-slate-800" style="font-size: 1.3rem;">
+                    <h2 class="fw-bold mb-0 text-slate-800" style="font-size: 1.2rem;">
                         <i class="bi bi-inbox text-primary me-2"></i>Pending Weekly Batches (@_weekGroups.Count)
                     </h2>
-                    <div class="d-flex gap-2">
-                        @if (_allDailyStaged.Any() || _allWeeklyStaged.Any())
-                        {
-                            <button class="btn btn-outline-danger btn-sm px-3" style="border-radius: 8px;" @onclick="ResetPage">
-                                Discard All Staged
-                            </button>
-                        }
-                        <button class="btn btn-primary btn-sm px-3" style="border-radius: 8px; font-weight: 600;" @onclick="FetchEmails" disabled="@_isFetchingEmail">
-                            @if (_isFetchingEmail)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                                <span>Syncing...</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-envelope-check me-1"></i><span>Sync Gmail Inbox</span>
-                            }
+                    @if (_allDailyStaged.Any() || _allWeeklyStaged.Any())
+                    {
+                        <button class="btn btn-outline-danger btn-sm px-3 rounded-pill" @onclick="ResetPage">
+                            Discard All Staged
                         </button>
-                    </div>
+                    }
                 </div>
 
-                @if (!_weekGroups.Any())
-                {
-                    <div class="text-center py-5 text-muted bg-light rounded-3 border border-dashed my-2">
-                        <i class="bi bi-check-circle fs-2 text-success mb-2 d-block"></i>
-                        <span class="fw-bold text-slate-700">All caught up! No pending weekly batches to process.</span><br />
-                        <span class="small">Click <strong>Sync Gmail Inbox</strong> to fetch new reports from your email.</span>
-                    </div>
-                }
-                else
-                {
-                    <div class="d-flex flex-column gap-3">
-                        @foreach (var group in _weekGroups)
-                        {
-                            var hasStatement = group.MatchingWeeklyFile != null;
-                            var expectedDays = 7;
-                            var loadedDays = group.DailyFiles.Count;
-                            
-                            <div class="card shadow-sm border border-slate-200 rounded-3 overflow-hidden" style="border-left: 4px solid @(hasStatement && loadedDays == expectedDays ? "#10b981" : "#3b82f6") !important;">
-                                <div class="card-body p-3">
-                                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-                                        <div>
-                                            <h4 class="fw-bold mb-1 text-slate-800" style="font-size: 1.05rem;">
-                                                Week Ending: @group.WeekEndingDate.ToString("MM/dd/yyyy") (Saturday)
-                                            </h4>
-                                            <p class="text-muted small mb-0">
-                                                Period: @group.WeekStartDate.ToString("MM/dd/yyyy") to @group.WeekEndingDate.ToString("MM/dd/yyyy")
-                                            </p>
-                                        </div>
-
-                                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                                            <!-- Daily Logs Status -->
-                                            <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 100px;">
-                                                <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Daily Logs</span>
-                                                <strong class="@(loadedDays == expectedDays ? "text-success" : "text-warning")" style="font-size: 0.9rem;">
-                                                    @loadedDays of @expectedDays Days
-                                                </strong>
-                                            </div>
-
-                                            <!-- Weekly Statement Status -->
-                                            <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 130px;">
-                                                <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Weekly Statement</span>
-                                                @if (hasStatement)
-                                                {
-                                                    <strong class="text-success" style="font-size: 0.9rem;"><i class="bi bi-file-earmark-check-fill me-1"></i>Matched</strong>
-                                                }
-                                                else
-                                                {
-                                                    <strong class="text-muted" style="font-size: 0.9rem;">Daily-Only Mode</strong>
-                                                }
-                                            </div>
-
-                                            <!-- Action Button -->
-                                            <button class="btn btn-primary btn-sm px-3 py-2 ms-2" style="border-radius: 8px; font-weight: 600;" @onclick="() => SelectGroupForProcessing(group)">
-                                                <i class="bi bi-layout-split me-1"></i> Review & Process
-                                            </button>
-                                        </div>
+                <div class="d-flex flex-column gap-3">
+                    @foreach (var group in _weekGroups)
+                    {
+                        var hasStatement = group.MatchingWeeklyFile != null;
+                        var expectedDays = 7;
+                        var loadedDays = group.DailyFiles.Count;
+                        
+                        <div class="card shadow-sm border border-slate-200 rounded-3 overflow-hidden" style="border-left: 4px solid @(hasStatement && loadedDays == expectedDays ? "#10b981" : "#3b82f6") !important;">
+                            <div class="card-body p-3">
+                                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                                    <div>
+                                        <h4 class="fw-bold mb-1 text-slate-800" style="font-size: 1.05rem;">
+                                            Week Ending: @group.WeekEndingDate.ToString("MM/dd/yyyy") (Saturday)
+                                        </h4>
+                                        <p class="text-muted small mb-0">
+                                            Period: @group.WeekStartDate.ToString("MM/dd/yyyy") to @group.WeekEndingDate.ToString("MM/dd/yyyy")
+                                        </p>
                                     </div>
 
-                                    <!-- Expandable sub-list of dates -->
-                                    <hr class="my-2 text-slate-200" />
-                                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                                        <span class="small text-muted fw-bold me-1" style="font-size: 0.75rem;">Dates Staged:</span>
-                                        @for (int i = -6; i <= 0; i++)
-                                        {
-                                            var date = group.WeekEndingDate.AddDays(i);
-                                            var isLoaded = group.DailyFiles.Any(f => f.ParsedDate.HasValue && f.ParsedDate.Value.Date == date.Date);
-                                            <span class="badge @(isLoaded ? "bg-success-subtle text-success border border-success-subtle" : "bg-danger-subtle text-danger border border-danger-subtle") rounded-pill px-2 py-1" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
-                                                @date.ToString("ddd MM/dd")
-                                            </span>
-                                        }
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 100px;">
+                                            <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Daily Logs</span>
+                                            <strong class="@(loadedDays == expectedDays ? "text-success" : "text-warning")" style="font-size: 0.9rem;">
+                                                @loadedDays of @expectedDays Days
+                                            </strong>
+                                        </div>
+
+                                        <div class="text-center px-3 py-1 bg-light rounded border" style="min-width: 130px;">
+                                            <span class="small text-muted d-block" style="font-size: 0.7rem; font-weight: 600;">Weekly Statement</span>
+                                            @if (hasStatement)
+                                            {
+                                                <strong class="text-success" style="font-size: 0.9rem;"><i class="bi bi-file-earmark-check-fill me-1"></i>Matched</strong>
+                                            }
+                                            else
+                                            {
+                                                <strong class="text-muted" style="font-size: 0.9rem;">Daily-Only Mode</strong>
+                                            }
+                                        </div>
+
+                                        <button class="btn btn-primary btn-sm px-3 py-2 ms-2" style="border-radius: 8px; font-weight: 600;" @onclick="() => SelectGroupForProcessing(group)">
+                                            <i class="bi bi-layout-split me-1"></i> Review & Process
+                                        </button>
                                     </div>
                                 </div>
+
+                                <hr class="my-2 text-slate-200" />
+                                <div class="d-flex flex-wrap gap-2 align-items-center">
+                                    <span class="small text-muted fw-bold me-1" style="font-size: 0.75rem;">Dates Staged:</span>
+                                    @for (int i = -6; i <= 0; i++)
+                                    {
+                                        var date = group.WeekEndingDate.AddDays(i);
+                                        var isLoaded = group.DailyFiles.Any(f => f.ParsedDate.HasValue && f.ParsedDate.Value.Date == date.Date);
+                                        <span class="badge @(isLoaded ? "bg-success-subtle text-success border border-success-subtle" : "bg-danger-subtle text-danger border border-danger-subtle") rounded-pill px-2 py-1" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
+                                            @date.ToString("ddd MM/dd")
+                                        </span>
+                                    }
+                                </div>
                             </div>
-                        }
-                    </div>
-                }
+                        </div>
+                    }
+                </div>
             </div>
         }
-        else
+        else if (_isHistoricalView || _hasDataLoaded)
         {
             <!-- COMPARISON VIEW -->
             <div class="premium-card">
@@ -1443,7 +1442,14 @@
             // Reload all files from disk staging folder to prevent duplicates in memory lists
             LoadStagedReports();
 
-            _successMessage = $"Successfully fetched and imported {dailyCount} Daily Sales reports and {weeklyCount} Weekly statements from Gmail!";
+            if (_emailSettings.AutoCommitEnabled && _weekGroups.Any())
+            {
+                await AutoCommitAllStagedGroupsAsync();
+            }
+            else
+            {
+                _successMessage = $"Successfully fetched and imported {dailyCount} Daily Sales reports and {weeklyCount} Weekly statements from Gmail!";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1460,6 +1466,20 @@
             _syncCts?.Dispose();
             _syncCts = null;
         }
+    }
+
+    private async Task AutoCommitAllStagedGroupsAsync()
+    {
+        int count = 0;
+        var groupsToProcess = _weekGroups.ToList();
+        foreach (var group in groupsToProcess)
+        {
+            SelectGroupForProcessing(group);
+            await CommitToDatabase();
+            count++;
+        }
+        _hasDataLoaded = false;
+        _successMessage = $"⚡ Auto-Commit Active: Automatically processed and committed {count} week statement(s) directly to the database without requiring manual review!";
     }
 
     private void CancelSync()

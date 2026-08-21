@@ -4,9 +4,6 @@ window.financialCharts = {
         const el = document.getElementById(canvasId);
         if (!el) return;
         const ctx = el.getContext('2d');
-        if (this.charts[canvasId]) {
-            this.charts[canvasId].destroy();
-        }
 
         const colorPalette = [
             { border: '#2ecc71', bg: 'rgba(46, 204, 113, 0.7)' },
@@ -23,13 +20,13 @@ window.financialCharts = {
             const bgColor = dataset.bg || colorPalette[index % colorPalette.length].bg;
 
             return {
-                type: dataset.type || config.type, // Use individual dataset type if provided
+                type: dataset.type || config.type,
                 label: dataset.label,
                 data: dataset.data,
                 backgroundColor: bgColor,
                 borderColor: colors,
-                borderWidth: 1,
-                borderRadius: config.type === 'bar' ? 4 : 0,
+                borderWidth: 1.5,
+                borderRadius: config.type === 'bar' ? 6 : 0,
                 tension: 0.4,
                 fill: false,
                 pointRadius: config.type === 'line' ? 4 : 0,
@@ -42,6 +39,66 @@ window.financialCharts = {
 
         const isStacked = config.datasets.some(d => d.stack);
 
+        // If chart instance already exists, animate data value transitions smoothly
+        if (this.charts[canvasId]) {
+            const chart = this.charts[canvasId];
+            chart.data.labels = config.labels;
+
+            const activeLabels = datasets.map(d => d.label);
+
+            // 1. Unchecked datasets: set values to 0 so Chart.js smoothly animates bars shrinking down to height 0
+            chart.data.datasets.forEach((existingDs) => {
+                if (!activeLabels.includes(existingDs.label)) {
+                    existingDs.data = existingDs.data.map(() => 0);
+                }
+            });
+
+            // 2. Active datasets: update values in-place so bars smoothly adjust height
+            datasets.forEach((newDs) => {
+                const existingDs = chart.data.datasets.find(d => d.label === newDs.label);
+                if (existingDs) {
+                    existingDs.data = newDs.data;
+                    existingDs.backgroundColor = newDs.backgroundColor;
+                    existingDs.borderColor = newDs.borderColor;
+                } else {
+                    // Start new dataset at 0 so it smoothly grows up from ground
+                    const zeroStart = { ...newDs, data: newDs.data.map(() => 0) };
+                    chart.data.datasets.push(zeroStart);
+                    setTimeout(() => {
+                        if (this.charts[canvasId]) {
+                            const ds = this.charts[canvasId].data.datasets.find(d => d.label === newDs.label);
+                            if (ds) {
+                                ds.data = newDs.data;
+                                this.charts[canvasId].update({ duration: 600, easing: 'easeOutQuart' });
+                            }
+                        }
+                    }, 30);
+                }
+            });
+
+            if (chart.options.scales && chart.options.scales.x) chart.options.scales.x.stacked = isStacked;
+            if (chart.options.scales && chart.options.scales.y) chart.options.scales.y.stacked = isStacked;
+
+            chart.update({
+                duration: 650,
+                easing: 'easeInOutCubic'
+            });
+
+            // 3. Cleanup zeroed-out datasets after shrink animation finishes
+            setTimeout(() => {
+                if (this.charts[canvasId]) {
+                    const activeSet = new Set(activeLabels);
+                    this.charts[canvasId].data.datasets = this.charts[canvasId].data.datasets.filter(
+                        d => activeSet.has(d.label)
+                    );
+                    this.charts[canvasId].update('none');
+                }
+            }, 700);
+
+            return;
+        }
+
+        // Create new chart instance with smooth initial entrance
         this.charts[canvasId] = new Chart(ctx, {
             type: config.type || 'bar',
             data: {
@@ -51,6 +108,18 @@ window.financialCharts = {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 650,
+                    easing: 'easeInOutCubic'
+                },
+                transitions: {
+                    active: {
+                        animation: {
+                            duration: 650,
+                            easing: 'easeInOutCubic'
+                        }
+                    }
+                },
                 interaction: {
                     mode: 'index',
                     intersect: false

@@ -91,8 +91,10 @@ namespace GFC.BlazorServer.Components.Pages
         private bool _showMetricNetDue = false;
         private bool _showMetricSales = false;
         private bool _showMetricVariance = false;
-        private bool _showMetricWeeklyDue = false;
+        private bool _showMetricWeeklyDue = true;
         private bool _showMetricOnlineDue = false;
+        private bool _showDataGuide = false;
+        private void ToggleDataGuide() => _showDataGuide = !_showDataGuide;
         private string _breakdownRangeType = "week"; // "week", "month", "year", "custom"
         private DateTime _breakdownCustomStart = DateTime.Today.AddDays(-14);
         private DateTime _breakdownCustomEnd = DateTime.Today;
@@ -1350,7 +1352,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
                     color = "#10b981", 
                     bg = "rgba(16, 185, 129, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1361,7 +1363,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.NetDue).ToList(), 
                     color = "#3b82f6", 
                     bg = "rgba(59, 130, 246, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1372,7 +1374,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.TotalSales).ToList(), 
                     color = "#6366f1", 
                     bg = "rgba(99, 102, 241, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1383,7 +1385,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.Variance).ToList(), 
                     color = "#ef4444", 
                     bg = "rgba(239, 68, 68, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1394,7 +1396,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
                     color = "#ec4899", 
                     bg = "rgba(236, 72, 153, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1405,7 +1407,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.OnlineDue).ToList(), 
                     color = "#a855f7", 
                     bg = "rgba(168, 85, 247, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
@@ -1417,7 +1419,7 @@ namespace GFC.BlazorServer.Components.Pages
                     data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
                     color = "#10b981", 
                     bg = "rgba(16, 185, 129, 0.7)", 
-                    type = "bar" 
+                    type = "bar"
                 });
             }
 
