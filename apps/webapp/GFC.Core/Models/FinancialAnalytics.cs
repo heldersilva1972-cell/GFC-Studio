@@ -75,6 +75,17 @@ namespace GFC.Core.Models
         public decimal ComparisonTotalIncome => ComparisonBarSales + ComparisonLotteryCommissions + ComparisonMembershipDues;
         public decimal GrowthPercentage => ComparisonTotalIncome > 0 ? ((CombinedTotalIncome - ComparisonTotalIncome) / ComparisonTotalIncome) * 100m : 0m;
         
+        // Month-over-Month (MoM MTD Like-for-Like) comparison
+        public int PrevMonthDaysCompared { get; set; }
+        public decimal PrevMonthBarSales { get; set; }
+        public decimal PrevMonthLotteryCommissions { get; set; }
+        public decimal PrevMonthMembershipDues { get; set; }
+        public decimal PrevMonthTotalIncome => PrevMonthBarSales + PrevMonthLotteryCommissions + PrevMonthMembershipDues;
+        public decimal BarSalesMomGrowth => PrevMonthBarSales > 0 ? ((TotalBarSales - PrevMonthBarSales) / PrevMonthBarSales) * 100m : 0m;
+        public decimal LotteryMomGrowth => PrevMonthLotteryCommissions > 0 ? ((TotalLotteryCommissions - PrevMonthLotteryCommissions) / PrevMonthLotteryCommissions) * 100m : 0m;
+        public decimal DuesMomGrowth => PrevMonthMembershipDues > 0 ? ((TotalMembershipDues - PrevMonthMembershipDues) / PrevMonthMembershipDues) * 100m : 0m;
+        public decimal CombinedMomGrowth => PrevMonthTotalIncome > 0 ? ((CombinedTotalIncome - PrevMonthTotalIncome) / PrevMonthTotalIncome) * 100m : 0m;
+
         public List<MissingEntryWarningDto> Warnings { get; set; } = new();
         public List<IncomeStreamEntryDto> LedgerEntries { get; set; } = new();
         public List<IncomeStreamEntryDto> ComparisonLedgerEntries { get; set; } = new();

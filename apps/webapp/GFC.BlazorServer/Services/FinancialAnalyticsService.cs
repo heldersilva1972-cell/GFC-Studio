@@ -62,11 +62,18 @@ namespace GFC.BlazorServer.Services
                 .Distinct()
                 .ToListAsync();
             
-            var lotteryYears = await db.LotteryShifts
+            var lotteryShiftYears = await db.LotteryShifts
                 .Where(e => e.Status == "Submitted")
                 .Select(e => e.ShiftDate.Year)
                 .Distinct()
                 .ToListAsync();
+
+            var lotteryWeeklyYears = await db.LotteryWeeklyStats
+                .Select(s => s.WeekEndingDate.Year)
+                .Distinct()
+                .ToListAsync();
+
+            var lotteryYears = lotteryShiftYears.Union(lotteryWeeklyYears);
 
             return barYears.Union(rentalYears).Union(duesYears).Union(lotteryYears)
                 .Where(y => y > 2000 && y <= DateTime.Now.Year) // Sanity check and historical only
@@ -1245,24 +1252,31 @@ namespace GFC.BlazorServer.Services
                 }
             }
 
-            // 2. Lottery Commissions
-            var lotteryShifts = await db.LotteryShifts.AsNoTracking()
-                .Where(l => l.ShiftDate >= start && l.ShiftDate <= end)
+            // 2. Lottery Commissions (From Lottery Sales Management weekly downloaded reports: combination of commissions, cash bonus, and claims bonus)
+            var weeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                .Where(w => w.WeekEndingDate >= start && w.WeekEndingDate <= end)
+                .OrderBy(w => w.WeekEndingDate)
                 .ToListAsync();
 
-            summary.TotalLotteryCommissions = lotteryShifts.Sum(l => l.Commission);
+            summary.TotalLotteryCommissions = weeklyStats.Sum(w =>
+                Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
 
-            foreach (var l in lotteryShifts)
+            foreach (var w in weeklyStats)
             {
-                var shiftName = string.IsNullOrWhiteSpace(l.ShiftType) ? "Day" : l.ShiftType;
+                var totalEarnings = Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                                    Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                                    Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus);
+
                 summary.LedgerEntries.Add(new IncomeStreamEntryDto
                 {
-                    Date = l.ShiftDate.Date,
+                    Date = w.WeekEndingDate.Date,
                     Stream = "Lottery",
-                    Shift = shiftName,
-                    Description = $"Lottery Commission - {shiftName} Shift ({l.EmployeeName})",
-                    Amount = l.Commission,
-                    SourceUrl = "/finance/bar-lottery-sales"
+                    Shift = "Weekly",
+                    Description = $"Lottery Earnings - Week Ending {w.WeekEndingDate:MMM dd, yyyy} (Commissions + Cash Bonus + Claims Bonus)",
+                    Amount = totalEarnings,
+                    SourceUrl = "/lottery"
                 });
             }
 
@@ -1290,7 +1304,82 @@ namespace GFC.BlazorServer.Services
             summary.LedgerEntries = summary.LedgerEntries.OrderByDescending(e => e.Date).ThenBy(e => e.Stream).ToList();
             summary.Warnings = summary.Warnings.OrderByDescending(w => w.Date).ToList();
 
-            // 4. Multi-Year Comparison Calculation (if requested)
+            // 4. Period-over-Period (MoM MTD / YoY YTD Like-for-Like) Comparison Calculation
+            try
+            {
+                bool isFullYear = startDate.Month == 1 && endDate.Month == 12 && endDate.Day == 31;
+                if (isFullYear)
+                {
+                    DateTime prevStart = startDate.AddYears(-1);
+                    DateTime prevEnd = endDate.AddYears(-1);
+                    if (startDate.Year == DateTime.Now.Year)
+                    {
+                        var todayYtdDay = DateTime.Now.DayOfYear;
+                        prevEnd = prevStart.AddDays(todayYtdDay - 1).Date.AddDays(1).AddTicks(-1);
+                        summary.PrevMonthDaysCompared = todayYtdDay;
+                    }
+                    else
+                    {
+                        summary.PrevMonthDaysCompared = 365;
+                    }
+
+                    summary.PrevMonthBarSales = await db.BarSaleEntries.AsNoTracking()
+                        .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= prevStart && (b.AdjustedSaleDate ?? b.SaleDate) <= prevEnd)
+                        .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
+
+                    var prevWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                        .Where(w => w.WeekEndingDate >= prevStart && w.WeekEndingDate <= prevEnd)
+                        .ToListAsync();
+
+                    summary.PrevMonthLotteryCommissions = prevWeeklyStats.Sum(w =>
+                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+
+                    summary.PrevMonthMembershipDues = await db.DuesPayments.AsNoTracking()
+                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= prevStart && dp.PaidDate.Value <= prevEnd && dp.Amount.HasValue)
+                        .SumAsync(dp => dp.Amount) ?? 0m;
+                }
+                else
+                {
+                    int maxDay = endDate.Day;
+                    if (startDate.Month == DateTime.Now.Month && startDate.Year == DateTime.Now.Year)
+                    {
+                        var maxEntryDay = summary.LedgerEntries.Any() ? summary.LedgerEntries.Max(e => e.Date.Day) : 1;
+                        maxDay = Math.Min(DateTime.Now.Day, Math.Max(maxEntryDay, 1));
+                    }
+
+                    summary.PrevMonthDaysCompared = maxDay;
+
+                    DateTime prevStart = startDate.AddMonths(-1);
+                    int daysInPrev = DateTime.DaysInMonth(prevStart.Year, prevStart.Month);
+                    int targetPrevDay = Math.Min(maxDay, daysInPrev);
+                    DateTime prevEnd = new DateTime(prevStart.Year, prevStart.Month, targetPrevDay).Date.AddDays(1).AddTicks(-1);
+
+                    summary.PrevMonthBarSales = await db.BarSaleEntries.AsNoTracking()
+                        .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= prevStart && (b.AdjustedSaleDate ?? b.SaleDate) <= prevEnd)
+                        .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
+
+                    var prevWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                        .Where(w => w.WeekEndingDate >= prevStart && w.WeekEndingDate <= prevEnd)
+                        .ToListAsync();
+
+                    summary.PrevMonthLotteryCommissions = prevWeeklyStats.Sum(w =>
+                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+
+                    summary.PrevMonthMembershipDues = await db.DuesPayments.AsNoTracking()
+                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= prevStart && dp.PaidDate.Value <= prevEnd && dp.Amount.HasValue)
+                        .SumAsync(dp => dp.Amount) ?? 0m;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] Error calculating MoM MTD: {ex.Message}");
+            }
+
+            // 5. Multi-Year Comparison Calculation (if requested)
             if (comparisonYear.HasValue && comparisonYear.Value > 0)
             {
                 summary.ComparisonYear = comparisonYear.Value;
@@ -1316,9 +1405,14 @@ namespace GFC.BlazorServer.Services
                         .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
                         .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
 
-                    summary.ComparisonLotteryCommissions = await db.LotteryShifts.AsNoTracking()
-                        .Where(l => l.ShiftDate >= compStart && l.ShiftDate <= compEnd)
-                        .SumAsync(l => (decimal?)l.Commission) ?? 0m;
+                    var compWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                        .Where(w => w.WeekEndingDate >= compStart && w.WeekEndingDate <= compEnd)
+                        .ToListAsync();
+
+                    summary.ComparisonLotteryCommissions = compWeeklyStats.Sum(w =>
+                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
 
                     summary.ComparisonMembershipDues = await db.DuesPayments.AsNoTracking()
                         .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
@@ -1339,18 +1433,18 @@ namespace GFC.BlazorServer.Services
                         });
                     }
 
-                    var compLotteryShifts = await db.LotteryShifts.AsNoTracking()
-                        .Where(l => l.ShiftDate >= compStart && l.ShiftDate <= compEnd)
-                        .ToListAsync();
-
-                    foreach (var l in compLotteryShifts)
+                    foreach (var w in compWeeklyStats)
                     {
+                        var compTotalEarnings = Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                                                Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                                                Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus);
+
                         summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
                         {
-                            Date = l.ShiftDate.Date,
+                            Date = w.WeekEndingDate.Date,
                             Stream = "Lottery",
-                            Shift = string.IsNullOrWhiteSpace(l.ShiftType) ? "Day" : l.ShiftType,
-                            Amount = l.Commission
+                            Shift = "Weekly",
+                            Amount = compTotalEarnings
                         });
                     }
 
