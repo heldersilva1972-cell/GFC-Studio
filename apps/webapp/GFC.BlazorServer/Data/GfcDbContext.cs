@@ -138,6 +138,7 @@ public class GfcDbContext : DbContext
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
     public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
     public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
+    public DbSet<LotteryVendingCollection> LotteryVendingCollections => Set<LotteryVendingCollection>();
     public DbSet<ClubEvent> ClubEvents => Set<ClubEvent>();
     public DbSet<ClubEventTransaction> ClubEventTransactions => Set<ClubEventTransaction>();
     public DbSet<TaxBracket> TaxBrackets => Set<TaxBracket>();

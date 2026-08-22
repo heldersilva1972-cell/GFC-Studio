@@ -39,40 +39,47 @@ window.financialCharts = {
 
         const isStacked = config.datasets.some(d => d.stack);
 
-        // If chart instance already exists, animate data value transitions smoothly
+        // If existing chart instance is pointing to a detached or replaced canvas element, destroy it first
+        if (this.charts[canvasId]) {
+            if (!document.body.contains(this.charts[canvasId].canvas) || this.charts[canvasId].canvas !== el) {
+                try { this.charts[canvasId].destroy(); } catch (e) {}
+                delete this.charts[canvasId];
+            }
+        }
+
+        // If chart instance already exists, update data smoothly in 1 unified animation pass
         if (this.charts[canvasId]) {
             const chart = this.charts[canvasId];
             chart.data.labels = config.labels;
 
-            const activeLabels = datasets.map(d => d.label);
+            const newMap = new Map(datasets.map(d => [d.label, d]));
 
-            // 1. Unchecked datasets: set values to 0 so Chart.js smoothly animates bars shrinking down to height 0
-            chart.data.datasets.forEach((existingDs) => {
-                if (!activeLabels.includes(existingDs.label)) {
-                    existingDs.data = existingDs.data.map(() => 0);
+            // 1. Remove datasets that were previously zeroed out completely
+            chart.data.datasets = chart.data.datasets.filter(d => {
+                if (!newMap.has(d.label)) {
+                    const isZeroed = d.data && d.data.every(v => v === 0);
+                    return !isZeroed; // keep unselected dataset so it can shrink to 0 now
+                }
+                return true;
+            });
+
+            // 2. Set unselected datasets to 0 height so Chart.js animates them shrinking down smoothly
+            chart.data.datasets.forEach(d => {
+                if (!newMap.has(d.label)) {
+                    d.data = d.data.map(() => 0);
                 }
             });
 
-            // 2. Active datasets: update values in-place so bars smoothly adjust height
+            // 3. Update active datasets in-place or add new active datasets
             datasets.forEach((newDs) => {
-                const existingDs = chart.data.datasets.find(d => d.label === newDs.label);
+                let existingDs = chart.data.datasets.find(d => d.label === newDs.label);
                 if (existingDs) {
                     existingDs.data = newDs.data;
                     existingDs.backgroundColor = newDs.backgroundColor;
                     existingDs.borderColor = newDs.borderColor;
+                    existingDs.stack = newDs.stack || undefined;
                 } else {
-                    // Start new dataset at 0 so it smoothly grows up from ground
-                    const zeroStart = { ...newDs, data: newDs.data.map(() => 0) };
-                    chart.data.datasets.push(zeroStart);
-                    setTimeout(() => {
-                        if (this.charts[canvasId]) {
-                            const ds = this.charts[canvasId].data.datasets.find(d => d.label === newDs.label);
-                            if (ds) {
-                                ds.data = newDs.data;
-                                this.charts[canvasId].update({ duration: 600, easing: 'easeOutQuart' });
-                            }
-                        }
-                    }, 30);
+                    chart.data.datasets.push(newDs);
                 }
             });
 
@@ -80,20 +87,9 @@ window.financialCharts = {
             if (chart.options.scales && chart.options.scales.y) chart.options.scales.y.stacked = isStacked;
 
             chart.update({
-                duration: 650,
-                easing: 'easeInOutCubic'
+                duration: 350,
+                easing: 'easeInOutQuart'
             });
-
-            // 3. Cleanup zeroed-out datasets after shrink animation finishes
-            setTimeout(() => {
-                if (this.charts[canvasId]) {
-                    const activeSet = new Set(activeLabels);
-                    this.charts[canvasId].data.datasets = this.charts[canvasId].data.datasets.filter(
-                        d => activeSet.has(d.label)
-                    );
-                    this.charts[canvasId].update('none');
-                }
-            }, 700);
 
             return;
         }
@@ -136,15 +132,33 @@ window.financialCharts = {
                     },
                     tooltip: {
                         padding: 12,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
                         titleFont: { size: 14, weight: 'bold' },
                         bodyFont: { size: 13 },
+                        footerFont: { size: 13, weight: 'bold' },
+                        footerColor: '#10b981',
                         callbacks: {
                             label: function (context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
                                 label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
                                 return label;
+                            },
+                            footer: function (tooltipItems) {
+                                let totalCash = 0;
+                                let count = 0;
+                                tooltipItems.forEach(function (item) {
+                                    const l = item.dataset.label || '';
+                                    if (l === 'Envelope Drops' || l === 'Vending Machine Drops') {
+                                        totalCash += (item.parsed.y || 0);
+                                        count++;
+                                    }
+                                });
+                                if (count > 0) {
+                                    const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalCash);
+                                    return 'Total Cash Available: ' + formatted;
+                                }
+                                return '';
                             }
                         }
                     }

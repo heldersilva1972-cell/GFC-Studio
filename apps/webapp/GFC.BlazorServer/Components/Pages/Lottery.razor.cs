@@ -88,12 +88,30 @@ namespace GFC.BlazorServer.Components.Pages
         private List<DailyBreakdownItem> _breakdownDailyItems = new();
         private HashSet<DateTime> _expandedBreakdownDays = new();
         private bool _showMetricEnvelope = true;
+        private bool _showMetricVending = true;
         private bool _showMetricNetDue = false;
         private bool _showMetricSales = false;
         private bool _showMetricVariance = false;
         private bool _showMetricWeeklyDue = true;
         private bool _showMetricOnlineDue = false;
         private bool _showDataGuide = false;
+
+        // Vending Machine State
+        private List<LotteryVendingCollection> _vendingCollections = new();
+        private LotteryVendingCollection _editingVendingCollection = new();
+        private bool _showVendingModal = false;
+        private bool _showVendingHistoryModal = false;
+        private string _vendingChartMode = "monthly"; // "monthly" or "pickups"
+        private bool _needsChartUpdate = false;
+
+        private void OpenVendingHistoryModal() => _showVendingHistoryModal = true;
+        private void CloseVendingHistoryModal() => _showVendingHistoryModal = false;
+
+        private async Task SetVendingChartMode(string mode)
+        {
+            _vendingChartMode = mode;
+            await UpdateVendingChart();
+        }
         private void ToggleDataGuide() => _showDataGuide = !_showDataGuide;
         private string _breakdownRangeType = "week"; // "week", "month", "year", "custom"
         private DateTime _breakdownCustomStart = DateTime.Today.AddDays(-14);
@@ -141,6 +159,8 @@ namespace GFC.BlazorServer.Components.Pages
         public class LotteryBreakdownStats
         {
             public decimal TotalEnvelopeDrops { get; set; }
+            public decimal TotalVendingDrops { get; set; }
+            public decimal TotalCashAvailable => TotalEnvelopeDrops + TotalVendingDrops;
             public string PeakDropDayLabel { get; set; } = "N/A";
             public decimal PeakDropDayAmount { get; set; }
             public int TotalShifts { get; set; }
@@ -154,6 +174,8 @@ namespace GFC.BlazorServer.Components.Pages
             public string DayName { get; set; } = string.Empty;
             public string DateLabel { get; set; } = string.Empty;
             public decimal EnvelopeAmount { get; set; }
+            public decimal VendingAmount { get; set; }
+            public decimal TotalCashAvailable => EnvelopeAmount + VendingAmount;
             public decimal NetDue { get; set; }
             public decimal TotalSales { get; set; }
             public decimal Variance { get; set; }
@@ -166,13 +188,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly" || _viewMode == "analytics" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
+            if (_viewMode == "weekly" || _viewMode == "analytics" || _viewMode == "vending" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "monthly" || (_viewMode == "breakdown" && _breakdownRangeType == "year"))
+            else if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "vending") && _breakdownRangeType == "year"))
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
@@ -257,6 +279,34 @@ namespace GFC.BlazorServer.Components.Pages
             await LoadData();
         }
 
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            await base.OnAfterRenderAsync(firstRender);
+            if (_needsChartUpdate)
+            {
+                _needsChartUpdate = false;
+                try
+                {
+                    if (_viewMode == "breakdown")
+                    {
+                        await UpdateBreakdownChart();
+                    }
+                    else if (_viewMode == "vending")
+                    {
+                        await UpdateVendingChart();
+                    }
+                    else if (_viewMode == "commissions")
+                    {
+                        await UpdateCommissionsChart();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error updating chart on after render");
+                }
+            }
+        }
+
         private bool ShouldShowContent() => !_loading && string.IsNullOrEmpty(_error);
 
         private async Task LoadData()
@@ -294,6 +344,10 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadAnalyticsData();
                 }
+                else if (_viewMode == "vending")
+                {
+                    await LoadVendingData();
+                }
                 else if (_viewMode == "breakdown")
                 {
                     await LoadBreakdownData();
@@ -307,6 +361,7 @@ namespace GFC.BlazorServer.Components.Pages
             finally
             {
                 _loading = false;
+                _needsChartUpdate = true;
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -1193,6 +1248,10 @@ namespace GFC.BlazorServer.Components.Pages
                     .Where(w => w.WeekEndingDate >= startDate.AddDays(-7) && w.WeekEndingDate <= endDate.AddDays(7))
                     .ToListAsync();
 
+                var vendingDrops = await db.LotteryVendingCollections
+                    .Where(v => v.CollectionDate.Date >= startDate && v.CollectionDate.Date <= endDate)
+                    .ToListAsync();
+
                 _breakdownDailyItems.Clear();
                 decimal periodTotalEnvelope = _shifts.Sum(s => s.EnvelopeAmount);
                 int totalDays = (endDate - startDate).Days + 1;
@@ -1205,6 +1264,7 @@ namespace GFC.BlazorServer.Components.Pages
                     {
                         var dayShifts = _shifts.Where(s => s.ShiftDate.Date == currentDate.Date).ToList();
                         decimal dayEnvelope = dayShifts.Sum(s => s.EnvelopeAmount);
+                        decimal dayVending = vendingDrops.Where(v => v.CollectionDate.Date == currentDate.Date).Sum(v => v.AmountCollected);
 
                         var nightShift = dayShifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
 
@@ -1224,6 +1284,7 @@ namespace GFC.BlazorServer.Components.Pages
                             DayName = currentDate.ToString("dddd"),
                             DateLabel = currentDate.ToString("ddd MM/dd"),
                             EnvelopeAmount = dayEnvelope,
+                            VendingAmount = dayVending,
                             NetDue = dayNetDue,
                             TotalSales = daySales,
                             Variance = dayVariance,
@@ -1246,6 +1307,7 @@ namespace GFC.BlazorServer.Components.Pages
                         var weekEnd = weekStart.AddDays(6);
                         var weekShifts = _shifts.Where(s => s.ShiftDate.Date >= weekStart && s.ShiftDate.Date <= weekEnd).ToList();
                         decimal weekEnvelope = weekShifts.Sum(s => s.EnvelopeAmount);
+                        decimal weekVending = vendingDrops.Where(v => v.CollectionDate.Date >= weekStart && v.CollectionDate.Date <= weekEnd).Sum(v => v.AmountCollected);
 
                         decimal weekNetDue = weekShifts
                             .GroupBy(s => s.ShiftDate.Date)
@@ -1280,6 +1342,7 @@ namespace GFC.BlazorServer.Components.Pages
                             DayName = $"Week of {weekStart:MMM d}",
                             DateLabel = $"{weekStart:MMM d} - {weekEnd:MMM d}",
                             EnvelopeAmount = weekEnvelope,
+                            VendingAmount = weekVending,
                             NetDue = weekNetDue,
                             TotalSales = weekSales,
                             Variance = weekVariance,
@@ -1303,6 +1366,7 @@ namespace GFC.BlazorServer.Components.Pages
                         var mEnd = mStart.AddMonths(1).AddDays(-1);
                         var monthShifts = _shifts.Where(s => s.ShiftDate.Date >= mStart && s.ShiftDate.Date <= mEnd).ToList();
                         decimal mEnvelope = monthShifts.Sum(s => s.EnvelopeAmount);
+                        decimal mVending = vendingDrops.Where(v => v.CollectionDate.Date >= mStart && v.CollectionDate.Date <= mEnd).Sum(v => v.AmountCollected);
 
                         decimal mNetDue = monthShifts
                             .GroupBy(s => s.ShiftDate.Date)
@@ -1337,6 +1401,7 @@ namespace GFC.BlazorServer.Components.Pages
                             DayName = mStart.ToString("MMMM yyyy"),
                             DateLabel = mStart.ToString("MMM yyyy"),
                             EnvelopeAmount = mEnvelope,
+                            VendingAmount = mVending,
                             NetDue = mNetDue,
                             TotalSales = mSales,
                             Variance = mVariance,
@@ -1352,6 +1417,7 @@ namespace GFC.BlazorServer.Components.Pages
                 }
 
                 _breakdownStats.TotalEnvelopeDrops = periodTotalEnvelope;
+                _breakdownStats.TotalVendingDrops = _breakdownDailyItems.Sum(d => d.VendingAmount);
                 _breakdownStats.TotalWeeklyStatementDue = _breakdownDailyItems.Sum(d => d.WeeklyStatementDue);
                 if (_breakdownStats.TotalWeeklyStatementDue == 0 && weeklyStats.Any())
                 {
@@ -1371,8 +1437,7 @@ namespace GFC.BlazorServer.Components.Pages
                     _breakdownStats.PeakDropDayAmount = 0;
                 }
                 _breakdownStats.TotalShifts = _shifts.Count;
-
-                _ = Task.Delay(100).ContinueWith(async _ => await UpdateBreakdownChart());
+                _needsChartUpdate = true;
             }
             catch (Exception ex)
             {
@@ -1384,12 +1449,21 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ToggleBreakdownMetric(string metric)
         {
             if (metric == "envelope") _showMetricEnvelope = !_showMetricEnvelope;
+            else if (metric == "vending") _showMetricVending = !_showMetricVending;
             else if (metric == "netdue") _showMetricNetDue = !_showMetricNetDue;
             else if (metric == "sales") _showMetricSales = !_showMetricSales;
             else if (metric == "variance") _showMetricVariance = !_showMetricVariance;
             else if (metric == "weeklydue") _showMetricWeeklyDue = !_showMetricWeeklyDue;
             else if (metric == "onlinedue") _showMetricOnlineDue = !_showMetricOnlineDue;
 
+            await UpdateBreakdownChart();
+        }
+
+        private bool _isBreakdownStacked = true;
+
+        private async Task ToggleBreakdownStackMode()
+        {
+            _isBreakdownStacked = !_isBreakdownStacked;
             await UpdateBreakdownChart();
         }
 
@@ -1400,14 +1474,34 @@ namespace GFC.BlazorServer.Components.Pages
             var labels = _breakdownDailyItems.Select(d => d.DateLabel).ToList();
             var datasets = new List<object>();
 
+            string? cashStack = _isBreakdownStacked ? "cash" : null;
+            string? netDueStack = _isBreakdownStacked ? "netdue" : null;
+            string? salesStack = _isBreakdownStacked ? "sales" : null;
+            string? varianceStack = _isBreakdownStacked ? "variance" : null;
+            string? weeklyDueStack = _isBreakdownStacked ? "weeklydue" : null;
+            string? onlineDueStack = _isBreakdownStacked ? "onlinedue" : null;
+
             if (_showMetricEnvelope)
             {
                 datasets.Add(new { 
                     label = "Envelope Drops", 
                     data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
                     color = "#10b981", 
-                    bg = "rgba(16, 185, 129, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(16, 185, 129, 0.85)", 
+                    type = "bar",
+                    stack = cashStack
+                });
+            }
+
+            if (_showMetricVending)
+            {
+                datasets.Add(new { 
+                    label = "Vending Machine Drops", 
+                    data = _breakdownDailyItems.Select(d => d.VendingAmount).ToList(), 
+                    color = "#f59e0b", 
+                    bg = "rgba(245, 158, 11, 0.9)", 
+                    type = "bar",
+                    stack = cashStack
                 });
             }
 
@@ -1417,8 +1511,9 @@ namespace GFC.BlazorServer.Components.Pages
                     label = "Net Due to Lottery", 
                     data = _breakdownDailyItems.Select(d => d.NetDue).ToList(), 
                     color = "#3b82f6", 
-                    bg = "rgba(59, 130, 246, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(59, 130, 246, 0.75)", 
+                    type = "bar",
+                    stack = netDueStack
                 });
             }
 
@@ -1428,8 +1523,9 @@ namespace GFC.BlazorServer.Components.Pages
                     label = "Tickets", 
                     data = _breakdownDailyItems.Select(d => d.TotalSales).ToList(), 
                     color = "#6366f1", 
-                    bg = "rgba(99, 102, 241, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(99, 102, 241, 0.75)", 
+                    type = "bar",
+                    stack = salesStack
                 });
             }
 
@@ -1439,8 +1535,9 @@ namespace GFC.BlazorServer.Components.Pages
                     label = "Cash Variance", 
                     data = _breakdownDailyItems.Select(d => d.Variance).ToList(), 
                     color = "#ef4444", 
-                    bg = "rgba(239, 68, 68, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(239, 68, 68, 0.75)", 
+                    type = "bar",
+                    stack = varianceStack
                 });
             }
 
@@ -1450,8 +1547,9 @@ namespace GFC.BlazorServer.Components.Pages
                     label = "Weekly Statement Due", 
                     data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
                     color = "#ec4899", 
-                    bg = "rgba(236, 72, 153, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(236, 72, 153, 0.75)", 
+                    type = "bar",
+                    stack = weeklyDueStack
                 });
             }
 
@@ -1461,8 +1559,9 @@ namespace GFC.BlazorServer.Components.Pages
                     label = "Online Due", 
                     data = _breakdownDailyItems.Select(d => d.OnlineDue).ToList(), 
                     color = "#a855f7", 
-                    bg = "rgba(168, 85, 247, 0.7)", 
-                    type = "bar"
+                    bg = "rgba(168, 85, 247, 0.75)", 
+                    type = "bar",
+                    stack = onlineDueStack
                 });
             }
 
@@ -1653,6 +1752,176 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 Logger.LogError(ex, "Error creating closed shift");
                 _error = "Failed to mark shift as closed: " + ex.Message;
+            }
+        }
+
+        private async Task LoadVendingData()
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                _vendingCollections = await db.LotteryVendingCollections
+                    .OrderByDescending(v => v.CollectionDate)
+                    .ToListAsync();
+
+                _needsChartUpdate = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading vending collections");
+                _error = "Failed to load vending collections: " + ex.Message;
+            }
+        }
+
+        private IEnumerable<LotteryVendingCollection> FilteredVendingCollections
+        {
+            get
+            {
+                return _vendingCollections
+                    .Where(v => v.CollectionDate.Date >= _filterStartDate.Date && v.CollectionDate.Date <= _filterEndDate.Date)
+                    .OrderByDescending(v => v.CollectionDate);
+            }
+        }
+
+        private async Task UpdateVendingChart()
+        {
+            List<string> labels = new();
+            List<decimal> values = new();
+            string chartLabel = "Vending Machine Drops ($)";
+
+            var periodDrops = FilteredVendingCollections.OrderBy(v => v.CollectionDate).ToList();
+
+            if (periodDrops.Any())
+            {
+                labels = periodDrops.Select(v => v.CollectionDate.ToString("MM/dd")).ToList();
+                values = periodDrops.Select(v => v.AmountCollected).ToList();
+            }
+            else
+            {
+                labels.Add($"{_filterStartDate:MM/dd} - {_filterEndDate:MM/dd}");
+                values.Add(0);
+            }
+
+            var datasets = new List<object>
+            {
+                new {
+                    label = chartLabel,
+                    data = values,
+                    color = "#f59e0b",
+                    bg = "rgba(245, 158, 11, 0.7)",
+                    type = "bar"
+                }
+            };
+
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "vendingCollectionChart", new {
+                type = "bar",
+                labels = labels,
+                datasets = datasets
+            });
+        }
+
+        private void OpenNewVendingModal()
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username ?? "Staff";
+            var userFullName = _employeeMetadata.FirstOrDefault(e => string.Equals(e.Username, username, StringComparison.OrdinalIgnoreCase)).FullName;
+            var loggedInUser = !string.IsNullOrEmpty(userFullName) ? userFullName : username;
+
+            _editingVendingCollection = new LotteryVendingCollection
+            {
+                CollectionDate = DateTime.Today,
+                PeriodStartDate = DateTime.Today.AddDays(-7),
+                PeriodEndDate = DateTime.Today,
+                EnteredBy = loggedInUser
+            };
+            _modalError = string.Empty;
+            _showVendingModal = true;
+        }
+
+        private void OpenEditVendingModal(LotteryVendingCollection item)
+        {
+            _editingVendingCollection = new LotteryVendingCollection
+            {
+                Id = item.Id,
+                CollectionDate = item.CollectionDate,
+                PeriodStartDate = item.PeriodStartDate,
+                PeriodEndDate = item.PeriodEndDate,
+                AmountCollected = item.AmountCollected,
+                EnteredBy = item.EnteredBy,
+                Notes = item.Notes,
+                CreatedAt = item.CreatedAt
+            };
+            _modalError = string.Empty;
+            _showVendingModal = true;
+        }
+
+        private void CloseVendingModal()
+        {
+            _showVendingModal = false;
+        }
+
+        private void OnVendingEndDateChanged(ChangeEventArgs e)
+        {
+            if (DateTime.TryParse(e.Value?.ToString(), out var endDate))
+            {
+                _editingVendingCollection.PeriodEndDate = endDate;
+                _editingVendingCollection.CollectionDate = endDate;
+            }
+        }
+
+        private async Task SaveVendingCollection()
+        {
+            try
+            {
+                // Always sync CollectionDate to PeriodEndDate (cash removed date matches report end date)
+                _editingVendingCollection.CollectionDate = _editingVendingCollection.PeriodEndDate;
+
+                if (_editingVendingCollection.AmountCollected <= 0)
+                {
+                    _modalError = "Amount collected must be greater than $0.";
+                    return;
+                }
+
+                using var db = await DbFactory.CreateDbContextAsync();
+                if (_editingVendingCollection.Id == 0)
+                {
+                    _editingVendingCollection.CreatedAt = DateTime.Now;
+                    db.LotteryVendingCollections.Add(_editingVendingCollection);
+                }
+                else
+                {
+                    _editingVendingCollection.UpdatedAt = DateTime.Now;
+                    db.LotteryVendingCollections.Update(_editingVendingCollection);
+                }
+
+                await db.SaveChangesAsync();
+                _showVendingModal = false;
+                await LoadVendingData();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error saving vending collection");
+                _modalError = "Failed to save collection: " + ex.Message;
+            }
+        }
+
+        private async Task DeleteVendingCollection(int id)
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var item = await db.LotteryVendingCollections.FindAsync(id);
+                if (item != null)
+                {
+                    db.LotteryVendingCollections.Remove(item);
+                    await db.SaveChangesAsync();
+                    await LoadVendingData();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error deleting vending collection");
+                _error = "Failed to delete collection: " + ex.Message;
             }
         }
     }
