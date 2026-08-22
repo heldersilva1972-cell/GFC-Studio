@@ -1416,57 +1416,6 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && (_shifts.Any()
             <canvas id="commissionsReportChart"></canvas>
         </div>
     </div>
-
-    @* Detailed Table *@
-    <div class="data-card border-0 shadow-sm rounded-3 overflow-hidden mb-2 bg-white">
-        <h5 class="fw-black text-muted mb-2 pt-3 px-3 text-uppercase x-small tracking-widest">Weekly Commissions & Bonuses Ledger</h5>
-        
-        <div class="table-container-fixed" style="max-height: calc(100vh - 350px);">
-            <table class="data-table">
-                <thead>
-                    <tr class="text-uppercase x-small tracking-widest text-muted">
-                        <th class="ps-4">Week Ending</th>
-                        <th class="text-end">Commissions</th>
-                        <th class="text-end">Cash Bonus</th>
-                        <th class="text-end">Claims Bonus</th>
-                        <th class="text-end">Fees</th>
-                        <th class="text-end pe-4 fw-black text-primary">Total Net Earnings</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (_weeklyCommissionsStats != null && _weeklyCommissionsStats.Any())
-                    {
-                        @foreach (var week in _weeklyCommissionsStats)
-                        {
-                            var totalComm = Math.Abs(week.OnlineCommission) + Math.Abs(week.InstantCommission);
-                            var totalCashBonus = Math.Abs(week.OnlineCashBonus) + Math.Abs(week.InstantCashBonus);
-                            var totalClaimsBonus = Math.Abs(week.OnlineClaimsBonus) + Math.Abs(week.InstantClaimsBonus);
-                            var totalFees = Math.Abs(week.OnlineServiceFee) + Math.Abs(week.OnlineBondingFee);
-                            var totalEarnings = totalComm + totalCashBonus + totalClaimsBonus - totalFees;
-                            
-                            <tr class="align-middle">
-                                <td class="ps-4 fw-bold">@week.WeekEndingDate.ToString("MMMM dd, yyyy")</td>
-                                <td class="text-end">@totalComm.ToString("C2")</td>
-                                <td class="text-end">@totalCashBonus.ToString("C2")</td>
-                                <td class="text-end">@totalClaimsBonus.ToString("C2")</td>
-                                <td class="text-end text-danger">@totalFees.ToString("C2")</td>
-                                <td class="text-end pe-4 fw-black text-primary">@totalEarnings.ToString("C2")</td>
-                            </tr>
-                        }
-                    }
-                    else
-                    {
-                        <tr>
-                            <td colspan="6" class="text-center text-muted p-5">
-                                <i class="bi bi-exclamation-circle d-block fs-3 mb-2 opacity-50"></i>
-                                No imported weekly statements found in the selected period.
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
 }
 
 @if (ShowContent && _viewMode == "weekly")
@@ -2131,7 +2080,7 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && (_shifts.Any()
                                             <button class="btn btn-sm btn-outline-primary rounded-pill me-1 px-3 py-1" @onclick="() => OpenEditVendingModal(item)" title="Edit Collection">
                                                 <i class="bi bi-pencil-square me-1"></i>Edit
                                             </button>
-                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1" @onclick="() => DeleteVendingCollection(item.Id)" title="Delete Collection">
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1" @onclick="() => PromptDeleteVendingCollection(item)" title="Delete Collection">
                                                 <i class="bi bi-trash-fill me-1"></i>Delete
                                             </button>
                                         </td>
@@ -2152,59 +2101,107 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && (_shifts.Any()
     </div>
 }
 
+@if (_showDeleteVendingModal && _vendingToDelete != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 1060;" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="p-4 text-center">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-danger-subtle text-danger rounded-circle mb-3" style="width: 60px; height: 60px;">
+                        <i class="bi bi-trash3-fill fs-2"></i>
+                    </div>
+                    <h5 class="fw-black text-dark mb-2">Delete Collection Entry?</h5>
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to permanently delete this vending machine collection record?
+                    </p>
+                    <div class="card border bg-light rounded-3 p-3 text-start mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="extra-small fw-bold text-muted text-uppercase">Collection Period</span>
+                            <span class="badge bg-white text-dark border fw-bold">
+                                @_vendingToDelete.PeriodStartDate.ToString("MMM d") – @_vendingToDelete.PeriodEndDate.ToString("MMM d, yyyy")
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="extra-small fw-bold text-muted text-uppercase">Amount Collected</span>
+                            <span class="fs-6 fw-black text-danger">@_vendingToDelete.AmountCollected.ToString("C2")</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_vendingToDelete.EnteredBy))
+                        {
+                            <div class="d-flex justify-content-between align-items-center mt-1 pt-1 border-top">
+                                <span class="extra-small text-muted">Logged By</span>
+                                <span class="extra-small fw-bold text-dark">@_vendingToDelete.EnteredBy</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-light fw-bold rounded-pill px-4" @onclick="CloseDeleteVendingModal">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm" @onclick="ConfirmDeleteVendingCollectionAction">
+                            <i class="bi bi-trash-fill me-1"></i> Confirm Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showVendingModal)
 {
     <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg rounded-4">
-                <div class="modal-header border-bottom-0 pb-0">
-                    <h5 class="modal-title fw-black text-dark">
-                        <i class="bi bi-ticket-perforated text-warning me-2"></i>
-                        @(_editingVendingCollection.Id == 0 ? "Log Vending Machine Collection" : "Edit Vending Collection")
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="CloseVendingModal"></button>
-                </div>
-                <div class="modal-body px-4 py-3">
-                    @if (!string.IsNullOrEmpty(_modalError))
-                    {
-                        <div class="alert alert-danger py-2 small mb-3">@_modalError</div>
-                    }
-                    
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label fw-bold small text-muted text-uppercase">Report Start Date</label>
-                            <input type="date" class="form-control rounded-3" @bind="_editingVendingCollection.PeriodStartDate" />
+                <form @onsubmit="SaveVendingCollection" @onsubmit:preventDefault="true" @onkeydown="HandleVendingKeyDown">
+                    <div class="modal-header border-bottom-0 pb-0">
+                        <h5 class="modal-title fw-black text-dark">
+                            <i class="bi bi-ticket-perforated text-warning me-2"></i>
+                            @(_editingVendingCollection.Id == 0 ? "Log Vending Machine Collection" : "Edit Vending Collection")
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="CloseVendingModal"></button>
+                    </div>
+                    <div class="modal-body px-4 py-3">
+                        @if (!string.IsNullOrEmpty(_modalError))
+                        {
+                            <div class="alert alert-danger py-2 small mb-3">@_modalError</div>
+                        }
+                        
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label fw-bold small text-muted text-uppercase">Report Start Date</label>
+                                <input type="date" class="form-control rounded-3" value="@(_editingVendingCollection.PeriodStartDate == default ? "" : _editingVendingCollection.PeriodStartDate.ToString("yyyy-MM-dd"))" @onchange="OnVendingStartDateChanged" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold small text-muted text-uppercase">Report End Date (Cash Removed)</label>
+                                <input type="date" class="form-control rounded-3" value="@(_editingVendingCollection.PeriodEndDate == default ? "" : _editingVendingCollection.PeriodEndDate.ToString("yyyy-MM-dd"))" @onchange="OnVendingEndDateChanged" />
+                            </div>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label fw-bold small text-muted text-uppercase">Report End Date (Cash Removed)</label>
-                            <input type="date" class="form-control rounded-3" value="@_editingVendingCollection.PeriodEndDate.ToString("yyyy-MM-dd")" @onchange="OnVendingEndDateChanged" />
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">Amount Collected ($)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light fw-bold">$</span>
+                                <input type="number" step="0.01" class="form-control form-control-lg fw-bold text-success rounded-end-3" @bind="_editingVendingCollection.AmountCollected" placeholder="0.00" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">Logged By</label>
+                            <input type="text" class="form-control rounded-3" @bind="_editingVendingCollection.EnteredBy" placeholder="Staff Name" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted text-uppercase">Notes / Meter Readings (Optional)</label>
+                            <textarea class="form-control rounded-3" rows="2" @bind="_editingVendingCollection.Notes" placeholder="Additional details or meter numbers..."></textarea>
                         </div>
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted text-uppercase">Amount Collected ($)</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light fw-bold">$</span>
-                            <input type="number" step="0.01" class="form-control form-control-lg fw-bold text-success rounded-end-3" @bind="_editingVendingCollection.AmountCollected" placeholder="0.00" />
-                        </div>
+                    <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
+                        <button type="button" class="btn btn-light fw-bold rounded-pill px-4" @onclick="CloseVendingModal">Cancel</button>
+                        <button type="submit" class="btn btn-warning fw-bold rounded-pill px-4 text-dark">
+                            <i class="bi bi-check-circle-fill me-1"></i> Save Collection
+                        </button>
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted text-uppercase">Logged By</label>
-                        <input type="text" class="form-control rounded-3" @bind="_editingVendingCollection.EnteredBy" placeholder="Staff Name" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted text-uppercase">Notes / Meter Readings (Optional)</label>
-                        <textarea class="form-control rounded-3" rows="2" @bind="_editingVendingCollection.Notes" placeholder="Additional details or meter numbers..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
-                    <button type="button" class="btn btn-light fw-bold rounded-pill px-4" @onclick="CloseVendingModal">Cancel</button>
-                    <button type="button" class="btn btn-warning fw-bold rounded-pill px-4 text-dark" @onclick="SaveVendingCollection">
-                        <i class="bi bi-check-circle-fill me-1"></i> Save Collection
-                    </button>
-                </div>
+                </form>
             </div>
         </div>
     </div>

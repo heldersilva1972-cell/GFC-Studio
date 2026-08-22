@@ -188,13 +188,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly" || _viewMode == "analytics" || _viewMode == "vending" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
+            if (_viewMode == "weekly" || _viewMode == "analytics" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "month"))
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "vending") && _breakdownRangeType == "year"))
+            else if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "year"))
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
@@ -655,7 +655,14 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
 
             // INTELLIGENT DATE SNAPPING
-            if (_viewMode == "daily" || _viewMode == "breakdown")
+            if (_viewMode == "commissions" || _viewMode == "vending")
+            {
+                _breakdownRangeType = "year";
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (_viewMode == "daily" || _viewMode == "breakdown")
             {
                 if (_viewMode == "daily" || _breakdownRangeType == "week")
                 {
@@ -676,15 +683,9 @@ namespace GFC.BlazorServer.Components.Pages
                 }
                 else if (_breakdownRangeType == "custom")
                 {
-                    // Keep custom date ranges
+                    _filterStartDate = _breakdownCustomStart;
+                    _filterEndDate = _breakdownCustomEnd;
                 }
-            }
-            else if (_viewMode == "commissions")
-            {
-                // Snap to the full year for the commissions view so all historical weekly data for the selected year is loaded
-                var range = GetSnappedYearRange(_selectedYear);
-                _filterStartDate = range.Start;
-                _filterEndDate = range.End;
             }
             else if (_viewMode == "weekly")
             {
@@ -718,13 +719,13 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeYear(int year)
         {
             _selectedYear = year;
-            if (_viewMode == "monthly" || _viewMode == "commissions" || (_viewMode == "breakdown" && _breakdownRangeType == "year"))
+            if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "year"))
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "weekly" || _viewMode == "analytics" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
+            else if (_viewMode == "weekly" || _viewMode == "analytics" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "month"))
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
@@ -1764,7 +1765,10 @@ namespace GFC.BlazorServer.Components.Pages
                     .OrderByDescending(v => v.CollectionDate)
                     .ToListAsync();
 
-                _needsChartUpdate = true;
+                if (_viewMode == "vending")
+                {
+                    await UpdateVendingChart();
+                }
             }
             catch (Exception ex)
             {
@@ -1829,9 +1833,9 @@ namespace GFC.BlazorServer.Components.Pages
 
             _editingVendingCollection = new LotteryVendingCollection
             {
-                CollectionDate = DateTime.Today,
-                PeriodStartDate = DateTime.Today.AddDays(-7),
-                PeriodEndDate = DateTime.Today,
+                CollectionDate = default,
+                PeriodStartDate = default,
+                PeriodEndDate = default,
                 EnteredBy = loggedInUser
             };
             _modalError = string.Empty;
@@ -1860,6 +1864,18 @@ namespace GFC.BlazorServer.Components.Pages
             _showVendingModal = false;
         }
 
+        private void OnVendingStartDateChanged(ChangeEventArgs e)
+        {
+            if (DateTime.TryParse(e.Value?.ToString(), out var startDate))
+            {
+                _editingVendingCollection.PeriodStartDate = startDate;
+            }
+            else
+            {
+                _editingVendingCollection.PeriodStartDate = default;
+            }
+        }
+
         private void OnVendingEndDateChanged(ChangeEventArgs e)
         {
             if (DateTime.TryParse(e.Value?.ToString(), out var endDate))
@@ -1867,12 +1883,23 @@ namespace GFC.BlazorServer.Components.Pages
                 _editingVendingCollection.PeriodEndDate = endDate;
                 _editingVendingCollection.CollectionDate = endDate;
             }
+            else
+            {
+                _editingVendingCollection.PeriodEndDate = default;
+                _editingVendingCollection.CollectionDate = default;
+            }
         }
 
         private async Task SaveVendingCollection()
         {
             try
             {
+                if (_editingVendingCollection.PeriodStartDate == default || _editingVendingCollection.PeriodEndDate == default)
+                {
+                    _modalError = "Please select both a report start date and report end date.";
+                    return;
+                }
+
                 // Always sync CollectionDate to PeriodEndDate (cash removed date matches report end date)
                 _editingVendingCollection.CollectionDate = _editingVendingCollection.PeriodEndDate;
 
@@ -1882,7 +1909,29 @@ namespace GFC.BlazorServer.Components.Pages
                     return;
                 }
 
+                if (_editingVendingCollection.PeriodStartDate.Date > _editingVendingCollection.PeriodEndDate.Date)
+                {
+                    _modalError = "Report start date cannot be after the report end date.";
+                    return;
+                }
+
                 using var db = await DbFactory.CreateDbContextAsync();
+
+                var newStart = _editingVendingCollection.PeriodStartDate.Date;
+                var newEnd = _editingVendingCollection.PeriodEndDate.Date;
+
+                // Prevent interior overlapping collection date ranges (e.g. 6/19-6/20 inside 6/18-6/23)
+                // Sharing a transition date (e.g. 6/23-6/25 and 6/25-6/26) is permitted.
+                var existingDuplicate = await db.LotteryVendingCollections
+                    .FirstOrDefaultAsync(v => v.Id != _editingVendingCollection.Id &&
+                        (newStart < v.PeriodEndDate.Date && newEnd > v.PeriodStartDate.Date));
+
+                if (existingDuplicate != null)
+                {
+                    _modalError = $"Overlapping entry prevented: A vending collection for {existingDuplicate.PeriodStartDate:MM/dd/yyyy} - {existingDuplicate.PeriodEndDate:MM/dd/yyyy} (${existingDuplicate.AmountCollected:N2} by {existingDuplicate.EnteredBy}) already covers part of this date range.";
+                    return;
+                }
+
                 if (_editingVendingCollection.Id == 0)
                 {
                     _editingVendingCollection.CreatedAt = DateTime.Now;
@@ -1902,6 +1951,40 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 Logger.LogError(ex, "Error saving vending collection");
                 _modalError = "Failed to save collection: " + ex.Message;
+            }
+        }
+
+        private bool _showDeleteVendingModal = false;
+        private LotteryVendingCollection? _vendingToDelete = null;
+
+        private void PromptDeleteVendingCollection(LotteryVendingCollection item)
+        {
+            _vendingToDelete = item;
+            _showDeleteVendingModal = true;
+        }
+
+        private void CloseDeleteVendingModal()
+        {
+            _showDeleteVendingModal = false;
+            _vendingToDelete = null;
+        }
+
+        private async Task ConfirmDeleteVendingCollectionAction()
+        {
+            if (_vendingToDelete != null)
+            {
+                int id = _vendingToDelete.Id;
+                _showDeleteVendingModal = false;
+                _vendingToDelete = null;
+                await DeleteVendingCollection(id);
+            }
+        }
+
+        private async Task HandleVendingKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+        {
+            if (e.Key == "Enter")
+            {
+                await SaveVendingCollection();
             }
         }
 

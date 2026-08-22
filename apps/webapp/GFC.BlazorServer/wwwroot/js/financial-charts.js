@@ -51,37 +51,7 @@ window.financialCharts = {
         if (this.charts[canvasId]) {
             const chart = this.charts[canvasId];
             chart.data.labels = config.labels;
-
-            const newMap = new Map(datasets.map(d => [d.label, d]));
-
-            // 1. Remove datasets that were previously zeroed out completely
-            chart.data.datasets = chart.data.datasets.filter(d => {
-                if (!newMap.has(d.label)) {
-                    const isZeroed = d.data && d.data.every(v => v === 0);
-                    return !isZeroed; // keep unselected dataset so it can shrink to 0 now
-                }
-                return true;
-            });
-
-            // 2. Set unselected datasets to 0 height so Chart.js animates them shrinking down smoothly
-            chart.data.datasets.forEach(d => {
-                if (!newMap.has(d.label)) {
-                    d.data = d.data.map(() => 0);
-                }
-            });
-
-            // 3. Update active datasets in-place or add new active datasets
-            datasets.forEach((newDs) => {
-                let existingDs = chart.data.datasets.find(d => d.label === newDs.label);
-                if (existingDs) {
-                    existingDs.data = newDs.data;
-                    existingDs.backgroundColor = newDs.backgroundColor;
-                    existingDs.borderColor = newDs.borderColor;
-                    existingDs.stack = newDs.stack || undefined;
-                } else {
-                    chart.data.datasets.push(newDs);
-                }
-            });
+            chart.data.datasets = datasets;
 
             if (chart.options.scales && chart.options.scales.x) chart.options.scales.x.stacked = isStacked;
             if (chart.options.scales && chart.options.scales.y) chart.options.scales.y.stacked = isStacked;
@@ -146,18 +116,47 @@ window.financialCharts = {
                             },
                             footer: function (tooltipItems) {
                                 let totalCash = 0;
-                                let count = 0;
+                                let cashCount = 0;
+
+                                let selectedEarningsTotal = 0;
+                                let earningsCount = 0;
+                                let feesTotal = 0;
+                                let hasFees = false;
+
                                 tooltipItems.forEach(function (item) {
                                     const l = item.dataset.label || '';
+                                    const val = item.parsed.y || 0;
+
                                     if (l === 'Envelope Drops' || l === 'Vending Machine Drops') {
-                                        totalCash += (item.parsed.y || 0);
-                                        count++;
+                                        totalCash += val;
+                                        cashCount++;
+                                    }
+                                    else if (l === 'Commissions' || l === 'Cash Bonus' || l === 'Claims Bonus') {
+                                        selectedEarningsTotal += val;
+                                        earningsCount++;
+                                    }
+                                    else if (l === 'Weekly Fees') {
+                                        feesTotal += val;
+                                        hasFees = true;
                                     }
                                 });
-                                if (count > 0) {
+
+                                if (cashCount > 0) {
                                     const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalCash);
                                     return 'Total Cash Available: ' + formatted;
                                 }
+
+                                if (earningsCount > 0) {
+                                    const formattedEarnings = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(selectedEarningsTotal);
+                                    if (hasFees) {
+                                        const netTotal = selectedEarningsTotal - feesTotal;
+                                        const formattedNet = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(netTotal);
+                                        return 'Total Selected Earnings: ' + formattedEarnings + '\nNet Total: ' + formattedNet;
+                                    } else {
+                                        return 'Total Selected: ' + formattedEarnings;
+                                    }
+                                }
+
                                 return '';
                             }
                         }

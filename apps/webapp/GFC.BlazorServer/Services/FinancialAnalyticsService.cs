@@ -1259,22 +1259,24 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
 
             summary.TotalLotteryCommissions = weeklyStats.Sum(w =>
-                Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+                (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                 Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                 Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
 
             foreach (var w in weeklyStats)
             {
-                var totalEarnings = Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                var totalEarnings = (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
                                     Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                                    Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus);
+                                    Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                                    (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee));
 
                 summary.LedgerEntries.Add(new IncomeStreamEntryDto
                 {
                     Date = w.WeekEndingDate.Date,
                     Stream = "Lottery",
                     Shift = "Weekly",
-                    Description = $"Lottery Earnings - Week Ending {w.WeekEndingDate:MMM dd, yyyy} (Commissions + Cash Bonus + Claims Bonus)",
+                    Description = $"Lottery Net Earnings - Week Ending {w.WeekEndingDate:MMM dd, yyyy} (Commissions + Bonuses - Weekly Fees)",
                     Amount = totalEarnings,
                     SourceUrl = "/lottery"
                 });
@@ -1293,10 +1295,10 @@ namespace GFC.BlazorServer.Services
                 {
                     Date = dp.PaidDate!.Value.Date,
                     Stream = "Membership Dues",
-                    Shift = "N/A",
+                    Shift = "Dues Payment",
                     Description = $"Dues Payment ({dp.PaymentType ?? "CASH"})",
                     Amount = dp.Amount ?? 0m,
-                    SourceUrl = "/dues"
+                    SourceUrl = "/membership"
                 });
             }
 
@@ -1332,9 +1334,10 @@ namespace GFC.BlazorServer.Services
                         .ToListAsync();
 
                     summary.PrevMonthLotteryCommissions = prevWeeklyStats.Sum(w =>
-                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+                        (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                         Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                         Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                        (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
 
                     summary.PrevMonthMembershipDues = await db.DuesPayments.AsNoTracking()
                         .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= prevStart && dp.PaidDate.Value <= prevEnd && dp.Amount.HasValue)
@@ -1365,9 +1368,10 @@ namespace GFC.BlazorServer.Services
                         .ToListAsync();
 
                     summary.PrevMonthLotteryCommissions = prevWeeklyStats.Sum(w =>
-                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+                        (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                         Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                         Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                        (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
 
                     summary.PrevMonthMembershipDues = await db.DuesPayments.AsNoTracking()
                         .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= prevStart && dp.PaidDate.Value <= prevEnd && dp.Amount.HasValue)
@@ -1410,9 +1414,10 @@ namespace GFC.BlazorServer.Services
                         .ToListAsync();
 
                     summary.ComparisonLotteryCommissions = compWeeklyStats.Sum(w =>
-                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus));
+                        (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                         Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                         Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                        (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
 
                     summary.ComparisonMembershipDues = await db.DuesPayments.AsNoTracking()
                         .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
