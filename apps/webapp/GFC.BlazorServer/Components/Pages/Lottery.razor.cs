@@ -253,6 +253,7 @@ namespace GFC.BlazorServer.Components.Pages
             }
 
             InitializeWeeks();
+            await LoadAvailableYears();
             await LoadData();
         }
 
@@ -267,6 +268,7 @@ namespace GFC.BlazorServer.Components.Pages
                 _employeeMetadata = await Task.Run(() => LotteryService.GetEmployeeMetadata());
                 _employeeNames = _employeeMetadata.Select(m => m.FullName).ToList();
                 _commissionRates = await Task.Run(() => LotteryService.GetAllRates());
+                await LoadAvailableYears();
                 
                 if (_viewMode == "shifts" || _viewMode == "daily")
                 {
@@ -384,6 +386,42 @@ namespace GFC.BlazorServer.Components.Pages
                     var end = start.AddDays(6);
                     _availableWeeks.Add((start, end, $"{start:MMM d} - {end:MMM d, yyyy}"));
                 }
+            }
+        }
+
+        private List<int> _availableYears = new() { DateTime.Now.Year };
+
+        private async Task LoadAvailableYears()
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                
+                var shiftYears = await db.LotteryShifts.AsNoTracking()
+                    .Select(s => s.ShiftDate.Year)
+                    .Distinct()
+                    .ToListAsync();
+
+                var weeklyYears = await db.LotteryWeeklyStats.AsNoTracking()
+                    .Select(w => w.WeekEndingDate.Year)
+                    .Distinct()
+                    .ToListAsync();
+
+                var combinedYears = shiftYears.Concat(weeklyYears)
+                    .Append(DateTime.Now.Year)
+                    .Where(y => y > 2000)
+                    .Distinct()
+                    .OrderByDescending(y => y)
+                    .ToList();
+
+                if (combinedYears.Any())
+                {
+                    _availableYears = combinedYears;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading available years dynamically");
             }
         }
 
@@ -562,7 +600,7 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
 
             // INTELLIGENT DATE SNAPPING
-            if (_viewMode == "daily" || _viewMode == "breakdown" || _viewMode == "commissions")
+            if (_viewMode == "daily" || _viewMode == "breakdown")
             {
                 if (_viewMode == "daily" || _breakdownRangeType == "week")
                 {
@@ -585,6 +623,13 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     // Keep custom date ranges
                 }
+            }
+            else if (_viewMode == "commissions")
+            {
+                // Snap to the full year for the commissions view so all historical weekly data for the selected year is loaded
+                var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
             }
             else if (_viewMode == "weekly")
             {
@@ -618,9 +663,15 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeYear(int year)
         {
             _selectedYear = year;
-            if (_viewMode == "monthly")
+            if (_viewMode == "monthly" || _viewMode == "commissions" || (_viewMode == "breakdown" && _breakdownRangeType == "year"))
             {
                 var range = GetSnappedYearRange(_selectedYear);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (_viewMode == "weekly" || _viewMode == "analytics" || (_viewMode == "breakdown" && _breakdownRangeType == "month"))
+            {
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
@@ -1302,6 +1353,10 @@ namespace GFC.BlazorServer.Components.Pages
 
                 _breakdownStats.TotalEnvelopeDrops = periodTotalEnvelope;
                 _breakdownStats.TotalWeeklyStatementDue = _breakdownDailyItems.Sum(d => d.WeeklyStatementDue);
+                if (_breakdownStats.TotalWeeklyStatementDue == 0 && weeklyStats.Any())
+                {
+                    _breakdownStats.TotalWeeklyStatementDue = weeklyStats.Sum(w => Math.Abs(w.TotalDue));
+                }
                 _breakdownStats.TotalOnlineDue = _breakdownDailyItems.Sum(d => d.OnlineDue);
 
                 var peakDay = _breakdownDailyItems.OrderByDescending(d => d.EnvelopeAmount).FirstOrDefault();

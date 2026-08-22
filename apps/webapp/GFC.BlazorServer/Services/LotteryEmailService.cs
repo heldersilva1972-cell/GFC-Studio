@@ -14,12 +14,15 @@ namespace GFC.BlazorServer.Services
     {
         public string EmailAddress { get; set; } = string.Empty;
         public string AppPassword { get; set; } = string.Empty;
-        public string SenderAddress { get; set; } = "reports@lottery.com";
+        public string SenderAddress { get; set; } = string.Empty;
         public string SubjectKeyword { get; set; } = "Lottery";
         public string DailyGmailLabel { get; set; } = "INBOX";
         public string WeeklyGmailLabel { get; set; } = "INBOX";
         public bool AutoSyncEnabled { get; set; } = false;
         public bool AutoCommitEnabled { get; set; } = false;
+        public bool DownloadWeeklyEnabled { get; set; } = true;
+        public bool DownloadDailyEnabled { get; set; } = true;
+        public bool IncludeReadEmails { get; set; } = false;
         public int SyncIntervalHours { get; set; } = 6;
         public DateTime? LastSyncTime { get; set; }
         public string? LastSyncStatus { get; set; }
@@ -60,6 +63,11 @@ namespace GFC.BlazorServer.Services
 
         public void SaveSettings(LotteryEmailSettings settings)
         {
+            var appDataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data");
+            if (!Directory.Exists(appDataDir))
+            {
+                Directory.CreateDirectory(appDataDir);
+            }
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_settingsFilePath, json);
         }
@@ -88,10 +96,21 @@ namespace GFC.BlazorServer.Services
             var dailyFolder = string.IsNullOrWhiteSpace(settings.DailyGmailLabel) ? "INBOX" : settings.DailyGmailLabel.Trim();
             var weeklyFolder = string.IsNullOrWhiteSpace(settings.WeeklyGmailLabel) ? "INBOX" : settings.WeeklyGmailLabel.Trim();
 
-            foldersToSearch.Add(dailyFolder);
-            if (!foldersToSearch.Contains(weeklyFolder))
+            if (settings.DownloadDailyEnabled)
+            {
+                foldersToSearch.Add(dailyFolder);
+            }
+
+            if (settings.DownloadWeeklyEnabled && !foldersToSearch.Contains(weeklyFolder))
             {
                 foldersToSearch.Add(weeklyFolder);
+            }
+
+            if (!foldersToSearch.Any())
+            {
+                progress?.Report("Both Weekly and Daily report downloads are disabled in settings. Skipping email sync.");
+                await client.DisconnectAsync(true, cancellationToken);
+                return results;
             }
 
             int folderIdx = 0;
@@ -101,7 +120,7 @@ namespace GFC.BlazorServer.Services
                 folderIdx++;
                 progress?.Report($"[{folderIdx}/{foldersToSearch.Count}] Opening folder '{folderName}'...");
                 
-                IMailFolder folder = null;
+                IMailFolder? folder = null;
                 if (!folderName.Equals("INBOX", StringComparison.OrdinalIgnoreCase))
                 {
                     try
@@ -121,26 +140,29 @@ namespace GFC.BlazorServer.Services
 
                 await folder.OpenAsync(FolderAccess.ReadWrite, cancellationToken);
 
-                // Query for unread emails only
-                var query = SearchQuery.NotSeen;
+                bool isDedicatedLabel = !folderName.Equals("INBOX", StringComparison.OrdinalIgnoreCase);
+                
+                // For dedicated Gmail labels or if IncludeReadEmails is enabled, scan ALL messages (read + unread)
+                SearchQuery query = (isDedicatedLabel || settings.IncludeReadEmails) ? SearchQuery.All : SearchQuery.NotSeen;
 
-                if (!string.IsNullOrEmpty(settings.SenderAddress))
+                // Only filter by sender address if scanning generic INBOX and sender address is explicitly provided
+                if (!isDedicatedLabel && !string.IsNullOrWhiteSpace(settings.SenderAddress) && settings.SenderAddress != "reports@lottery.com")
                 {
-                    query = query.And(SearchQuery.FromContains(settings.SenderAddress));
+                    query = query.And(SearchQuery.FromContains(settings.SenderAddress.Trim()));
                 }
 
-                if (!string.IsNullOrEmpty(settings.SubjectKeyword))
+                if (!string.IsNullOrEmpty(settings.SubjectKeyword) && !isDedicatedLabel)
                 {
                     query = query.And(SearchQuery.SubjectContains(settings.SubjectKeyword));
                 }
 
-                progress?.Report($"Searching '{folderName}' for new matching unread messages...");
+                progress?.Report($"Searching '{folderName}' for matching messages...");
                 var matchedUniqueIds = await folder.SearchAsync(query, cancellationToken);
 
                 int totalEmails = matchedUniqueIds.Count;
                 if (totalEmails == 0)
                 {
-                    progress?.Report($"No new matching emails in '{folderName}'.");
+                    progress?.Report($"No matching emails in '{folderName}'.");
                     continue;
                 }
 
@@ -152,25 +174,37 @@ namespace GFC.BlazorServer.Services
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var message = await folder.GetMessageAsync(uid, cancellationToken);
-                    var csvParts = message.Attachments
+
+                    // Scan ALL MIME body parts (attachments, inline parts, nested multiparts)
+                    var reportParts = message.BodyParts
                         .OfType<MimePart>()
-                        .Where(a => a.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                        .Where(p => {
+                            var fileName = p.FileName;
+                            if (string.IsNullOrEmpty(fileName) && p.ContentType != null)
+                            {
+                                fileName = p.ContentType.Name;
+                            }
+                            if (string.IsNullOrEmpty(fileName)) return false;
+                            
+                            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+                            return ext == ".csv" || ext == ".txt" || ext == ".tsv" || ext == ".dat";
+                        })
                         .ToList();
 
-                    if (csvParts.Count > 0)
+                    if (reportParts.Count > 0)
                     {
-                        totalCsvFiles += csvParts.Count;
-                        emailFilesList.Add((uid, csvParts));
+                        totalCsvFiles += reportParts.Count;
+                        emailFilesList.Add((uid, reportParts));
                     }
                 }
 
                 if (totalCsvFiles == 0)
                 {
-                    progress?.Report($"No CSV attachments in matching emails of '{folderName}'.");
+                    progress?.Report($"No CSV/TXT report attachments found in matching emails of '{folderName}'.");
                     continue;
                 }
 
-                progress?.Report($"Found {totalCsvFiles} CSV file(s) in '{folderName}'. Downloading...");
+                progress?.Report($"Found {totalCsvFiles} report file(s) in '{folderName}'. Downloading...");
 
                 int currentFileIdx = 0;
                 foreach (var item in emailFilesList)
@@ -181,19 +215,42 @@ namespace GFC.BlazorServer.Services
                         cancellationToken.ThrowIfCancellationRequested();
                         currentFileIdx++;
                         
-                        progress?.Report($"Downloading {currentFileIdx}/{totalCsvFiles} ({mimePart.FileName}) from '{folderName}'...");
+                        var fileName = mimePart.FileName;
+                        if (string.IsNullOrEmpty(fileName) && mimePart.ContentType != null)
+                        {
+                            fileName = mimePart.ContentType.Name;
+                        }
+                        if (string.IsNullOrEmpty(fileName))
+                        {
+                            fileName = $"report_{currentFileIdx}.csv";
+                        }
+
+                        progress?.Report($"Downloading {currentFileIdx}/{totalCsvFiles} ({fileName}) from '{folderName}'...");
                         
                         using var memoryStream = new MemoryStream();
                         await mimePart.Content.DecodeToAsync(memoryStream, cancellationToken);
                         memoryStream.Position = 0;
 
-                        progress?.Report($"Extracting {currentFileIdx}/{totalCsvFiles} ({mimePart.FileName})...");
+                        progress?.Report($"Extracting {currentFileIdx}/{totalCsvFiles} ({fileName})...");
                         using var reader = new StreamReader(memoryStream);
                         var content = await reader.ReadToEndAsync(cancellationToken);
 
+                        bool isWeekly = content.Contains("Gross Sales") || content.Contains("Return Sales") || content.Contains("Commission") || content.Contains("TOTAL DUE") || fileName.ToLowerInvariant().Contains("weekly");
+                        
+                        if (isWeekly && !settings.DownloadWeeklyEnabled)
+                        {
+                            progress?.Report($"Skipping weekly statement {fileName} (Weekly statement download disabled in settings).");
+                            continue;
+                        }
+                        if (!isWeekly && !settings.DownloadDailyEnabled)
+                        {
+                            progress?.Report($"Skipping daily shift report {fileName} (Daily report download disabled in settings).");
+                            continue;
+                        }
+
                         results.Add(new EmailAttachmentFile
                         {
-                            FileName = mimePart.FileName,
+                            FileName = fileName,
                             FileSize = memoryStream.Length,
                             Content = content
                         });
