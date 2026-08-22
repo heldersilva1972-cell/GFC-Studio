@@ -9,6 +9,7 @@ using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
+using GFC.BlazorServer.Components.Pages.Admin.Pos;
 
 namespace GFC.Pos.UI.Services
 {
@@ -325,7 +326,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
             {
                 if (!string.IsNullOrEmpty(sale.ItemsJson))
                 {
-                    var items = global::System.Text.Json.JsonSerializer.Deserialize<List<PosTerminal.ProductItem>>(sale.ItemsJson);
+                    var items = global::System.Text.Json.JsonSerializer.Deserialize<List<ProductItem>>(sale.ItemsJson);
                     if (items != null)
                     {
                         foreach (var item in items)
@@ -412,7 +413,7 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
                 {
                     if (!string.IsNullOrEmpty(sale.ItemsJson))
                     {
-                        var items = global::System.Text.Json.JsonSerializer.Deserialize<List<PosTerminal.ProductItem>>(sale.ItemsJson);
+                        var items = global::System.Text.Json.JsonSerializer.Deserialize<List<ProductItem>>(sale.ItemsJson);
                         if (items != null)
                         {
                             foreach (var item in items)

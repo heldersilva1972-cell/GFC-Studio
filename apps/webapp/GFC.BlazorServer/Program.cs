@@ -1374,6 +1374,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         }
 
         app.MapControllers();
+        app.MapRazorPages();
 
         app.MapBlazorHub();
         app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub

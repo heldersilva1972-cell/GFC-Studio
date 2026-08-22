@@ -15,13 +15,20 @@ public class NpQueueService : INpQueueService
     private readonly MemberService _memberService;
     private readonly IAuditLogger _auditLogger;
     private readonly IDuesRepository _duesRepository;
+    private readonly IDuesWaiverRepository? _waiverRepository;
 
-    public NpQueueService(IMemberRepository memberRepository, MemberService memberService, IAuditLogger auditLogger, IDuesRepository duesRepository)
+    public NpQueueService(
+        IMemberRepository memberRepository,
+        MemberService memberService,
+        IAuditLogger auditLogger,
+        IDuesRepository duesRepository,
+        IDuesWaiverRepository? waiverRepository = null)
     {
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _memberService = memberService ?? throw new ArgumentNullException(nameof(memberService));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
+        _waiverRepository = waiverRepository;
     }
 
     public Task<IReadOnlyList<NpQueueEntryDto>> GetQueueAsync(CancellationToken cancellationToken = default)
@@ -31,26 +38,63 @@ public class NpQueueService : INpQueueService
             var queue = _memberRepository.GetNonPortugueseGuestQueue();
 
             var currentYear = DateTime.Today.Year;
-            var currentYearDues = _duesRepository.GetDuesForYear(currentYear);
-            var paidMemberIds = currentYearDues.Where(d => d.PaymentType != "UNPAID").Select(d => d.MemberID).ToHashSet();
 
             var allDues = _duesRepository.GetAllDues();
-            var lastPaidDictionary = allDues
-                .Where(d => d.PaymentType != "UNPAID")
+            var duesLookup = allDues
                 .GroupBy(d => d.MemberID)
-                .ToDictionary(g => g.Key, g => g.Max(d => d.Year));
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var allWaivers = _waiverRepository?.GetAllWaivers() ?? new List<Models.DuesWaiverPeriod>();
+            var waiverLookup = allWaivers
+                .GroupBy(w => w.MemberId)
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             return (IReadOnlyList<NpQueueEntryDto>)queue
                 .Select(item => 
                 {
-                    var isPaid = paidMemberIds.Contains(item.MemberID);
+                    // Check if member has paid or waived dues for the current year
+                    bool isPaid = _duesRepository.MemberHasPaidOrWaivedDuesForYear(item.MemberID, currentYear);
+
+                    if (!isPaid && waiverLookup.TryGetValue(item.MemberID, out var memberWaivers))
+                    {
+                        if (memberWaivers.Any(w => currentYear >= w.StartYear && currentYear <= w.EndYear))
+                        {
+                            isPaid = true;
+                        }
+                    }
+
                     int? monthsUnpaid = null;
 
                     if (!isPaid)
                     {
-                        if (lastPaidDictionary.TryGetValue(item.MemberID, out var lastPaidYear))
+                        var coveredYears = new HashSet<int>();
+
+                        if (duesLookup.TryGetValue(item.MemberID, out var mDues))
                         {
-                            monthsUnpaid = Math.Max(0, (DateTime.Today.Year - lastPaidYear - 1) * 12 + DateTime.Today.Month);
+                            foreach (var d in mDues)
+                            {
+                                if (d.PaidDate.HasValue || string.Equals(d.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase) || (d.PaymentType != null && !d.PaymentType.Equals("UNPAID", StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    coveredYears.Add(d.Year);
+                                }
+                            }
+                        }
+
+                        if (waiverLookup.TryGetValue(item.MemberID, out var mWaivers))
+                        {
+                            foreach (var w in mWaivers)
+                            {
+                                for (int y = w.StartYear; y <= w.EndYear; y++)
+                                {
+                                    coveredYears.Add(y);
+                                }
+                            }
+                        }
+
+                        if (coveredYears.Count > 0)
+                        {
+                            int lastCoveredYear = coveredYears.Max();
+                            monthsUnpaid = Math.Max(0, (DateTime.Today.Year - lastCoveredYear - 1) * 12 + DateTime.Today.Month);
                         }
                         else if (item.AcceptedDate.HasValue)
                         {
