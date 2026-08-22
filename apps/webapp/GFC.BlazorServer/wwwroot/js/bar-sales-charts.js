@@ -32,9 +32,22 @@ window.barSalesCharts = {
         if (this.charts[canvasId]) {
             const chart = this.charts[canvasId];
             chart.data.labels = config.labels;
-            chart.data.datasets = datasets;
+
+            const existingMap = new Map((chart.data.datasets || []).map(d => [d.label, d]));
+            const updatedDatasets = datasets.map(newDs => {
+                const existing = existingMap.get(newDs.label);
+                if (existing) {
+                    existing.data = newDs.data;
+                    existing.backgroundColor = newDs.backgroundColor;
+                    existing.borderColor = newDs.borderColor;
+                    return existing;
+                }
+                return newDs;
+            });
+
+            chart.data.datasets = updatedDatasets;
             chart.update({
-                duration: 750,
+                duration: 500,
                 easing: 'easeInOutCubic'
             });
             return;
@@ -69,6 +82,9 @@ window.barSalesCharts = {
                         }
                     },
                     tooltip: {
+                        filter: function (tooltipItem) {
+                            return tooltipItem.parsed.y !== 0 && tooltipItem.parsed.y !== null && tooltipItem.parsed.y !== undefined;
+                        },
                         callbacks: {
                             label: function (context) {
                                 let label = context.dataset.label || '';

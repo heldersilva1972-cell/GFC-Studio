@@ -1196,6 +1196,126 @@ namespace GFC.BlazorServer.Services
                 snapshot.MaUnemployment = snapshot.GrossPayroll * (config.MaUnemploymentRate / 100m);
             }
 
+            // 9. Period-over-Period (MoM MTD Like-for-Like) Comparison Calculation
+            try
+            {
+                if (month.HasValue)
+                {
+                    int maxDay = end.Day;
+                    bool isInProgressMonth = year == DateTime.Now.Year && month.Value == DateTime.Now.Month;
+                    if (isInProgressMonth)
+                    {
+                        maxDay = Math.Min(DateTime.Now.Day, end.Day);
+                    }
+
+                    snapshot.DaysCompared = maxDay;
+
+                    DateTime currentMtdEnd = new DateTime(year, month.Value, maxDay).Date.AddDays(1).AddTicks(-1);
+                    var currentMtdSnapshot = isInProgressMonth ? await GetSnapshotByDateRangeAsync(db, start, currentMtdEnd) : null;
+
+                    if (currentMtdSnapshot != null)
+                    {
+                        snapshot.CurrentMtdTotalIncome = currentMtdSnapshot.TotalIncome;
+                        snapshot.CurrentMtdTotalExpenses = currentMtdSnapshot.TotalExpenses;
+                    }
+                    else
+                    {
+                        snapshot.CurrentMtdTotalIncome = snapshot.TotalIncome;
+                        snapshot.CurrentMtdTotalExpenses = snapshot.TotalExpenses;
+                    }
+
+                    DateTime prevStart = start.AddMonths(-1);
+                    int daysInPrev = DateTime.DaysInMonth(prevStart.Year, prevStart.Month);
+                    int targetPrevDay = Math.Min(maxDay, daysInPrev);
+                    DateTime prevEnd = new DateTime(prevStart.Year, prevStart.Month, targetPrevDay).Date.AddDays(1).AddTicks(-1);
+
+                    var prevSnapshot = await GetSnapshotByDateRangeAsync(db, prevStart, prevEnd);
+                    snapshot.PrevPeriodTotalIncome = prevSnapshot.TotalIncome;
+                    snapshot.PrevPeriodTotalExpenses = prevSnapshot.TotalExpenses;
+                }
+                else
+                {
+                    // Full Year comparison against previous year YTD / Full Year
+                    int targetDay = 365;
+                    bool isCurrentYear = year == DateTime.Now.Year;
+                    if (isCurrentYear)
+                    {
+                        targetDay = DateTime.Now.DayOfYear;
+                    }
+                    snapshot.DaysCompared = targetDay;
+
+                    DateTime prevStart = new DateTime(year - 1, 1, 1);
+                    DateTime prevEnd = isCurrentYear 
+                        ? prevStart.AddDays(targetDay - 1).Date.AddDays(1).AddTicks(-1)
+                        : new DateTime(year - 1, 12, 31);
+
+                    var prevSnapshot = await GetSnapshotByDateRangeAsync(db, prevStart, prevEnd);
+                    snapshot.PrevPeriodTotalIncome = prevSnapshot.TotalIncome;
+                    snapshot.PrevPeriodTotalExpenses = prevSnapshot.TotalExpenses;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] Error calculating Snapshot MoM: {ex.Message}");
+            }
+
+            return snapshot;
+        }
+
+        private async Task<FinancialSnapshotDto> GetSnapshotByDateRangeAsync(GfcDbContext db, DateTime start, DateTime end)
+        {
+            var snapshot = new FinancialSnapshotDto();
+
+            var barSales = await db.BarSaleEntries.AsNoTracking()
+                .Where(b => (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
+                .ToListAsync();
+            
+            snapshot.BarSalesDownstairs = barSales.Where(b => !b.IsRentalHall).Sum(b => b.TotalSales);
+            snapshot.BarSalesUpstairs = barSales.Where(b => b.IsRentalHall).Sum(b => b.TotalSales);
+
+            var lottoAnalyticShifts = await GetLotteryAnalyticsAsync(start, end);
+            decimal totalLottoIncome = 0;
+            foreach (var s in lottoAnalyticShifts)
+            {
+                var r = _rateRepository.GetApplicableRate(s.ShiftDate.Year);
+                totalLottoIncome += (s.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                    (s.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                    (s.ShiftCancelsActivity * r.TicketBonusMultiplier);
+            }
+            snapshot.LotteryCommissions = totalLottoIncome;
+
+            snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
+                .Where(d => d.PaidDate.HasValue && d.PaidDate.Value >= start && d.PaidDate.Value <= end)
+                .SumAsync(d => d.Amount) ?? 0m;
+
+            snapshot.HallRentals = await db.HallRentals.AsNoTracking()
+                .Where(h => h.EventDate >= start && h.EventDate <= end && h.Status == "Completed")
+                .SumAsync(h => (decimal?)h.TotalPrice) ?? 0m;
+
+            snapshot.Reimbursements = await db.ReimbursementItems.AsNoTracking()
+                .Include(i => i.Request)
+                .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Date >= start.Date && i.Request.PaidDateUtc.Value.Date <= end.Date)
+                .SumAsync(i => (decimal?)i.Amount) ?? 0m;
+
+            snapshot.PaidBills = await db.FinancePayments.AsNoTracking()
+                .Where(p => p.BillId != null && p.PaymentDate >= start && p.PaymentDate <= end)
+                .SumAsync(p => p.AmountPaid);
+
+            snapshot.PaidLoans = await db.FinancePayments.AsNoTracking()
+                .Where(p => p.LoanId != null && p.PaymentDate >= start && p.PaymentDate <= end)
+                .SumAsync(p => p.AmountPaid);
+
+            var payroll = await GetEmployeeHoursAsync(start, end);
+            snapshot.GrossPayroll = payroll.Sum(p => p.TotalPay);
+
+            var config = await db.SystemSettings.AsNoTracking().OrderBy(s => s.Id).FirstOrDefaultAsync(s => s.Id == 1);
+            if (config != null && snapshot.GrossPayroll > 0)
+            {
+                snapshot.EmployerFica = snapshot.GrossPayroll * (config.FicaEmployerRate / 100m);
+                snapshot.EmployerPfml = snapshot.GrossPayroll * (config.PfmlEmployerRate / 100m);
+                snapshot.MaUnemployment = snapshot.GrossPayroll * (config.MaUnemploymentRate / 100m);
+            }
+
             return snapshot;
         }
 
@@ -1346,13 +1466,37 @@ namespace GFC.BlazorServer.Services
                 else
                 {
                     int maxDay = endDate.Day;
-                    if (startDate.Month == DateTime.Now.Month && startDate.Year == DateTime.Now.Year)
+                    bool isInProgressMonth = startDate.Month == DateTime.Now.Month && startDate.Year == DateTime.Now.Year;
+                    if (isInProgressMonth)
                     {
                         var maxEntryDay = summary.LedgerEntries.Any() ? summary.LedgerEntries.Max(e => e.Date.Day) : 1;
                         maxDay = Math.Min(DateTime.Now.Day, Math.Max(maxEntryDay, 1));
                     }
 
                     summary.PrevMonthDaysCompared = maxDay;
+
+                    DateTime currentMtdEnd = new DateTime(startDate.Year, startDate.Month, maxDay).Date.AddDays(1).AddTicks(-1);
+
+                    if (isInProgressMonth)
+                    {
+                        summary.CurrentMtdBarSales = summary.LedgerEntries
+                            .Where(e => e.Stream == "Bar Sales" && e.Date <= currentMtdEnd)
+                            .Sum(e => e.Amount);
+
+                        summary.CurrentMtdLotteryCommissions = summary.LedgerEntries
+                            .Where(e => e.Stream == "Lottery" && e.Date <= currentMtdEnd)
+                            .Sum(e => e.Amount);
+
+                        summary.CurrentMtdMembershipDues = summary.LedgerEntries
+                            .Where(e => e.Stream == "Membership Dues" && e.Date <= currentMtdEnd)
+                            .Sum(e => e.Amount);
+                    }
+                    else
+                    {
+                        summary.CurrentMtdBarSales = summary.TotalBarSales;
+                        summary.CurrentMtdLotteryCommissions = summary.TotalLotteryCommissions;
+                        summary.CurrentMtdMembershipDues = summary.TotalMembershipDues;
+                    }
 
                     DateTime prevStart = startDate.AddMonths(-1);
                     int daysInPrev = DateTime.DaysInMonth(prevStart.Year, prevStart.Month);
@@ -1389,88 +1533,99 @@ namespace GFC.BlazorServer.Services
                 summary.ComparisonYear = comparisonYear.Value;
                 try
                 {
-                    DateTime compStart;
-                    DateTime compEnd;
+                    int minYr = Math.Min(comparisonYear.Value, start.Year);
+                    int maxYr = Math.Max(comparisonYear.Value, start.Year);
 
-                    if (start.Month == 1 && end.Month == 12 && end.Day == 31)
+                    for (int y = minYr; y <= maxYr; y++)
                     {
-                        // Full Year comparison
-                        compStart = new DateTime(comparisonYear.Value, 1, 1).Date;
-                        compEnd = new DateTime(comparisonYear.Value, 12, 31).Date.AddDays(1).AddTicks(-1);
-                    }
-                    else
-                    {
-                        // Specific Month comparison
-                        compStart = new DateTime(comparisonYear.Value, start.Month, 1).Date;
-                        compEnd = compStart.AddMonths(1).AddDays(-1).Date.AddDays(1).AddTicks(-1);
-                    }
+                        DateTime compStart;
+                        DateTime compEnd;
 
-                    summary.ComparisonBarSales = await db.BarSaleEntries.AsNoTracking()
-                        .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
-                        .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
-
-                    var compWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
-                        .Where(w => w.WeekEndingDate >= compStart && w.WeekEndingDate <= compEnd)
-                        .ToListAsync();
-
-                    summary.ComparisonLotteryCommissions = compWeeklyStats.Sum(w =>
-                        (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                         Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                         Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
-                        (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
-
-                    summary.ComparisonMembershipDues = await db.DuesPayments.AsNoTracking()
-                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
-                        .SumAsync(dp => dp.Amount) ?? 0m;
-
-                    var compBarEntries = await db.BarSaleEntries.AsNoTracking()
-                        .Where(b => b.Status == "Submitted" && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
-                        .ToListAsync();
-
-                    foreach (var b in compBarEntries)
-                    {
-                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
+                        if (start.Month == 1 && end.Month == 12 && end.Day == 31)
                         {
-                            Date = (b.AdjustedSaleDate ?? b.SaleDate).Date,
-                            Stream = "Bar Sales",
-                            Shift = string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift,
-                            Amount = b.TotalSales
-                        });
+                            compStart = new DateTime(y, 1, 1).Date;
+                            compEnd = new DateTime(y, 12, 31).Date.AddDays(1).AddTicks(-1);
+                        }
+                        else
+                        {
+                            compStart = new DateTime(y, start.Month, 1).Date;
+                            compEnd = compStart.AddMonths(1).AddDays(-1).Date.AddDays(1).AddTicks(-1);
+                        }
+
+                        var yrSummary = new MultiYearStreamSummaryDto { Year = y };
+
+                        var yrBarEntries = await db.BarSaleEntries.AsNoTracking()
+                            .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= compStart && (b.AdjustedSaleDate ?? b.SaleDate) <= compEnd)
+                            .ToListAsync();
+
+                        yrSummary.TotalBarSales = yrBarEntries.Sum(b => b.TotalSales);
+                        foreach (var b in yrBarEntries)
+                        {
+                            int mIdx = (b.AdjustedSaleDate ?? b.SaleDate).Month - 1;
+                            if (mIdx >= 0 && mIdx < 12) yrSummary.MonthlyBarSales[mIdx] += b.TotalSales;
+                        }
+
+                        var yrWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                            .Where(w => w.WeekEndingDate >= compStart && w.WeekEndingDate <= compEnd)
+                            .ToListAsync();
+
+                        yrSummary.TotalLotteryCommissions = yrWeeklyStats.Sum(w =>
+                            (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                             Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                             Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                            (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
+
+                        foreach (var w in yrWeeklyStats)
+                        {
+                            int mIdx = w.WeekEndingDate.Month - 1;
+                            if (mIdx >= 0 && mIdx < 12)
+                            {
+                                decimal netLottery = (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                                                     Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                                                     Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                                                    (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee));
+                                yrSummary.MonthlyLotteryCommissions[mIdx] += netLottery;
+                            }
+                        }
+
+                        var yrDuesPayments = await db.DuesPayments.AsNoTracking()
+                            .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
+                            .ToListAsync();
+
+                        yrSummary.TotalMembershipDues = yrDuesPayments.Sum(dp => dp.Amount ?? 0m);
+                        foreach (var dp in yrDuesPayments)
+                        {
+                            int mIdx = dp.PaidDate!.Value.Month - 1;
+                            if (mIdx >= 0 && mIdx < 12) yrSummary.MonthlyMembershipDues[mIdx] += dp.Amount ?? 0m;
+                        }
+
+                        summary.MultiYearSummaries[y] = yrSummary;
+
+                        if (y == comparisonYear.Value)
+                        {
+                            foreach (var b in yrBarEntries)
+                            {
+                                summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
+                                {
+                                    Date = (b.AdjustedSaleDate ?? b.SaleDate).Date,
+                                    Stream = "Bar Sales",
+                                    Shift = string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift,
+                                    Amount = b.TotalSales
+                                });
+                            }
+                        }
                     }
 
-                    foreach (var w in compWeeklyStats)
+                    if (summary.MultiYearSummaries.TryGetValue(comparisonYear.Value, out var compDto))
                     {
-                        var compTotalEarnings = Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
-                                                Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
-                                                Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus);
-
-                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
-                        {
-                            Date = w.WeekEndingDate.Date,
-                            Stream = "Lottery",
-                            Shift = "Weekly",
-                            Amount = compTotalEarnings
-                        });
-                    }
-
-                    var compDuesPayments = await db.DuesPayments.AsNoTracking()
-                        .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= compStart && dp.PaidDate.Value <= compEnd && dp.Amount.HasValue)
-                        .ToListAsync();
-
-                    foreach (var dp in compDuesPayments)
-                    {
-                        summary.ComparisonLedgerEntries.Add(new IncomeStreamEntryDto
-                        {
-                            Date = dp.PaidDate!.Value.Date,
-                            Stream = "Membership Dues",
-                            Shift = "N/A",
-                            Amount = dp.Amount ?? 0m
-                        });
+                        summary.ComparisonBarSales = compDto.TotalBarSales;
+                        summary.ComparisonLotteryCommissions = compDto.TotalLotteryCommissions;
+                        summary.ComparisonMembershipDues = compDto.TotalMembershipDues;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Fallback gracefully so primary year data is never blocked
+                    Console.WriteLine($"[FinancialService] Error calculating multi-year comparison: {ex.Message}");
                 }
             }
 

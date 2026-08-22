@@ -33,7 +33,8 @@ window.financialCharts = {
                 pointHoverRadius: 6,
                 barPercentage: 0.9,
                 categoryPercentage: 0.8,
-                stack: dataset.stack || undefined
+                stack: dataset.stack || undefined,
+                hidden: !!dataset.hidden
             };
         });
 
@@ -51,16 +52,29 @@ window.financialCharts = {
         if (this.charts[canvasId]) {
             const chart = this.charts[canvasId];
             chart.data.labels = config.labels;
-            chart.data.datasets = datasets;
 
             if (chart.options.scales && chart.options.scales.x) chart.options.scales.x.stacked = isStacked;
             if (chart.options.scales && chart.options.scales.y) chart.options.scales.y.stacked = isStacked;
 
-            chart.update({
-                duration: 350,
-                easing: 'easeInOutQuart'
-            });
+            for (let i = 0; i < datasets.length; i++) {
+                if (chart.data.datasets[i]) {
+                    chart.data.datasets[i].data = datasets[i].data;
+                    chart.data.datasets[i].backgroundColor = datasets[i].backgroundColor;
+                    chart.data.datasets[i].borderColor = datasets[i].borderColor;
+                    chart.data.datasets[i].stack = datasets[i].stack;
+                    chart.setDatasetVisibility(i, !datasets[i].hidden);
+                } else {
+                    chart.data.datasets[i] = datasets[i];
+                    if (datasets[i].hidden !== undefined) {
+                        chart.setDatasetVisibility(i, !datasets[i].hidden);
+                    }
+                }
+            }
+            if (chart.data.datasets.length > datasets.length) {
+                chart.data.datasets.length = datasets.length;
+            }
 
+            chart.update();
             return;
         }
 
@@ -75,14 +89,26 @@ window.financialCharts = {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: {
-                    duration: 650,
+                    duration: 500,
                     easing: 'easeInOutCubic'
                 },
                 transitions: {
                     active: {
                         animation: {
-                            duration: 650,
+                            duration: 500,
                             easing: 'easeInOutCubic'
+                        }
+                    },
+                    show: {
+                        animations: {
+                            x: { duration: 500, easing: 'easeInOutCubic' },
+                            y: { duration: 500, easing: 'easeInOutCubic' }
+                        }
+                    },
+                    hide: {
+                        animations: {
+                            x: { duration: 500, easing: 'easeInOutCubic' },
+                            y: { duration: 500, easing: 'easeInOutCubic' }
                         }
                     }
                 },
@@ -107,6 +133,9 @@ window.financialCharts = {
                         bodyFont: { size: 13 },
                         footerFont: { size: 13, weight: 'bold' },
                         footerColor: '#10b981',
+                        filter: function (tooltipItem) {
+                            return tooltipItem.parsed.y !== 0 && tooltipItem.parsed.y !== null && tooltipItem.parsed.y !== undefined;
+                        },
                         callbacks: {
                             label: function (context) {
                                 let label = context.dataset.label || '';

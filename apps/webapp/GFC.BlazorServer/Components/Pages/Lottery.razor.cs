@@ -113,7 +113,7 @@ namespace GFC.BlazorServer.Components.Pages
             await UpdateVendingChart();
         }
         private void ToggleDataGuide() => _showDataGuide = !_showDataGuide;
-        private string _breakdownRangeType = "week"; // "week", "month", "year", "custom"
+        private string _breakdownRangeType = "month"; // "week", "month", "year", "custom"
         private DateTime _breakdownCustomStart = DateTime.Today.AddDays(-14);
         private DateTime _breakdownCustomEnd = DateTime.Today;
 
@@ -276,6 +276,14 @@ namespace GFC.BlazorServer.Components.Pages
 
             InitializeWeeks();
             await LoadAvailableYears();
+
+            if (_breakdownRangeType == "month")
+            {
+                var monthRange = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = monthRange.Start;
+                _filterEndDate = monthRange.End;
+            }
+
             await LoadData();
         }
 
@@ -655,37 +663,23 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
 
             // INTELLIGENT DATE SNAPPING
-            if (_viewMode == "commissions" || _viewMode == "vending")
+            if (_viewMode == "breakdown")
             {
-                _breakdownRangeType = "year";
-                var range = GetSnappedYearRange(_selectedYear);
+                _breakdownRangeType = "month";
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "daily" || _viewMode == "breakdown")
+            else if (_viewMode == "commissions" || _viewMode == "vending")
             {
-                if (_viewMode == "daily" || _breakdownRangeType == "week")
-                {
-                    _filterStartDate = GetWeekStart(_filterStartDate);
-                    _filterEndDate = _filterStartDate.AddDays(6);
-                }
-                else if (_breakdownRangeType == "month")
-                {
-                    var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
-                    _filterStartDate = range.Start;
-                    _filterEndDate = range.End;
-                }
-                else if (_breakdownRangeType == "year")
-                {
-                    var range = GetSnappedYearRange(_selectedYear);
-                    _filterStartDate = range.Start;
-                    _filterEndDate = range.End;
-                }
-                else if (_breakdownRangeType == "custom")
-                {
-                    _filterStartDate = _breakdownCustomStart;
-                    _filterEndDate = _breakdownCustomEnd;
-                }
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
+            else if (_viewMode == "daily")
+            {
+                _filterStartDate = GetWeekStart(_filterStartDate);
+                _filterEndDate = _filterStartDate.AddDays(6);
             }
             else if (_viewMode == "weekly")
             {
@@ -1482,101 +1476,75 @@ namespace GFC.BlazorServer.Components.Pages
             string? weeklyDueStack = _isBreakdownStacked ? "weeklydue" : null;
             string? onlineDueStack = _isBreakdownStacked ? "onlinedue" : null;
 
-            if (_showMetricEnvelope)
-            {
-                datasets.Add(new { 
-                    label = "Envelope Drops", 
-                    data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
-                    color = "#10b981", 
-                    bg = "rgba(16, 185, 129, 0.85)", 
-                    type = "bar",
-                    stack = cashStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Envelope Drops", 
+                data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
+                color = "#10b981", 
+                bg = "rgba(16, 185, 129, 0.85)", 
+                type = "bar",
+                stack = cashStack,
+                hidden = !_showMetricEnvelope
+            });
 
-            if (_showMetricVending)
-            {
-                datasets.Add(new { 
-                    label = "Vending Machine Drops", 
-                    data = _breakdownDailyItems.Select(d => d.VendingAmount).ToList(), 
-                    color = "#f59e0b", 
-                    bg = "rgba(245, 158, 11, 0.9)", 
-                    type = "bar",
-                    stack = cashStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Vending Machine Drops", 
+                data = _breakdownDailyItems.Select(d => d.VendingAmount).ToList(), 
+                color = "#f59e0b", 
+                bg = "rgba(245, 158, 11, 0.9)", 
+                type = "bar",
+                stack = cashStack,
+                hidden = !_showMetricVending
+            });
 
-            if (_showMetricNetDue)
-            {
-                datasets.Add(new { 
-                    label = "Net Due to Lottery", 
-                    data = _breakdownDailyItems.Select(d => d.NetDue).ToList(), 
-                    color = "#3b82f6", 
-                    bg = "rgba(59, 130, 246, 0.75)", 
-                    type = "bar",
-                    stack = netDueStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Net Due to Lottery", 
+                data = _breakdownDailyItems.Select(d => d.NetDue).ToList(), 
+                color = "#3b82f6", 
+                bg = "rgba(59, 130, 246, 0.75)", 
+                type = "bar",
+                stack = netDueStack,
+                hidden = !_showMetricNetDue
+            });
 
-            if (_showMetricSales)
-            {
-                datasets.Add(new { 
-                    label = "Tickets", 
-                    data = _breakdownDailyItems.Select(d => d.TotalSales).ToList(), 
-                    color = "#6366f1", 
-                    bg = "rgba(99, 102, 241, 0.75)", 
-                    type = "bar",
-                    stack = salesStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Tickets", 
+                data = _breakdownDailyItems.Select(d => d.TotalSales).ToList(), 
+                color = "#6366f1", 
+                bg = "rgba(99, 102, 241, 0.75)", 
+                type = "bar",
+                stack = salesStack,
+                hidden = !_showMetricSales
+            });
 
-            if (_showMetricVariance)
-            {
-                datasets.Add(new { 
-                    label = "Cash Variance", 
-                    data = _breakdownDailyItems.Select(d => d.Variance).ToList(), 
-                    color = "#ef4444", 
-                    bg = "rgba(239, 68, 68, 0.75)", 
-                    type = "bar",
-                    stack = varianceStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Cash Variance", 
+                data = _breakdownDailyItems.Select(d => d.Variance).ToList(), 
+                color = "#ef4444", 
+                bg = "rgba(239, 68, 68, 0.75)", 
+                type = "bar",
+                stack = varianceStack,
+                hidden = !_showMetricVariance
+            });
 
-            if (_showMetricWeeklyDue)
-            {
-                datasets.Add(new { 
-                    label = "Weekly Statement Due", 
-                    data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
-                    color = "#ec4899", 
-                    bg = "rgba(236, 72, 153, 0.75)", 
-                    type = "bar",
-                    stack = weeklyDueStack
-                });
-            }
+            datasets.Add(new { 
+                label = "Weekly Statement Due", 
+                data = _breakdownDailyItems.Select(d => d.WeeklyStatementDue).ToList(), 
+                color = "#ec4899", 
+                bg = "rgba(236, 72, 153, 0.75)", 
+                type = "bar",
+                stack = weeklyDueStack,
+                hidden = !_showMetricWeeklyDue
+            });
 
-            if (_showMetricOnlineDue)
-            {
-                datasets.Add(new { 
-                    label = "Online Due", 
-                    data = _breakdownDailyItems.Select(d => d.OnlineDue).ToList(), 
-                    color = "#a855f7", 
-                    bg = "rgba(168, 85, 247, 0.75)", 
-                    type = "bar",
-                    stack = onlineDueStack
-                });
-            }
-
-            if (!datasets.Any())
-            {
-                _showMetricEnvelope = true;
-                datasets.Add(new { 
-                    label = "Envelope Drops", 
-                    data = _breakdownDailyItems.Select(d => d.EnvelopeAmount).ToList(), 
-                    color = "#10b981", 
-                    bg = "rgba(16, 185, 129, 0.7)", 
-                    type = "bar"
-                });
-            }
+            datasets.Add(new { 
+                label = "Online Due", 
+                data = _breakdownDailyItems.Select(d => d.OnlineDue).ToList(), 
+                color = "#a855f7", 
+                bg = "rgba(168, 85, 247, 0.75)", 
+                type = "bar",
+                stack = onlineDueStack,
+                hidden = !_showMetricOnlineDue
+            });
 
             await JS.InvokeVoidAsync("financialCharts.renderChart", "breakdownEnvelopeChart", new { 
                 type = "bar", 
@@ -1624,53 +1592,41 @@ namespace GFC.BlazorServer.Components.Pages
             var labels = _weeklyCommissionsStats.Select(w => w.WeekEndingDate.ToString("MM/dd")).ToList();
             var datasets = new List<object>();
 
-            if (_showMetricCommissions)
-            {
-                datasets.Add(new { 
-                    label = "Commissions", 
-                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission)).ToList(), 
-                    color = "#10b981", 
-                    bg = "rgba(16, 185, 129, 0.7)", 
-                    type = "bar",
-                    stack = "earnings"
-                });
-            }
+            datasets.Add(new { 
+                label = "Commissions", 
+                data = _showMetricCommissions ? _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission)).ToList() : _weeklyCommissionsStats.Select(w => 0m).ToList(), 
+                color = "#10b981", 
+                bg = "rgba(16, 185, 129, 0.7)", 
+                type = "bar",
+                stack = "earnings"
+            });
 
-            if (_showMetricCashBonus)
-            {
-                datasets.Add(new { 
-                    label = "Cash Bonus", 
-                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus)).ToList(), 
-                    color = "#3b82f6", 
-                    bg = "rgba(59, 130, 246, 0.7)", 
-                    type = "bar",
-                    stack = "earnings"
-                });
-            }
+            datasets.Add(new { 
+                label = "Cash Bonus", 
+                data = _showMetricCashBonus ? _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus)).ToList() : _weeklyCommissionsStats.Select(w => 0m).ToList(), 
+                color = "#3b82f6", 
+                bg = "rgba(59, 130, 246, 0.7)", 
+                type = "bar",
+                stack = "earnings"
+            });
 
-            if (_showMetricClaimsBonus)
-            {
-                datasets.Add(new { 
-                    label = "Claims Bonus", 
-                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)).ToList(), 
-                    color = "#8b5cf6", 
-                    bg = "rgba(139, 92, 246, 0.7)", 
-                    type = "bar",
-                    stack = "earnings"
-                });
-            }
+            datasets.Add(new { 
+                label = "Claims Bonus", 
+                data = _showMetricClaimsBonus ? _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)).ToList() : _weeklyCommissionsStats.Select(w => 0m).ToList(), 
+                color = "#8b5cf6", 
+                bg = "rgba(139, 92, 246, 0.7)", 
+                type = "bar",
+                stack = "earnings"
+            });
 
-            if (_showMetricFees)
-            {
-                datasets.Add(new { 
-                    label = "Weekly Fees", 
-                    data = _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)).ToList(), 
-                    color = "#ef4444", 
-                    bg = "rgba(239, 68, 68, 0.7)", 
-                    type = "bar",
-                    stack = "fees"
-                });
-            }
+            datasets.Add(new { 
+                label = "Weekly Fees", 
+                data = _showMetricFees ? _weeklyCommissionsStats.Select(w => Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)).ToList() : _weeklyCommissionsStats.Select(w => 0m).ToList(), 
+                color = "#ef4444", 
+                bg = "rgba(239, 68, 68, 0.7)", 
+                type = "bar",
+                stack = "fees"
+            });
 
             await JS.InvokeVoidAsync("financialCharts.renderChart", "commissionsReportChart", new { 
                 type = "bar", 
