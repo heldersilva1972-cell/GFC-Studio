@@ -109,11 +109,18 @@
                             {
                                 var evName = GetEventNameForSale(sale);
                                 var isTab = sale.PaymentType == "TAB" || sale.ActiveEventId.HasValue;
+                                var isDartsRound = sale.ItemsJson != null && sale.ItemsJson.Contains("(DARTS");
                                 <div class="sale-item @(SelectedSale == sale ? "active" : "")" @onclick="() => SelectedSale = sale">
                                     <div class="d-flex flex-column flex-grow-1 me-2">
                                         <div class="d-flex align-items-center justify-content-between mb-1">
                                             <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
-                                            @if (isTab || !string.IsNullOrEmpty(evName))
+                                            @if (isDartsRound)
+                                            {
+                                                <span class="badge text-white fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem; background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);">
+                                                    <i class="bi bi-bullseye me-1"></i>DART ROUND
+                                                </span>
+                                            }
+                                            else if (isTab || !string.IsNullOrEmpty(evName))
                                             {
                                                 <span class="badge bg-primary text-white fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem; letter-spacing: 0.3px;">
                                                     <i class="bi bi-journal-check me-1"></i>@(string.IsNullOrEmpty(evName) ? "TAB" : evName.ToUpper())
@@ -125,7 +132,7 @@
                                                     <i class="bi bi-ticket-perforated me-1"></i>TOKEN
                                                 </span>
                                             }
-                                            else
+                                            else if (!string.IsNullOrEmpty(sale.PaymentType) && !string.Equals(sale.PaymentType, "Cash", StringComparison.OrdinalIgnoreCase))
                                             {
                                                 <span class="badge bg-secondary text-white fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">
                                                     @sale.PaymentType
@@ -255,6 +262,83 @@
                                     }
                                 </tbody>
                             </table>
+                        }
+                    </div>
+                </div>
+            }
+            @if (ActiveTab == "EVENTS")
+            {
+                <!-- LEFT: Events Audit Explorer Panel -->
+                <div class="audit-list-panel" style="width: 420px;">
+                    <div class="panel-header flex-column align-items-stretch gap-2 py-2 border-bottom bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="fw-black text-uppercase text-dark" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                <i class="bi bi-calendar-event me-1 text-primary"></i>POS EVENTS AUDIT
+                            </span>
+                            <span class="badge bg-primary text-white rounded-pill shadow-sm" style="font-size: 0.72rem;">
+                                @FilteredAuditEvents.Count() EVENTS
+                            </span>
+                        </div>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control border-start-0 ps-0 shadow-none" placeholder="Search event name..." @bind="EventSearchQuery" @bind:event="oninput" />
+                        </div>
+                        <div class="btn-group w-100 shadow-sm" role="group">
+                            <button class="btn btn-sm @(EventStatusFilter == "ALL" ? "btn-primary fw-bold text-white shadow-sm" : "btn-outline-secondary bg-white text-muted")" style="font-size: 0.68rem; padding: 4px 6px;" @onclick='() => EventStatusFilter = "ALL"'>
+                                ALL (@DbActiveEvents.Count)
+                            </button>
+                            <button class="btn btn-sm @(EventStatusFilter == "OPEN" ? "btn-success fw-bold text-white shadow-sm" : "btn-outline-secondary bg-white text-muted")" style="font-size: 0.68rem; padding: 4px 6px;" @onclick='() => EventStatusFilter = "OPEN"'>
+                                OPEN (@DbActiveEvents.Count(e => e.Status == GFC.Core.Enums.EventTabStatus.Open))
+                            </button>
+                            <button class="btn btn-sm @(EventStatusFilter == "CLOSED" ? "btn-secondary fw-bold text-white shadow-sm" : "btn-outline-secondary bg-white text-muted")" style="font-size: 0.68rem; padding: 4px 6px;" @onclick='() => EventStatusFilter = "CLOSED"'>
+                                CLOSED (@DbActiveEvents.Count(e => e.Status == GFC.Core.Enums.EventTabStatus.Closed))
+                            </button>
+                        </div>
+                    </div>
+                    <div class="scroll-container custom-scrollbar">
+                        @if (!FilteredAuditEvents.Any())
+                        {
+                            <div class="p-4 text-center text-muted">
+                                <i class="bi bi-calendar-x fs-2 opacity-50 d-block mb-2"></i>
+                                <div class="small fw-bold">No events found.</div>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var ev in FilteredAuditEvents)
+                            {
+                                var evSales = EventSalesMap.TryGetValue(ev.Id, out var list) ? list : new List<PosSale>();
+                                var depSales = evSales.Where(s => s.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("INITIAL DEPOSIT") || s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS")))).ToList();
+                                var usedAmount = evSales.Where(s => !depSales.Contains(s)).Sum(s => s.TotalAmount);
+                                var displaySpent = ev.Type == GFC.Core.Enums.EventTabType.PrePaid ? usedAmount : evSales.Sum(s => s.TotalAmount);
+                                var drinkSalesCount = evSales.Count(s => !depSales.Contains(s));
+                                var isSel = SelectedAuditEvent?.Id == ev.Id;
+                                <div class="sale-item @(isSel ? "active" : "")" @onclick="() => SelectAuditEvent(ev)" style="padding: 0.85rem 1.1rem; cursor: pointer;">
+                                    <div class="d-flex flex-column flex-grow-1 me-2">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="badge @(ev.Status == GFC.Core.Enums.EventTabStatus.Open ? "bg-success" : "bg-secondary") rounded-pill" style="font-size: 0.6rem; padding: 3px 8px;">
+                                                @ev.Status.ToString().ToUpper()
+                                            </span>
+                                            <span class="badge bg-primary-subtle text-primary fw-bold border border-primary-subtle" style="font-size: 0.6rem; padding: 2px 6px;">
+                                                @ev.Type.ToString().ToUpper()
+                                            </span>
+                                        </div>
+                                        <div class="fw-black text-dark" style="font-size: 0.95rem; line-height: 1.2;">@GetEventDisplayName(ev.Name)</div>
+                                        @if (!string.IsNullOrEmpty(ev.RecipientEventName))
+                                        {
+                                            <div class="small text-muted" style="font-size: 0.7rem;"><i class="bi bi-person me-1"></i>@ev.RecipientEventName</div>
+                                        }
+                                        <div class="d-flex align-items-center justify-content-between mt-2 pt-1 border-top" style="font-size: 0.7rem;">
+                                            <span class="text-muted"><i class="bi bi-receipt me-1"></i>@drinkSalesCount sales</span>
+                                            <span class="fw-bold text-dark">Bal: @ev.CurrentBalance.ToString("C")</span>
+                                        </div>
+                                    </div>
+                                    <div class="text-end d-flex flex-column justify-content-center">
+                                        <div class="sale-amount text-primary" style="font-size: 1rem;">@displaySpent.ToString("C")</div>
+                                        <div class="small text-muted" style="font-size: 0.6rem;">@(ev.Type == GFC.Core.Enums.EventTabType.PrePaid ? "USED" : "SPENT")</div>
+                                    </div>
+                                </div>
+                            }
                         }
                     </div>
                 </div>
@@ -1604,8 +1688,15 @@
                                         <div class="bart">Bartender: @SelectedSale.BartenderName</div>
                                         @{
                                             var selEvName = GetEventNameForSale(SelectedSale);
+                                            var isSelDarts = SelectedSale.ItemsJson != null && SelectedSale.ItemsJson.Contains("(DARTS");
                                         }
-                                        @if (!string.IsNullOrEmpty(selEvName) || SelectedSale.PaymentType == "TAB" || SelectedSale.ActiveEventId.HasValue)
+                                        @if (isSelDarts)
+                                        {
+                                            <div class="badge text-white fw-bold px-3 py-1 mt-2 rounded-pill shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px; background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);">
+                                                <i class="bi bi-bullseye me-1"></i>DART ROUND
+                                            </div>
+                                        }
+                                        else if (!string.IsNullOrEmpty(selEvName) || SelectedSale.PaymentType == "TAB" || SelectedSale.ActiveEventId.HasValue)
                                         {
                                             <div class="badge bg-primary text-white fw-bold px-3 py-1 mt-2 rounded-pill shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px;">
                                                 <i class="bi bi-journal-check me-1"></i>EVENT TAB: @(string.IsNullOrEmpty(selEvName) ? "ACTIVE TAB" : selEvName.ToUpper())
@@ -2474,6 +2565,308 @@
                             </div>
                         </div>
                     }
+                    else if (ActiveTab == "EVENTS")
+                    {
+                        @if (SelectedAuditEvent != null)
+                        {
+                            var evSales = SelectedEventSales;
+                            var totalSpent = evSales.Sum(s => s.TotalAmount);
+                            
+                            <div class="w-100 p-4 animate-fade-in" style="max-width: 1200px;">
+                                <!-- EVENT SUMMARY HEADER CARD -->
+                                <div class="bg-white rounded-4 border p-4 mb-4 shadow-sm">
+                                    <div class="d-flex justify-content-between align-items-start mb-3">
+                                         <div>
+                                             <div class="d-flex align-items-center gap-2 mb-1">
+                                                 <span class="badge @(SelectedAuditEvent.Status == GFC.Core.Enums.EventTabStatus.Open ? "bg-success text-white" : "bg-secondary text-white") rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                     @SelectedAuditEvent.Status.ToString().ToUpper()
+                                                 </span>
+                                                 <span class="badge bg-primary-subtle text-primary fw-bold border border-primary-subtle px-3 py-1" style="font-size: 0.75rem;">
+                                                     @SelectedAuditEvent.Type.ToString().ToUpper()
+                                                 </span>
+                                                 @if (SelectedAuditEvent.IsRecurring)
+                                                 {
+                                                     <span class="badge bg-info text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">RECURRING</span>
+                                                 }
+                                             </div>
+                                             <h2 class="fw-black mb-1 text-dark">@GetEventDisplayName(SelectedAuditEvent.Name)</h2>
+                                             @if (!string.IsNullOrEmpty(SelectedAuditEvent.RecipientEventName))
+                                             {
+                                                 <div class="text-muted fw-bold mb-1" style="font-size: 0.88rem;">
+                                                     <i class="bi bi-person-fill me-1 text-primary"></i>Recipient: @SelectedAuditEvent.RecipientEventName
+                                                 </div>
+                                             }
+                                         </div>
+                                     </div>
+                                     
+                                     @if (SelectedAuditEvent.Type == GFC.Core.Enums.EventTabType.PrePaid)
+                                     {
+                                         var depositSales = evSales.Where(s => 
+                                             s.PaymentType == "DEPOSIT" || 
+                                             (!string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("INITIAL DEPOSIT") || s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("DEPOSIT CORRECTION") || s.ItemsJson.Contains("ADDED FUNDS")))
+                                         ).ToList();
+
+                                         decimal initialPrepaid = SelectedAuditEvent.InitialAmount;
+                                         decimal addedFunds = depositSales.Where(s => string.IsNullOrEmpty(s.ItemsJson) || !s.ItemsJson.Contains("INITIAL DEPOSIT")).Sum(s => s.TotalAmount);
+                                         decimal totalFunding = initialPrepaid + addedFunds;
+                                         var drinkSales = evSales.Where(s => !depositSales.Contains(s)).ToList();
+                                         decimal netSpend = drinkSales.Sum(s => s.TotalAmount);
+                                         var drinkSalesCount = drinkSales.Count;
+                                         var totalDrinksItemsCount = drinkSales.SelectMany(s => GetItemsList(s.ItemsJson)).Sum(i => i.Quantity);
+
+                                         <div class="row g-3">
+                                             <!-- GROUP 1: ACCOUNT FUNDING -->
+                                             <div class="col-md-5">
+                                                 <div class="p-3 bg-light rounded-4 border h-100 shadow-xs">
+                                                     <div class="d-flex align-items-center justify-content-between mb-2">
+                                                         <span class="text-uppercase fw-black small text-primary" style="font-size: 0.7rem; letter-spacing: 0.5px;">
+                                                             <i class="bi bi-wallet2 me-1"></i>ACCOUNT FUNDING
+                                                         </span>
+                                                         <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold" style="font-size: 0.72rem;">
+                                                             TOTAL: @totalFunding.ToString("C")
+                                                         </span>
+                                                     </div>
+                                                     <div class="row g-2 pt-1">
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">INITIAL DEPOSIT</div>
+                                                                 <div class="fs-5 fw-black text-dark">@initialPrepaid.ToString("C")</div>
+                                                             </div>
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">ADDED TOP-UPS</div>
+                                                                 <div class="fs-5 fw-black text-success">@(addedFunds > 0 ? $"+{addedFunds:C}" : "$0.00")</div>
+                                                             </div>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             </div>
+
+                                             <!-- GROUP 2: SPEND & BALANCE -->
+                                             <div class="col-md-4">
+                                                 <div class="p-3 bg-light rounded-4 border h-100 shadow-xs">
+                                                     <div class="d-flex align-items-center justify-content-between mb-2">
+                                                         <span class="text-uppercase fw-black small text-dark" style="font-size: 0.7rem; letter-spacing: 0.5px;">
+                                                             <i class="bi bi-pie-chart-fill me-1 text-warning"></i>SPEND &amp; BALANCE
+                                                         </span>
+                                                     </div>
+                                                     <div class="row g-2 pt-1">
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">PREPAID USED</div>
+                                                                 <div class="fs-5 fw-black text-dark">@netSpend.ToString("C")</div>
+                                                             </div>
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">REMAINING BAL</div>
+                                                                 <div class="fs-5 fw-black @(SelectedAuditEvent.CurrentBalance <= 0 ? "text-danger" : "text-success")">
+                                                                     @SelectedAuditEvent.CurrentBalance.ToString("C")
+                                                                 </div>
+                                                             </div>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             </div>
+
+                                             <!-- GROUP 3: ACTIVITY & VOLUME -->
+                                             <div class="col-md-3">
+                                                 <div class="p-3 bg-light rounded-4 border h-100 shadow-xs">
+                                                     <div class="d-flex align-items-center justify-content-between mb-2">
+                                                         <span class="text-uppercase fw-black small text-secondary" style="font-size: 0.7rem; letter-spacing: 0.5px;">
+                                                             <i class="bi bi-receipt me-1"></i>ACTIVITY &amp; VOLUME
+                                                         </span>
+                                                     </div>
+                                                     <div class="row g-2 pt-1">
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">SALES ORDERS</div>
+                                                                 <div class="fs-5 fw-black text-dark">@drinkSalesCount</div>
+                                                             </div>
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <div class="bg-white p-2.5 rounded-3 border">
+                                                                 <div class="text-muted fw-bold" style="font-size: 0.65rem;">DRINKS SOLD</div>
+                                                                 <div class="fs-5 fw-black text-primary">@totalDrinksItemsCount</div>
+                                                             </div>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                     }
+                                    else if (SelectedAuditEvent.Type == GFC.Core.Enums.EventTabType.RunningTab)
+                                    {
+                                        var totalDrinksItemsCount = evSales.SelectMany(s => GetItemsList(s.ItemsJson)).Sum(i => i.Quantity);
+                                        var avgTicket = evSales.Any() ? totalSpent / evSales.Count : 0m;
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <div class="p-3 bg-primary-subtle rounded-3 border border-primary-subtle">
+                                                    <div class="text-primary fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">
+                                                        <i class="bi bi-journal-check me-1"></i>TOTAL TAB SALES (ACCUMULATED)
+                                                    </div>
+                                                    <div class="fs-3 fw-black text-primary">@totalSpent.ToString("C")</div>
+                                                    <div class="small text-muted" style="font-size: 0.65rem;">Total charges on running tab</div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="p-3 bg-light rounded-3 border">
+                                                    <div class="text-muted fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">
+                                                        <i class="bi bi-receipt me-1 text-secondary"></i>TRANSACTIONS & DRINKS
+                                                    </div>
+                                                    <div class="fs-3 fw-black text-dark mb-0">@evSales.Count <span class="fs-6 fw-normal text-muted">orders</span></div>
+                                                    <div class="small text-primary fw-bold mt-1" style="font-size: 0.72rem;">
+                                                        <i class="bi bi-cup-straw me-1"></i>@totalDrinksItemsCount total drinks/items sold
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="p-3 bg-light rounded-3 border">
+                                                    <div class="text-muted fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">
+                                                        <i class="bi bi-calculator me-1 text-secondary"></i>AVERAGE ORDER VALUE
+                                                    </div>
+                                                    <div class="fs-3 fw-black text-dark">@avgTicket.ToString("C")</div>
+                                                    <div class="small text-muted" style="font-size: 0.65rem;">Average spend per ring-up</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="row g-3">
+                                            @if (SelectedAuditEvent.InitialAmount > 0)
+                                            {
+                                                <div class="col-md-3">
+                                                    <div class="p-3 bg-light rounded-3 border">
+                                                        <div class="text-muted fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">INITIAL BUDGET / ALLOCATION</div>
+                                                        <div class="fs-4 fw-black text-dark">@SelectedAuditEvent.InitialAmount.ToString("C")</div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            <div class="col-md-@(SelectedAuditEvent.InitialAmount > 0 ? "3" : "4")">
+                                                <div class="p-3 bg-primary-subtle rounded-3 border border-primary-subtle">
+                                                    <div class="text-primary fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">TOTAL POS SPEND</div>
+                                                    <div class="fs-4 fw-black text-primary">@totalSpent.ToString("C")</div>
+                                                </div>
+                                            </div>
+                                            @if (SelectedAuditEvent.InitialAmount > 0)
+                                            {
+                                                <div class="col-md-3">
+                                                    <div class="p-3 bg-light rounded-3 border">
+                                                        <div class="text-muted fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">REMAINING BUDGET</div>
+                                                        <div class="fs-4 fw-black @(SelectedAuditEvent.CurrentBalance < 0 ? "text-danger" : "text-success")">
+                                                            @SelectedAuditEvent.CurrentBalance.ToString("C")
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            <div class="col-md-@(SelectedAuditEvent.InitialAmount > 0 ? "3" : "4")">
+                                                <div class="p-3 bg-light rounded-3 border">
+                                                    <div class="text-muted fw-bold small text-uppercase mb-1" style="font-size: 0.68rem;">TRANSACTIONS COUNT</div>
+                                                    <div class="fs-4 fw-black text-dark">@evSales.Count <span class="fs-6 fw-normal text-muted">sales</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                <!-- ASSOCIATED TRANSACTIONS TABLE -->
+                                <div class="bg-white rounded-4 border shadow-sm overflow-hidden mb-4">
+                                    <div class="px-4 py-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+                                        <h5 class="fw-black mb-0 text-dark" style="font-size: 0.95rem;">
+                                            <i class="bi bi-receipt me-2 text-primary"></i>ASSOCIATED POS TRANSACTIONS
+                                        </h5>
+                                        <span class="badge bg-white text-muted border fw-bold">@evSales.Count Total Sales</span>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                            <thead class="bg-light text-muted fw-bold" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                                <tr>
+                                                    <th class="ps-4 py-3">DATE / TIME</th>
+                                                    <th class="py-3">EVENT NAME</th>
+                                                    <th class="py-3">ITEMS SOLD / DETAILS</th>
+                                                    <th class="py-3">BARTENDER</th>
+                                                    <th class="py-3">TERMINAL</th>
+                                                    <th class="py-3">PAYMENT TYPE</th>
+                                                    <th class="py-3 text-end">TOTAL AMOUNT</th>
+                                                    <th class="pe-4 py-3 text-center">ACTION</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @if (!evSales.Any())
+                                                {
+                                                    <tr>
+                                                        <td colspan="8" class="text-center py-5 text-muted">
+                                                            <i class="bi bi-inbox fs-2 opacity-50 d-block mb-2"></i>
+                                                            <div>No sales recorded for this event yet.</div>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var sale in evSales)
+                                                    {
+                                                        var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS")));
+                                                        <tr>
+                                                            <td class="ps-4 py-3">
+                                                                <div class="fw-bold text-dark">@sale.Timestamp.ToString("ddd, MMM dd, yyyy")</div>
+                                                                <div class="small text-muted">@sale.Timestamp.ToString("h:mm:ss tt")</div>
+                                                            </td>
+                                                            <td class="py-3">
+                                                                <span class="badge bg-primary text-white fw-bold px-2.5 py-1 rounded-pill" style="font-size: 0.72rem; letter-spacing: 0.3px;">
+                                                                    <i class="bi bi-journal-check me-1"></i>@(GetEventNameForSale(sale))
+                                                                </span>
+                                                            </td>
+                                                            <td class="py-3">
+                                                                <div class="fw-bold text-dark" style="max-width: 250px; line-height: 1.3;">
+                                                                    @GetTransactionItemsSummary(sale)
+                                                                </div>
+                                                            </td>
+                                                            <td class="py-3 fw-bold text-dark">@sale.BartenderName</td>
+                                                            <td class="py-3 text-muted">@sale.TerminalName</td>
+                                                            <td class="py-3">
+                                                                @if (isDepositSale)
+                                                                {
+                                                                    <span class="badge bg-success text-white fw-bold px-2 py-1 rounded-pill" style="font-size: 0.68rem;">
+                                                                        <i class="bi bi-plus-circle me-1"></i>DEPOSIT / ADD FUNDS
+                                                                    </span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold px-2 py-1 rounded-pill" style="font-size: 0.68rem;">
+                                                                        <i class="bi bi-journal-check me-1"></i>EVENT TAB SALE
+                                                                    </span>
+                                                                }
+                                                            </td>
+                                                            <td class="py-3 text-end fw-black @(isDepositSale ? "text-success" : "text-primary") fs-6">
+                                                                @(isDepositSale ? "+" : "")@sale.TotalAmount.ToString("C")
+                                                            </td>
+                                                            <td class="pe-4 py-3 text-center">
+                                                                <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.72rem;" @onclick="() => SelectedSale = sale">
+                                                                    <i class="bi bi-eye me-1"></i> VIEW RECEIPT
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-column align-items-center justify-content-center h-100 p-5 text-center text-muted">
+                                <div class="p-4 bg-light rounded-circle mb-3">
+                                    <i class="bi bi-calendar-event text-primary opacity-75" style="font-size: 3rem;"></i>
+                                </div>
+                                <h4 class="fw-black text-dark mb-2">POS Event Audit Workspace</h4>
+                                <p class="text-muted" style="max-width: 450px;">Select an event from the left list to view its financial summary, budget breakdown, and complete list of POS sales transactions.</p>
+                            </div>
+                        }
+                    }
                 </div>
             }
 
@@ -2521,6 +2914,11 @@
                             <div class="col-4">
                                 <button class="audit-tab-btn @(ActiveTab == "DARTS" ? "active" : "") shadow-xs" style="@(ActiveTab == "DARTS" ? "background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: white;" : "")" @onclick='() => SwitchTab("DARTS")'>
                                     <i class="bi bi-bullseye me-2"></i>DARTS
+                                </button>
+                            </div>
+                            <div class="col-4">
+                                <button class="audit-tab-btn @(ActiveTab == "EVENTS" ? "active" : "") shadow-xs" style="@(ActiveTab == "EVENTS" ? "background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%); color: white;" : "")" @onclick='() => SwitchTab("EVENTS")'>
+                                    <i class="bi bi-calendar-event me-2"></i>EVENTS
                                 </button>
                             </div>
                         </div>
@@ -3641,6 +4039,50 @@
     }
 
     private string ActiveTab = "SALES";
+    private List<ActiveEvent> DbActiveEvents = new();
+    private ActiveEvent? SelectedAuditEvent = null;
+    private string EventStatusFilter = "ALL";
+    private string EventSearchQuery = "";
+    private Dictionary<int, List<PosSale>> EventSalesMap = new();
+    private List<PosSale> SelectedEventSales = new();
+
+    private IEnumerable<ActiveEvent> FilteredAuditEvents
+    {
+        get
+        {
+            var query = DbActiveEvents.AsEnumerable();
+            if (EventStatusFilter == "OPEN")
+            {
+                query = query.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open);
+            }
+            else if (EventStatusFilter == "CLOSED")
+            {
+                query = query.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Closed);
+            }
+
+            if (!string.IsNullOrWhiteSpace(EventSearchQuery))
+            {
+                query = query.Where(e => e.Name.Contains(EventSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                                         (!string.IsNullOrEmpty(e.RecipientEventName) && e.RecipientEventName.Contains(EventSearchQuery, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return query.OrderByDescending(e => e.Id);
+        }
+    }
+
+    private async Task SelectAuditEvent(ActiveEvent ev)
+    {
+        SelectedAuditEvent = ev;
+        try {
+            using var db = DbFactory.CreateDbContext();
+            SelectedEventSales = await db.PosSales.AsNoTracking()
+                .Where(s => s.ActiveEventId == ev.Id)
+                .OrderByDescending(s => s.Timestamp)
+                .ToListAsync();
+        } catch {
+            SelectedEventSales = EventSalesMap.TryGetValue(ev.Id, out var list) ? list : new List<PosSale>();
+        }
+    }
     private List<PosSale> Sales = new();
     private List<PosSale> _allSalesForStats = new();
     private List<PosZReport> ZReports = new();
@@ -4136,6 +4578,17 @@
         else if (tab == "REVENUE")
         {
             await LoadRevenueAnalysisData();
+        }
+        else if (tab == "EVENTS")
+        {
+            if (!DbActiveEvents.Any())
+            {
+                await LoadSales();
+            }
+            if (SelectedAuditEvent == null && DbActiveEvents.Any())
+            {
+                SelectedAuditEvent = DbActiveEvents.FirstOrDefault();
+            }
         }
         else if (tab == "SALES" || tab == "ZREPORTS")
         {
@@ -5395,6 +5848,24 @@
             try {
                 DbLocationStocks = await db.LiquorLocationStocks.AsNoTracking().ToListAsync();
             } catch {}
+
+            try {
+                DbActiveEvents = await db.ActiveEvents.AsNoTracking().OrderByDescending(e => e.Id).ToListAsync();
+                var allEventSales = await db.PosSales.AsNoTracking()
+                    .Where(s => s.ActiveEventId.HasValue && s.ActiveEventId.Value > 0)
+                    .ToListAsync();
+                EventSalesMap = allEventSales.GroupBy(s => s.ActiveEventId!.Value)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                if (SelectedAuditEvent == null && DbActiveEvents.Any())
+                {
+                    await SelectAuditEvent(DbActiveEvents.First());
+                }
+                else if (SelectedAuditEvent != null)
+                {
+                    await SelectAuditEvent(SelectedAuditEvent);
+                }
+            } catch {}
             
             var st = StartDate.Date.AddHours(3);
             var en = EndDate.Date.AddDays(1).AddHours(3);
@@ -5624,7 +6095,37 @@
         }
     }
 
-    private string GetEventNameForSale(PosSale? sale) => "";
+    private string GetEventDisplayName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "";
+        if (name.EndsWith(" [Direct]")) return name.Substring(0, name.Length - 9);
+        if (name.EndsWith("[Direct]")) return name.Substring(0, name.Length - 8);
+        return name;
+    }
+
+    private string GetEventNameForSale(PosSale? sale)
+    {
+        if (sale == null || !sale.ActiveEventId.HasValue || sale.ActiveEventId.Value <= 0)
+            return "";
+
+        var ev = DbActiveEvents.FirstOrDefault(e => e.Id == sale.ActiveEventId.Value);
+        return ev != null ? GetEventDisplayName(ev.Name) : $"EVENT #{sale.ActiveEventId.Value}";
+    }
+
+    private string GetTransactionItemsSummary(PosSale sale)
+    {
+        if (sale == null) return "";
+        var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS")));
+        if (isDepositSale)
+        {
+            return sale.ItemsJson?.Contains("INITIAL DEPOSIT") == true ? "Initial Event Deposit" : "Event Deposit / Added Top-Up";
+        }
+
+        var items = GetItemsList(sale.ItemsJson);
+        if (items == null || !items.Any()) return "General Sale";
+
+        return string.Join(", ", items.Where(i => i != null && !string.IsNullOrEmpty(i.Name)).Select(i => i.Quantity > 1 ? $"{i.Name} (x{i.Quantity})" : i.Name));
+    }
 
     private async Task CalculateReconciliation(GfcDbContext db)
     {
