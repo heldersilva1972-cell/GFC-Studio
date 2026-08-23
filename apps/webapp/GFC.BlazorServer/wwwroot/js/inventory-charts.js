@@ -324,5 +324,305 @@ window.inventoryCharts = {
                 }
             }
         });
+    },
+    renderRankingPerformanceChart: function (canvasId, config) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const existingChart = (typeof Chart !== 'undefined' && Chart.getChart) ? Chart.getChart(el) || Chart.getChart(canvasId) : null;
+        if (existingChart) {
+            try { existingChart.destroy(); } catch (e) {}
+        }
+        if (this.charts[canvasId]) {
+            try { this.charts[canvasId].destroy(); } catch (e) {}
+            delete this.charts[canvasId];
+        }
+
+        const defaultColors = [
+            'rgba(59, 130, 246, 0.85)',  // blue
+            'rgba(16, 185, 129, 0.85)',  // green
+            'rgba(139, 92, 246, 0.85)',  // purple
+            'rgba(245, 158, 11, 0.85)',  // amber
+            'rgba(236, 72, 153, 0.85)',  // pink
+            'rgba(6, 182, 212, 0.85)',   // cyan
+            'rgba(239, 68, 68, 0.85)',   // red
+            'rgba(249, 115, 22, 0.85)',  // orange
+            'rgba(20, 184, 166, 0.85)',  // teal
+            'rgba(107, 114, 128, 0.85)'  // gray
+        ];
+
+        const borderColors = [
+            '#2563eb', '#059669', '#7c3aed', '#d97706', '#db2777',
+            '#0891b2', '#dc2626', '#ea580c', '#0d9488', '#4b5563'
+        ];
+
+        const bgColors = config.colors || defaultColors.slice(0, config.labels.length);
+        const borders = config.borderColors || borderColors.slice(0, config.labels.length);
+        const metric = config.metricType || 'REVENUE';
+
+        const ctx = el.getContext('2d');
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: config.labels,
+                datasets: [{
+                    label: config.datasetLabel || 'Performance',
+                    data: config.data,
+                    backgroundColor: bgColors,
+                    borderColor: borders,
+                    borderWidth: 1.5,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: config.horizontal ? 'y' : 'x',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                if (metric === 'REVENUE') {
+                                    const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+                                    return ' Gross Sales: ' + formatted;
+                                } else if (metric === 'VOLUME') {
+                                    const unitType = (config.units && config.units[context.dataIndex]) ? config.units[context.dataIndex] : 'units';
+                                    return ' Volume Sold: ' + new Intl.NumberFormat('en-US').format(val) + ' ' + unitType;
+                                } else if (metric === 'SHARE') {
+                                    return ' Market Share: ' + val.toFixed(1) + '%';
+                                }
+                                return ' ' + val;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function (value) {
+                                if (config.horizontal) return value;
+                                if (metric === 'REVENUE') {
+                                    return '$' + new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                                } else if (metric === 'SHARE') {
+                                    return value + '%';
+                                }
+                                return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value);
+                            }
+                        }
+                    },
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function (value) {
+                                if (!config.horizontal) return value;
+                                if (metric === 'REVENUE') {
+                                    return '$' + new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                                } else if (metric === 'SHARE') {
+                                    return value + '%';
+                                }
+                                return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    },
+    renderRankingShareDonut: function (canvasId, config) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const existingChart = (typeof Chart !== 'undefined' && Chart.getChart) ? Chart.getChart(el) || Chart.getChart(canvasId) : null;
+        if (existingChart) {
+            try { existingChart.destroy(); } catch (e) {}
+        }
+        if (this.charts[canvasId]) {
+            try { this.charts[canvasId].destroy(); } catch (e) {}
+            delete this.charts[canvasId];
+        }
+
+        const colors = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
+            '#ef4444', '#14b8a6', '#f97316', '#06b6d4', '#6b7280'
+        ];
+
+        const ctx = el.getContext('2d');
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: config.labels,
+                datasets: [{
+                    data: config.data,
+                    backgroundColor: colors.slice(0, config.labels.length),
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            font: { size: 11, weight: 'bold' },
+                            padding: 12
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+                                return ' ' + context.label + ': ' + formatted;
+                            }
+                        }
+                    }
+                },
+                cutout: '65%'
+            }
+        });
+    },
+    renderVelocityMovementChart: function (canvasId, config) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const existingChart = (typeof Chart !== 'undefined' && Chart.getChart) ? Chart.getChart(el) || Chart.getChart(canvasId) : null;
+        if (existingChart) {
+            try { existingChart.destroy(); } catch (e) {}
+        }
+        if (this.charts[canvasId]) {
+            try { this.charts[canvasId].destroy(); } catch (e) {}
+            delete this.charts[canvasId];
+        }
+
+        const ctx = el.getContext('2d');
+        const metric = config.metricType || 'DAYS';
+
+        const valueDataLabelPlugin = {
+            id: 'velocityValueLabelPlugin',
+            afterDatasetsDraw: function (chart) {
+                const chartCtx = chart.ctx;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    meta.data.forEach((bar, index) => {
+                        const val = dataset.data[index];
+                        if (val === undefined || val === null) return;
+
+                        chartCtx.save();
+                        chartCtx.font = 'bold 11px sans-serif';
+                        chartCtx.fillStyle = '#0f172a';
+
+                        let text = '';
+                        if (metric === 'VALUE') {
+                            text = '$' + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(val);
+                        } else {
+                            if (val <= 0.45) {
+                                text = 'Today';
+                            } else {
+                                text = Math.round(val) + 'd';
+                            }
+                        }
+
+                        if (config.horizontal) {
+                            chartCtx.textAlign = 'left';
+                            chartCtx.textBaseline = 'middle';
+                            chartCtx.fillText(text, bar.x + 6, bar.y);
+                        } else {
+                            chartCtx.textAlign = 'center';
+                            chartCtx.textBaseline = 'bottom';
+                            chartCtx.fillText(text, bar.x, bar.y - 4);
+                        }
+                        chartCtx.restore();
+                    });
+                });
+            }
+        };
+
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: config.labels,
+                datasets: [{
+                    label: config.datasetLabel || 'Movement Velocity',
+                    data: config.data,
+                    backgroundColor: config.colors,
+                    borderColor: config.colors,
+                    borderWidth: 1.5,
+                    borderRadius: 6
+                }]
+            },
+            plugins: [valueDataLabelPlugin],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: config.horizontal ? 'y' : 'x',
+                layout: {
+                    padding: {
+                        top: config.horizontal ? 10 : 25,
+                        right: config.horizontal ? 50 : 15
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                if (metric === 'VALUE') {
+                                    const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+                                    return ' Stock Capital at Risk: ' + formatted;
+                                }
+                                if (val <= 0.45) {
+                                    return ' Days Since Last Sale: Today (0 days ago)';
+                                }
+                                return ' Days Since Last Sale: ' + Math.round(val) + ' days';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        suggestedMax: metric === 'DAYS' ? 5 : undefined,
+                        ticks: {
+                            autoSkip: false,
+                            font: { weight: 'bold', size: 10 },
+                            callback: function (value) {
+                                if (config.horizontal) return this.getLabelForValue(value);
+                                if (metric === 'VALUE') {
+                                    return '$' + new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                                }
+                                return value === 0 ? 'Today' : value + 'd';
+                            }
+                        }
+                    },
+                    x: {
+                        beginAtZero: true,
+                        suggestedMax: metric === 'DAYS' ? 5 : undefined,
+                        ticks: {
+                            autoSkip: false,
+                            font: { weight: 'bold', size: 10 },
+                            maxRotation: 45,
+                            minRotation: 45,
+                            callback: function (value) {
+                                if (!config.horizontal) return this.getLabelForValue(value);
+                                if (metric === 'VALUE') {
+                                    return '$' + new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                                }
+                                return value === 0 ? 'Today' : value + 'd';
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 };
