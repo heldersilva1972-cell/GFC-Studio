@@ -107,9 +107,31 @@
                         {
                             @foreach (var sale in Sales)
                             {
+                                var evName = GetEventNameForSale(sale);
+                                var isTab = sale.PaymentType == "TAB" || sale.ActiveEventId.HasValue;
                                 <div class="sale-item @(SelectedSale == sale ? "active" : "")" @onclick="() => SelectedSale = sale">
-                                    <div class="d-flex flex-column">
-                                        <span class="text-muted fw-bold mb-1" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
+                                    <div class="d-flex flex-column flex-grow-1 me-2">
+                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                            <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
+                                            @if (isTab || !string.IsNullOrEmpty(evName))
+                                            {
+                                                <span class="badge bg-primary text-white fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem; letter-spacing: 0.3px;">
+                                                    <i class="bi bi-journal-check me-1"></i>@(string.IsNullOrEmpty(evName) ? "TAB" : evName.ToUpper())
+                                                </span>
+                                            }
+                                            else if (sale.PaymentType == "TOKEN/COMP" || sale.PaymentType == "TOKEN")
+                                            {
+                                                <span class="badge bg-warning text-dark fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">
+                                                    <i class="bi bi-ticket-perforated me-1"></i>TOKEN
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary text-white fw-bold px-2 py-0.5 rounded-pill" style="font-size: 0.65rem;">
+                                                    @sale.PaymentType
+                                                </span>
+                                            }
+                                        </div>
                                         <span class="fw-black text-primary" style="font-size: 1.1rem; line-height: 1;">@sale.Timestamp.ToString("h:mm tt")</span>
                                         <div class="terminal mt-1">@sale.TerminalName</div>
                                         <div class="bartender">by @sale.BartenderName</div>
@@ -1580,6 +1602,15 @@
                                         <div class="fw-black text-uppercase">@SelectedSale.TerminalName</div>
                                         <div class="timestamp">@SelectedSale.Timestamp.ToString("f")</div>
                                         <div class="bart">Bartender: @SelectedSale.BartenderName</div>
+                                        @{
+                                            var selEvName = GetEventNameForSale(SelectedSale);
+                                        }
+                                        @if (!string.IsNullOrEmpty(selEvName) || SelectedSale.PaymentType == "TAB" || SelectedSale.ActiveEventId.HasValue)
+                                        {
+                                            <div class="badge bg-primary text-white fw-bold px-3 py-1 mt-2 rounded-pill shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px;">
+                                                <i class="bi bi-journal-check me-1"></i>EVENT TAB: @(string.IsNullOrEmpty(selEvName) ? "ACTIVE TAB" : selEvName.ToUpper())
+                                            </div>
+                                        }
                                     </div>
 
                                     <div class="receipt-body">
@@ -2327,7 +2358,7 @@
                                         <span class="text-muted" style="font-size: 0.75rem;">Tracking free team rounds and wholesale cost expense to club</span>
                                     </div>
                                     <div class="badge p-2 rounded-pill px-3 fw-bold border" style="background-color: #f5f3ff; color: #6d28d9; border-color: #ddd6fe !important; font-size: 0.75rem;">
-                                        <i class="bi bi-info-circle me-1"></i> Cost calculated from bottle/case wholesale cost
+                                        <i class="bi bi-info-circle me-1"></i> Cost calculated from per-drink wholesale cost
                                     </div>
                                 </div>
 
@@ -3977,10 +4008,49 @@
 
                 if (matched != null)
                 {
-                    if (matched.CurrentPrice > 0) 
-                        unitWholesale = matched.PackSize > 1 ? matched.CurrentPrice / matched.PackSize : matched.CurrentPrice;
+                    var parentItem = (matched.ParentItemId.HasValue && matched.ParentItemId.Value > 0)
+                        ? (DbLiquorItems.FirstOrDefault(p => p.Id == matched.ParentItemId.Value) ?? matched)
+                        : matched;
 
-                    if (unitRetail == 0) unitRetail = matched.RetailPrice;
+                    if (unitRetail == 0) unitRetail = matched.RetailPrice > 0 ? matched.RetailPrice : parentItem.RetailPrice;
+
+                    if (matched.IsUnitBased || matched.IsBeer || string.Equals(matched.Category, "BEER", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var costSource = matched.CurrentPrice > 0 ? matched : parentItem;
+                        if (costSource.CurrentPrice > 0)
+                        {
+                            unitWholesale = costSource.PackSize > 1 ? costSource.CurrentPrice / costSource.PackSize : costSource.CurrentPrice;
+                        }
+                    }
+                    else
+                    {
+                        // Liquor / Wine / Pour-based items
+                        var costSource = parentItem.CurrentPrice > 0 ? parentItem : matched;
+                        if (costSource.CurrentPrice > 0)
+                        {
+                            decimal bottleOz = costSource.BottleVolumeOunces ?? 0m;
+                            if (bottleOz <= 0)
+                            {
+                                string bSize = costSource.BottleSize ?? "1L";
+                                if (bSize.Contains("750")) bottleOz = 25.4m;
+                                else if (bSize.Contains("1.75")) bottleOz = 59.2m;
+                                else bottleOz = 33.8m;
+                            }
+
+                            decimal pourOz = matched.PourVolumeOunces ?? matched.PourSize;
+                            if (pourOz <= 0) pourOz = costSource.PourVolumeOunces ?? costSource.PourSize;
+                            if (pourOz <= 0) pourOz = 1.5m;
+
+                            if (bottleOz > 0)
+                            {
+                                unitWholesale = (costSource.CurrentPrice / bottleOz) * pourOz;
+                            }
+                            else
+                            {
+                                unitWholesale = costSource.PackSize > 1 ? costSource.CurrentPrice / costSource.PackSize : costSource.CurrentPrice;
+                            }
+                        }
+                    }
                 }
 
                 wholesaleTotal += item.Quantity * unitWholesale;
@@ -5553,6 +5623,8 @@
             throw;
         }
     }
+
+    private string GetEventNameForSale(PosSale? sale) => "";
 
     private async Task CalculateReconciliation(GfcDbContext db)
     {

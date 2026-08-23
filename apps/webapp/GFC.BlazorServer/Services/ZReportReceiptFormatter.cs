@@ -344,10 +344,10 @@ namespace GFC.BlazorServer.Services
                 AppendLine(sb, $"  {group.Key} TOTAL", $"{groupTotal:C}");
             }
 
-            // Banquet Activity
+            // Event Activity
             if (banquetSummary.Any())
             {
-                AppendSectionHeader(sb, "BANQUET ACTIVITY");
+                AppendSectionHeader(sb, "EVENT ACTIVITY");
                 foreach (var b in banquetSummary)
                 {
                     var isRunningTab = b.EventType == "RunningTab";

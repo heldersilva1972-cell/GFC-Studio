@@ -1679,92 +1679,7 @@
                                 </div>
                                 <input class="form-check-input ms-2" type="checkbox" role="switch" id="beerTallySwitchTemplate" @bind="editingEventTemplate.EnableBeerTally" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
                             </div>
-                            
-                            <hr class="my-2 text-muted" />
-
-                            <label class="fw-bold text-dark mb-1 d-block" style="font-size: 0.9rem;"><i class="bi bi-gift-fill me-1 text-warning"></i> Club Donated Beer & Proceeds Rules</label>
-                            <div class="row g-2 align-items-center mb-2">
-                                <div class="col-6">
-                                    <label class="small text-muted mb-0">Donated Case Cap</label>
-                                    <select class="form-select form-select-sm rounded-3 border-2" value="@editingEventTemplate.ClubDonatedCasesCap" @onchange="(e) => OnDonatedCapChanged(e.Value)">
-                                        <option value="0">0 Cases (None)</option>
-                                        <option value="1">1 Case (24 Cans)</option>
-                                        <option value="2">2 Cases (48 Cans)</option>
-                                        <option value="3">3 Cases (72 Cans)</option>
-                                    </select>
-                                </div>
-
-                                <div class="col-6">
-                                    <label class="small text-muted mb-0">Recipient Sub-Event</label>
-                                    <select class="form-select form-select-sm rounded-3 border-2" @bind="editingEventTemplate.RecipientEventName">
-                                        <option value="">-- Select Recipient Event --</option>
-                                        <option value="Horseshoes Event">Horseshoes Event</option>
-                                        @if (eventTemplates != null)
-                                        {
-                                            @foreach (var t in eventTemplates.Where(t => t.Id != editingEventTemplate.Id))
-                                            {
-                                                var name = GetEventDisplayName(t.Name);
-                                                <option value="@name">@name</option>
-                                            }
-                                        }
-                                    </select>
-                                </div>
-
-                            </div>
-
-                            <div class="mt-2">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <label class="small text-muted mb-0 fw-bold"><i class="bi bi-card-checklist me-1"></i>Donate Cases Per Beer Brand</label>
-                                    <span class="badge @(GetTotalAllocatedCases() == editingEventTemplate.ClubDonatedCasesCap ? "bg-success" : "bg-warning text-dark") rounded-pill" style="font-size: 0.8rem;">
-                                        Allocated: @GetTotalAllocatedCases() / @editingEventTemplate.ClubDonatedCasesCap Cases
-                                    </span>
-                                </div>
-                                @{
-                                    var beerItems = allItemsForTokens?.Where(i => i.Category?.Trim().ToUpper() == "BEER").ToList() ?? new();
-                                    var allocations = GetDonatedBeerAllocations();
-                                }
-                                @if (beerItems.Any())
-                                {
-                                    <div class="d-flex flex-column gap-2 p-2 bg-white rounded-3 border" style="max-height: 180px; overflow-y: auto;">
-                                        @foreach (var bItem in beerItems)
-                                        {
-                                            var currentCases = allocations.TryGetValue(bItem.Id, out var count) ? count : 0;
-                                            <div class="d-flex align-items-center justify-content-between p-2 rounded-3 border bg-light">
-                                                <div class="fw-bold small text-dark me-2">
-                                                    @bItem.Name <span class="text-muted fw-normal">(@bItem.RetailPrice.ToString("C"))</span>
-                                                </div>
-                                                <div class="d-flex align-items-center gap-1">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle py-0 px-2 fw-bold" 
-                                                            @onclick="() => SetDonatedBeerItemCases(bItem.Id, currentCases - 1)" disabled="@(currentCases <= 0)">-</button>
-                                                    <span class="fw-black px-2 small text-dark" style="min-width: 65px; text-align: center;">
-                                                        @currentCases @(currentCases == 1 ? "Case" : "Cases")
-                                                    </span>
-                                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-circle py-0 px-2 fw-bold" 
-                                                            @onclick="() => SetDonatedBeerItemCases(bItem.Id, currentCases + 1)" disabled="@(GetTotalAllocatedCases() >= editingEventTemplate.ClubDonatedCasesCap)">+</button>
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="small text-muted fst-italic">No beer items found.</div>
-                                }
-                            </div>
-
-
-                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0 mt-2">
-                                <div>
-                                    <label class="form-check-label fw-bold text-dark mb-0" for="proceedsSwitchTemplate" style="font-size: 0.85rem; cursor: pointer;">
-                                        100% Proceeds to Recipient Event
-                                    </label>
-                                    <div class="small text-muted" style="font-size: 0.75rem;">Allocates 100% of sales proceeds to recipient event until donated beers are depleted.</div>
-                                </div>
-                                <input class="form-check-input ms-2" type="checkbox" role="switch" id="proceedsSwitchTemplate" @bind="editingEventTemplate.Enable100PercentDonatedProceeds" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
-                            </div>
                         </div>
-
-
                     }
                     else if (activeEventTemplateTab == "menu")
                     {
@@ -2891,6 +2806,10 @@
         public int QuantityReturned { get; set; }
         public int Consumed => Math.Max(0, QuantityTaken - QuantityReturned);
         public decimal Subtotal => Consumed * Price;
+        public bool EnableClubSplit { get; set; }
+        public decimal ClubSplitAmount { get; set; }
+        public decimal ClubSubtotal => Consumed * (EnableClubSplit ? ClubSplitAmount : Price);
+        public decimal EventSubtotal => Consumed * (EnableClubSplit ? Math.Max(0, Price - ClubSplitAmount) : 0);
     }
 
     private List<BeerTallyItem> GetActiveEventTallies(ActiveEvent ae)
@@ -2924,7 +2843,7 @@
     private decimal CalculateConsumedValue(ActiveEvent ae)
     {
         var tallies = GetActiveEventTallies(ae);
-        return tallies.Sum(t => t.Consumed * t.Price);
+        return tallies.Sum(t => t.EnableClubSplit ? t.ClubSubtotal : t.Subtotal);
     }
 
     private void StartInlineTallyEdit(ActiveEvent ae, string mode)
@@ -2951,13 +2870,14 @@
         }
 
         // Merge with template override items (beers only)
+        var template = ae.Template ?? eventTemplates?.FirstOrDefault(t => (ae.TemplateId.HasValue && t.Id == ae.TemplateId.Value) || (!string.IsNullOrEmpty(ae.Name) && string.Equals(t.Name, ae.Name, StringComparison.OrdinalIgnoreCase)));
         var templateOverrides = new List<BanquetOverrideDto>();
-        if (ae.Template != null && !string.IsNullOrEmpty(ae.Template.ItemsOverrideJson))
+        if (template != null && !string.IsNullOrEmpty(template.ItemsOverrideJson))
         {
             try
             {
                 templateOverrides = global::System.Text.Json.JsonSerializer.Deserialize<List<BanquetOverrideDto>>(
-                    ae.Template.ItemsOverrideJson,
+                    template.ItemsOverrideJson,
                     new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 ) ?? new();
             }
@@ -2971,7 +2891,8 @@
             if (liquorItem != null && liquorItem.IsBeer)
             {
                 overrideBeerIds.Add(ov.ItemId);
-                if (!currentTallies.Any(t => t.ItemId == ov.ItemId))
+                var existingTally = currentTallies.FirstOrDefault(t => t.ItemId == ov.ItemId);
+                if (existingTally == null)
                 {
                     currentTallies.Add(new BeerTallyItem
                     {
@@ -2979,8 +2900,16 @@
                         Name = liquorItem.Name,
                         Price = ov.OverridePrice,
                         QuantityTaken = 0,
-                        QuantityReturned = 0
+                        QuantityReturned = 0,
+                        EnableClubSplit = ov.EnableClubSplit,
+                        ClubSplitAmount = ov.ClubSplitAmount
                     });
+                }
+                else
+                {
+                    existingTally.Price = ov.OverridePrice;
+                    existingTally.EnableClubSplit = ov.EnableClubSplit;
+                    existingTally.ClubSplitAmount = ov.ClubSplitAmount;
                 }
             }
         }
@@ -3066,7 +2995,7 @@
                 orig.InitialAmount = inlineTallyEvent.InitialAmount;
 
                 // Calculate total consumed cost
-                decimal totalConsumedCost = currentTallies.Sum(t => t.Subtotal);
+                decimal totalConsumedCost = currentTallies.Sum(t => t.EnableClubSplit ? t.ClubSubtotal : t.Subtotal);
 
                 // Update CurrentBalance based on prepaid vs running tab
                 if (orig.Type == EventTabType.PrePaid)
