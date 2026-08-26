@@ -1188,6 +1188,48 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> WARNING: Club Events schema script not found at {clubEventsScriptPath}");
                 }
 
+                // [AUTO-MIGRATION] Apply Event Donated Beer Schema
+                var donatedBeerScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "apps", "webapp", "DatabaseScripts", "04_add_event_donated_beer_columns.sql");
+                if (File.Exists(donatedBeerScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Event Donated Beer Schema from: {donatedBeerScriptPath}");
+                    var donatedSql = File.ReadAllText(donatedBeerScriptPath);
+                    var donatedBatches = System.Text.RegularExpressions.Regex.Split(donatedSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in donatedBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Donated Beer batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Event Donated Beer Schema Applied Successfully.");
+                }
+
+                // Cleanup query to reset non-donating event templates in database
+                try
+                {
+                    var cleanDonationDefaultsSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'EventTemplates')
+                        BEGIN
+                            UPDATE EventTemplates 
+                            SET ClubDonatedCasesCap = 0, Enable100PercentDonatedProceeds = 0 
+                            WHERE RecipientEventName IS NULL OR RecipientEventName = '';
+                        END;
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'ActiveEvents')
+                        BEGIN
+                            UPDATE ActiveEvents 
+                            SET ClubDonatedCasesCap = 0, Enable100PercentDonatedProceeds = 0 
+                            WHERE RecipientEventName IS NULL OR RecipientEventName = '';
+                        END;
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(cleanDonationDefaultsSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error cleaning donation defaults: {ex.Message}");
+                }
+
                 // [AUTO-FIX 19] Rename 'Manage Users' to 'Users / Workstations' and deactivate '/admin/users/active-sessions'
                 try
                 {

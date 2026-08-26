@@ -1395,8 +1395,8 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
                                 try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
                                 
-                                // Proactively remove the closed event from the local cached menu if CloseEvent is true
-                                if (tallyReq.CloseEvent) {
+                                // Proactively remove the closed event from the local cached menu if CloseEvent is true and not recurring
+                                if (tallyReq.CloseEvent && !tallyReq.IsRecurring) {
                                     try {
                                         var menuJson = await _js.InvokeAsync<string>("window.gfcGetAsync", CachedMenuKey);
                                         if (!string.IsNullOrEmpty(menuJson) && menuJson != "null") {

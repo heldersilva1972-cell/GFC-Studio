@@ -31,7 +31,7 @@ public class ActiveEvent : BaseEntity
 
     public bool EnableBeerTally { get; set; }
 
-    public int ClubDonatedCasesCap { get; set; } = 3;
+    public int ClubDonatedCasesCap { get; set; } = 0;
 
     public string? DonatedItemIdsJson { get; set; }
 
@@ -44,7 +44,7 @@ public class ActiveEvent : BaseEntity
 
     public int DonatedBeerSoldCount { get; set; }
 
-    public bool Enable100PercentDonatedProceeds { get; set; } = true;
+    public bool Enable100PercentDonatedProceeds { get; set; } = false;
 
     public bool IsRecurring { get; set; }
 

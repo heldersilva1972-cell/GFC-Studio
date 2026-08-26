@@ -382,13 +382,33 @@
                     else if (!eventTemplates.Any()) { <div class="text-muted small">No templates saved.</div> }
                     else {
                         <div class="row row-cols-1 row-cols-md-2 g-3">
-                        @foreach(var t in eventTemplates) {
+                         @foreach(var t in eventTemplates) {
                             <div class="col">
                                 <div class="card h-100 border-2 rounded-4 p-3 bg-white">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div>
                                             <h6 class="fw-bold mb-1">@GetEventDisplayName(t.Name)</h6>
-                                            <span class="badge bg-light text-dark border rounded-pill">Default: @t.DefaultType</span>
+                                            <div class="d-flex gap-1 flex-wrap align-items-center">
+                                                <span class="badge bg-light text-dark border rounded-pill">Tab Mode: @(t.DefaultType == EventTabType.RunningTab ? "Running Tab" : "Pre-Paid")</span>
+                                                @if (t.Name.Contains("[Direct]"))
+                                                {
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-20 rounded-pill" title="Shows TAB button side-by-side with PAY on POS">
+                                                        <i class="bi bi-lightning-charge-fill me-1"></i>Direct Tab Checkout
+                                                    </span>
+                                                }
+                                                @if (t.ClubDonatedCasesCap > 0)
+                                                {
+                                                    <span class="badge bg-warning text-dark border border-warning rounded-pill" title="Donates game prizes">
+                                                        <i class="bi bi-gift-fill me-1"></i>Donates @t.ClubDonatedCasesCap Cases
+                                                    </span>
+                                                }
+                                                @if (GetDonationSourceEventNames(t.Name).Any())
+                                                {
+                                                    <span class="badge bg-success text-white border border-success rounded-pill" title="Receives donated prize sales">
+                                                        <i class="bi bi-arrow-down-left-circle-fill me-1"></i>Recipient for @string.Join(", ", GetDonationSourceEventNames(t.Name))
+                                                    </span>
+                                                }
+                                            </div>
                                         </div>
                                         <div class="d-flex gap-2">
                                             <button class="btn btn-sm btn-light border rounded-circle" title="Edit Template" @onclick="() => OpenEditEventTemplateModal(t)"><i class="bi bi-pencil"></i></button>
@@ -396,6 +416,13 @@
                                             <button class="btn btn-sm btn-outline-danger rounded-circle" title="Delete Template" @onclick="() => DeleteEventTemplate(t)"><i class="bi bi-trash"></i></button>
                                         </div>
                                     </div>
+                                    @if (GetDonationSourceEventNames(t.Name).Any())
+                                    {
+                                        <div class="mt-2 p-2 bg-success bg-opacity-10 border border-success border-opacity-20 rounded-3 text-success small" style="font-size: 0.72rem; line-height: 1.3;">
+                                            <i class="bi bi-check-circle-fill me-1"></i>
+                                            <strong>Recipient Status Active:</strong> Linked to receive donated prizes from <strong>@string.Join(", ", GetDonationSourceEventNames(t.Name))</strong>.
+                                        </div>
+                                    }
                                 </div>
                             </div>
                         }
@@ -1623,6 +1650,16 @@
                     <button type="button" class="btn-close" @onclick="() => editingEventTemplate = null"></button>
                 </div>
                 <div class="modal-body py-3">
+                    @if (!string.IsNullOrEmpty(_templateErrorMsg))
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show rounded-3 mb-3 small d-flex align-items-center gap-2 shadow-sm border border-danger border-opacity-25 animate__animated animate__shakeX" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill fs-5 text-danger"></i>
+                            <div>
+                                <strong>Cannot Save Template:</strong> @_templateErrorMsg
+                            </div>
+                            <button type="button" class="btn-close" @onclick='() => _templateErrorMsg = ""'></button>
+                        </div>
+                    }
                     <ul class="nav nav-pills mb-3 border-bottom pb-2" role="tablist">
                         <li class="nav-item">
                             <button type="button" class="nav-link @(activeEventTemplateTab == "general" ? "active" : "")" @onclick='() => activeEventTemplateTab = "general"'>General Info</button>
@@ -1670,7 +1707,7 @@
                             </div>
                         </div>
                         <div class="mb-3 p-3 bg-light rounded-3 border">
-                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0 mb-2">
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
                                 <div>
                                     <label class="form-check-label fw-bold text-dark mb-0" for="beerTallySwitchTemplate" style="font-size: 0.9rem; cursor: pointer;">
                                         Beer Inventory Tracking
@@ -1679,6 +1716,132 @@
                                 </div>
                                 <input class="form-check-input ms-2" type="checkbox" role="switch" id="beerTallySwitchTemplate" @bind="editingEventTemplate.EnableBeerTally" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
                             </div>
+                        </div>
+                        <div class="mb-3 p-3 bg-light rounded-3 border">
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                                <div>
+                                    <label class="form-check-label fw-bold text-dark mb-0" for="isRecurringSwitchTemplate" style="font-size: 0.9rem; cursor: pointer;">
+                                        Recurring Event
+                                    </label>
+                                    <div class="small text-muted" style="font-size: 0.75rem;">Enable for repeating events (e.g. Horseshoes) to carry forward remaining donated beer stock across sessions.</div>
+                                </div>
+                                <input class="form-check-input ms-2" type="checkbox" role="switch" id="isRecurringSwitchTemplate" @bind="editingEventTemplate.IsRecurring" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                            </div>
+                        </div>
+                        <div class="mb-3 p-3 bg-light rounded-3 border">
+                            <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                                <div>
+                                    <label class="form-check-label fw-bold text-dark mb-0" for="donatedPrizesSwitchTemplate" style="font-size: 0.9rem; cursor: pointer;">
+                                        Enable Club Donated Prizes & Event Recipient Sharing
+                                    </label>
+                                    <div class="small text-muted" style="font-size: 0.75rem;">Configure game prizes donated by the club, caps, and target recipient events for 100% sales splits.</div>
+                                </div>
+                                <input class="form-check-input ms-2" type="checkbox" role="switch" id="donatedPrizesSwitchTemplate" @bind="showAdvancedDonationSettings" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                            </div>
+
+                            @if (showAdvancedDonationSettings)
+                            {
+                                <div class="mt-3 p-3 bg-white rounded-3 border border-warning-subtle shadow-sm animate__animated animate__fadeIn">
+                                    <h6 class="fw-bold text-dark mb-2" style="font-size: 0.85rem;"><i class="bi bi-gift-fill text-warning me-1"></i> Club Donated Prizes Configuration</h6>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">1. Donated Beer Case Cap</label>
+                                        <div class="input-group input-group-sm mb-1" style="max-width: 180px;">
+                                            <input type="number" min="0" max="10" class="form-control fw-bold text-center" @bind="editingEventTemplate.ClubDonatedCasesCap" />
+                                            <span class="input-group-text">Cases</span>
+                                        </div>
+                                        <div class="small text-muted" style="font-size: 0.72rem; line-height: 1.3;">
+                                            💡 <strong>Description:</strong> Maximum number of beer cases the club donates to this event for game prizes (e.g. 3 cases for the Family Picnic).
+                                        </div>
+                                    </div>
+
+                                    @if (editingEventTemplate.ClubDonatedCasesCap > 0)
+                                    {
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label small fw-bold text-dark mb-0">Beer Brand Case Breakdown</label>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    @if (GetTotalAllocatedCases() > 0)
+                                                    {
+                                                        <button type="button" class="btn btn-link p-0 small text-danger text-decoration-none" style="font-size: 0.72rem;" @onclick='() => editingEventTemplate.DonatedItemIdsJson = "{}"'>Reset</button>
+                                                    }
+                                                    <span class="badge bg-primary rounded-pill">@GetTotalAllocatedCases() / @editingEventTemplate.ClubDonatedCasesCap Cases Allocated</span>
+                                                </div>
+                                            </div>
+                                            <div class="border rounded-3 p-2 bg-light" style="max-height: 180px; overflow-y: auto;">
+                                                @{
+                                                    var beerItems = allItemsForTokens?.Where(i => i.Category?.Trim().ToUpper() == "BEER").ToList() ?? new();
+                                                    var currentAllocations = GetDonatedBeerAllocations();
+                                                }
+                                                @if (!beerItems.Any())
+                                                {
+                                                    <div class="small text-muted p-2">No beer items found.</div>
+                                                }
+                                                else
+                                                {
+                                                    <table class="table table-sm table-borderless align-middle m-0" style="font-size: 0.8rem;">
+                                                        <thead>
+                                                            <tr class="text-muted border-bottom">
+                                                                <th>Beer Brand</th>
+                                                                <th class="text-center" style="width: 140px;">Cases Donated</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var item in beerItems)
+                                                            {
+                                                                var allocated = currentAllocations.ContainsKey(item.Id) ? currentAllocations[item.Id] : 0;
+                                                                <tr>
+                                                                    <td class="fw-bold text-dark">@item.Name</td>
+                                                                    <td class="text-center">
+                                                                        <div class="input-group input-group-sm">
+                                                                            <button type="button" class="btn btn-outline-secondary py-0" @onclick="() => SetDonatedBeerItemCases(item.Id, allocated - 1)" disabled="@(allocated <= 0)">-</button>
+                                                                            <span class="form-control text-center fw-bold bg-white py-0" style="min-width: 36px;">@allocated</span>
+                                                                            <button type="button" class="btn btn-outline-secondary py-0" @onclick="() => SetDonatedBeerItemCases(item.Id, allocated + 1)" disabled="@(GetTotalAllocatedCases() >= editingEventTemplate.ClubDonatedCasesCap)">+</button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                }
+                                            </div>
+                                            <div class="small text-muted mt-1" style="font-size: 0.72rem; line-height: 1.3;">
+                                                💡 <strong>Description:</strong> Allocate how many cases of each beer brand make up the @editingEventTemplate.ClubDonatedCasesCap donated cases.
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">2. Target Recipient Event</label>
+                                        <select class="form-select form-select-sm fw-bold mb-1" @bind="editingEventTemplate.RecipientEventName">
+                                            <option value="">-- Select Recipient Event --</option>
+                                            @if (eventTemplates != null)
+                                            {
+                                                @foreach (var tmplName in eventTemplates
+                                                    .Where(t => t.Id != editingEventTemplate.Id)
+                                                    .Select(t => GetEventDisplayName(t.Name))
+                                                    .Distinct())
+                                                {
+                                                    <option value="@tmplName">@tmplName</option>
+                                                }
+                                            }
+                                        </select>
+                                        <div class="small text-muted" style="font-size: 0.72rem; line-height: 1.3;">
+                                            💡 <strong>Description:</strong> When game winners donate prizes back to the club, re-donated beers are credited to this target event.
+                                        </div>
+                                    </div>
+
+                                    <div class="form-check form-switch mt-2">
+                                        <input class="form-check-input" type="checkbox" id="enable100ProceedsCheck" @bind="editingEventTemplate.Enable100PercentDonatedProceeds" />
+                                        <label class="form-check-label small fw-bold text-dark" for="enable100ProceedsCheck">
+                                            3. Enable 100% Donated Sales Proceeds to Recipient Event
+                                        </label>
+                                        <div class="small text-muted mt-1" style="font-size: 0.72rem; line-height: 1.3;">
+                                            💡 <strong>Description:</strong> When checked, the recipient event (e.g. Horseshoes) keeps 100% of sales proceeds for donated beer brands up to the quota.
+                                        </div>
+                                    </div>
+                                </div>
+                            }
                         </div>
                     }
                     else if (activeEventTemplateTab == "menu")
@@ -1837,6 +2000,83 @@
                             </div>
                             <input class="form-check-input ms-2" type="checkbox" role="switch" id="beerTallySwitchAdmin" @bind="creatingActiveEvent.EnableBeerTally" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
                         </div>
+                    </div>
+                    <div class="mb-3 p-3 bg-light rounded-3 border">
+                        <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                            <div>
+                                <label class="form-check-label fw-bold text-dark mb-0" for="isRecurringSwitchAdmin" style="font-size: 0.9rem; cursor: pointer;">
+                                    Recurring Event
+                                </label>
+                                <div class="small text-muted" style="font-size: 0.75rem;">Enable for repeating events (e.g. Horseshoes) to carry forward remaining donated beer stock across sessions.</div>
+                            </div>
+                            <input class="form-check-input ms-2" type="checkbox" role="switch" id="isRecurringSwitchAdmin" @bind="creatingActiveEvent.IsRecurring" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                        </div>
+                    </div>
+                    <div class="mb-3 p-3 bg-light rounded-3 border">
+                        <div class="form-check form-switch d-flex align-items-center justify-content-between p-0 m-0">
+                            <div>
+                                <label class="form-check-label fw-bold text-dark mb-0" for="donatedPrizesSwitchActive" style="font-size: 0.9rem; cursor: pointer;">
+                                    Enable Club Donated Prizes & Event Recipient Sharing
+                                </label>
+                                <div class="small text-muted" style="font-size: 0.75rem;">Configure game prizes donated by the club, caps, and target recipient events for 100% sales splits.</div>
+                            </div>
+                            <input class="form-check-input ms-2" type="checkbox" role="switch" id="donatedPrizesSwitchActive" @bind="showAdvancedDonationSettings" style="width: 2.5em; height: 1.25em; cursor: pointer;" />
+                        </div>
+
+                        @if (showAdvancedDonationSettings)
+                        {
+                            <div class="mt-3 p-3 bg-white rounded-3 border border-warning-subtle shadow-sm animate__animated animate__fadeIn">
+                                <h6 class="fw-bold text-dark mb-2" style="font-size: 0.85rem;"><i class="bi bi-gift-fill text-warning me-1"></i> Club Donated Prizes Configuration</h6>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">1. Donated Beer Case Cap</label>
+                                    <div class="input-group input-group-sm mb-1" style="max-width: 180px;">
+                                        <input type="number" min="0" max="10" class="form-control fw-bold text-center" @bind="creatingActiveEvent.ClubDonatedCasesCap" />
+                                        <span class="input-group-text">Cases</span>
+                                    </div>
+                                    <div class="small text-muted" style="font-size: 0.72rem; line-height: 1.3;">
+                                        💡 <strong>Description:</strong> Maximum number of beer cases the club donates to this event for game prizes (e.g. 3 cases for the Family Picnic).
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">2. Target Recipient Event</label>
+                                    <select class="form-select form-select-sm fw-bold mb-1" @bind="creatingActiveEvent.RecipientEventName">
+                                        <option value="">-- Select Recipient Event --</option>
+                                        @if (eventTemplates != null)
+                                        {
+                                            @foreach (var tmplName in eventTemplates
+                                                .Select(t => GetEventDisplayName(t.Name))
+                                                .Distinct())
+                                            {
+                                                <option value="@tmplName">@tmplName</option>
+                                            }
+                                            @if (!eventTemplates.Any(t => GetEventDisplayName(t.Name).Equals("Horseshoes", StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <option value="Horseshoes">Horseshoes</option>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <option value="Horseshoes">Horseshoes</option>
+                                        }
+                                    </select>
+                                    <div class="small text-muted" style="font-size: 0.72rem; line-height: 1.3;">
+                                        💡 <strong>Description:</strong> When game winners donate prizes back to the club, re-donated beers are credited to this target event.
+                                    </div>
+                                </div>
+
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" id="enable100ProceedsCheckActive" @bind="creatingActiveEvent.Enable100PercentDonatedProceeds" />
+                                    <label class="form-check-label small fw-bold text-dark" for="enable100ProceedsCheckActive">
+                                        3. Enable 100% Donated Sales Proceeds to Recipient Event
+                                    </label>
+                                    <div class="small text-muted mt-1" style="font-size: 0.72rem; line-height: 1.3;">
+                                        💡 <strong>Description:</strong> When checked, the recipient event (e.g. Horseshoes) keeps 100% of sales proceeds for donated beer brands up to the quota.
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     </div>
                 </div>
                 <div class="modal-footer border-0 pt-0">
@@ -2282,6 +2522,8 @@
     private List<EventTemplate>? eventTemplates;
     private List<ActiveEvent>? activeEvents;
     private EventTemplate? editingEventTemplate;
+    private string _templateErrorMsg = "";
+    private bool showAdvancedDonationSettings = false;
     private ActiveEvent? creatingActiveEvent;
     private bool _newEventDirectCheckout = false;
     private bool _templateDirectCheckout = false;
@@ -2500,8 +2742,10 @@
     
     private void OpenAddEventTemplateModal()
     {
-        editingEventTemplate = new EventTemplate { DefaultType = EventTabType.PrePaid, Name = "" };
+        _templateErrorMsg = "";
+        editingEventTemplate = new EventTemplate { DefaultType = EventTabType.PrePaid, Name = "", ClubDonatedCasesCap = 0 };
         _templateDirectCheckout = false;
+        showAdvancedDonationSettings = false;
         editingEventOverrides = new();
         selectedOverrideCategory = "BEER";
         activeEventTemplateTab = "general";
@@ -2539,6 +2783,10 @@
         {
             dict[itemId] = finalCases;
         }
+        else
+        {
+            dict.Remove(itemId);
+        }
         editingEventTemplate.DonatedItemIdsJson = global::System.Text.Json.JsonSerializer.Serialize(dict);
     }
 
@@ -2556,6 +2804,7 @@
 
     private void OpenEditEventTemplateModal(EventTemplate t)
     {
+        _templateErrorMsg = "";
         editingEventTemplate = new EventTemplate { 
             Id = t.Id, 
             Name = t.Name, 
@@ -2568,6 +2817,7 @@
             IsRecurring = t.IsRecurring,
             RecipientEventName = t.RecipientEventName
         };
+        showAdvancedDonationSettings = t.ClubDonatedCasesCap > 0 || !string.IsNullOrWhiteSpace(t.RecipientEventName);
         _templateDirectCheckout = t.Name.EndsWith(" [Direct]") || t.Name.EndsWith("[Direct]");
         if (editingEventTemplate.Name.EndsWith(" [Direct]"))
             editingEventTemplate.Name = editingEventTemplate.Name.Substring(0, editingEventTemplate.Name.Length - 9);
@@ -2662,7 +2912,17 @@
     
     private async Task SaveEventTemplate()
     {
-        if (editingEventTemplate == null || string.IsNullOrWhiteSpace(editingEventTemplate.Name)) return;
+        if (editingEventTemplate == null) return;
+        _templateErrorMsg = "";
+
+        if (string.IsNullOrWhiteSpace(editingEventTemplate.Name))
+        {
+            _templateErrorMsg = "Please enter an Event Name before saving.";
+            await ToastService.ShowError(_templateErrorMsg);
+            StateHasChanged();
+            return;
+        }
+
         try {
             var cleanName = editingEventTemplate.Name.Trim();
             if (cleanName.EndsWith(" [Direct]")) cleanName = cleanName.Substring(0, cleanName.Length - 9).Trim();
@@ -2677,9 +2937,64 @@
                 editingEventTemplate.Name = cleanName;
             }
 
+            if (!showAdvancedDonationSettings)
+            {
+                editingEventTemplate.ClubDonatedCasesCap = 0;
+                editingEventTemplate.RecipientEventName = null;
+                editingEventTemplate.Enable100PercentDonatedProceeds = false;
+                editingEventTemplate.DonatedItemIdsJson = null;
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(editingEventTemplate.RecipientEventName))
+                {
+                    _templateErrorMsg = "Please select a Target Recipient Event before saving.";
+                    await ToastService.ShowError(_templateErrorMsg);
+                    StateHasChanged();
+                    return;
+                }
+
+                if (editingEventTemplate.ClubDonatedCasesCap <= 0)
+                {
+                    _templateErrorMsg = "Please set a Donated Beer Case Cap (e.g. 3 cases) before saving.";
+                    await ToastService.ShowError(_templateErrorMsg);
+                    StateHasChanged();
+                    return;
+                }
+
+                var allocatedCases = GetTotalAllocatedCases();
+                if (allocatedCases != editingEventTemplate.ClubDonatedCasesCap)
+                {
+                    _templateErrorMsg = $"Incomplete Case Allocation: You must use the '+' buttons below to allocate all {editingEventTemplate.ClubDonatedCasesCap} donated beer cases ({allocatedCases}/{editingEventTemplate.ClubDonatedCasesCap} currently allocated).";
+                    await ToastService.ShowError(_templateErrorMsg);
+                    StateHasChanged();
+                    return;
+                }
+            }
+
             editingEventTemplate.ItemsOverrideJson = global::System.Text.Json.JsonSerializer.Serialize(editingEventOverrides);
             
             using var db = await DbFactory.CreateDbContextAsync();
+
+            // Ensure database columns exist on-the-fly
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync(@"
+                    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND type in (N'U'))
+                    BEGIN
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'ClubDonatedCasesCap')
+                            ALTER TABLE [dbo].[EventTemplates] ADD [ClubDonatedCasesCap] INT NOT NULL DEFAULT 0;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'DonatedItemIdsJson')
+                            ALTER TABLE [dbo].[EventTemplates] ADD [DonatedItemIdsJson] NVARCHAR(MAX) NULL;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'Enable100PercentDonatedProceeds')
+                            ALTER TABLE [dbo].[EventTemplates] ADD [Enable100PercentDonatedProceeds] BIT NOT NULL DEFAULT 0;
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'RecipientEventName')
+                            ALTER TABLE [dbo].[EventTemplates] ADD [RecipientEventName] NVARCHAR(100) NULL;
+                    END
+                ");
+            }
+            catch { }
+
             if (editingEventTemplate.Id == 0) {
                 db.EventTemplates.Add(editingEventTemplate);
                 await ToastService.ShowSuccess("Template added.");
@@ -2698,12 +3013,49 @@
                     await ToastService.ShowSuccess("Template updated.");
                 }
             }
+
+            // Auto-configure recipient template if a target recipient event is specified
+            if (!string.IsNullOrWhiteSpace(editingEventTemplate.RecipientEventName))
+            {
+                var recipientNameLower = editingEventTemplate.RecipientEventName.Trim().ToLower();
+                var currentId = editingEventTemplate.Id;
+                var recipientTmpl = await db.EventTemplates.FirstOrDefaultAsync(t => 
+                    t.Id != currentId && !t.IsDeleted && (
+                        t.Name.ToLower() == recipientNameLower || 
+                        t.Name.ToLower().Contains(recipientNameLower) ||
+                        (recipientNameLower.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))
+                    )
+                );
+                if (recipientTmpl != null)
+                {
+                    recipientTmpl.Enable100PercentDonatedProceeds = true;
+                    recipientTmpl.EnableBeerTally = true;
+                }
+            }
+
             await db.SaveChangesAsync();
             editingEventTemplate = null;
             await LoadEvents();
+            StateHasChanged();
         } catch (Exception ex) {
-            await ToastService.ShowError(ex.Message);
+            _templateErrorMsg = ex.Message;
+            await ToastService.ShowError($"Failed to save: {ex.Message}");
+            StateHasChanged();
         }
+    }
+
+    private List<string> GetDonationSourceEventNames(string templateName)
+    {
+        if (string.IsNullOrWhiteSpace(templateName) || eventTemplates == null) return new();
+        var clean = templateName.Replace(" [Direct]", "").Replace("[Direct]", "").Trim();
+        return eventTemplates
+            .Where(t => !string.IsNullOrWhiteSpace(t.RecipientEventName) && 
+                       (t.RecipientEventName.Equals(clean, StringComparison.OrdinalIgnoreCase) || 
+                        clean.Contains(t.RecipientEventName, StringComparison.OrdinalIgnoreCase) ||
+                        (clean.ToLower().Contains("horseshoe") && t.RecipientEventName.ToLower().Contains("horseshoe"))))
+            .Select(t => GetEventDisplayName(t.Name))
+            .Distinct()
+            .ToList();
     }
     
     private async Task DeleteEventTemplate(EventTemplate t)
@@ -2729,6 +3081,7 @@
     private void OpenCreateActiveEventModal(EventTemplate t)
     {
         _newEventDirectCheckout = t.Name.EndsWith(" [Direct]") || t.Name.EndsWith("[Direct]");
+        showAdvancedDonationSettings = t.ClubDonatedCasesCap > 0 || !string.IsNullOrEmpty(t.RecipientEventName) || t.Enable100PercentDonatedProceeds;
         creatingActiveEvent = new ActiveEvent 
         { 
             TemplateId = t.Id, 

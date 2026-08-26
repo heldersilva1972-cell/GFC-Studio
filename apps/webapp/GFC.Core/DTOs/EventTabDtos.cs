@@ -18,4 +18,5 @@ public class UpdateEventTallyRequest
     public int DonatedBeerSoldCount { get; set; }
     public string? DonatedItemIdsJson { get; set; }
     public string? DonatedItemTalliesJson { get; set; }
+    public bool IsRecurring { get; set; }
 }

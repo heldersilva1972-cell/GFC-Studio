@@ -553,9 +553,43 @@ public class PosApiController : ControllerBase
             ev.DonatedBeerSoldCount = request.DonatedBeerSoldCount;
             ev.DonatedItemIdsJson = request.DonatedItemIdsJson;
             ev.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
+
+            if (ev.TemplateId.HasValue && ev.TemplateId.Value > 0)
+            {
+                var tmpl = await db.EventTemplates.FindAsync(ev.TemplateId.Value);
+                if (tmpl != null)
+                {
+                    if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson)) tmpl.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
+                    if (!string.IsNullOrEmpty(request.DonatedItemIdsJson)) tmpl.DonatedItemIdsJson = request.DonatedItemIdsJson;
+                    tmpl.Enable100PercentDonatedProceeds = ev.Enable100PercentDonatedProceeds;
+                }
+            }
+            else if (!string.IsNullOrEmpty(ev.Name))
+            {
+                var tmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == ev.Name.ToLower());
+                if (tmpl != null)
+                {
+                    if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson)) tmpl.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
+                    if (!string.IsNullOrEmpty(request.DonatedItemIdsJson)) tmpl.DonatedItemIdsJson = request.DonatedItemIdsJson;
+                    tmpl.Enable100PercentDonatedProceeds = ev.Enable100PercentDonatedProceeds;
+                }
+            }
+            if (request.IsRecurring)
+            {
+                ev.IsRecurring = true;
+            }
+
             if (request.CloseEvent)
             {
-                ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                if (ev.IsRecurring)
+                {
+                    ev.Status = GFC.Core.Enums.EventTabStatus.Open;
+                    ev.CurrentBalance = 0m;
+                }
+                else
+                {
+                    ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                }
             }
 
             await db.SaveChangesAsync();

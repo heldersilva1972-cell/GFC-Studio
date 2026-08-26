@@ -8,19 +8,22 @@ BEGIN
         ALTER TABLE [dbo].[EventTemplates] ADD [ItemsOverrideJson] NVARCHAR(MAX) NULL;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'ClubDonatedCasesCap')
-        ALTER TABLE [dbo].[EventTemplates] ADD [ClubDonatedCasesCap] INT NOT NULL DEFAULT 3;
+        ALTER TABLE [dbo].[EventTemplates] ADD [ClubDonatedCasesCap] INT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'DonatedItemIdsJson')
         ALTER TABLE [dbo].[EventTemplates] ADD [DonatedItemIdsJson] NVARCHAR(MAX) NULL;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'Enable100PercentDonatedProceeds')
-        ALTER TABLE [dbo].[EventTemplates] ADD [Enable100PercentDonatedProceeds] BIT NOT NULL DEFAULT 1;
+        ALTER TABLE [dbo].[EventTemplates] ADD [Enable100PercentDonatedProceeds] BIT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'IsRecurring')
         ALTER TABLE [dbo].[EventTemplates] ADD [IsRecurring] BIT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'RecipientEventName')
         ALTER TABLE [dbo].[EventTemplates] ADD [RecipientEventName] NVARCHAR(100) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = N'DonatedItemTalliesJson')
+        ALTER TABLE [dbo].[EventTemplates] ADD [DonatedItemTalliesJson] NVARCHAR(MAX) NULL;
 END
 GO
 
@@ -33,7 +36,7 @@ BEGIN
         ALTER TABLE [dbo].[ActiveEvents] ADD [BeerTalliesJson] NVARCHAR(MAX) NULL;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ActiveEvents]') AND name = N'ClubDonatedCasesCap')
-        ALTER TABLE [dbo].[ActiveEvents] ADD [ClubDonatedCasesCap] INT NOT NULL DEFAULT 3;
+        ALTER TABLE [dbo].[ActiveEvents] ADD [ClubDonatedCasesCap] INT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ActiveEvents]') AND name = N'DonatedItemIdsJson')
         ALTER TABLE [dbo].[ActiveEvents] ADD [DonatedItemIdsJson] NVARCHAR(MAX) NULL;
@@ -51,7 +54,7 @@ BEGIN
         ALTER TABLE [dbo].[ActiveEvents] ADD [DonatedBeerSoldCount] INT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ActiveEvents]') AND name = N'Enable100PercentDonatedProceeds')
-        ALTER TABLE [dbo].[ActiveEvents] ADD [Enable100PercentDonatedProceeds] BIT NOT NULL DEFAULT 1;
+        ALTER TABLE [dbo].[ActiveEvents] ADD [Enable100PercentDonatedProceeds] BIT NOT NULL DEFAULT 0;
 
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ActiveEvents]') AND name = N'IsRecurring')
         ALTER TABLE [dbo].[ActiveEvents] ADD [IsRecurring] BIT NOT NULL DEFAULT 0;
