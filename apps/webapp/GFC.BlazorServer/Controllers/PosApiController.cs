@@ -497,6 +497,12 @@ public class PosApiController : ControllerBase
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
+            var existingOpen = await db.ActiveEvents.FirstOrDefaultAsync(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted);
+            if (existingOpen != null)
+            {
+                return BadRequest($"An event is already active ('{existingOpen.Name}'). Please close the active event before starting a new one.");
+            }
+
             newEvent.Id = 0; // Force new identity
             newEvent.Template = null; // Clear navigation property to prevent EF Core identity insert errors
             newEvent.CreatedAt = DateTime.UtcNow;
@@ -539,6 +545,7 @@ public class PosApiController : ControllerBase
     {
         if (request == null) return BadRequest("Missing request body");
 
+        string diagMessage = string.Empty;
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
@@ -554,26 +561,51 @@ public class PosApiController : ControllerBase
             ev.DonatedItemIdsJson = request.DonatedItemIdsJson;
             ev.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
 
-            if (ev.TemplateId.HasValue && ev.TemplateId.Value > 0)
+            if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson) && !request.CloseEvent)
             {
-                var tmpl = await db.EventTemplates.FindAsync(ev.TemplateId.Value);
-                if (tmpl != null)
+                try
                 {
-                    if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson)) tmpl.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
-                    if (!string.IsNullOrEmpty(request.DonatedItemIdsJson)) tmpl.DonatedItemIdsJson = request.DonatedItemIdsJson;
-                    tmpl.Enable100PercentDonatedProceeds = ev.Enable100PercentDonatedProceeds;
+                    var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var records = System.Text.Json.JsonSerializer.Deserialize<List<DonatedLogEntry>>(request.DonatedItemTalliesJson, opts);
+                    if (records != null)
+                    {
+                        var redonations = records.Where(r => r.ActionType == "redonate").ToList();
+                        if (redonations.Any())
+                        {
+                            var targetRecipientName = (!string.IsNullOrWhiteSpace(ev.RecipientEventName) ? ev.RecipientEventName : "Horseshoes").Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                            var recipientTemplates = await db.EventTemplates
+                                .Where(t => (t.Name.ToLower() == targetRecipientName ||
+                                             t.Name.ToLower().Contains(targetRecipientName) ||
+                                             (targetRecipientName.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) &&
+                                             string.IsNullOrEmpty(t.RecipientEventName))
+                                .ToListAsync();
+
+                            foreach (var rt in recipientTemplates)
+                            {
+                                var poolMap = new Dictionary<int, int>();
+                                if (!string.IsNullOrEmpty(rt.DonatedItemIdsJson))
+                                {
+                                    try { poolMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(rt.DonatedItemIdsJson) ?? new(); } catch {}
+                                }
+
+                                foreach (var r in redonations)
+                                {
+                                    int cans = r.Cans > 0 ? r.Cans : (r.Cases * 24);
+                                    poolMap[r.ItemId] = (poolMap.TryGetValue(r.ItemId, out var existing) ? existing : 0) + cans;
+                                }
+
+                                rt.DonatedItemIdsJson = System.Text.Json.JsonSerializer.Serialize(poolMap);
+                                rt.ModifiedAt = DateTime.UtcNow;
+                            }
+                        }
+                    }
+                }
+                catch (Exception dex)
+                {
+                    _logger.LogError(dex, "[Donation] Error updating recipient template for donor event {Id}", ev.Id);
                 }
             }
-            else if (!string.IsNullOrEmpty(ev.Name))
-            {
-                var tmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == ev.Name.ToLower());
-                if (tmpl != null)
-                {
-                    if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson)) tmpl.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
-                    if (!string.IsNullOrEmpty(request.DonatedItemIdsJson)) tmpl.DonatedItemIdsJson = request.DonatedItemIdsJson;
-                    tmpl.Enable100PercentDonatedProceeds = ev.Enable100PercentDonatedProceeds;
-                }
-            }
+
             if (request.IsRecurring)
             {
                 ev.IsRecurring = true;
@@ -581,14 +613,87 @@ public class PosApiController : ControllerBase
 
             if (request.CloseEvent)
             {
-                if (ev.IsRecurring)
+                ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                ev.BeerTalliesJson = null;
+
+                if (!string.IsNullOrEmpty(request.BeerTalliesJson) && !string.IsNullOrEmpty(ev.Name))
                 {
-                    ev.Status = GFC.Core.Enums.EventTabStatus.Open;
-                    ev.CurrentBalance = 0m;
-                }
-                else
-                {
-                    ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                    try
+                    {
+                        var targetClean = ev.Name.Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                        // Find recipient templates (e.g. Horseshoes itself, where RecipientEventName is null)
+                        var recipientTemplates = await db.EventTemplates
+                            .Where(t => (t.Name.ToLower() == targetClean ||
+                                         t.Name.ToLower().Contains(targetClean) ||
+                                         (targetClean.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) &&
+                                         string.IsNullOrEmpty(t.RecipientEventName))
+                            .ToListAsync();
+
+                        if (recipientTemplates.Any())
+                        {
+                            var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                            var tallies = System.Text.Json.JsonSerializer.Deserialize<List<TallyEntry>>(request.BeerTalliesJson, opts);
+                            if (tallies != null && tallies.Any(t => (t.QuantityTaken - t.QuantityReturned) > 0))
+                            {
+                                foreach (var rt in recipientTemplates)
+                                {
+                                    var poolMap = new Dictionary<int, int>();
+                                    if (!string.IsNullOrEmpty(rt.DonatedItemIdsJson))
+                                    {
+                                        try { poolMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(rt.DonatedItemIdsJson) ?? new(); } catch {}
+                                    }
+
+                                    if (poolMap.Count == 0)
+                                    {
+                                        var donorTmpls = await db.EventTemplates
+                                            .Where(t => t.RecipientEventName != null &&
+                                                   (t.RecipientEventName.ToLower() == targetClean ||
+                                                    t.RecipientEventName.ToLower().Contains(targetClean) ||
+                                                    (targetClean.Contains("horseshoe") && t.RecipientEventName.ToLower().Contains("horseshoe"))))
+                                            .ToListAsync();
+                                        foreach (var dt in donorTmpls)
+                                        {
+                                            if (string.IsNullOrEmpty(dt.DonatedItemIdsJson)) continue;
+                                            try
+                                            {
+                                                var dMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(dt.DonatedItemIdsJson);
+                                                if (dMap != null)
+                                                {
+                                                    foreach (var kvp in dMap)
+                                                    {
+                                                        if (kvp.Value > 0 && (!poolMap.ContainsKey(kvp.Key) || kvp.Value > poolMap[kvp.Key]))
+                                                            poolMap[kvp.Key] = kvp.Value;
+                                                    }
+                                                }
+                                            }
+                                            catch { }
+                                        }
+                                    }
+
+                                    bool changed = false;
+                                    foreach (var t in tallies)
+                                    {
+                                        int consumed = Math.Max(0, t.QuantityTaken - t.QuantityReturned);
+                                        if (consumed > 0 && poolMap.TryGetValue(t.ItemId, out var available))
+                                        {
+                                            poolMap[t.ItemId] = Math.Max(0, available - consumed);
+                                            changed = true;
+                                        }
+                                    }
+
+                                    if (changed)
+                                    {
+                                        rt.DonatedItemIdsJson = System.Text.Json.JsonSerializer.Serialize(poolMap);
+                                        rt.ModifiedAt = DateTime.UtcNow;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception dex)
+                    {
+                        _logger.LogError(dex, "[Settle] Recipient deduction error for event {Id}", ev.Id);
+                    }
                 }
             }
 
@@ -614,6 +719,22 @@ public class PosApiController : ControllerBase
                 return NotFound($"Event with ID {id} not found.");
             }
             ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+            if (ev.TemplateId.HasValue && ev.TemplateId.Value > 0)
+            {
+                var tmpl = await db.EventTemplates.FindAsync(ev.TemplateId.Value);
+                if (tmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
+                {
+                    tmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
+                }
+            }
+            else if (!string.IsNullOrEmpty(ev.Name))
+            {
+                var tmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == ev.Name.ToLower());
+                if (tmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
+                {
+                    tmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
+                }
+            }
             await db.SaveChangesAsync();
             return Ok();
         }
@@ -830,6 +951,7 @@ public class PosApiController : ControllerBase
                 TotalGrossSales = reportDto.TotalGrossSales,
                 InventoryPullsJson = reportDto.InventoryPullsJson,
                 SalesSummaryJson = reportDto.SalesSummaryJson,
+                ItemTotalsJson = reportDto.ItemTotalsJson,
                 BanquetSummaryJson = reportDto.BanquetSummaryJson,
                 TokenCredits = reportDto.TokenCredits,
                 HoursWorked = reportDto.HoursWorked,
@@ -1025,7 +1147,13 @@ public class PosApiController : ControllerBase
                 CashTotal = r.CashTotal,
                 TotalGrossSales = r.TotalGrossSales,
                 InventoryPullsJson = r.InventoryPullsJson,
-                SalesSummaryJson = r.SalesSummaryJson
+                SalesSummaryJson = r.SalesSummaryJson,
+                ItemTotalsJson = r.ItemTotalsJson ?? "{}",
+                BanquetSummaryJson = r.BanquetSummaryJson ?? "[]",
+                TokenCredits = r.TokenCredits ?? 0,
+                HoursWorked = r.HoursWorked,
+                ShiftType = r.ShiftType,
+                RecordSalesToBar = r.RecordSalesToBar
             })
             .ToListAsync();
         return Ok(reports);
@@ -1045,8 +1173,14 @@ public class PosApiController : ControllerBase
             BartenderName = r.BartenderName,
             CashTotal = r.CashTotal,
             TotalGrossSales = r.TotalGrossSales,
-            InventoryPullsJson = r.InventoryPullsJson,
-            SalesSummaryJson = r.SalesSummaryJson
+            InventoryPullsJson = r.InventoryPullsJson ?? "{}",
+            SalesSummaryJson = r.SalesSummaryJson ?? "{}",
+            ItemTotalsJson = r.ItemTotalsJson ?? "{}",
+            BanquetSummaryJson = r.BanquetSummaryJson ?? "[]",
+            TokenCredits = r.TokenCredits ?? 0,
+            HoursWorked = r.HoursWorked,
+            ShiftType = r.ShiftType,
+            RecordSalesToBar = r.RecordSalesToBar
         });
     }
 
@@ -1402,5 +1536,23 @@ public class PosApiController : ControllerBase
             _logger.LogError(ex, "[POS API] Error looking up member draw status for ID {MemberId}", id);
             return StatusCode(500, "Internal Server Error");
         }
+    }
+    /// <summary>Minimal DTO for deserializing a single BeerTallyItem entry from the client's BeerTalliesJson.</summary>
+    private class TallyEntry
+    {
+        public int ItemId { get; set; }
+        public string? Name { get; set; }
+        public int QuantityTaken { get; set; }
+        public int QuantityReturned { get; set; }
+    }
+
+    private class DonatedLogEntry
+    {
+        public int ItemId { get; set; }
+        public string? BeerName { get; set; }
+        public int Cases { get; set; }
+        public int Cans { get; set; }
+        public string? ActionType { get; set; }
+        public string? RecipientEventName { get; set; }
     }
 }

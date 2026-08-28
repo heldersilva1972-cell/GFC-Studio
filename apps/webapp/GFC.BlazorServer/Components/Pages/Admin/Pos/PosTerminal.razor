@@ -1224,59 +1224,6 @@
         </div>
     </header>
 
-    @if (_selectedActiveEvent != null || (DbActiveEvents != null && DbActiveEvents.Any(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)))
-    {
-        var currentEv = _selectedActiveEvent ?? DbActiveEvents.FirstOrDefault(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted);
-        if (currentEv != null)
-        {
-            var isRecipientEv = currentEv.Enable100PercentDonatedProceeds;
-            var topTargetRecipient = GetRecipientEventName(currentEv);
-            var topCurrentEvName = GetEventDisplayName(currentEv.Name);
-            var isTopDifferentTarget = !string.IsNullOrWhiteSpace(topTargetRecipient) && !string.Equals(topTargetRecipient, topCurrentEvName, StringComparison.OrdinalIgnoreCase);
-            var isDonatingEv = !isRecipientEv && isTopDifferentTarget && (currentEv.ClubDonatedCasesCap > 0 || !string.IsNullOrWhiteSpace(currentEv.RecipientEventName));
-            <div class="active-event-top-banner d-flex align-items-center justify-content-between px-3 py-2 border-bottom shadow-sm" 
-                 style="background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%); color: white; z-index: 100; position: relative;">
-                <div class="d-flex align-items-center gap-3">
-                    <span class="badge bg-primary text-white rounded-pill px-3 py-1 fw-black" style="font-size: 0.75rem;">
-                        <i class="bi bi-calendar-check-fill me-1"></i> ACTIVE EVENT
-                    </span>
-                    <span class="fw-black text-white" style="font-size: 1rem;">@GetEventDisplayName(currentEv.Name)</span>
-                    <span class="badge bg-secondary text-white border border-light border-opacity-25 small" style="font-size: 0.7rem;">
-                        @(currentEv.Type == GFC.Core.Enums.EventTabType.PrePaid ? $"PREPAID BAL: ${currentEv.CurrentBalance:F2}" : "RUNNING TAB")
-                    </span>
-                    @if (isDonatingEv)
-                    {
-                        <span class="badge bg-warning text-dark rounded-pill" style="font-size: 0.7rem;">
-                            🎁 Donated Prizes Active
-                        </span>
-                    }
-                    else if (isRecipientEv)
-                    {
-                        <span class="badge bg-success rounded-pill text-white" style="font-size: 0.7rem;">
-                            🟢 Recipient for Donated Proceeds
-                        </span>
-                    }
-                </div>
-
-                <div class="d-flex align-items-center gap-2">
-                    @if (isDonatingEv)
-                    {
-                        <button type="button" class="btn btn-warning text-dark fw-black btn-sm rounded-pill px-3 shadow-sm" @onclick="() => OpenDonatedPrizeManager(currentEv)">
-                            <i class="bi bi-gift-fill me-1"></i> 🎁 Record Prizes / Donated Beer
-                        </button>
-                    }
-
-                    @if (currentEv.EnableBeerTally || isRecipientEv)
-                    {
-                        <button type="button" class="btn btn-outline-info text-white fw-bold btn-sm rounded-pill px-3" @onclick='() => StartInlineTallyEdit(currentEv, "tally")'>
-                            <i class="bi bi-card-checklist me-1"></i> 🍺 Beer Tally Sheet
-                        </button>
-                    }
-                </div>
-            </div>
-        }
-    }
-
     @if (_showChangeDueBanner)
     {
         <div class="change-due-banner animate__animated animate__slideInDown">
@@ -2589,7 +2536,7 @@
                                 <div class="row g-3">
                                     @foreach (var ae in DbActiveEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted))
                                     {
-                                        var isDonatingEvent = ae.ClubDonatedCasesCap > 0 || !string.IsNullOrEmpty(ae.DonatedItemIdsJson);
+                                        var isDonatingEvent = ae.ClubDonatedCasesCap > 0 || !string.IsNullOrWhiteSpace(ae.DonatedItemIdsJson) || (ae.Template != null && ae.Template.ClubDonatedCasesCap > 0) || !string.IsNullOrWhiteSpace(ae.RecipientEventName);
                                         var isRecipientEvent = ae.Enable100PercentDonatedProceeds;
                                         <div class="col-md-6 col-lg-4">
                                             <div class="card h-100 border-2 rounded-4 shadow-sm p-3 bg-white">
@@ -2635,6 +2582,9 @@
                                                         </button>
                                                         <button type="button" class="btn btn-outline-danger btn-sm rounded-pill flex-grow-1 fw-bold" @onclick='() => StartInlineTallyEdit(ae, "settle")'>
                                                             <i class="bi bi-check-circle me-1"></i> Settle
+                                                        </button>
+                                                        <button type="button" class="btn btn-danger btn-sm rounded-pill flex-grow-1 fw-bold text-white ms-1" @onclick="() => CloseBanquet(ae)">
+                                                            <i class="bi bi-x-circle-fill me-1"></i> Close Event
                                                         </button>
                                                     </div>
                                                 </div>
@@ -3715,7 +3665,7 @@
                                     var targetRecipient = GetRecipientEventName(ev);
                                     var currentEvName = GetEventDisplayName(ev.Name);
                                     bool isDifferentTarget = !string.IsNullOrWhiteSpace(targetRecipient) && !string.Equals(targetRecipient, currentEvName, StringComparison.OrdinalIgnoreCase);
-                                    bool isDonorEvent = !ev.Enable100PercentDonatedProceeds && isDifferentTarget && (ev.ClubDonatedCasesCap > 0 || (ev.Template != null && ev.Template.ClubDonatedCasesCap > 0));
+                                    bool isDonorEvent = ev.ClubDonatedCasesCap > 0 || !string.IsNullOrWhiteSpace(ev.DonatedItemIdsJson) || (ev.Template != null && ev.Template.ClubDonatedCasesCap > 0) || !string.IsNullOrWhiteSpace(ev.RecipientEventName);
                                 }
 
                                 @if (isDonorEvent)
@@ -4491,6 +4441,12 @@
 
 @if (_showBanquetCloseModal && _closingBanquet != null)
 {
+    var evTmpl = DbEventTemplates?.FirstOrDefault(t => (_closingBanquet.TemplateId.HasValue && t.Id == _closingBanquet.TemplateId.Value) || (!string.IsNullOrEmpty(_closingBanquet.Name) && string.Equals(t.Name, _closingBanquet.Name, StringComparison.OrdinalIgnoreCase)));
+    string? configuredRecipient = !string.IsNullOrWhiteSpace(_closingBanquet.RecipientEventName) ? _closingBanquet.RecipientEventName : evTmpl?.RecipientEventName;
+    int cap = _closingBanquet.ClubDonatedCasesCap > 0 ? _closingBanquet.ClubDonatedCasesCap : (evTmpl?.ClubDonatedCasesCap ?? 0);
+    var currentEvName = GetEventDisplayName(_closingBanquet.Name).Replace("EVENT:", "").Replace("[Direct]", "").Trim();
+    bool isDonorEvent = cap > 0 || (!string.IsNullOrWhiteSpace(configuredRecipient) && !string.Equals(configuredRecipient.Trim(), currentEvName, StringComparison.OrdinalIgnoreCase));
+
     <div class="shift-overlay no-backdrop" style="z-index: 9999;">
         <div class="notice-modal animate__animated animate__fadeInUp" style="max-width: 450px;">
             <div class="notice-icon-circle bg-amber" style="background-color: #f59e0b !important;">
@@ -4499,12 +4455,21 @@
             <h3>Close Banquet Tab?</h3>
             <p class="mb-3">Are you sure you want to close the banquet <strong>@_closingBanquet.Name</strong>? This will finalize all tab transactions.</p>
             <div class="d-flex flex-column gap-2 mt-4">
-                <button class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm" style="background-color: #d97706; border-color: #d97706; color: white;" @onclick="() => ExecuteCloseBanquet(true)">
-                    <i class="bi bi-printer-fill me-1"></i> YES, PRINT SUMMARY & CLOSE
-                </button>
-                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => ExecuteCloseBanquet(false)">
-                    <i class="bi bi-check-circle me-1"></i> YES, CLOSE WITHOUT PRINTING
-                </button>
+                @if (!isDonorEvent)
+                {
+                    <button class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm" style="background-color: #d97706; border-color: #d97706; color: white;" @onclick="() => ExecuteCloseBanquet(true)">
+                        <i class="bi bi-printer-fill me-1"></i> YES, PRINT SUMMARY & CLOSE
+                    </button>
+                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => ExecuteCloseBanquet(false)">
+                        <i class="bi bi-check-circle me-1"></i> YES, CLOSE WITHOUT PRINTING
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => ExecuteCloseBanquet(false)">
+                        <i class="bi bi-check-circle me-1"></i> YES, CLOSE EVENT
+                    </button>
+                }
                 <button class="btn btn-outline-secondary w-100 py-3 rounded-pill fw-bold mt-2" @onclick="() => { _showBanquetCloseModal = false; _closingBanquet = null; }">
                     CANCEL
                 </button>
@@ -5148,9 +5113,9 @@
             try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(ev.DonatedItemIdsJson) ?? new(); } catch {}
         }
 
-        if (donatedMap.TryGetValue(t.ItemId, out var donatedCases) && donatedCases > 0)
+        if (donatedMap.TryGetValue(t.ItemId, out var val) && val > 0)
         {
-            int donatedCansQuota = donatedCases * 24;
+            int donatedCansQuota = val <= 10 ? val * 24 : val;
             int donatedApplied = Math.Min(t.Consumed, donatedCansQuota);
             int standardConsumed = Math.Max(0, t.Consumed - donatedApplied);
             
@@ -5171,9 +5136,9 @@
             try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(ev.DonatedItemIdsJson) ?? new(); } catch {}
         }
 
-        if (donatedMap.TryGetValue(t.ItemId, out var donatedCases) && donatedCases > 0)
+        if (donatedMap.TryGetValue(t.ItemId, out var val) && val > 0)
         {
-            int donatedCansQuota = donatedCases * 24;
+            int donatedCansQuota = val <= 10 ? val * 24 : val;
             int donatedApplied = Math.Min(t.Consumed, donatedCansQuota);
             int standardConsumed = Math.Max(0, t.Consumed - donatedApplied);
 
@@ -5184,6 +5149,39 @@
         }
 
         return t.EventSubtotal;
+    }
+
+    private int DeductFromDonatedJson(object target, int itemId, int cansToDeduct)
+    {
+        string? json = target switch
+        {
+            ActiveEvent ev => ev.DonatedItemIdsJson,
+            EventTemplate tmpl => tmpl.DonatedItemIdsJson,
+            _ => null
+        };
+
+        if (string.IsNullOrEmpty(json)) return cansToDeduct;
+
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<int, int>>(json);
+            if (dict != null && dict.TryGetValue(itemId, out var rawVal) && rawVal > 0)
+            {
+                int currentCans = rawVal <= 10 ? rawVal * 24 : rawVal;
+                int actualDeduction = Math.Min(currentCans, cansToDeduct);
+                int newCans = Math.Max(0, currentCans - actualDeduction);
+                dict[itemId] = newCans;
+                string updatedJson = JsonSerializer.Serialize(dict);
+
+                if (target is ActiveEvent ev) ev.DonatedItemIdsJson = updatedJson;
+                else if (target is EventTemplate tmpl) tmpl.DonatedItemIdsJson = updatedJson;
+
+                return cansToDeduct - actualDeduction;
+            }
+        }
+        catch {}
+
+        return cansToDeduct;
     }
 
     private decimal CalculateConsumedValue(ActiveEvent ae)
@@ -5202,9 +5200,9 @@
             ev.BeerTalliesJson = null;
 
             var tmpl = DbEventTemplates?.FirstOrDefault(t => (ev.TemplateId.HasValue && t.Id == ev.TemplateId.Value) || (!string.IsNullOrEmpty(ev.Name) && string.Equals(t.Name, ev.Name, StringComparison.OrdinalIgnoreCase)));
-            if (tmpl != null)
+            if (tmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
             {
-                tmpl.DonatedItemTalliesJson = null;
+                tmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
             }
 
             // Save pending closure in IndexedDB so FilterDbActiveEventsWithPendingClosures permanently excludes it
@@ -5218,6 +5216,14 @@
                 dbEv.IsDeleted = true;
                 dbEv.Status = GFC.Core.Enums.EventTabStatus.Closed;
                 dbEv.BeerTalliesJson = null;
+                if (ev.TemplateId.HasValue && ev.TemplateId.Value > 0)
+                {
+                    var dbTmpl = await db.EventTemplates.FindAsync(ev.TemplateId.Value);
+                    if (dbTmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
+                    {
+                        dbTmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
+                    }
+                }
                 await db.SaveChangesAsync();
             }
         }
@@ -5236,6 +5242,7 @@
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
+            _cachedMenu.EventTemplates = DbEventTemplates;
             try { await PosService.SaveMenuToVaultAsync(_cachedMenu); } catch {}
         }
 
@@ -5252,13 +5259,16 @@
         currentTallies = new List<BeerTallyItem>();
         selectedBeerIdToAdd = 0;
 
-        // Load existing tallies if any
-        if (!string.IsNullOrEmpty(ae.BeerTalliesJson))
+        // Load existing tallies if any (check both ae and DbActiveEvents instance)
+        var localEv = DbActiveEvents?.FirstOrDefault(e => e.Id == ae.Id);
+        var jsonToLoad = !string.IsNullOrEmpty(ae.BeerTalliesJson) ? ae.BeerTalliesJson : localEv?.BeerTalliesJson;
+
+        if (!string.IsNullOrEmpty(jsonToLoad))
         {
             try
             {
                 currentTallies = global::System.Text.Json.JsonSerializer.Deserialize<List<BeerTallyItem>>(
-                    ae.BeerTalliesJson, 
+                    jsonToLoad, 
                     new global::System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 ) ?? new();
             }
@@ -5291,16 +5301,17 @@
             {
                 var existing = currentTallies.FirstOrDefault(t => t.ItemId == item.Id);
                 var ov = templateOverrides.FirstOrDefault(o => o.ItemId == item.Id);
+                bool isDonated = allDonatedStock.Any(ds => ds.ItemId == item.Id && ds.TotalCans > 0);
 
                 // Determine if we should include this beer item on the tally sheet
                 bool shouldInclude = false;
-                if (existing != null)
+                if (existing != null || isDonated)
                 {
-                    shouldInclude = true; // Keep already-tally-tracked items
+                    shouldInclude = true; // Keep already-tally-tracked items and currently active donated beers
                 }
                 else if (templateOverrides.Any())
                 {
-                    shouldInclude = ov != null && ov.TrackTally; // Filter by the new toggle
+                    shouldInclude = ov != null && ov.TrackTally; // Filter by the template override toggle
                 }
                 else
                 {
@@ -5332,6 +5343,25 @@
                             existing.ClubSplitAmount = ov.ClubSplitAmount;
                         }
                     }
+                }
+            }
+
+            // Ensure any active donated stock items not in regular beer list are also added
+            foreach (var ds in allDonatedStock.Where(ds => ds.TotalCans > 0))
+            {
+                if (!currentTallies.Any(t => t.ItemId == ds.ItemId))
+                {
+                    var dbItem = DbItems?.FirstOrDefault(i => i.Id == ds.ItemId);
+                    currentTallies.Add(new BeerTallyItem
+                    {
+                        ItemId = ds.ItemId,
+                        Name = !string.IsNullOrWhiteSpace(ds.BeerName) ? ds.BeerName : (dbItem?.Name ?? $"Item #{ds.ItemId}"),
+                        Price = dbItem?.Price ?? ds.Price,
+                        QuantityTaken = 0,
+                        QuantityReturned = 0,
+                        EnableClubSplit = false,
+                        ClubSplitAmount = 0m
+                    });
                 }
             }
         }
@@ -5385,138 +5415,154 @@
             }
         }
 
-        try
+        var evId = inlineTallyEvent.Id;
+        var localEvent = DbActiveEvents.FirstOrDefault(e => e.Id == evId);
+
+        // ── 1. SYNCHRONOUSLY UPDATE LOCAL MEMORY TALLIES & DONATED POOL (PREVENT RACE CONDITION) ──
+        var talliesToSave = currentTallies.ToList(); // Clone current tallies before modal reset
+        var talliesJson = global::System.Text.Json.JsonSerializer.Serialize(talliesToSave);
+        decimal totalConsumedCost = talliesToSave.Sum(t => GetTallyClubPortion(inlineTallyEvent, t));
+        decimal newBalance = (inlineTallyEvent.Type == GFC.Core.Enums.EventTabType.PrePaid)
+            ? inlineTallyEvent.InitialAmount - totalConsumedCost
+            : -totalConsumedCost;
+
+        var allDonatedStock = GetAllDonatedStockForEvent(inlineTallyEvent);
+        var tmpl = DbEventTemplates?.FirstOrDefault(t => (inlineTallyEvent.TemplateId.HasValue && t.Id == inlineTallyEvent.TemplateId.Value) || (!string.IsNullOrEmpty(inlineTallyEvent.Name) && string.Equals(t.Name, inlineTallyEvent.Name, StringComparison.OrdinalIgnoreCase)));
+
+        if (closeEvent && localEvent != null)
         {
-            var evId = inlineTallyEvent.Id;
-            var localEvent = DbActiveEvents.FirstOrDefault(e => e.Id == evId);
-            
-            var talliesJson = global::System.Text.Json.JsonSerializer.Serialize(currentTallies);
-            decimal totalConsumedCost = currentTallies.Sum(t => GetTallyClubPortion(inlineTallyEvent, t));
-            decimal newBalance = 0;
-            
-            if (inlineTallyEvent.Type == GFC.Core.Enums.EventTabType.PrePaid)
-            {
-                newBalance = inlineTallyEvent.InitialAmount - totalConsumedCost;
-            }
-            else
-            {
-                newBalance = -totalConsumedCost;
-            }
+            var targetCleanName = GetEventDisplayName(inlineTallyEvent.Name).Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
 
-            var allDonatedStock = GetAllDonatedStockForEvent(inlineTallyEvent);
+            List<ActiveEvent> donorEventsToUpdate = new();
+            if (!string.IsNullOrEmpty(localEvent.DonatedItemIdsJson)) donorEventsToUpdate.Add(localEvent);
 
-            if (localEvent != null)
+            var allActiveEvents = DbActiveEvents ?? _cachedMenu?.ActiveEvents ?? new();
+            foreach (var dev in allActiveEvents)
             {
-                localEvent.BeerTalliesJson = talliesJson;
-                localEvent.InitialAmount = inlineTallyEvent.InitialAmount;
-                localEvent.CurrentBalance = newBalance;
-                localEvent.IsRecurring = inlineTallyEvent.IsRecurring;
-                
-                var tmpl = DbEventTemplates?.FirstOrDefault(t => (localEvent.TemplateId.HasValue && t.Id == localEvent.TemplateId.Value) || (!string.IsNullOrEmpty(localEvent.Name) && string.Equals(t.Name, localEvent.Name, StringComparison.OrdinalIgnoreCase)));
-
-                if (closeEvent)
+                if (dev.Id == localEvent.Id || string.IsNullOrWhiteSpace(dev.RecipientEventName) || string.IsNullOrEmpty(dev.DonatedItemIdsJson)) continue;
+                var srcRecipient = dev.RecipientEventName.Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                if (srcRecipient == targetCleanName || targetCleanName.Contains(srcRecipient) || srcRecipient.Contains(targetCleanName) || (targetCleanName.Contains("horseshoe") && srcRecipient.Contains("horseshoe")))
                 {
-                    // Directly decrement consumed bottles from DonatedItemIdsJson bottle pool ONCE upon event settlement
-                    Dictionary<int, int> donatedMap = new();
-                    if (!string.IsNullOrEmpty(localEvent.DonatedItemIdsJson))
-                    {
-                        try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(localEvent.DonatedItemIdsJson) ?? new(); } catch {}
-                    }
-                    else if (tmpl != null && !string.IsNullOrEmpty(tmpl.DonatedItemIdsJson))
-                    {
-                        try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(tmpl.DonatedItemIdsJson) ?? new(); } catch {}
-                    }
-
-                    // Ensure all donated stock items available to this event exist in donatedMap
-                    foreach (var ds in allDonatedStock)
-                    {
-                        if (!donatedMap.ContainsKey(ds.ItemId))
-                        {
-                            donatedMap[ds.ItemId] = ds.TotalCans;
-                        }
-                    }
-
-                    bool donatedMapUpdated = false;
-                    foreach (var t in currentTallies.Where(t => t.Consumed > 0))
-                    {
-                        var ds = allDonatedStock.FirstOrDefault(d => d.ItemId == t.ItemId);
-                        int totalDonatedBottlesAvailable = ds != null ? ds.TotalCans : 0;
-                        int donatedUsedThisRun = Math.Min(t.Consumed, totalDonatedBottlesAvailable);
-
-                        if (donatedUsedThisRun > 0 && ds != null)
-                        {
-                            int currentCans = ds.TotalCans;
-                            int remainingCans = Math.Max(0, currentCans - donatedUsedThisRun);
-                            donatedMap[t.ItemId] = remainingCans;
-                            donatedMapUpdated = true;
-                        }
-                    }
-
-                    if (donatedMapUpdated || (allDonatedStock.Any() && string.IsNullOrEmpty(localEvent.DonatedItemIdsJson)))
-                    {
-                        var updatedDonatedJson = JsonSerializer.Serialize(donatedMap);
-                        localEvent.DonatedItemIdsJson = updatedDonatedJson;
-                        inlineTallyEvent.DonatedItemIdsJson = updatedDonatedJson;
-                        if (tmpl != null)
-                        {
-                            tmpl.DonatedItemIdsJson = updatedDonatedJson;
-                            tmpl.Enable100PercentDonatedProceeds = localEvent.Enable100PercentDonatedProceeds;
-                        }
-                    }
-
-                    if (localEvent.IsRecurring)
-                    {
-                        // Recurring Event: Settle session, reset sales tallies for fresh next run, keep event open
-                        localEvent.Status = GFC.Core.Enums.EventTabStatus.Open;
-                        foreach (var t in currentTallies)
-                        {
-                            t.QuantityTaken = 0;
-                            t.QuantityReturned = 0;
-                        }
-                        localEvent.BeerTalliesJson = JsonSerializer.Serialize(currentTallies);
-                        localEvent.CurrentBalance = 0m;
-                    }
-                    else
-                    {
-                        localEvent.Status = GFC.Core.Enums.EventTabStatus.Closed;
-                        DbActiveEvents.Remove(localEvent);
-                    }
+                    if (!donorEventsToUpdate.Any(e => e.Id == dev.Id)) donorEventsToUpdate.Add(dev);
                 }
             }
 
-            // Kick cash drawer on settlement if club is owed money or closing event
-            decimal clubPortionOwed = 0m;
-            foreach (var t in currentTallies.Where(t => t.Consumed > 0))
+            foreach (var t in talliesToSave.Where(t => t.Consumed > 0))
             {
                 var ds = allDonatedStock.FirstOrDefault(d => d.ItemId == t.ItemId);
-                int totalDonatedBottles = ds != null ? ds.TotalCans : 0;
-                int standardUsed = Math.Max(0, t.Consumed - totalDonatedBottles);
-                clubPortionOwed += standardUsed * (t.EnableClubSplit ? t.ClubSplitAmount : t.Price);
-            }
+                int totalDonatedBottlesAvailable = ds != null ? ds.TotalCans : 0;
+                int donatedUsedThisRun = Math.Min(t.Consumed, totalDonatedBottlesAvailable);
 
-            if (closeEvent || clubPortionOwed > 0)
-            {
-                try
+                if (donatedUsedThisRun > 0 && ds != null)
                 {
-                    if (!forceTrainingMode || allowHardwareInTraining)
+                    int remainingToDeduct = donatedUsedThisRun;
+
+                    if (!string.IsNullOrEmpty(localEvent.DonatedItemIdsJson))
                     {
-                        await PrinterService.KickDrawerAsync();
+                        remainingToDeduct = DeductFromDonatedJson(localEvent, t.ItemId, remainingToDeduct);
+                    }
+
+                    foreach (var dev in donorEventsToUpdate)
+                    {
+                        DeductFromDonatedJson(dev, t.ItemId, donatedUsedThisRun);
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[POS] Tally Settle KickDrawerAsync failed: {ex.Message}");
-                }
+            }
+        }
+
+        if (inlineTallyEvent != null)
+        {
+            inlineTallyEvent.BeerTalliesJson = talliesJson;
+            inlineTallyEvent.CurrentBalance = newBalance;
+        }
+
+        if (localEvent != null)
+        {
+            localEvent.BeerTalliesJson = talliesJson;
+            localEvent.InitialAmount = inlineTallyEvent.InitialAmount;
+            localEvent.CurrentBalance = newBalance;
+            localEvent.IsRecurring = inlineTallyEvent.IsRecurring;
+        }
+
+        if (_selectedActiveEvent != null && _selectedActiveEvent.Id == evId)
+        {
+            _selectedActiveEvent.BeerTalliesJson = talliesJson;
+            _selectedActiveEvent.CurrentBalance = newBalance;
+        }
+
+        if (_cachedMenu != null)
+        {
+            _cachedMenu.ActiveEvents = DbActiveEvents;
+            _cachedMenu.EventTemplates = DbEventTemplates;
+            try { await PosService.SaveMenuToVaultAsync(_cachedMenu); } catch {}
+        }
+
+        // ── 2. INSTANT UI UPDATE (0ms LATENCY) ─────────────────────
+        CloseInlineTallyModal();
+
+        if (closeEvent)
+        {
+            if (localEvent != null)
+            {
+                localEvent.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                DbActiveEvents.Remove(localEvent);
             }
 
-            if (closeEvent)
+            if (_selectedActiveEvent?.Id == evId)
             {
-                // If beers were actually consumed, create POS Sales transactions so they are included in Z-Report / Shift Audit
-                if (totalConsumedCost > 0)
+                var directEvent = DbActiveEvents?.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
+                _selectedActiveEvent = directEvent;
+            }
+
+            var closeVaultKey = $"gfc_pos_vault_event_close_{evId}";
+            try { await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", closeVaultKey, evId); } catch {}
+
+            Toast.ShowSuccess("Event settled and closed successfully!");
+        }
+        else
+        {
+            Toast.ShowSuccess("Beer tallies saved successfully!");
+        }
+
+        StateHasChanged(); // Modal and banner update IMMEDIATELY!
+
+        // ── 3. ASYNCHRONOUS BACKGROUND HARDWARE & SERVER SYNC ──────
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var allDonatedStock = GetAllDonatedStockForEvent(inlineTallyEvent);
+
+                // Kick drawer hardware if club portion is owed
+                decimal clubPortionOwed = 0m;
+                foreach (var t in talliesToSave.Where(t => t.Consumed > 0))
                 {
-                    bool hasSplit = currentTallies.Any(t => (t.EnableClubSplit || (inlineTallyEvent.Enable100PercentDonatedProceeds && !string.IsNullOrEmpty(inlineTallyEvent.DonatedItemIdsJson))) && t.QuantityTaken > 0);
+                    var ds = allDonatedStock.FirstOrDefault(d => d.ItemId == t.ItemId);
+                    int totalDonatedBottles = ds != null ? ds.TotalCans : 0;
+                    int standardUsed = Math.Max(0, t.Consumed - totalDonatedBottles);
+                    clubPortionOwed += standardUsed * (t.EnableClubSplit ? t.ClubSplitAmount : t.Price);
+                }
+
+                if (clubPortionOwed > 0)
+                {
+                    try
+                    {
+                        if (!forceTrainingMode || allowHardwareInTraining)
+                        {
+                            await PrinterService.KickDrawerAsync();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS] Tally Settle KickDrawerAsync failed: {ex.Message}");
+                    }
+                }
+
+                if (closeEvent && totalConsumedCost > 0)
+                {
+                    bool hasSplit = talliesToSave.Any(t => (t.EnableClubSplit || (inlineTallyEvent.Enable100PercentDonatedProceeds && !string.IsNullOrEmpty(inlineTallyEvent.DonatedItemIdsJson))) && t.QuantityTaken > 0);
                     var saleItems = new List<ProductItem>();
-                    foreach (var t in currentTallies.Where(t => t.Consumed > 0))
+                    foreach (var t in talliesToSave.Where(t => t.Consumed > 0))
                     {
                         decimal itemClubCost = GetTallyClubPortion(inlineTallyEvent, t);
                         decimal unitPrice = t.Consumed > 0 ? (itemClubCost / t.Consumed) : t.Price;
@@ -5531,7 +5577,7 @@
 
                     if (saleItems.Any())
                     {
-                        decimal totalSaleAmount = currentTallies.Sum(t => GetTallyClubPortion(inlineTallyEvent, t));
+                        decimal totalSaleAmount = talliesToSave.Sum(t => GetTallyClubPortion(inlineTallyEvent, t));
                         var settlementSale = new PosSaleDto
                         {
                             Id = Guid.NewGuid(),
@@ -5547,68 +5593,37 @@
                         await PosService.AddSaleToShiftAsync(settlementSale);
                     }
                 }
-            }
 
-            // Sync menu to vault
-            if (_cachedMenu != null)
-            {
-                _cachedMenu.ActiveEvents = DbActiveEvents;
-                await PosService.SaveMenuToVaultAsync(_cachedMenu);
-            }
-
-            // Prepare HTTP Request
-            var request = new UpdateEventTallyRequest
-            {
-                Id = evId,
-                BeerTalliesJson = localEvent?.BeerTalliesJson ?? talliesJson,
-                InitialAmount = inlineTallyEvent.InitialAmount,
-                CurrentBalance = localEvent?.CurrentBalance ?? newBalance,
-                CloseEvent = closeEvent,
-                DonatedItemIdsJson = localEvent?.DonatedItemIdsJson,
-                DonatedItemTalliesJson = localEvent?.DonatedItemTalliesJson,
-                IsRecurring = localEvent?.IsRecurring ?? inlineTallyEvent.IsRecurring
-            };
-
-            // Queue in IndexedDB outbox for offline sync (similar to add-funds)
-            var syncKey = $"gfc_pos_vault_event_tally_{Guid.NewGuid()}";
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", syncKey, request);
-            }
-            catch {}
-
-            try
-            {
-                // Send background update
-                _ = Http.PostAsJsonAsync("api/pos/events/update-tally", request);
-            }
-            catch {}
-
-            CloseInlineTallyModal();
-
-            if (closeEvent)
-            {
-                var closeVaultKey = $"gfc_pos_vault_event_close_{evId}";
-                try { await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", closeVaultKey, evId); } catch {}
-
-                if (_selectedActiveEvent?.Id == evId)
+                // Background HTTP Sync
+                var request = new UpdateEventTallyRequest
                 {
-                    var directEvent = DbActiveEvents?.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
-                    _selectedActiveEvent = directEvent;
+                    Id = evId,
+                    BeerTalliesJson = talliesJson,
+                    InitialAmount = inlineTallyEvent.InitialAmount,
+                    CurrentBalance = localEvent?.CurrentBalance ?? newBalance,
+                    CloseEvent = closeEvent,
+                    DonatedItemIdsJson = localEvent?.DonatedItemIdsJson,
+                    DonatedItemTalliesJson = localEvent?.DonatedItemTalliesJson,
+                    IsRecurring = localEvent?.IsRecurring ?? inlineTallyEvent.IsRecurring
+                };
+
+                var settleResp = await Http.PostAsJsonAsync("api/pos/events/update-tally", request);
+                if (request.CloseEvent)
+                {
+                    try
+                    {
+                        var diagText = await settleResp.Content.ReadAsStringAsync();
+                        if (!string.IsNullOrEmpty(diagText) && diagText.Trim() != "ok")
+                            await JSRuntime.InvokeVoidAsync("alert", diagText);
+                    }
+                    catch { }
                 }
-                Toast.ShowSuccess("Event settled and closed successfully!");
             }
-            else
+            catch (Exception ex)
             {
-                Toast.ShowSuccess("Beer tallies saved successfully!");
+                Console.WriteLine($"[POS] Background SaveInlineTally error: {ex.Message}");
             }
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[POS] Error saving event tally: {ex.Message}");
-            Toast.ShowError("Failed to save beer tallies.");
-        }
+        });
     }
 
     private string CurrentUserName = string.Empty;
@@ -8614,6 +8629,10 @@
     private string BuildZReportHtml(PosZReportDto z, bool isXReport = false, bool isReprint = false, Dictionary<string, decimal>? regularItemTotals = null)
     {
         var salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(z.SalesSummaryJson) ?? new();
+        if (regularItemTotals == null && !string.IsNullOrEmpty(z.ItemTotalsJson))
+        {
+            try { regularItemTotals = JsonSerializer.Deserialize<Dictionary<string, decimal>>(z.ItemTotalsJson); } catch {}
+        }
         var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
         var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
         var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Where(d => d > 0).Sum());
@@ -8699,13 +8718,19 @@
                 if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
                 {
                     int openIdx = cleanKey.IndexOf(" (");
-                    string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
-                    product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+                    string baseName = cleanKey.Substring(0, openIdx).Trim();
+                    product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase));
+                    if (product == null)
+                    {
+                        string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
+                        product = DbItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+                    }
                 }
                 var category = product?.Category;
                 if (kvp.Key.Contains("(DARTS")) category = "DARTS ROUND";
                 else if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                 else if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
+                else if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED")) category = "TOKENS";
                 
                 decimal totalAmount = 0;
                 if (regularItemTotals != null && regularItemTotals.TryGetValue(kvp.Key, out var exactTotal))
@@ -8974,6 +8999,7 @@
                     CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
                     InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
                     SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
+                    ItemTotalsJson = JsonSerializer.Serialize(finalAudit.RegularItemTotals),
                     BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
                     TokenCredits = tokenCredits,
                     HoursWorked = hoursWorked,
@@ -9836,6 +9862,13 @@
         if (template == null) return;
         if (template.DefaultType == GFC.Core.Enums.EventTabType.PrePaid && _newBanquetAmount <= 0) return;
 
+        var existingOpenEvent = DbActiveEvents?.FirstOrDefault(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted && !IsEventDirect(e));
+        if (existingOpenEvent != null)
+        {
+            Toast.ShowWarning($"An event is already active ('{GetEventDisplayName(existingOpenEvent.Name)}'). Please close the active event before starting a new one.");
+            return;
+        }
+
         try
         {
             var cleanName = template.Name;
@@ -9859,7 +9892,7 @@
                 ClubDonatedCasesCap = template.ClubDonatedCasesCap,
                 DonatedItemIdsJson = _newBanquetDonatedItemIdsJson ?? template.DonatedItemIdsJson,
                 DonatedItemTalliesJson = template.DonatedItemTalliesJson,
-                Enable100PercentDonatedProceeds = template.Enable100PercentDonatedProceeds || (!string.IsNullOrEmpty(_newBanquetDonatedItemIdsJson ?? template.DonatedItemIdsJson) && (_newBanquetDonatedItemIdsJson ?? template.DonatedItemIdsJson) != "{}"),
+                Enable100PercentDonatedProceeds = template.Enable100PercentDonatedProceeds,
                 IsRecurring = template.IsRecurring,
                 RecipientEventName = template.RecipientEventName,
                 CreatedAt = DateTime.UtcNow
@@ -10068,64 +10101,104 @@
         string? selfRecipient = GetRecipientEventName(ae).Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
         bool isSelfDonor = !string.IsNullOrWhiteSpace(selfRecipient) && selfRecipient != targetClean && !targetClean.Contains(selfRecipient) && !selfRecipient.Contains(targetClean);
 
+        bool hasDirectPool = false;
         if (!isSelfDonor)
         {
             string? json = ae.DonatedItemIdsJson;
-            if (string.IsNullOrEmpty(json) && ae.TemplateId.HasValue && ae.TemplateId.Value > 0)
+            if (string.IsNullOrEmpty(json))
             {
-                var tmpl = DbEventTemplates?.FirstOrDefault(t => t.Id == ae.TemplateId.Value);
+                var tmpl = DbEventTemplates?.FirstOrDefault(t => (ae.TemplateId.HasValue && t.Id == ae.TemplateId.Value) || string.Equals(t.Name, ae.Name, StringComparison.OrdinalIgnoreCase));
                 if (tmpl != null) json = tmpl.DonatedItemIdsJson;
             }
 
             if (!string.IsNullOrEmpty(json))
             {
-                ParseAndAddDonatedJson(json, "Donated Pool", ae.Enable100PercentDonatedProceeds, list, isSecondarySource: false);
+                hasDirectPool = true;
+                ParseAndAddDonatedJson(json, "Donated Pool", ae.Enable100PercentDonatedProceeds, list, isSecondarySource: false, allowZero: true);
             }
         }
 
-        // 2. Scan all OTHER events/templates configured in Event Edit to donate to THIS event (e.g. Family Picnic -> Horseshoes)
-        var allActiveEvents = DbActiveEvents ?? _cachedMenu?.ActiveEvents ?? new();
-        foreach (var srcEv in allActiveEvents)
+        // 2. Only fallback to scan other events/templates if recipient event has NO direct stock record
+        if (!hasDirectPool)
         {
-            if (srcEv.Id == ae.Id) continue;
-
-            var srcRecipient = GetRecipientEventName(srcEv).Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
-            bool isTargetRecipient = srcRecipient == targetClean ||
-                                     targetClean.Contains(srcRecipient) ||
-                                     srcRecipient.Contains(targetClean) ||
-                                     (targetClean.Contains("horseshoe") && srcRecipient.Contains("horseshoe"));
-
-            if (isTargetRecipient)
+            var allActiveEvents = DbActiveEvents ?? _cachedMenu?.ActiveEvents ?? new();
+            foreach (var srcEv in allActiveEvents)
             {
-                string? srcJson = srcEv.DonatedItemIdsJson;
-                if (string.IsNullOrEmpty(srcJson) && srcEv.TemplateId.HasValue && srcEv.TemplateId.Value > 0)
-                {
-                    var tmpl = DbEventTemplates?.FirstOrDefault(t => t.Id == srcEv.TemplateId.Value);
-                    if (tmpl != null) srcJson = tmpl.DonatedItemIdsJson;
-                }
+                if (srcEv.Id == ae.Id) continue;
 
-                if (!string.IsNullOrEmpty(srcJson))
+                var srcRecipient = GetRecipientEventName(srcEv).Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                bool isTargetRecipient = srcRecipient == targetClean ||
+                                         targetClean.Contains(srcRecipient) ||
+                                         srcRecipient.Contains(targetClean) ||
+                                         (targetClean.Contains("horseshoe") && srcRecipient.Contains("horseshoe"));
+
+                if (isTargetRecipient)
                 {
-                    ParseAndAddDonatedJson(srcJson, $"Donated by {GetEventDisplayName(srcEv.Name)}", true, list, isSecondarySource: true);
+                    string? srcJson = srcEv.DonatedItemIdsJson;
+                    if (string.IsNullOrEmpty(srcJson) && srcEv.TemplateId.HasValue && srcEv.TemplateId.Value > 0)
+                    {
+                        var tmpl = DbEventTemplates?.FirstOrDefault(t => t.Id == srcEv.TemplateId.Value);
+                        if (tmpl != null) srcJson = tmpl.DonatedItemIdsJson;
+                    }
+
+                    if (!string.IsNullOrEmpty(srcJson))
+                    {
+                        ParseAndAddDonatedJson(srcJson, $"Donated by {GetEventDisplayName(srcEv.Name)}", true, list, isSecondarySource: true);
+                    }
                 }
             }
-        }
 
-        // 2b. Also scan EventTemplates (for templates configured with RecipientEventName = Horseshoes)
-        var templatesList = DbEventTemplates ?? _cachedMenu?.EventTemplates ?? new();
-        foreach (var tmpl in templatesList)
-        {
-            if (string.IsNullOrWhiteSpace(tmpl.RecipientEventName) || string.IsNullOrEmpty(tmpl.DonatedItemIdsJson)) continue;
-
-            var srcRecipient = tmpl.RecipientEventName.Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
-            bool isTargetRecipient = srcRecipient == targetClean ||
-                                     targetClean.Contains(srcRecipient) ||
-                                     srcRecipient.Contains(targetClean) ||
-                                     (targetClean.Contains("horseshoe") && srcRecipient.Contains("horseshoe"));
-
-            if (isTargetRecipient)
+            // 2b. Also scan EventTemplates (for templates configured with RecipientEventName = Horseshoes)
+            var templatesList = DbEventTemplates ?? _cachedMenu?.EventTemplates ?? new();
+            var tmplDonorMap = new Dictionary<int, (int TotalCans, string SourceDesc)>();
+            foreach (var donorTmpl in templatesList)
             {
-                ParseAndAddDonatedJson(tmpl.DonatedItemIdsJson, $"Donated by {GetEventDisplayName(tmpl.Name)}", true, list, isSecondarySource: true);
+                if (string.IsNullOrWhiteSpace(donorTmpl.RecipientEventName) || string.IsNullOrEmpty(donorTmpl.DonatedItemIdsJson)) continue;
+
+                var srcRecipient = donorTmpl.RecipientEventName.Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                bool isTargetRecipient = srcRecipient == targetClean ||
+                                         targetClean.Contains(srcRecipient) ||
+                                         srcRecipient.Contains(targetClean) ||
+                                         (targetClean.Contains("horseshoe") && srcRecipient.Contains("horseshoe"));
+
+                if (isTargetRecipient)
+                {
+                    try
+                    {
+                        var dict = JsonSerializer.Deserialize<Dictionary<int, int>>(donorTmpl.DonatedItemIdsJson);
+                        if (dict != null)
+                        {
+                            foreach (var kvp in dict)
+                            {
+                                if (kvp.Value <= 0) continue;
+                                int totalCans = kvp.Value;
+                                string srcDesc = $"Donated by {GetEventDisplayName(donorTmpl.Name)}";
+                                if (!tmplDonorMap.TryGetValue(kvp.Key, out var existing) || (existing.TotalCans <= 0 || totalCans < existing.TotalCans))
+                                    tmplDonorMap[kvp.Key] = (totalCans, srcDesc);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            foreach (var kvp in tmplDonorMap)
+            {
+                if (kvp.Value.TotalCans <= 0) continue;
+                var existingInList = list.FirstOrDefault(x => x.ItemId == kvp.Key);
+                if (existingInList == null)
+                {
+                    var dbItem = DbItems?.FirstOrDefault(i => i.Id == kvp.Key);
+                    list.Add(new EventDonatedStockInfo
+                    {
+                        ItemId = kvp.Key,
+                        BeerName = dbItem?.Name ?? $"Item #{kvp.Key}",
+                        TotalCans = kvp.Value.TotalCans,
+                        Cases = kvp.Value.TotalCans / 24,
+                        Price = dbItem?.Price ?? 3.50m,
+                        SourceDescription = kvp.Value.SourceDesc,
+                        Is100PercentProceeds = true
+                    });
+                }
             }
         }
 
@@ -10133,10 +10206,12 @@
         var receivedLogs = GetReceivedDonationsForEvent(ae);
         foreach (var rd in receivedLogs)
         {
+            int cansToAdd = rd.Record.Cans > 0 ? rd.Record.Cans : (rd.Record.Cases * 24);
             var existing = list.FirstOrDefault(x => x.ItemId == rd.Record.ItemId);
             if (existing != null)
             {
-                existing.Cases = Math.Max(existing.Cases, rd.Record.Cases);
+                existing.TotalCans += cansToAdd;
+                existing.Cases = existing.TotalCans / 24;
                 existing.SourceDescription = $"Donated by {rd.SourceEventName}";
             }
             else
@@ -10147,6 +10222,7 @@
                     ItemId = rd.Record.ItemId,
                     BeerName = !string.IsNullOrWhiteSpace(rd.Record.BeerName) ? rd.Record.BeerName : (item?.Name ?? $"Item #{rd.Record.ItemId}"),
                     Cases = rd.Record.Cases,
+                    TotalCans = cansToAdd,
                     Price = item?.Price ?? 3.50m,
                     SourceDescription = $"Donated by {rd.SourceEventName}",
                     Is100PercentProceeds = true
@@ -10157,7 +10233,7 @@
         return list;
     }
 
-    private void ParseAndAddDonatedJson(string json, string sourceDesc, bool is100Percent, List<EventDonatedStockInfo> list, bool isSecondarySource = false)
+    private void ParseAndAddDonatedJson(string json, string sourceDesc, bool is100Percent, List<EventDonatedStockInfo> list, bool isSecondarySource = false, bool allowZero = false)
     {
         try
         {
@@ -10166,16 +10242,17 @@
             {
                 foreach (var kvp in dict)
                 {
-                    if (kvp.Value <= 0) continue;
-                    int totalCans = kvp.Value <= 10 ? kvp.Value * 24 : kvp.Value;
+                    if (kvp.Value < 0) continue;
+                    if (kvp.Value == 0 && !allowZero) continue;
+                    int totalCans = kvp.Value;
                     int cases = totalCans / 24;
                     var existing = list.FirstOrDefault(x => x.ItemId == kvp.Key);
                     if (existing != null)
                     {
                         if (!isSecondarySource)
                         {
-                            existing.TotalCans = Math.Max(existing.TotalCans, totalCans);
-                            existing.Cases = existing.TotalCans / 24;
+                            existing.TotalCans = totalCans;
+                            existing.Cases = cases;
                         }
                     }
                     else
@@ -10257,7 +10334,7 @@
         _donatedActionTargetEvent = latest;
         _selectedDonatedItemId = 0;
         _donatedCaseQuantity = 1;
-        _donatedActionType = "prize";
+        _donatedActionType = "redonate";
         showDonatedPrizeModal = true;
     }
 
@@ -10421,10 +10498,9 @@
             ActionType = _donatedActionType
         });
 
-        // Reset selector defaults for next entry
+        // Reset selector defaults for next entry while preserving user's current action selection
         _selectedDonatedItemId = 0;
         _donatedCaseQuantity = 1;
-        _donatedActionType = "prize";
         StateHasChanged();
     }
 
@@ -10525,6 +10601,8 @@
                     (recipientName.ToLower().Contains("horseshoe") && e.Name.ToLower().Contains("horseshoe"))
                 ));
 
+                int cansToAdd = draft.Cases * 24;
+
                 if (recipientEvent != null)
                 {
                     Dictionary<int, int> donatedDict = new();
@@ -10532,14 +10610,11 @@
                     {
                         try { donatedDict = JsonSerializer.Deserialize<Dictionary<int, int>>(recipientEvent.DonatedItemIdsJson) ?? new(); } catch {}
                     }
-                    int cansToAdd = draft.Cases * 24;
                     int existingVal = donatedDict.TryGetValue(draft.BeerItemId, out var existingCans) ? existingCans : 0;
-                    int currentCans = existingVal <= 10 ? existingVal * 24 : existingVal;
-                    donatedDict[draft.BeerItemId] = currentCans + cansToAdd;
+                    donatedDict[draft.BeerItemId] = existingVal + cansToAdd;
                     recipientEvent.DonatedItemIdsJson = JsonSerializer.Serialize(donatedDict);
                     recipientEvent.Enable100PercentDonatedProceeds = true;
 
-                    // Automatically add donated beer cases (24 cans/case) to recipient event's Beer Tally list so they are available to sell
                     if (recipientEvent.EnableBeerTally)
                     {
                         var tallies = GetActiveEventTallies(recipientEvent);
@@ -10569,58 +10644,52 @@
 
                         recipientEvent.BeerTalliesJson = JsonSerializer.Serialize(tallies);
                     }
+                }
 
-                    if (recipientEvent.Id > 0 || recipientEvent.TemplateId.HasValue)
+                // Credit recipient template directly in SQL Server
+                try
+                {
+                    using var db = await DbFactory.CreateDbContextAsync();
+                    var cleanRName = (!string.IsNullOrWhiteSpace(recipientName) ? recipientName : "Horseshoes").Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
+                    var rTmpls = await db.EventTemplates
+                        .Where(t => (t.Name.ToLower() == cleanRName ||
+                                     t.Name.ToLower().Contains(cleanRName) ||
+                                     (cleanRName.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) &&
+                                     string.IsNullOrEmpty(t.RecipientEventName))
+                        .ToListAsync();
+
+                    foreach (var rt in rTmpls)
                     {
-                        try
+                        var poolMap = new Dictionary<int, int>();
+                        if (!string.IsNullOrEmpty(rt.DonatedItemIdsJson))
                         {
-                            using var db = await DbFactory.CreateDbContextAsync();
-                            if (recipientEvent.Id > 0)
-                            {
-                                var rOrig = await db.ActiveEvents.FindAsync(recipientEvent.Id);
-                                if (rOrig != null)
-                                {
-                                    rOrig.DonatedItemIdsJson = recipientEvent.DonatedItemIdsJson;
-                                    rOrig.Enable100PercentDonatedProceeds = true;
-                                    if (recipientEvent.EnableBeerTally)
-                                    {
-                                        rOrig.BeerTalliesJson = recipientEvent.BeerTalliesJson;
-                                    }
-                                }
-                            }
-
-                            // Sync donated beers to EventTemplate so future instances of recurring events retain them
-                            var tmplId = recipientEvent.TemplateId;
-                            GFC.Core.Models.EventTemplate? rTmpl = null;
-                            if (tmplId.HasValue && tmplId.Value > 0)
-                            {
-                                rTmpl = await db.EventTemplates.FindAsync(tmplId.Value);
-                            }
-                            if (rTmpl == null && !string.IsNullOrEmpty(recipientEvent.Name))
-                            {
-                                var cleanRName = GetEventDisplayName(recipientEvent.Name);
-                                rTmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == cleanRName.ToLower() || t.Name.ToLower() == recipientEvent.Name.ToLower());
-                            }
-                            if (rTmpl != null)
-                            {
-                                rTmpl.DonatedItemIdsJson = recipientEvent.DonatedItemIdsJson;
-                                rTmpl.Enable100PercentDonatedProceeds = true;
-                            }
-
-                            await db.SaveChangesAsync();
-
-                            var localTmpl = DbEventTemplates?.FirstOrDefault(t => (recipientEvent.TemplateId.HasValue && t.Id == recipientEvent.TemplateId.Value) || string.Equals(t.Name, recipientEvent.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(t.Name, GetEventDisplayName(recipientEvent.Name), StringComparison.OrdinalIgnoreCase));
-                            if (localTmpl != null)
-                            {
-                                localTmpl.DonatedItemIdsJson = recipientEvent.DonatedItemIdsJson;
-                                localTmpl.Enable100PercentDonatedProceeds = true;
-                            }
+                            try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(rt.DonatedItemIdsJson) ?? new(); } catch {}
                         }
-                        catch (Exception ex)
+                        poolMap[draft.BeerItemId] = (poolMap.TryGetValue(draft.BeerItemId, out var existing) ? existing : 0) + cansToAdd;
+                        rt.DonatedItemIdsJson = JsonSerializer.Serialize(poolMap);
+                        rt.Enable100PercentDonatedProceeds = true;
+                    }
+                    await db.SaveChangesAsync();
+
+                    var localRTmpls = DbEventTemplates?.Where(t => (t.Name.ToLower() == cleanRName || t.Name.ToLower().Contains(cleanRName) || (cleanRName.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) && string.IsNullOrEmpty(t.RecipientEventName)).ToList();
+                    if (localRTmpls != null)
+                    {
+                        foreach (var lrt in localRTmpls)
                         {
-                            Console.WriteLine($"[POS] DbFactory recipient write error: {ex.Message}");
+                            var poolMap = new Dictionary<int, int>();
+                            if (!string.IsNullOrEmpty(lrt.DonatedItemIdsJson))
+                            {
+                                try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(lrt.DonatedItemIdsJson) ?? new(); } catch {}
+                            }
+                            poolMap[draft.BeerItemId] = (poolMap.TryGetValue(draft.BeerItemId, out var existing) ? existing : 0) + cansToAdd;
+                            lrt.DonatedItemIdsJson = JsonSerializer.Serialize(poolMap);
+                            lrt.Enable100PercentDonatedProceeds = true;
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] DbFactory recipient write error: {ex.Message}");
                 }
             }
         }
@@ -10634,7 +10703,6 @@
         _donatedActionTargetEvent.DonatedBeerReDonatedCount = newRedonatedCount;
 
         var targetId = _donatedActionTargetEvent.Id;
-        var updatedItemIds = _donatedActionTargetEvent.DonatedItemIdsJson;
 
         // 1. Direct database write via DbFactory to guarantee persistence in Blazor Server
         if (targetId > 0)
@@ -10648,34 +10716,13 @@
                     orig.DonatedItemTalliesJson = updatedLogJson;
                     orig.DonatedBeerClaimedCount = newClaimedCount;
                     orig.DonatedBeerReDonatedCount = newRedonatedCount;
-                    if (!string.IsNullOrEmpty(updatedItemIds)) orig.DonatedItemIdsJson = updatedItemIds;
                     await db.SaveChangesAsync();
-                    Console.WriteLine("[POS] DbFactory direct write success for donated beer log JSON.");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[POS] DbFactory update failed: {ex.Message}");
+                Console.WriteLine($"[POS] DbFactory write error for donor log: {ex.Message}");
             }
-
-            try
-            {
-                var request = new UpdateEventTallyRequest
-                {
-                    Id = targetId,
-                    BeerTalliesJson = _donatedActionTargetEvent.BeerTalliesJson ?? "",
-                    InitialAmount = _donatedActionTargetEvent.InitialAmount,
-                    CurrentBalance = _donatedActionTargetEvent.CurrentBalance,
-                    DonatedBeerClaimedCount = newClaimedCount,
-                    DonatedBeerReDonatedCount = newRedonatedCount,
-                    DonatedBeerSoldCount = _donatedActionTargetEvent.DonatedBeerSoldCount,
-                    DonatedItemIdsJson = updatedItemIds,
-                    DonatedItemTalliesJson = updatedLogJson,
-                    CloseEvent = false
-                };
-                await Http.PostAsJsonAsync("api/pos/events/update-tally", request);
-            }
-            catch {}
         }
 
         // 2. Update local in-memory list
@@ -10685,12 +10732,18 @@
             matchedActive.DonatedItemTalliesJson = updatedLogJson;
             matchedActive.DonatedBeerClaimedCount = newClaimedCount;
             matchedActive.DonatedBeerReDonatedCount = newRedonatedCount;
-            matchedActive.DonatedItemIdsJson = updatedItemIds;
+        }
+
+        var localTmpl = DbEventTemplates?.FirstOrDefault(t => (_donatedActionTargetEvent.TemplateId.HasValue && t.Id == _donatedActionTargetEvent.TemplateId.Value) || string.Equals(t.Name, _donatedActionTargetEvent.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(t.Name, GetEventDisplayName(_donatedActionTargetEvent.Name), StringComparison.OrdinalIgnoreCase));
+        if (localTmpl != null)
+        {
+            localTmpl.DonatedItemTalliesJson = updatedLogJson;
         }
 
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
+            _cachedMenu.EventTemplates = DbEventTemplates;
             await PosService.SaveMenuToVaultAsync(_cachedMenu);
         }
 
@@ -10708,6 +10761,16 @@
         var records = GetSavedDonationRecords(_donatedActionTargetEvent);
         records.RemoveAll(r => r.RecordId == record.RecordId);
 
+        Dictionary<int, int> donorAllocations = new();
+        if (!string.IsNullOrEmpty(_donatedActionTargetEvent.DonatedItemIdsJson))
+        {
+            try { donorAllocations = JsonSerializer.Deserialize<Dictionary<int, int>>(_donatedActionTargetEvent.DonatedItemIdsJson) ?? new(); } catch {}
+        }
+        int existingVal = donorAllocations.TryGetValue(record.ItemId, out var val) ? val : 0;
+        donorAllocations[record.ItemId] = existingVal + record.Cases;
+        string updatedItemIds = JsonSerializer.Serialize(donorAllocations);
+        _donatedActionTargetEvent.DonatedItemIdsJson = updatedItemIds;
+
         string updatedLogJson = JsonSerializer.Serialize(records);
         int newClaimedCount = records.Where(r => r.ActionType == "prize").Sum(r => r.Cans);
         int newRedonatedCount = records.Where(r => r.ActionType == "redonate").Sum(r => r.Cans);
@@ -10717,7 +10780,6 @@
         _donatedActionTargetEvent.DonatedBeerReDonatedCount = newRedonatedCount;
 
         var targetId = _donatedActionTargetEvent.Id;
-        var updatedItemIds = _donatedActionTargetEvent.DonatedItemIdsJson;
 
         // 1. Direct database write via DbFactory (Blazor Server)
         if (targetId > 0)
@@ -10731,6 +10793,24 @@
                     orig.DonatedItemTalliesJson = updatedLogJson;
                     orig.DonatedBeerClaimedCount = newClaimedCount;
                     orig.DonatedBeerReDonatedCount = newRedonatedCount;
+                    orig.DonatedItemIdsJson = updatedItemIds;
+
+                    var tmplId = _donatedActionTargetEvent.TemplateId;
+                    GFC.Core.Models.EventTemplate? dbTmpl = null;
+                    if (tmplId.HasValue && tmplId.Value > 0)
+                    {
+                        dbTmpl = await db.EventTemplates.FindAsync(tmplId.Value);
+                    }
+                    if (dbTmpl == null && !string.IsNullOrEmpty(_donatedActionTargetEvent.Name))
+                    {
+                        var cleanName = GetEventDisplayName(_donatedActionTargetEvent.Name);
+                        dbTmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == cleanName.ToLower() || t.Name.ToLower() == _donatedActionTargetEvent.Name.ToLower());
+                    }
+                    if (dbTmpl != null)
+                    {
+                        dbTmpl.DonatedItemTalliesJson = updatedLogJson;
+                        dbTmpl.DonatedItemIdsJson = updatedItemIds;
+                    }
                     await db.SaveChangesAsync();
                     Console.WriteLine("[POS] DbFactory direct remove success for donated beer log record.");
                 }
@@ -10772,6 +10852,7 @@
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
+            _cachedMenu.EventTemplates = DbEventTemplates;
             await PosService.SaveMenuToVaultAsync(_cachedMenu);
         }
 
@@ -10846,6 +10927,7 @@
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
+            _cachedMenu.EventTemplates = DbEventTemplates;
             await PosService.SaveMenuToVaultAsync(_cachedMenu);
         }
 
@@ -10878,6 +10960,44 @@
             {
                 Console.WriteLine($"[POS] Failed to start background print: {ex.Message}");
             }
+        }
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbEv = await db.ActiveEvents.FindAsync(ev.Id);
+            if (dbEv != null)
+            {
+                dbEv.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                dbEv.IsDeleted = true;
+
+                var tmplId = dbEv.TemplateId ?? ev.TemplateId;
+                GFC.Core.Models.EventTemplate? dbTmpl = null;
+                if (tmplId.HasValue && tmplId.Value > 0)
+                {
+                    dbTmpl = await db.EventTemplates.FindAsync(tmplId.Value);
+                }
+                if (dbTmpl == null && !string.IsNullOrEmpty(ev.Name))
+                {
+                    var cleanName = GetEventDisplayName(ev.Name);
+                    dbTmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == cleanName.ToLower() || t.Name.ToLower() == ev.Name.ToLower());
+                }
+                if (dbTmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
+                {
+                    dbTmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
+                }
+                await db.SaveChangesAsync();
+            }
+
+            var localTmpl = DbEventTemplates?.FirstOrDefault(t => (ev.TemplateId.HasValue && t.Id == ev.TemplateId.Value) || string.Equals(t.Name, ev.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(t.Name, GetEventDisplayName(ev.Name), StringComparison.OrdinalIgnoreCase));
+            if (localTmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
+            {
+                localTmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Direct DbFactory CloseBanquet error: {ex.Message}");
         }
 
         try

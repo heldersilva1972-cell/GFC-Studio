@@ -111,7 +111,8 @@ namespace GFC.BlazorServer.Services
             string inventoryPullsJson,
             IEnumerable<LiquorItem>? dbItems = null,
             IEnumerable<PosToken>? dbTokens = null,
-            bool isReprint = false)
+            bool isReprint = false,
+            string? itemTotalsJson = null)
         {
             var sb = new StringBuilder();
 
@@ -131,6 +132,9 @@ namespace GFC.BlazorServer.Services
             // Parse Summaries
             Dictionary<string, int> salesSummary = new();
             try { salesSummary = JsonSerializer.Deserialize<Dictionary<string, int>>(salesSummaryJson ?? "{}") ?? new(); } catch { }
+
+            Dictionary<string, decimal> itemTotals = new();
+            try { itemTotals = JsonSerializer.Deserialize<Dictionary<string, decimal>>(itemTotalsJson ?? "{}") ?? new(); } catch { }
 
             List<BanquetShiftReportDto> banquetSummary = new();
             try { banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(banquetSummaryJson ?? "[]") ?? new(); } catch { }
@@ -200,52 +204,67 @@ namespace GFC.BlazorServer.Services
                     if (isTokenSale) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
                     bool isTokenRedeemed = cleanKey.Contains(" (TOKEN REDEEMED)");
                     if (isTokenRedeemed) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
-                    
+
                     var product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                     if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
                     {
                         int openIdx = cleanKey.IndexOf(" (");
-                        string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
-                        product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+                        string baseName = cleanKey.Substring(0, openIdx).Trim();
+                        product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase));
+                        if (product == null)
+                        {
+                            string innerName = cleanKey.Substring(openIdx + 2, cleanKey.Length - openIdx - 3).Trim();
+                            product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(innerName, StringComparison.OrdinalIgnoreCase));
+                        }
                     }
                     var category = product?.Category;
                     if (kvp.Key.Contains("(DARTS")) category = "DARTS ROUND";
                     else if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                     else if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
-                    
-                    decimal price = 0;
-                    if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))
+                    else if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED")) category = "TOKENS";
+
+                    decimal lineTotal = 0;
+                    if (itemTotals.TryGetValue(kvp.Key, out var exactTotal))
                     {
-                        price = 0;
-                    }
-                    else if (isTokenSale || kvp.Key.Contains("(TOKEN SALE)") || kvp.Key.Contains("TOKEN SALE"))
-                    {
-                        var tokenMatch = tokenList.OrderByDescending(t => t.Name.Length)
-                            .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
-                        if (tokenMatch != null) price = tokenMatch.SalePrice;
-                        else if (product != null) price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
+                        lineTotal = exactTotal;
                     }
                     else
                     {
-                        if (product != null)
+                        decimal price = 0;
+                        if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED"))
                         {
-                            price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
+                            price = 0;
                         }
-                        if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
+                        else if (isTokenSale || kvp.Key.Contains("(TOKEN SALE)") || kvp.Key.Contains("TOKEN SALE"))
                         {
                             var tokenMatch = tokenList.OrderByDescending(t => t.Name.Length)
                                 .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
                             if (tokenMatch != null) price = tokenMatch.SalePrice;
+                            else if (product != null) price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
                         }
+                        else
+                        {
+                            if (product != null)
+                            {
+                                price = (product.RetailPrice > 0) ? product.RetailPrice : product.CurrentPrice;
+                            }
+                            if (price == 0 && (kvp.Key.Contains("TOKEN") || kvp.Key.Contains("Token")))
+                            {
+                                var tokenMatch = tokenList.OrderByDescending(t => t.Name.Length)
+                                    .FirstOrDefault(t => cleanKey.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase) || kvp.Key.StartsWith(t.Name, StringComparison.OrdinalIgnoreCase));
+                                if (tokenMatch != null) price = tokenMatch.SalePrice;
+                            }
+                        }
+                        
+                        if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
+                        {
+                            var tokenPart = kvp.Key.Substring(2, kvp.Key.IndexOf(" TOKEN CREDIT FOR ") - 2).Trim();
+                            var token = tokenList.FirstOrDefault(t => t.Name.Equals(tokenPart, StringComparison.OrdinalIgnoreCase));
+                            if (token != null) price = -(token.CreditValue ?? token.SalePrice);
+                        }
+                        lineTotal = price * kvp.Value;
                     }
-                    
-                    if (kvp.Key.StartsWith("> ") && kvp.Key.Contains(" TOKEN CREDIT FOR "))
-                    {
-                        var tokenPart = kvp.Key.Substring(2, kvp.Key.IndexOf(" TOKEN CREDIT FOR ") - 2).Trim();
-                        var token = tokenList.FirstOrDefault(t => t.Name.Equals(tokenPart, StringComparison.OrdinalIgnoreCase));
-                        if (token != null) price = -(token.CreditValue ?? token.SalePrice);
-                    }
-                    return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = price * kvp.Value, ZReportGroup = product?.ZReportGroup ?? 0 };
+                    return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = lineTotal, ZReportGroup = product?.ZReportGroup ?? 0 };
                 })
                 .GroupBy(x => x.Category)
                 .OrderBy(g => g.Key)

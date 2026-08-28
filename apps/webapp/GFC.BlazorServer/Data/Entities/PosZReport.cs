@@ -29,6 +29,8 @@ namespace GFC.BlazorServer.Data.Entities
 
         public string? SalesSummaryJson { get; set; } = "[]";
         
+        public string? ItemTotalsJson { get; set; } = "{}";
+        
         public string? BanquetSummaryJson { get; set; } = "[]";
 
         public decimal? HoursWorked { get; set; }
