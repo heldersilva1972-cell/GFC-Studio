@@ -435,9 +435,18 @@
                                                 }
                                             </td>
                                             <td>
-                                                <span class="badge bg-secondary bg-opacity-10 text-dark border px-2 py-1 rounded-2 font-monospace fw-bold" style="font-size: 0.72rem;">
-                                                    @entry.Shift
-                                                </span>
+                                                @if (entry.IsFullDayShift || entry.Shift == "Full Day")
+                                                {
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 rounded-2 font-monospace fw-bold" style="font-size: 0.72rem;">
+                                                        <i class="bi bi-arrow-repeat me-1"></i>FULL DAY
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary bg-opacity-10 text-dark border px-2 py-1 rounded-2 font-monospace fw-bold" style="font-size: 0.72rem;">
+                                                        @entry.Shift
+                                                    </span>
+                                                }
                                             </td>
                                             <td class="fw-semibold text-dark">@entry.Description</td>
                                             <td class="text-end pe-4 fw-black text-success fs-6">@entry.Amount.ToString("C2")</td>
@@ -628,7 +637,7 @@
                 {
                     // FULL YEAR VIEW: 12 MONTHS ON X-AXIS
                     var months = new[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-                    var datasets = new List<object>();
+                    var compareYearDatasets = new List<object>();
 
                     for (int i = 0; i < yearList.Count; i++)
                     {
@@ -637,7 +646,7 @@
                         var color = colorPalette[i % colorPalette.Length];
                         var bg = bgPalette[i % bgPalette.Length];
 
-                        datasets.Add(new
+                        compareYearDatasets.Add(new
                         {
                             label = $"{y} Total Revenue",
                             data = yDto.MonthlyTotalIncome,
@@ -651,7 +660,7 @@
                     {
                         type = "bar",
                         labels = months,
-                        datasets = datasets.ToArray()
+                        datasets = compareYearDatasets.ToArray()
                     };
 
                     await JSRuntime.InvokeVoidAsync("financialCharts.renderChart", "incomeCompareChart", compareConfig);
@@ -661,7 +670,7 @@
                     // SINGLE MONTH VIEW: REVENUE STREAMS ON X-AXIS
                     var monthName = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedMonthName(_selectedMonth);
                     var streamLabels = new[] { "Bar Sales", "Lottery Net", "Membership Dues", "Total Combined" };
-                    var datasets = new List<object>();
+                    var compareMonthDatasets = new List<object>();
 
                     for (int i = 0; i < yearList.Count; i++)
                     {
@@ -676,7 +685,7 @@
                         decimal duesVal = (mIdx >= 0 && mIdx < 12) ? yDto.MonthlyMembershipDues[mIdx] : 0m;
                         decimal totalVal = barVal + lotVal + duesVal;
 
-                        datasets.Add(new
+                        compareMonthDatasets.Add(new
                         {
                             label = $"{monthName} {y}",
                             data = new[] { barVal, lotVal, duesVal, totalVal },
@@ -690,7 +699,7 @@
                     {
                         type = "bar",
                         labels = streamLabels,
-                        datasets = datasets.ToArray()
+                        datasets = compareMonthDatasets.ToArray()
                     };
 
                     await JSRuntime.InvokeVoidAsync("financialCharts.renderChart", "incomeCompareChart", compareConfig);
@@ -717,6 +726,7 @@
 
             var barSalesDayData = new decimal[dataPointsCount];
             var barSalesNightData = new decimal[dataPointsCount];
+            var barSalesFullDayData = new decimal[dataPointsCount];
             var lotteryData = new decimal[dataPointsCount];
             var duesData = new decimal[dataPointsCount];
 
@@ -729,7 +739,9 @@
                     
                     if (entry.Stream == "Bar Sales")
                     {
-                        if (shift.Equals("Night", StringComparison.OrdinalIgnoreCase))
+                        if (entry.IsFullDayShift || shift.Equals("Full Day", StringComparison.OrdinalIgnoreCase))
+                            barSalesFullDayData[index] += entry.Amount;
+                        else if (shift.Equals("Night", StringComparison.OrdinalIgnoreCase))
                             barSalesNightData[index] += entry.Amount;
                         else
                             barSalesDayData[index] += entry.Amount;
@@ -745,19 +757,27 @@
                 }
             }
 
+            var streamDatasets = new List<object>
+            {
+                new { label = "Bar Sales (Day Shift)", data = barSalesDayData, backgroundColor = "#0d6efd" },
+                new { label = "Bar Sales (Night Shift)", data = barSalesNightData, backgroundColor = "#0a58ca" }
+            };
+
+            if (barSalesFullDayData.Any(v => v > 0))
+            {
+                streamDatasets.Add(new { label = "Bar Sales (Full Day Shift)", data = barSalesFullDayData, backgroundColor = "#4f46e5" });
+            }
+
+            streamDatasets.Add(new { label = "Lottery Commissions", data = lotteryData, backgroundColor = "#dc3545" });
+            streamDatasets.Add(new { label = "Membership Dues", data = duesData, backgroundColor = "#0dcaf0" });
+
             var comparisonConfig = new
             {
                 type = "bar",
                 data = new
                 {
                     labels = labels,
-                    datasets = new[]
-                    {
-                        new { label = "Bar Sales (Day Shift)", data = barSalesDayData, backgroundColor = "#0d6efd" },
-                        new { label = "Bar Sales (Night Shift)", data = barSalesNightData, backgroundColor = "#0a58ca" },
-                        new { label = "Lottery Commissions", data = lotteryData, backgroundColor = "#dc3545" },
-                        new { label = "Membership Dues", data = duesData, backgroundColor = "#0dcaf0" }
-                    }
+                    datasets = streamDatasets.ToArray()
                 },
                 options = new
                 {

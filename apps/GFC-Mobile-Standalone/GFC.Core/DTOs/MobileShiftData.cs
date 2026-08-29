@@ -38,5 +38,6 @@ public class MobileShiftData // Revision 2.1.35
     public bool IsLocked { get; set; }
     public string? LockOwner { get; set; }
     public bool ExistingEntryFound { get; set; }
+    public bool IsFullDayShift { get; set; }
     public DateTime? Timestamp { get; set; }
 }

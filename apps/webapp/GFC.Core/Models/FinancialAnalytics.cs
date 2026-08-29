@@ -139,6 +139,7 @@ namespace GFC.Core.Models
         public DateTime Date { get; set; }
         public string Stream { get; set; } = "";
         public string Shift { get; set; } = "";
+        public bool IsFullDayShift { get; set; }
         public string Description { get; set; } = "";
         public decimal Amount { get; set; }
         public string SourceUrl { get; set; } = "";

@@ -193,8 +193,22 @@ public class MobileReportingService : IMobileReportingService
             Console.WriteLine($"[CLEANUP] Removed {extras.Count} duplicate BarSaleEntries for {targetDate:yyyy-MM-dd} {data.ShiftType}");
         }
 
+        bool hasAnyRealData = (data.TotalHours.HasValue && data.TotalHours.Value > 0) ||
+                              (data.BarSales.HasValue && data.BarSales.Value > 0) ||
+                              (data.LottoSales.HasValue && data.LottoSales.Value > 0) ||
+                              (data.LottoCashes.HasValue && data.LottoCashes.Value > 0) ||
+                              (data.LottoInstantTickets.HasValue && data.LottoInstantTickets.Value > 0) ||
+                              (data.LottoCashCounted.HasValue && data.LottoCashCounted.Value > 0) ||
+                              !string.IsNullOrWhiteSpace(data.Notes);
+
         if (existingBar == null)
         {
+            // If it's a draft with NO entered data and not a submitted report, do not create a blank database row!
+            if (!hasAnyRealData && data.Status != "Submitted" && !data.IsFullDayShift)
+            {
+                return true;
+            }
+
             existingBar = new BarSaleEntry
             {
                 SaleDate = data.Date,
@@ -287,6 +301,11 @@ public class MobileReportingService : IMobileReportingService
                     Console.WriteLine($"[CLEANUP] Removed {extras.Count} duplicate LotteryShifts for {data.Date:yyyy-MM-dd} {data.ShiftType}");
                 }
                 
+                if (lottoDto == null && !hasAnyRealData && data.Status != "Submitted" && !data.IsFullDayShift)
+                {
+                    return true;
+                }
+
                 LotteryShift lotto;
                 if (lottoDto == null)
                 {
@@ -305,19 +324,19 @@ public class MobileReportingService : IMobileReportingService
 
                 // [FIX] Baseline Extraction for Activity Math
                 decimal baselineSales = 0, baselinePayouts = 0, baselineCancels = 0;
-                if (data.ShiftType == "Night")
+                if (data.ShiftType == "Night" && !data.IsFullDayShift)
                 {
                     var dayShift = lottoShifts.FirstOrDefault(s => s.ShiftType == "Day");
-                    if (dayShift != null)
+                    if (dayShift != null && (dayShift.Notes == null || !dayShift.Notes.Contains("Included in Full Day Closeout")))
                     {
                         baselineSales = dayShift.TotalSales;
                         baselinePayouts = dayShift.TotalPayouts;
                         baselineCancels = dayShift.TotalCancels;
                     }
                 }
-                else if (data.ShiftType == "Day")
+                else if (data.ShiftType == "Day" || data.IsFullDayShift)
                 {
-                    // [FIX]: Machine resets every night. Day shift baseline is ALWAYS zero.
+                    // [FIX]: Machine resets every night or full day operator. Baseline is zero.
                     baselineSales = 0;
                     baselinePayouts = 0;
                     baselineCancels = 0;
@@ -348,16 +367,22 @@ public class MobileReportingService : IMobileReportingService
                     }
                     
                     // Note merging for lotto
-                    if (!string.IsNullOrEmpty(lotto.Notes) && lotto.Notes != data.Notes && !string.IsNullOrEmpty(data.Notes))
+                    var shiftNotes = data.Notes;
+                    if (data.IsFullDayShift && (shiftNotes == null || !shiftNotes.Contains("[Full Day Shift]")))
                     {
-                        if (!data.Notes.Contains(lotto.Notes))
-                            lotto.Notes = lotto.Notes + "\n---\n" + data.Notes;
+                        shiftNotes = string.IsNullOrEmpty(shiftNotes) ? "[Full Day Shift]" : $"[Full Day Shift] {shiftNotes}";
+                    }
+
+                    if (!string.IsNullOrEmpty(lotto.Notes) && lotto.Notes != shiftNotes && !string.IsNullOrEmpty(shiftNotes))
+                    {
+                        if (!shiftNotes.Contains(lotto.Notes))
+                            lotto.Notes = lotto.Notes + "\n---\n" + shiftNotes;
                         else
-                            lotto.Notes = data.Notes;
+                            lotto.Notes = shiftNotes;
                     }
                     else
                     {
-                        lotto.Notes = data.Notes;
+                        lotto.Notes = shiftNotes;
                     }
 
                     // Preserve 'Submitted' status
@@ -378,6 +403,80 @@ public class MobileReportingService : IMobileReportingService
 
                 if (lotto.ShiftId == 0) await Task.Run(() => _lottoService.CreateShift(lotto, effectiveUsername));
                 else await Task.Run(() => _lottoService.UpdateShift(lotto, effectiveUsername));
+
+                // [FULL DAY AUTO-FULFILLMENT] Satisfy Day Shift across Bar and Lottery
+                if (data.IsFullDayShift && data.ShiftType == "Night")
+                {
+                    // 1. Day Bar Entry
+                    var dayBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == targetDate && e.Shift == "Day" && !e.IsRentalHall);
+                    if (dayBar == null)
+                    {
+                        dayBar = new BarSaleEntry
+                        {
+                            SaleDate = targetDate,
+                            AdjustedSaleDate = targetDate,
+                            Shift = "Day",
+                            IsRentalHall = false,
+                            CreatedAt = DateTime.UtcNow,
+                            CreatedBy = effectiveUsername,
+                            EmployeeUsername = effectiveUsername,
+                            TotalSales = 0,
+                            TotalHours = 0,
+                            Notes = "[Included in Full Day Closeout]",
+                            Status = data.Status == "Submitted" ? "Submitted" : "Draft"
+                        };
+                        db.BarSaleEntries.Add(dayBar);
+                        await db.SaveChangesAsync();
+                    }
+                    else if (dayBar.TotalSales == 0)
+                    {
+                        dayBar.Notes = "[Included in Full Day Closeout]";
+                        dayBar.EmployeeUsername = effectiveUsername;
+                        if (data.Status == "Submitted") dayBar.Status = "Submitted";
+                        await db.SaveChangesAsync();
+                    }
+
+                    // 2. Day Lottery Shift
+                    var dayLottoDto = lottoShifts.FirstOrDefault(s => s.ShiftType == "Day");
+                    if (dayLottoDto == null)
+                    {
+                        var newDayLotto = new LotteryShift
+                        {
+                            ShiftDate = data.Date,
+                            ShiftType = "Day",
+                            CreatedDate = DateTime.UtcNow,
+                            CreatedBy = effectiveUsername,
+                            EmployeeName = $"{effectiveUsername} (Full Day)",
+                            StartingCash = 300,
+                            EndingCash = 300,
+                            TotalSales = 0,
+                            TotalPayouts = 0,
+                            TotalCancels = 0,
+                            NetDue = 0,
+                            EnvelopeAmount = 0,
+                            BagRefillAmount = 0,
+                            ShiftSalesActivity = 0,
+                            ShiftPayoutsActivity = 0,
+                            ShiftCancelsActivity = 0,
+                            Variance = 0,
+                            Status = data.Status == "Submitted" ? "Submitted" : "Draft",
+                            IsReconciled = true,
+                            Notes = "Included in Full Day Closeout"
+                        };
+                        await Task.Run(() => _lottoService.CreateShift(newDayLotto, effectiveUsername));
+                    }
+                    else if (dayLottoDto.Notes != null && dayLottoDto.Notes.Contains("Included in Full Day Closeout"))
+                    {
+                        var existingDayLotto = await Task.Run(() => _lottoService.GetShift(dayLottoDto.ShiftId));
+                        if (existingDayLotto != null)
+                        {
+                            existingDayLotto.EmployeeName = $"{effectiveUsername} (Full Day)";
+                            existingDayLotto.Status = data.Status == "Submitted" ? "Submitted" : existingDayLotto.Status;
+                            existingDayLotto.IsReconciled = true;
+                            await Task.Run(() => _lottoService.UpdateShift(existingDayLotto, effectiveUsername));
+                        }
+                    }
+                }
             }
 
             return true;

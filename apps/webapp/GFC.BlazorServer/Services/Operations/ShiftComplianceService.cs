@@ -56,6 +56,17 @@ public class ShiftComplianceService : IShiftComplianceService
         var lottoShifts = _lotteryRepo.GetByDateRange(date, date);
         var hasLotto = lottoShifts.Any(s => s.ShiftType == shiftType);
 
+        // Check if Full Day Shift covered Day shift
+        bool isFullDay = lottoShifts.Any(s => 
+            (s.ShiftType == "Night" && s.Notes != null && s.Notes.Contains("[Full Day Shift]")) ||
+            (s.ShiftType == "Day" && s.Notes != null && s.Notes.Contains("Included in Full Day Closeout"))
+        );
+
+        if (shiftType == "Day" && isFullDay)
+        {
+            return; // Day shift is covered by Full Day closeout!
+        }
+
         if (!hasBar || !hasLotto)
         {
             string missingWhat = (!hasBar && !hasLotto) ? "Report" : (!hasBar ? "Bar Sales" : "Lottery Sales");

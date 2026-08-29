@@ -140,13 +140,17 @@ window.financialCharts = {
                             label: function (context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
-                                label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
+                                const lower = label.toLowerCase();
+                                if (lower.includes('admission') || lower.includes('attendance') || lower.includes('player') || lower.includes('headcount')) {
+                                    label += Number(context.parsed.y).toLocaleString() + ' Players';
+                                } else {
+                                    label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
+                                }
                                 return label;
                             },
                             footer: function (tooltipItems) {
                                 let totalCash = 0;
                                 let cashCount = 0;
-
                                 let selectedEarningsTotal = 0;
                                 let earningsCount = 0;
                                 let feesTotal = 0;
@@ -155,7 +159,6 @@ window.financialCharts = {
                                 tooltipItems.forEach(function (item) {
                                     const l = item.dataset.label || '';
                                     const val = item.parsed.y || 0;
-
                                     if (l === 'Envelope Drops' || l === 'Vending Machine Drops') {
                                         totalCash += val;
                                         cashCount++;
@@ -185,13 +188,12 @@ window.financialCharts = {
                                         return 'Total Selected: ' + formattedEarnings;
                                     }
                                 }
-
                                 return '';
                             }
                         }
                     }
                 },
-                scales: {
+                scales: config.scales || {
                     x: {
                         stacked: isStacked,
                         offset: true,
@@ -203,12 +205,42 @@ window.financialCharts = {
                         beginAtZero: true,
                         grid: { color: 'rgba(0,0,0,0.05)' },
                         ticks: {
-                            callback: value => '$' + value.toLocaleString(),
+                            callback: value => config.isCountAxis ? value.toLocaleString() : '$' + value.toLocaleString(),
                             font: { size: 10 }
                         }
                     }
                 }
-            }
+            },
+            plugins: [
+                {
+                    id: 'topBarLabels',
+                    afterDatasetsDraw(chart) {
+                        const { ctx } = chart;
+                        chart.data.datasets.forEach((dataset, i) => {
+                            const lower = (dataset.label || '').toLowerCase();
+                            const isAttendance = lower.includes('admission') || lower.includes('attendance') || lower.includes('player');
+                            if (isAttendance || dataset.showValuesOnBar) {
+                                const meta = chart.getDatasetMeta(i);
+                                if (!meta.hidden) {
+                                    meta.data.forEach((element, index) => {
+                                        const val = dataset.data[index];
+                                        if (val !== undefined && val !== null && val > 0) {
+                                            ctx.save();
+                                            ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+                                            ctx.fillStyle = dataset.borderColor || '#6f42c1';
+                                            ctx.textAlign = 'center';
+                                            ctx.textBaseline = 'bottom';
+                                            const displayStr = isAttendance ? val.toLocaleString() + ' 👤' : val.toLocaleString();
+                                            ctx.fillText(displayStr, element.x, element.y - 4);
+                                            ctx.restore();
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            ]
         });
     }
 };

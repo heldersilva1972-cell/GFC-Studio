@@ -45,20 +45,42 @@
                     }
                 </select>
             </div>
+            <div class="form-check form-switch d-flex align-items-center gap-2 bg-white px-3 py-2 rounded-pill shadow-sm border mb-0" style="height: 38px;">
+                <input class="form-check-input ms-0 mt-0" type="checkbox" id="togglePullTabs" @bind="IncludePullTabs" @bind:after="OnPullTabsToggled" style="cursor: pointer;">
+                <label class="form-check-label fw-bold extra-small text-uppercase text-dark mb-0" for="togglePullTabs" style="cursor: pointer; user-select: none;">
+                    <i class="bi bi-ticket-perforated-fill me-1 @(IncludePullTabs ? "text-danger" : "text-muted")"></i> Pull-Tab Sales
+                </label>
+            </div>
             <button class="btn btn-primary px-4 fw-black shadow-sm" @onclick="LoadData">REFRESH</button>
         </div>
     </div>
 
-    <div class="d-flex gap-2 mb-4">
-        <button class="btn @(ActiveTab == "Sessions" ? "btn-dark" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Sessions"'>
-            SESSION REPORTS
-        </button>
-        <button class="btn @(ActiveTab == "Audit" ? "btn-dark" : "btn-light") rounded-pill px-4 fw-bold" @onclick='() => ActiveTab = "Audit"'>
-            FINANCIAL AUDIT
-        </button>
-        <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm ms-2" @onclick='() => Navigation.NavigateTo("/admin/bingo/expenses")'>
-            <i class="bi bi-cash-coin me-2"></i> RECORD EXPENSES
-        </button>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex gap-2">
+            <button class="btn @(ActiveTab == "Sessions" ? "btn-dark shadow-sm" : "btn-light border") rounded-pill px-4 fw-bold" @onclick='() => SetActiveTab("Sessions")'>
+                <i class="bi bi-journal-text me-1"></i> SESSION REPORTS
+            </button>
+            <button class="btn @(ActiveTab == "Audit" ? "btn-dark shadow-sm" : "btn-light border") rounded-pill px-4 fw-bold" @onclick='() => SetActiveTab("Audit")'>
+                <i class="bi bi-shield-check me-1"></i> FINANCIAL AUDIT
+            </button>
+            <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm ms-2" @onclick='() => Navigation.NavigateTo("/admin/bingo/expenses")'>
+                <i class="bi bi-cash-coin me-2"></i> RECORD EXPENSES
+            </button>
+        </div>
+
+        @if (ActiveTab == "Sessions" && Sessions.Any())
+        {
+            <div class="d-flex align-items-center gap-2">
+                <div class="btn-group p-1 bg-light rounded-pill border shadow-sm">
+                    <button class="btn btn-sm rounded-pill px-3 fw-bold @(SessionViewMode == "Table" ? "btn-dark shadow-sm" : "btn-light border-0 text-muted")" @onclick='() => SetSessionViewMode("Table")'>
+                        <i class="bi bi-table me-1"></i> TABLE VIEW
+                    </button>
+                    <button class="btn btn-sm rounded-pill px-3 fw-bold @(SessionViewMode == "Chart" ? "btn-primary shadow-sm" : "btn-light border-0 text-muted")" @onclick='() => SetSessionViewMode("Chart")'>
+                        <i class="bi bi-bar-chart-line-fill me-1"></i> CHART ANALYSIS
+                    </button>
+                </div>
+            </div>
+        }
     </div>
 
     <!-- STATS CARDS -->
@@ -120,8 +142,58 @@
                 <button class="btn btn-sm btn-dark mt-2" @onclick="LoadData">REFRESH DATA</button>
             </div>
         }
+        else if (SessionViewMode == "Chart")
+        {
+            <!-- CHART ANALYSIS MODE -->
+            <div class="d-flex flex-column gap-4">
+                <!-- 1. Revenue & Profit Trends -->
+                <div class="glass-card shadow-sm p-4 border rounded-4 bg-white">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-black text-dark mb-0 text-uppercase d-flex align-items-center gap-2">
+                                <i class="bi bi-graph-up-arrow text-primary"></i> Session Financial Performance Trends
+                            </h5>
+                            <p class="text-muted extra-small mb-0">Comparing Gross Receipts, Prize Payouts, State Lottery Tax (5%), and Net Session Profit per session date</p>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-1 rounded-pill fw-bold">
+                            @Sessions.Count @(Sessions.Count == 1 ? "Session" : "Sessions") Plotted
+                        </span>
+                    </div>
+                    <div style="height: 380px; position: relative;">
+                        <canvas id="bingoFinancialTrendsChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 2. Attendance & Spend Per Player -->
+                <div class="glass-card shadow-sm p-4 border rounded-4 bg-white">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div>
+                            <h5 class="fw-black text-dark mb-0 text-uppercase d-flex align-items-center gap-2">
+                                <i class="bi bi-people-fill" style="color: #6f42c1;"></i> Player Attendance & Spend Per Head
+                            </h5>
+                            <p class="text-muted extra-small mb-0">Track total admission headcount and average gross receipts generated per player</p>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <span class="badge bg-light text-dark border px-3 py-2 rounded-3 fw-bold">
+                                <i class="bi bi-people me-1 text-primary"></i> Total: @TotalAdmissions.ToString("N0") Players
+                            </span>
+                            <span class="badge bg-light text-dark border px-3 py-2 rounded-3 fw-bold">
+                                <i class="bi bi-bar-chart me-1 text-success"></i> Avg Attendance: @AvgAdmissions.ToString("F1") / Session
+                            </span>
+                            <span class="badge bg-info-subtle text-info border border-info-subtle px-3 py-2 rounded-3 fw-bold">
+                                <i class="bi bi-cash-stack me-1"></i> Avg Spend: @AvgSpendPerPlayer.ToString("C2") / Player
+                            </span>
+                        </div>
+                    </div>
+                    <div style="height: 320px; position: relative;">
+                        <canvas id="bingoAttendanceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        }
         else
         {
+            <!-- TABLE VIEW MODE -->
             <div class="glass-card shadow-sm overflow-hidden">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0 align-middle">
@@ -147,12 +219,12 @@
                                         <div class="extra-small text-muted">@session.SessionDate.DayOfWeek</div>
                                     </td>
                                     <td><span class="badge bg-light text-dark border">@session.AdmissionCount</span></td>
-                                    <td class="fw-bold">@session.TotalGrossReceipts.ToString("C2")</td>
-                                    <td class="text-danger">@session.GameEntries.Sum(e => e.PrizePaid).ToString("C2")</td>
+                                    <td class="fw-bold">@GetEffectiveGross(session).ToString("C2")</td>
+                                    <td class="text-danger">@GetEffectivePrizes(session).ToString("C2")</td>
                                     <td class="text-warning fw-bold">@session.TotalLotteryTake.ToString("C2")</td>
                                     <td><span class="badge @(session.RoundingAdjustment != 0 ? "bg-info-subtle text-info" : "bg-light text-muted") border">@session.RoundingAdjustment.ToString("C2")</span></td>
                                     <td class="text-indigo fw-bold">@session.TotalClubTake.ToString("C2")</td>
-                                    <td class="fw-black text-success">@((session.TotalGrossReceipts - session.GameEntries.Sum(e => e.PrizePaid) - session.TotalLotteryTake - session.RoundingAdjustment).ToString("C2"))</td>
+                                    <td class="fw-black text-success">@GetEffectiveNet(session).ToString("C2")</td>
                                     <td class="pe-4 text-end">
                                         <button class="btn btn-sm btn-light rounded-pill px-3" @onclick="() => OpenDetail(session)">
                                             <i class="bi bi-eye me-1"></i> VIEW
@@ -477,6 +549,8 @@
 
 @code {
     private string ActiveTab { get; set; } = "Sessions";
+    private string SessionViewMode { get; set; } = "Table";
+    private bool IncludePullTabs { get; set; } = true;
     private bool Loading { get; set; } = true;
     private int SelectedMonth { get; set; } = 0;
     private int SelectedYear { get; set; } = DateTime.Today.Year;
@@ -504,12 +578,59 @@
         else ExpandedDates.Add(date);
     }
 
-    private decimal TotalGross => Sessions.Sum(s => s.TotalGrossReceipts);
-    private decimal TotalPrizes => Sessions.Sum(s => s.GameEntries.Sum(e => e.PrizePaid));
+    private decimal GetSessionPullTabGross(BingoSession s)
+    {
+        if (s.PullTabEntries == null || !s.PullTabEntries.Any()) return 0m;
+        return s.PullTabEntries.Sum(p => 
+        {
+            var price = p.GameDefinition?.TicketPrice ?? (p.TicketsIssued > p.TicketsReturned && p.TicketsIssued - p.TicketsReturned > 0 ? Math.Round((p.CashReceived + p.PrizesPaid - p.StartingBank) / (p.TicketsIssued - p.TicketsReturned), 2) : 1m);
+            var sold = Math.Max(0, p.TicketsIssued - p.TicketsReturned);
+            return sold > 0 ? sold * price : Math.Max(0, p.CashReceived + p.PrizesPaid - p.StartingBank);
+        });
+    }
+
+    private decimal GetSessionPullTabPrizes(BingoSession s)
+    {
+        if (s.PullTabEntries == null || !s.PullTabEntries.Any()) return 0m;
+        return s.PullTabEntries.Sum(p => p.PrizesPaid);
+    }
+
+    private bool IsPullTabGame(BingoGameEntry e)
+    {
+        return (!string.IsNullOrWhiteSpace(e.SheetColor) && e.SheetColor.IndexOf("Pull", StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (!string.IsNullOrWhiteSpace(e.GameName) && e.GameName.IndexOf("Pull", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    private decimal GetEffectiveGross(BingoSession s)
+    {
+        if (IncludePullTabs) return s.TotalGrossReceipts;
+        var ptGross = GetSessionPullTabGross(s) + s.GameEntries.Where(IsPullTabGame).Sum(e => e.GrossReceipts);
+        return Math.Max(0, s.TotalGrossReceipts - ptGross);
+    }
+
+    private decimal GetEffectivePrizes(BingoSession s)
+    {
+        var totalPrizes = s.GameEntries.Sum(e => e.PrizePaid);
+        if (IncludePullTabs) return totalPrizes;
+        var ptPrizes = GetSessionPullTabPrizes(s) + s.GameEntries.Where(IsPullTabGame).Sum(e => e.PrizePaid);
+        return Math.Max(0, totalPrizes - ptPrizes);
+    }
+
+    private decimal GetEffectiveNet(BingoSession s)
+    {
+        return GetEffectiveGross(s) - GetEffectivePrizes(s) - s.TotalLotteryTake - s.RoundingAdjustment;
+    }
+
+    private decimal TotalGross => Sessions.Sum(s => GetEffectiveGross(s));
+    private decimal TotalPrizes => Sessions.Sum(s => GetEffectivePrizes(s));
     private decimal TotalLottery => Sessions.Sum(s => s.TotalLotteryTake);
     private decimal TotalRounding => Sessions.Sum(s => s.RoundingAdjustment);
     private decimal TotalExpenses => Math.Abs(Transactions.Where(t => t.Type == "Expense").Sum(t => t.Amount));
     private decimal NetAccount => Transactions.Sum(t => t.Amount);
+
+    private int TotalAdmissions => Sessions.Sum(s => s.AdmissionCount);
+    private double AvgAdmissions => Sessions.Any() ? Sessions.Average(s => s.AdmissionCount) : 0;
+    private decimal AvgSpendPerPlayer => TotalAdmissions > 0 ? Math.Round(TotalGross / TotalAdmissions, 2) : 0m;
 
     protected override async Task OnInitializedAsync()
     {
@@ -534,6 +655,37 @@
             return permissions.Any(p => p.PageRoute == "/admin/bingo");
         }
         return false;
+    }
+
+    private async Task SetActiveTab(string tab)
+    {
+        ActiveTab = tab;
+        if (ActiveTab == "Sessions" && SessionViewMode == "Chart")
+        {
+            await Task.Delay(100);
+            await RenderBingoChartsAsync();
+        }
+    }
+
+    private async Task SetSessionViewMode(string mode)
+    {
+        SessionViewMode = mode;
+        StateHasChanged();
+        if (SessionViewMode == "Chart")
+        {
+            await Task.Delay(100);
+            await RenderBingoChartsAsync();
+        }
+    }
+
+    private async Task OnPullTabsToggled()
+    {
+        StateHasChanged();
+        if (ActiveTab == "Sessions" && SessionViewMode == "Chart")
+        {
+            await Task.Delay(50);
+            await RenderBingoChartsAsync();
+        }
     }
 
     private async Task OnMonthChanged(ChangeEventArgs e)
@@ -571,6 +723,8 @@
             .Include(s => s.GameEntries)
             .Include(s => s.AdmissionEntries)
                 .ThenInclude(ae => ae.Definition)
+            .Include(s => s.PullTabEntries)
+                .ThenInclude(p => p.GameDefinition)
             .Where(s => s.SessionDate >= StartDate.Date && s.SessionDate <= endOfDate && !s.IsDeleted)
             .OrderByDescending(s => s.SessionDate)
             .ToListAsync();
@@ -586,13 +740,69 @@
             .ToListAsync();
             
         AccountBalance = Transactions.Sum(t => t.Amount);
-        
-        // Apply range filter for display
-        // Transactions are now filtered in the database query above
-
         ExpenseCategories = await DbContext.BingoExpenseCategories.Where(c => !c.IsDeleted).ToListAsync();
 
         Loading = false;
+        StateHasChanged();
+
+        if (ActiveTab == "Sessions" && SessionViewMode == "Chart")
+        {
+            _ = Task.Delay(100).ContinueWith(async _ => await InvokeAsync(RenderBingoChartsAsync));
+        }
+    }
+
+    private async Task RenderBingoChartsAsync()
+    {
+        if (!Sessions.Any()) return;
+
+        // Sort chronologically for historical timeline X-axis
+        var chronologicalSessions = Sessions.OrderBy(s => s.SessionDate).ToList();
+        var labels = chronologicalSessions.Select(s => s.SessionDate.ToString("M/d (ddd)")).ToArray();
+
+        var grossData = chronologicalSessions.Select(s => GetEffectiveGross(s)).ToArray();
+        var prizesData = chronologicalSessions.Select(s => GetEffectivePrizes(s)).ToArray();
+        var lotteryData = chronologicalSessions.Select(s => s.TotalLotteryTake).ToArray();
+        var netProfitData = chronologicalSessions.Select(s => GetEffectiveNet(s)).ToArray();
+
+        var admissionsData = chronologicalSessions.Select(s => (decimal)s.AdmissionCount).ToArray();
+        var spendPerPlayerData = chronologicalSessions.Select(s => s.AdmissionCount > 0 ? Math.Round(GetEffectiveGross(s) / s.AdmissionCount, 2) : 0m).ToArray();
+
+        // 1. Session Financial Trends Chart
+        var trendsConfig = new
+        {
+            type = "bar",
+            labels = labels,
+            datasets = new object[]
+            {
+                new { label = "Gross Receipts", data = grossData, color = "#0d6efd", bg = "rgba(13, 110, 253, 0.85)" },
+                new { label = "Prizes Paid", data = prizesData, color = "#dc3545", bg = "rgba(220, 53, 69, 0.85)" },
+                new { label = "Lottery Tax (5%)", data = lotteryData, color = "#ffc107", bg = "rgba(255, 193, 7, 0.85)" },
+                new { label = "Net Session Profit", data = netProfitData, color = "#198754", bg = "rgba(25, 135, 84, 0.95)", type = "line" }
+            }
+        };
+
+        // 2. Attendance & Spend Per Player Chart
+        var attendanceConfig = new
+        {
+            type = "bar",
+            labels = labels,
+            isCountAxis = true,
+            datasets = new object[]
+            {
+                new { label = "Player Admissions", data = admissionsData, color = "#6f42c1", bg = "rgba(111, 66, 193, 0.85)", showValuesOnBar = true },
+                new { label = "Avg Spend / Player ($)", data = spendPerPlayerData, color = "#0dcaf0", bg = "rgba(13, 202, 240, 0.95)", type = "line" }
+            }
+        };
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("financialCharts.renderChart", "bingoFinancialTrendsChart", trendsConfig);
+            await JSRuntime.InvokeVoidAsync("financialCharts.renderChart", "bingoAttendanceChart", attendanceConfig);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BINGO CHARTS] Error rendering charts: {ex.Message}");
+        }
     }
 
     private void OpenDetail(BingoSession session)

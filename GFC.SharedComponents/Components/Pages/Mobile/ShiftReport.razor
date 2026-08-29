@@ -519,6 +519,26 @@
                         }
                         else
                         {
+                            @if (ShiftType == "Night" && !_dayMainSubmitted && !IsRentalHall)
+                            {
+                                <div class="card border-2 shadow-sm rounded-4 p-3 mb-2 animate-bounce-in @(_isFullDayShift ? "bg-primary-subtle border-primary" : "bg-white border-warning-subtle")">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="rounded-circle p-2 d-flex align-items-center justify-content-center @(_isFullDayShift ? "bg-primary text-white" : "bg-warning-subtle text-warning")" style="width: 38px; height: 38px;">
+                                                <i class="bi bi-arrow-repeat fs-5"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-black text-dark text-uppercase small" style="font-size: 0.75rem;">Full Day Shift (Open to Close)</div>
+                                                <div class="text-muted extra-small" style="font-size: 0.65rem;">Did you work both Day and Night shifts today?</div>
+                                            </div>
+                                        </div>
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input fs-4" type="checkbox" role="switch" checked="@_isFullDayShift" @onchange="ToggleFullDayShift">
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
                             @if (_collectDataEnabled)
                             {
                                 <div class="form-glass-card p-3 mb-2">
@@ -533,8 +553,8 @@
                                             <div class='input-group-modern @(_activeField == "Hours" ? "focused" : "") @(TotalHours != null && TotalHours != 0 && _activeField != "Hours" ? "active" : (_activeField != "Hours" && _showValidation ? "validation-pulse" : ""))' @onclick='() => ActivateField("Hours")' style="height: 55px; padding: 8px 15px;">
                                                 <div class="d-flex align-items-center justify-content-between w-100">
                                                     <div class="d-flex flex-column">
-                                                        <span class='fw-black text-muted text-uppercase @(_activeField == "Hours" ? "focused-label" : "")' style="font-size: 0.7rem; letter-spacing: 0.05em;">HOURS WORKED</span>
-                                                        <span class="text-muted small" style="font-size: 0.55rem;">LABOR TIME <i class="bi bi-clock"></i></span>
+                                                        <span class='fw-black text-muted text-uppercase @(_activeField == "Hours" ? "focused-label" : "")' style="font-size: 0.7rem; letter-spacing: 0.05em;">@(_isFullDayShift ? "TOTAL HOURS (FULL DAY)" : "HOURS WORKED")</span>
+                                                        <span class="text-muted small" style="font-size: 0.55rem;">@(_isFullDayShift ? "FULL DAY LABOR TIME" : "LABOR TIME") <i class="bi bi-clock"></i></span>
                                                     </div>
                                                     <div class="d-flex align-items-center">
                                                         <div class="form-input-modern text-end pe-1" style="font-size: 1.4rem;">@GetInputDisplay("Hours")</div>
@@ -571,8 +591,8 @@
                                         <div class='input-group-modern @(_activeField == "LottoOpeningCash" ? "focused" : (LottoOpeningCash != null ? "active" : (_showValidation ? "validation-pulse" : "")))' @onclick='() => ActivateField("LottoOpeningCash")' style="height: 60px;">
                                             <div class="d-flex align-items-center justify-content-between w-100">
                                                 <div class="d-flex flex-column">
-                                                    <span class='fw-black text-muted text-uppercase @(_activeField == "LottoOpeningCash" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Beginning Drawer Cash</span>
-                                                    <span class="text-muted fw-bold small opacity-75" style="font-size: 0.55rem;">(STARTING CASH)</span>
+                                                    <span class='fw-black text-muted text-uppercase @(_activeField == "LottoOpeningCash" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">@(_isFullDayShift ? "Opening Drawer Cash ($300)" : "Beginning Drawer Cash")</span>
+                                                    <span class="text-muted fw-bold small opacity-75" style="font-size: 0.55rem;">@(_isFullDayShift ? "(MORNING STARTING CASH)" : "(STARTING CASH)")</span>
                                                 </div>
                                                 <div class="d-flex align-items-center">
                                                     <span class="input-addon text-muted opacity-50 me-2" style="font-size: 1rem;">$</span>
@@ -582,7 +602,7 @@
                                         </div>
 
                                         <!-- RESCUE MODE (NIGHT ONLY) -->
-                                        @if (ShiftType == "Night" && !_dayMainHasData)
+                                        @if (ShiftType == "Night" && !_dayMainHasData && !_dayMainSubmitted && !_isFullDayShift)
                                         {
                                             <div class="alert alert-warning border border-warning border-opacity-25 rounded-3 p-2 d-flex flex-column gap-1 mb-0 animate-bounce-in">
                                                 <div class="fw-black text-warning small" style="font-size: 0.6rem;"><i class="bi bi-exclamation-triangle-fill me-1"></i> DAY SHIFT DATA MISSING — ENTER ENDING TOTALS FROM FIRST SHIFT</div>
@@ -2197,6 +2217,20 @@
     private async Task SilentSave() {
         if (IsLocked || IsSubmitting) return;
 
+        bool hasAnyRealData = (TotalHours.HasValue && TotalHours.Value > 0) ||
+                              (BarSales.HasValue && BarSales.Value > 0) ||
+                              (LottoSales.HasValue && LottoSales.Value > 0) ||
+                              (LottoCashes.HasValue && LottoCashes.Value > 0) ||
+                              (LottoInstantTickets.HasValue && LottoInstantTickets.Value > 0) ||
+                              (LottoCashCounted.HasValue && LottoCashCounted.Value > 0) ||
+                              !string.IsNullOrWhiteSpace(Notes);
+
+        if (!hasAnyRealData && !Submitted)
+        {
+            // Do not write phantom/blank drafts to DB
+            return;
+        }
+
         // PREVENTION: Use a lock to ensure rapid keystrokes don't trigger multiple parallel saves
         if (!await _saveLock.WaitAsync(0)) return; 
 
@@ -2224,6 +2258,7 @@
                 PrevDayNetDue = _prevDayNetDue,
                 EnvelopeAmount = LottoEnvelopeAmount,
                 BagRefillAmount = LottoBagRefill,
+                IsFullDayShift = _isFullDayShift,
                 Notes = Notes
             };
 
@@ -2319,6 +2354,7 @@
         await HandleSubmit();
     }
 
+    private bool _isFullDayShift = false;
     private bool _dayMainSubmitted;
     private bool _dayMainHasData;
     private bool _dayMainModified;
@@ -2330,6 +2366,20 @@
     private bool _hallSubmitted;
     private bool _hallModified;
     private string? _hallCloser;
+
+    private void ToggleFullDayShift(ChangeEventArgs e)
+    {
+        if (e.Value is bool isChecked)
+        {
+            _isFullDayShift = isChecked;
+            if (_isFullDayShift && (LottoOpeningCash == null || LottoOpeningCash == 0))
+            {
+                LottoOpeningCash = 300;
+            }
+            _hasLocalChanges = true;
+            StateHasChanged();
+        }
+    }
 
     private bool _isCircutAlive = true;
     private System.Threading.Timer? _heartbeatTimer;
@@ -2370,23 +2420,23 @@
     // Math Logic
     private decimal LottoDrawerValue {
         get {
-            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
-            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
-            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            decimal salesActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDaySales : 0);
+            decimal cashesActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDayCashes : 0);
+            decimal ticketsActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDayTickets : 0);
             return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0) - LottoBagRefill;
         }
     }
 
     private decimal LottoNetMade {
         get {
-            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
-            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
-            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            decimal salesActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDaySales : 0);
+            decimal cashesActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDayCashes : 0);
+            decimal ticketsActivity = (ShiftType == "Night" && !_isFullDayShift && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" && !_isFullDayShift ? _prevDayTickets : 0);
             return salesActivity - cashesActivity - ticketsActivity;
         }
     }
 
-    private decimal LottoSalesActivity => (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
+    private decimal LottoSalesActivity => (ShiftType == "Night" && !_isFullDayShift ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
     private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
     
     // NIGHT SHIFT RECONCILIATION MATH
@@ -2579,6 +2629,7 @@
         _activeField = null;
         _currentBuffer = "";
         
+        if (type != "Night") _isFullDayShift = false;
         ShiftType = type;
         await CheckExisting();
 
@@ -2592,6 +2643,7 @@
     private async Task ExecuteToggleRentalHall()
     {
         IsRentalHall = !IsRentalHall;
+        _isFullDayShift = false;
         _lockErrorMessage = null;
         _showValidation = false;
         _activeField = null;
@@ -2698,6 +2750,7 @@
             PrevDaySales = _prevDaySales, PrevDayCashes = _prevDayCashes,
             PrevDayTickets = _prevDayTickets, PrevDayNetDue = _prevDayNetDue,
             EnvelopeAmount = LottoEnvelopeAmount, BagRefillAmount = LottoBagRefill,
+            IsFullDayShift = _isFullDayShift,
             Notes = Notes, Status = "Submitted"
         }, _currentUsername);
         
@@ -2716,6 +2769,9 @@
                 };
                 await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
             }
+            if (_isFullDayShift) {
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Day");
+            }
         } catch { }
         
         IsSubmitting = false;
@@ -2729,7 +2785,15 @@
         Navigation.NavigateTo("/login", forceLoad: true);
     }
     private async Task HandleBackToSelection() {
-        if (HasUnsavedChanges) {
+        bool hasAnyRealData = (TotalHours.HasValue && TotalHours.Value > 0) ||
+                              (BarSales.HasValue && BarSales.Value > 0) ||
+                              (LottoSales.HasValue && LottoSales.Value > 0) ||
+                              (LottoCashes.HasValue && LottoCashes.Value > 0) ||
+                              (LottoInstantTickets.HasValue && LottoInstantTickets.Value > 0) ||
+                              (LottoCashCounted.HasValue && LottoCashCounted.Value > 0) ||
+                              !string.IsNullOrWhiteSpace(Notes);
+
+        if (hasAnyRealData && HasUnsavedChanges) {
              _modalTitle = "Unsaved Work";
              _modalMessage = "You have entered data in this shift. Leaving now will lose progress since the last save. Exit?";
              _onModalConfirm = () => { ResetSelection(); StateHasChanged(); };

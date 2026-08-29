@@ -70,6 +70,11 @@ namespace GFC.BlazorServer.Components.Pages
         private string _pendingFullName = string.Empty;
         private string _originalEmployeeName = string.Empty;
         private bool _showNoChangesModal = false; // DECISION MODAL STATE
+
+        // Full Day Merge Confirmation State
+        private bool _showFullDayMergePrompt = false;
+        private decimal _existingDayShiftSales = 0;
+        private string _existingDayShiftEmployee = string.Empty;
         
         private DateTime _filterStartDate = GetWeekStart(DateTime.Today);
         private DateTime _filterEndDate = GetWeekStart(DateTime.Today).AddDays(6);
@@ -753,11 +758,14 @@ namespace GFC.BlazorServer.Components.Pages
 
             _editingShiftId = shiftId;
             
+            bool isFullDay = (shiftEntity.Notes != null && shiftEntity.Notes.Contains("[Full Day Shift]")) ||
+                             (shiftEntity.EmployeeName != null && shiftEntity.EmployeeName.Contains("(Full Day)"));
+
             // [FIX] Find the PREVIOUS shift on the same day to get the baseline for cumulative subtraction
             decimal baselineSales = 0, baselinePrizes = 0, baselineTickets = 0;
-            if (string.Equals(shiftEntity.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(shiftEntity.ShiftType, "Night", StringComparison.OrdinalIgnoreCase) && !isFullDay)
             {
-                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == shiftEntity.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == shiftEntity.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase) && (s.Notes == null || !s.Notes.Contains("Included in Full Day Closeout")));
                 if (dayShift != null)
                 {
                     baselineSales = dayShift.TotalSales;
@@ -784,6 +792,7 @@ namespace GFC.BlazorServer.Components.Pages
                 Status = shiftEntity.Status ?? "Submitted",
                 CreatedBy = shiftEntity.CreatedBy ?? string.Empty,
                 CreatedDate = shiftEntity.CreatedDate,
+                IsFullDayShift = isFullDay,
                 
                 // [FIX] Set the baselines for accurate cumulative-to-activity math
                 BaselineSales = baselineSales,
@@ -799,6 +808,66 @@ namespace GFC.BlazorServer.Components.Pages
             _originalForm = (ShiftFormModel)_shiftForm.Clone(); // SNAPSHOT ORIGINAL STATE
             _modalError = string.Empty;
             _showShiftModal = true;
+        }
+
+        private void OnFullDayToggleChanged(ChangeEventArgs e)
+        {
+            if (e.Value is bool isChecked)
+            {
+                if (isChecked)
+                {
+                    // Check if a Day Shift with actual sales exists for this date
+                    var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == _shiftForm.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase) && (s.Notes == null || !s.Notes.Contains("Included in Full Day Closeout")));
+                    if (dayShift != null && dayShift.TotalSales > 0)
+                    {
+                        _existingDayShiftSales = dayShift.TotalSales;
+                        _existingDayShiftEmployee = dayShift.EmployeeName;
+                        _showFullDayMergePrompt = true;
+                        StateHasChanged();
+                        return;
+                    }
+                    ApplyFullDayShift(true);
+                }
+                else
+                {
+                    ApplyFullDayShift(false);
+                }
+            }
+        }
+
+        private void ConfirmFullDayMerge()
+        {
+            _showFullDayMergePrompt = false;
+            ApplyFullDayShift(true);
+        }
+
+        private void CancelFullDayMerge()
+        {
+            _showFullDayMergePrompt = false;
+            _shiftForm.IsFullDayShift = false;
+            StateHasChanged();
+        }
+
+        private void ApplyFullDayShift(bool isFullDay)
+        {
+            _shiftForm.IsFullDayShift = isFullDay;
+            if (isFullDay)
+            {
+                _shiftForm.BaselineSales = 0;
+                _shiftForm.BaselinePrizes = 0;
+                _shiftForm.BaselineTickets = 0;
+            }
+            else
+            {
+                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == _shiftForm.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase) && (s.Notes == null || !s.Notes.Contains("Included in Full Day Closeout")));
+                if (dayShift != null)
+                {
+                    _shiftForm.BaselineSales = dayShift.TotalSales;
+                    _shiftForm.BaselinePrizes = dayShift.TotalPayouts;
+                    _shiftForm.BaselineTickets = dayShift.TotalCancels;
+                }
+            }
+            StateHasChanged();
         }
 
         private void OnEmployeeChanged(ChangeEventArgs e)
@@ -876,7 +945,6 @@ namespace GFC.BlazorServer.Components.Pages
                 shift.NetDue = _shiftForm.NetDue ?? 0;
                 
                 // [FIX]: Save the SHIFT-SPECIFIC activity results, not the cumulative machine totals.
-                // This ensures the database always has the "Money Added/Removed" for that shift specifically.
                 shift.NetSales = _shiftForm.NetSales;
                 shift.ExpectedCash = _shiftForm.ExpectedCash;
                 shift.Variance = _shiftForm.Variance;
@@ -892,6 +960,20 @@ namespace GFC.BlazorServer.Components.Pages
                 shift.Status = _shiftForm.Status;
                 shift.CreatedBy = _shiftForm.CreatedBy;
 
+                if (_shiftForm.IsFullDayShift)
+                {
+                    if (string.IsNullOrWhiteSpace(shift.Notes)) shift.Notes = "[Full Day Shift]";
+                    else if (!shift.Notes.Contains("[Full Day Shift]")) shift.Notes = $"[Full Day Shift] {shift.Notes}";
+                }
+                else if (_originalForm.IsFullDayShift && !_shiftForm.IsFullDayShift)
+                {
+                    if (!string.IsNullOrEmpty(shift.Notes))
+                    {
+                        shift.Notes = shift.Notes.Replace("[Full Day Shift]", "").Trim();
+                        if (string.IsNullOrWhiteSpace(shift.Notes)) shift.Notes = null;
+                    }
+                }
+
                 if (_editingShiftId.HasValue)
                 {
                     await Task.Run(() => LotteryService.UpdateShift(shift, username));
@@ -899,6 +981,138 @@ namespace GFC.BlazorServer.Components.Pages
                 else
                 {
                     await Task.Run(() => LotteryService.CreateShift(shift, username));
+                }
+
+                // [FULL DAY AUTO-FULFILLMENT & TWO-WAY REVERSIBILITY]
+                if (_shiftForm.IsFullDayShift && string.Equals(shift.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var db = await DbFactory.CreateDbContextAsync();
+                    
+                    // 1. Day Bar Entry
+                    var dayBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == shift.ShiftDate.Date && e.Shift == "Day" && !e.IsRentalHall);
+                    if (dayBar == null)
+                    {
+                        dayBar = new BarSaleEntry
+                        {
+                            SaleDate = shift.ShiftDate.Date,
+                            AdjustedSaleDate = shift.ShiftDate.Date,
+                            Shift = "Day",
+                            IsRentalHall = false,
+                            CreatedAt = DateTime.UtcNow,
+                            CreatedBy = username,
+                            EmployeeUsername = shift.CreatedBy,
+                            TotalSales = 0,
+                            TotalHours = 0,
+                            Notes = "[Included in Full Day Closeout]",
+                            Status = "Submitted"
+                        };
+                        db.BarSaleEntries.Add(dayBar);
+                    }
+                    else if (dayBar.TotalSales == 0)
+                    {
+                        dayBar.Notes = "[Included in Full Day Closeout]";
+                        dayBar.Status = "Submitted";
+                        dayBar.EmployeeUsername = shift.CreatedBy;
+                    }
+                    await db.SaveChangesAsync();
+
+                    // 2. Day Lottery Shift
+                    var allShiftsOnDate = await Task.Run(() => LotteryService.GetShiftsByDateRange(shift.ShiftDate.Date, shift.ShiftDate.Date));
+                    var dayLottoDto = allShiftsOnDate.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                    if (dayLottoDto == null)
+                    {
+                        var newDayLotto = new LotteryShift
+                        {
+                            ShiftDate = shift.ShiftDate.Date,
+                            ShiftType = "Day",
+                            CreatedDate = DateTime.UtcNow,
+                            CreatedBy = username,
+                            EmployeeName = $"{shift.EmployeeName} (Full Day)",
+                            StartingCash = 300,
+                            EndingCash = 300,
+                            TotalSales = 0,
+                            TotalPayouts = 0,
+                            TotalCancels = 0,
+                            NetDue = 0,
+                            EnvelopeAmount = 0,
+                            BagRefillAmount = 0,
+                            ShiftSalesActivity = 0,
+                            ShiftPayoutsActivity = 0,
+                            ShiftCancelsActivity = 0,
+                            Variance = 0,
+                            Status = "Submitted",
+                            IsReconciled = true,
+                            Notes = "Included in Full Day Closeout"
+                        };
+                        await Task.Run(() => LotteryService.CreateShift(newDayLotto, username));
+                    }
+                    else if (dayLottoDto.Notes == null || !dayLottoDto.Notes.Contains("Included in Full Day Closeout"))
+                    {
+                        // Save snapshot of existing Day Shift before merging so we can restore if ever unchecked
+                        var existingDay = await Task.Run(() => LotteryService.GetShift(dayLottoDto.ShiftId));
+                        if (existingDay != null)
+                        {
+                            var snapshot = System.Text.Json.JsonSerializer.Serialize(new {
+                                existingDay.EmployeeName,
+                                existingDay.StartingCash,
+                                existingDay.EndingCash,
+                                existingDay.TotalSales,
+                                existingDay.TotalPayouts,
+                                existingDay.TotalCancels,
+                                existingDay.NetDue,
+                                existingDay.ShiftSalesActivity,
+                                existingDay.ShiftPayoutsActivity,
+                                existingDay.ShiftCancelsActivity,
+                                existingDay.Notes
+                            });
+                            existingDay.EmployeeName = $"{shift.EmployeeName} (Full Day)";
+                            existingDay.Notes = $"[ORIGINAL_DAY_SNAPSHOT:{snapshot}] Included in Full Day Closeout";
+                            existingDay.Status = "Submitted";
+                            existingDay.IsReconciled = true;
+                            await Task.Run(() => LotteryService.UpdateShift(existingDay, username));
+                        }
+                    }
+                }
+                else if (_originalForm.IsFullDayShift && !_shiftForm.IsFullDayShift && string.Equals(shift.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
+                {
+                    // [UNMERGE RESTORATION] Restore Day shift if snapshot exists, or remove placeholder
+                    var allShiftsOnDate = await Task.Run(() => LotteryService.GetShiftsByDateRange(shift.ShiftDate.Date, shift.ShiftDate.Date));
+                    var dayLottoDto = allShiftsOnDate.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                    if (dayLottoDto != null)
+                    {
+                        var existingDay = await Task.Run(() => LotteryService.GetShift(dayLottoDto.ShiftId));
+                        if (existingDay != null)
+                        {
+                            if (existingDay.Notes != null && existingDay.Notes.Contains("[ORIGINAL_DAY_SNAPSHOT:"))
+                            {
+                                int startIdx = existingDay.Notes.IndexOf("[ORIGINAL_DAY_SNAPSHOT:") + "[ORIGINAL_DAY_SNAPSHOT:".Length;
+                                int endIdx = existingDay.Notes.IndexOf("]", startIdx);
+                                if (endIdx > startIdx)
+                                {
+                                    var json = existingDay.Notes.Substring(startIdx, endIdx - startIdx);
+                                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                                    var root = doc.RootElement;
+                                    existingDay.EmployeeName = root.GetProperty("EmployeeName").GetString() ?? existingDay.EmployeeName;
+                                    existingDay.StartingCash = root.GetProperty("StartingCash").GetDecimal();
+                                    existingDay.EndingCash = root.GetProperty("EndingCash").GetDecimal();
+                                    existingDay.TotalSales = root.GetProperty("TotalSales").GetDecimal();
+                                    existingDay.TotalPayouts = root.GetProperty("TotalPayouts").GetDecimal();
+                                    existingDay.TotalCancels = root.GetProperty("TotalCancels").GetDecimal();
+                                    existingDay.NetDue = root.GetProperty("NetDue").GetDecimal();
+                                    existingDay.ShiftSalesActivity = root.GetProperty("ShiftSalesActivity").GetDecimal();
+                                    existingDay.ShiftPayoutsActivity = root.GetProperty("ShiftPayoutsActivity").GetDecimal();
+                                    existingDay.ShiftCancelsActivity = root.GetProperty("ShiftCancelsActivity").GetDecimal();
+                                    existingDay.Notes = root.TryGetProperty("Notes", out var n) ? n.GetString() : null;
+                                    await Task.Run(() => LotteryService.UpdateShift(existingDay, username));
+                                }
+                            }
+                            else if (existingDay.Notes != null && existingDay.Notes.Contains("Included in Full Day Closeout") && existingDay.TotalSales == 0)
+                            {
+                                // Placeholder created automatically - delete it on unmerge
+                                await Task.Run(() => LotteryService.DeleteShift(existingDay.ShiftId));
+                            }
+                        }
+                    }
                 }
 
                 _showShiftModal = false; // CLOSE MODAL IMMEDIATELY
@@ -926,6 +1140,7 @@ namespace GFC.BlazorServer.Components.Pages
             _modalError = string.Empty;
             _showNoChangesModal = false;
             _showReassignConfirmation = false;
+            _showFullDayMergePrompt = false;
         }
 
         private void ConfirmDelete(int shiftId)
@@ -1080,6 +1295,7 @@ namespace GFC.BlazorServer.Components.Pages
             public string Status { get; set; } = "Submitted";
             public string CreatedBy { get; set; } = string.Empty;
             public DateTime CreatedDate { get; set; } // HANG PREVENTION
+            public bool IsFullDayShift { get; set; } = false;
             
             // Persistent trackers to hold the math from the mobile submission or service
             public decimal PersistedNetSales { get; set; }
@@ -1094,9 +1310,9 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal NetSales {
                 get {
                     // [SMART-MATH]: Shift Activity = (Current Cumulative Reading) - (Baseline from previous shift)
-                    decimal activeSales = (TotalSales ?? 0) - BaselineSales;
-                    decimal activePrizes = (TotalPayouts ?? 0) - BaselinePrizes;
-                    decimal activeTickets = (TotalCancels ?? 0) - BaselineTickets;
+                    decimal activeSales = (TotalSales ?? 0) - (IsFullDayShift ? 0 : BaselineSales);
+                    decimal activePrizes = (TotalPayouts ?? 0) - (IsFullDayShift ? 0 : BaselinePrizes);
+                    decimal activeTickets = (TotalCancels ?? 0) - (IsFullDayShift ? 0 : BaselineTickets);
                     
                     return activeSales - activePrizes - activeTickets;
                 }
@@ -1110,9 +1326,9 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal Variance => (EndingCash ?? 0) - ((StartingCash ?? 0) + NetSales + BackupBagAmount);
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY
-            public decimal ShiftSalesActivity => (TotalSales ?? 0) - BaselineSales;
-            public decimal ShiftPayoutsActivity => (TotalPayouts ?? 0) - BaselinePrizes;
-            public decimal ShiftCancelsActivity => (TotalCancels ?? 0) - BaselineTickets;
+            public decimal ShiftSalesActivity => (TotalSales ?? 0) - (IsFullDayShift ? 0 : BaselineSales);
+            public decimal ShiftPayoutsActivity => (TotalPayouts ?? 0) - (IsFullDayShift ? 0 : BaselinePrizes);
+            public decimal ShiftCancelsActivity => (TotalCancels ?? 0) - (IsFullDayShift ? 0 : BaselineTickets);
 
             // AUTOMATIC ENVELOPE CALCULATION ($1,200 Bag Target)
             public decimal EnvelopeAmount => (ShiftType != "Day" && (EndingCash ?? 0) > 1200) ? (EndingCash ?? 0) - 1200 : 0;
@@ -1124,6 +1340,7 @@ namespace GFC.BlazorServer.Components.Pages
                 if (other == null) return true;
                 return ShiftDate != other.ShiftDate ||
                        EmployeeName != other.EmployeeName ||
+                       IsFullDayShift != other.IsFullDayShift ||
                        StartingCash != other.StartingCash ||
                        EndingCash != other.EndingCash ||
                        TotalSales != other.TotalSales ||

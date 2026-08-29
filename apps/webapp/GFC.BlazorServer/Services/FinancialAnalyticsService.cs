@@ -1338,16 +1338,34 @@ namespace GFC.BlazorServer.Services
 
             summary.TotalBarSales = barEntries.Sum(b => b.TotalSales);
 
+            var lottoShiftsForDateRange = await db.LotteryShifts.AsNoTracking()
+                .Where(s => s.ShiftDate >= start && s.ShiftDate <= end)
+                .ToListAsync();
+
             foreach (var b in barEntries)
             {
+                // Skip zero-dollar companion Day shifts that are marked as Included in Full Day Closeout
+                if (b.TotalSales == 0 && b.Notes != null && b.Notes.Contains("Included in Full Day Closeout"))
+                {
+                    continue;
+                }
+
                 var entryDate = (b.AdjustedSaleDate ?? b.SaleDate).Date;
-                var shiftName = string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift;
+                var lottoOnDate = lottoShiftsForDateRange.Where(l => l.ShiftDate.Date == entryDate).ToList();
+                var isFullDay = (b.Notes != null && b.Notes.Contains("[Full Day Shift]")) ||
+                                (b.Shift == "Night" && barEntries.Any(c => (c.AdjustedSaleDate ?? c.SaleDate).Date == entryDate && c.Shift == "Day" && c.Notes != null && c.Notes.Contains("Included in Full Day Closeout"))) ||
+                                (lottoOnDate.Any(l => l.Notes != null && l.Notes.Contains("Full Day")));
+                
+                var shiftName = isFullDay ? "Full Day" : (string.IsNullOrWhiteSpace(b.Shift) ? "Day" : b.Shift);
                 summary.LedgerEntries.Add(new IncomeStreamEntryDto
                 {
                     Date = entryDate,
                     Stream = "Bar Sales",
                     Shift = shiftName,
-                    Description = $"Bar Sales - Shift {shiftName} ({b.EmployeeUsername ?? "Staff"})",
+                    IsFullDayShift = isFullDay,
+                    Description = isFullDay 
+                        ? $"Bar Sales - Full Day Shift ({b.EmployeeUsername ?? "Staff"})" 
+                        : $"Bar Sales - Shift {shiftName} ({b.EmployeeUsername ?? "Staff"})",
                     Amount = b.TotalSales,
                     SourceUrl = "/finance/bar-sales"
                 });
