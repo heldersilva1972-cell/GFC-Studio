@@ -1002,14 +1002,24 @@ public class PosApiController : ControllerBase
                     db.BarSaleEntries.Add(barEntry);
                 }
 
-                if (reportDto.HoursWorked.HasValue)
+                if (reportDto.HoursWorked.HasValue && (reportDto.HoursWorked.Value > 0 || barEntry.TotalHours == 0))
                 {
                     barEntry.TotalHours = reportDto.HoursWorked.Value;
                 }
 
                 if (reportDto.RecordSalesToBar)
                 {
-                    barEntry.TotalSales = reportDto.TotalGrossSales;
+                    if (reportDto.TotalGrossSales > 0)
+                    {
+                        if (barEntry.TotalSales > 0 && barEntry.Status == "Submitted")
+                        {
+                            barEntry.TotalSales += reportDto.TotalGrossSales;
+                        }
+                        else
+                        {
+                            barEntry.TotalSales = reportDto.TotalGrossSales;
+                        }
+                    }
                     barEntry.Status = "Submitted";
                 }
 
