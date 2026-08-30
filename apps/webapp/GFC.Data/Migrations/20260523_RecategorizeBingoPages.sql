@@ -118,7 +118,6 @@ BEGIN
     ('Progressive Ball Counts', '/admin/bingo/progressive', 'BINGO', 'Progressive tracking', 0, 143),
 
     -- POS SYSTEM
-    ('POS Terminal', '/admin/pos-terminal', 'POS SYSTEM', 'POS Terminal interface', 1, 150),
     ('Sales Audit', '/admin/pos-audit', 'POS SYSTEM', 'Audit POS sales', 1, 151),
     ('Sales Analysis', '/admin/pos-analysis', 'POS SYSTEM', 'Analyze sales performance', 1, 152),
     ('POS Menu Manager', '/admin/pos-menu', 'POS SYSTEM', 'Manage POS menu items', 1, 153),

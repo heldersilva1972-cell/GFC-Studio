@@ -48,6 +48,8 @@ public class ActiveEvent : BaseEntity
 
     public bool IsRecurring { get; set; }
 
+    public bool PromptPrintSummaryOnClose { get; set; } = false;
+
     public string? ActiveGrantJson { get; set; }
 
     [MaxLength(100)]

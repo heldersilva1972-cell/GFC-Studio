@@ -506,6 +506,32 @@ public class PosApiController : ControllerBase
             newEvent.Id = 0; // Force new identity
             newEvent.Template = null; // Clear navigation property to prevent EF Core identity insert errors
             newEvent.CreatedAt = DateTime.UtcNow;
+
+            // Carry over remaining donated beer pool from the latest closed session of this event
+            if (string.IsNullOrEmpty(newEvent.DonatedItemIdsJson))
+            {
+                var cleanName = (newEvent.Name ?? "").Replace(" [Direct]", "").Replace("[Direct]", "").Trim();
+                var prevSession = await db.ActiveEvents
+                    .Where(e => ((newEvent.TemplateId.HasValue && e.TemplateId.HasValue && e.TemplateId.Value > 0 && e.TemplateId == newEvent.TemplateId.Value) || e.Name == cleanName || (e.Name != null && e.Name.StartsWith(cleanName))) && e.Status == GFC.Core.Enums.EventTabStatus.Closed && !e.IsDeleted && !string.IsNullOrEmpty(e.DonatedItemIdsJson))
+                    .OrderByDescending(e => e.Id)
+                    .FirstOrDefaultAsync();
+
+                if (prevSession != null && !string.IsNullOrEmpty(prevSession.DonatedItemIdsJson))
+                {
+                    newEvent.DonatedItemIdsJson = prevSession.DonatedItemIdsJson;
+                    newEvent.Enable100PercentDonatedProceeds = true;
+                }
+            }
+
+            if (newEvent.TemplateId.HasValue && newEvent.TemplateId.Value > 0)
+            {
+                var tmpl = await db.EventTemplates.FindAsync(newEvent.TemplateId.Value);
+                if (tmpl != null)
+                {
+                    newEvent.PromptPrintSummaryOnClose = tmpl.PromptPrintSummaryOnClose;
+                }
+            }
+
             db.ActiveEvents.Add(newEvent);
             await db.SaveChangesAsync();
             return Ok(newEvent);
@@ -550,7 +576,15 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var ev = await db.ActiveEvents.FindAsync(request.Id);
-            if (ev == null) return NotFound($"Event with ID {request.Id} not found");
+            if (ev == null)
+            {
+                if (request.CloseEvent)
+                {
+                    // Event was canceled or closed and already removed — return Ok so outbox clears!
+                    return Ok();
+                }
+                return NotFound($"Event with ID {request.Id} not found");
+            }
 
             ev.BeerTalliesJson = request.BeerTalliesJson;
             ev.InitialAmount = request.InitialAmount;
@@ -558,52 +592,12 @@ public class PosApiController : ControllerBase
             ev.DonatedBeerClaimedCount = request.DonatedBeerClaimedCount;
             ev.DonatedBeerReDonatedCount = request.DonatedBeerReDonatedCount;
             ev.DonatedBeerSoldCount = request.DonatedBeerSoldCount;
-            ev.DonatedItemIdsJson = request.DonatedItemIdsJson;
             ev.DonatedItemTalliesJson = request.DonatedItemTalliesJson;
 
-            if (!string.IsNullOrEmpty(request.DonatedItemTalliesJson) && !request.CloseEvent)
+            if (request.DonatedItemIdsJson != null)
             {
-                try
-                {
-                    var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var records = System.Text.Json.JsonSerializer.Deserialize<List<DonatedLogEntry>>(request.DonatedItemTalliesJson, opts);
-                    if (records != null)
-                    {
-                        var redonations = records.Where(r => r.ActionType == "redonate").ToList();
-                        if (redonations.Any())
-                        {
-                            var targetRecipientName = (!string.IsNullOrWhiteSpace(ev.RecipientEventName) ? ev.RecipientEventName : "Horseshoes").Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
-                            var recipientTemplates = await db.EventTemplates
-                                .Where(t => (t.Name.ToLower() == targetRecipientName ||
-                                             t.Name.ToLower().Contains(targetRecipientName) ||
-                                             (targetRecipientName.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) &&
-                                             string.IsNullOrEmpty(t.RecipientEventName))
-                                .ToListAsync();
-
-                            foreach (var rt in recipientTemplates)
-                            {
-                                var poolMap = new Dictionary<int, int>();
-                                if (!string.IsNullOrEmpty(rt.DonatedItemIdsJson))
-                                {
-                                    try { poolMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(rt.DonatedItemIdsJson) ?? new(); } catch {}
-                                }
-
-                                foreach (var r in redonations)
-                                {
-                                    int cans = r.Cans > 0 ? r.Cans : (r.Cases * 24);
-                                    poolMap[r.ItemId] = (poolMap.TryGetValue(r.ItemId, out var existing) ? existing : 0) + cans;
-                                }
-
-                                rt.DonatedItemIdsJson = System.Text.Json.JsonSerializer.Serialize(poolMap);
-                                rt.ModifiedAt = DateTime.UtcNow;
-                            }
-                        }
-                    }
-                }
-                catch (Exception dex)
-                {
-                    _logger.LogError(dex, "[Donation] Error updating recipient template for donor event {Id}", ev.Id);
-                }
+                ev.DonatedItemIdsJson = string.IsNullOrEmpty(request.DonatedItemIdsJson) ? null : request.DonatedItemIdsJson;
+                ev.Enable100PercentDonatedProceeds = !string.IsNullOrEmpty(request.DonatedItemIdsJson);
             }
 
             if (request.IsRecurring)
@@ -614,86 +608,10 @@ public class PosApiController : ControllerBase
             if (request.CloseEvent)
             {
                 ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
-                ev.BeerTalliesJson = null;
-
-                if (!string.IsNullOrEmpty(request.BeerTalliesJson) && !string.IsNullOrEmpty(ev.Name))
+                ev.IsDeleted = false;
+                if (!string.IsNullOrEmpty(request.BeerTalliesJson))
                 {
-                    try
-                    {
-                        var targetClean = ev.Name.Replace("EVENT:", "").Replace("[Direct]", "").Trim().ToLower();
-                        // Find recipient templates (e.g. Horseshoes itself, where RecipientEventName is null)
-                        var recipientTemplates = await db.EventTemplates
-                            .Where(t => (t.Name.ToLower() == targetClean ||
-                                         t.Name.ToLower().Contains(targetClean) ||
-                                         (targetClean.Contains("horseshoe") && t.Name.ToLower().Contains("horseshoe"))) &&
-                                         string.IsNullOrEmpty(t.RecipientEventName))
-                            .ToListAsync();
-
-                        if (recipientTemplates.Any())
-                        {
-                            var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                            var tallies = System.Text.Json.JsonSerializer.Deserialize<List<TallyEntry>>(request.BeerTalliesJson, opts);
-                            if (tallies != null && tallies.Any(t => (t.QuantityTaken - t.QuantityReturned) > 0))
-                            {
-                                foreach (var rt in recipientTemplates)
-                                {
-                                    var poolMap = new Dictionary<int, int>();
-                                    if (!string.IsNullOrEmpty(rt.DonatedItemIdsJson))
-                                    {
-                                        try { poolMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(rt.DonatedItemIdsJson) ?? new(); } catch {}
-                                    }
-
-                                    if (poolMap.Count == 0)
-                                    {
-                                        var donorTmpls = await db.EventTemplates
-                                            .Where(t => t.RecipientEventName != null &&
-                                                   (t.RecipientEventName.ToLower() == targetClean ||
-                                                    t.RecipientEventName.ToLower().Contains(targetClean) ||
-                                                    (targetClean.Contains("horseshoe") && t.RecipientEventName.ToLower().Contains("horseshoe"))))
-                                            .ToListAsync();
-                                        foreach (var dt in donorTmpls)
-                                        {
-                                            if (string.IsNullOrEmpty(dt.DonatedItemIdsJson)) continue;
-                                            try
-                                            {
-                                                var dMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<int, int>>(dt.DonatedItemIdsJson);
-                                                if (dMap != null)
-                                                {
-                                                    foreach (var kvp in dMap)
-                                                    {
-                                                        if (kvp.Value > 0 && (!poolMap.ContainsKey(kvp.Key) || kvp.Value > poolMap[kvp.Key]))
-                                                            poolMap[kvp.Key] = kvp.Value;
-                                                    }
-                                                }
-                                            }
-                                            catch { }
-                                        }
-                                    }
-
-                                    bool changed = false;
-                                    foreach (var t in tallies)
-                                    {
-                                        int consumed = Math.Max(0, t.QuantityTaken - t.QuantityReturned);
-                                        if (consumed > 0 && poolMap.TryGetValue(t.ItemId, out var available))
-                                        {
-                                            poolMap[t.ItemId] = Math.Max(0, available - consumed);
-                                            changed = true;
-                                        }
-                                    }
-
-                                    if (changed)
-                                    {
-                                        rt.DonatedItemIdsJson = System.Text.Json.JsonSerializer.Serialize(poolMap);
-                                        rt.ModifiedAt = DateTime.UtcNow;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception dex)
-                    {
-                        _logger.LogError(dex, "[Settle] Recipient deduction error for event {Id}", ev.Id);
-                    }
+                    ev.BeerTalliesJson = request.BeerTalliesJson;
                 }
             }
 
@@ -716,32 +634,54 @@ public class PosApiController : ControllerBase
             var ev = await db.ActiveEvents.FindAsync(id);
             if (ev == null)
             {
-                return NotFound($"Event with ID {id} not found.");
+                return Ok(new { message = $"Event {id} is already closed/deleted." });
             }
             ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
-            if (ev.TemplateId.HasValue && ev.TemplateId.Value > 0)
-            {
-                var tmpl = await db.EventTemplates.FindAsync(ev.TemplateId.Value);
-                if (tmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
-                {
-                    tmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
-                }
-            }
-            else if (!string.IsNullOrEmpty(ev.Name))
-            {
-                var tmpl = await db.EventTemplates.FirstOrDefaultAsync(t => t.Name.ToLower() == ev.Name.ToLower());
-                if (tmpl != null && !string.IsNullOrEmpty(ev.DonatedItemTalliesJson))
-                {
-                    tmpl.DonatedItemTalliesJson = ev.DonatedItemTalliesJson;
-                }
-            }
+            ev.IsDeleted = false; // Preserved for audit review
             await db.SaveChangesAsync();
             return Ok();
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to close event {Id}", id);
             return StatusCode(500, ex.Message);
         }
+    }
+
+    [HttpPost("events/cancel/{id}")]
+    public async Task<IActionResult> CancelEvent(int id)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var ev = await db.ActiveEvents.FindAsync(id);
+            if (ev == null) return Ok();
+
+            ev.Status = GFC.Core.Enums.EventTabStatus.Closed;
+            ev.IsDeleted = true;
+            ev.DonatedItemTalliesJson = null;
+            ev.DonatedItemIdsJson = null;
+            ev.BeerTalliesJson = null;
+            ev.DonatedBeerClaimedCount = 0;
+            ev.DonatedBeerReDonatedCount = 0;
+            ev.DonatedBeerSoldCount = 0;
+            ev.CurrentBalance = 0;
+
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cancel event {Id}", id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("events/close")]
+    public async Task<IActionResult> CloseEventFromBody([FromBody] ActiveEvent? ev)
+    {
+        if (ev == null || ev.Id == 0) return Ok();
+        return await CloseEvent(ev.Id);
     }
 
     [HttpPost("sale")]
@@ -962,71 +902,80 @@ public class PosApiController : ControllerBase
 
             db.PosZReports.Add(report);
 
-            // Sync with BarSaleEntries if hours are provided OR record sales is enabled
-            if (reportDto.HoursWorked.HasValue || reportDto.RecordSalesToBar)
-            {
-                var localTime = reportDto.Timestamp;
-                var localHour = localTime.Hour;
-                DateTime targetDate = localTime.Date;
-                string targetShift = "Day";
+                // Sync with BarSaleEntries if hours are provided OR record sales is enabled
+                if (reportDto.HoursWorked.HasValue || reportDto.RecordSalesToBar)
+                {
+                    var localTime = reportDto.Timestamp;
+                    var localHour = localTime.Hour;
+                    DateTime targetDate = localTime.Date;
+                    string targetShift = "Day";
 
-                if (localHour >= 0 && localHour < 5)
-                {
-                    targetDate = targetDate.AddDays(-1);
-                    targetShift = "Night";
-                }
-                else if (localHour >= 5 && localHour < 19)
-                {
-                    targetShift = "Day";
-                }
-                else
-                {
-                    targetShift = "Night";
-                }
-
-                var barEntry = await db.BarSaleEntries
-                    .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == targetDate && e.Shift == targetShift && e.IsRentalHall == false);
-
-                if (barEntry == null)
-                {
-                    barEntry = new BarSaleEntry
+                    if (localHour >= 0 && localHour < 5)
                     {
-                        SaleDate = targetDate,
-                        AdjustedSaleDate = targetDate,
-                        Shift = targetShift,
-                        IsRentalHall = false,
-                        CreatedAt = DateTime.UtcNow,
-                        CreatedBy = reportDto.BartenderName,
-                        Status = reportDto.RecordSalesToBar ? "Submitted" : "Draft"
-                    };
-                    db.BarSaleEntries.Add(barEntry);
-                }
-
-                if (reportDto.HoursWorked.HasValue && (reportDto.HoursWorked.Value > 0 || barEntry.TotalHours == 0))
-                {
-                    barEntry.TotalHours = reportDto.HoursWorked.Value;
-                }
-
-                if (reportDto.RecordSalesToBar)
-                {
-                    if (reportDto.TotalGrossSales > 0)
+                        targetDate = targetDate.AddDays(-1);
+                        targetShift = "Night";
+                    }
+                    else if (localHour >= 5 && localHour < 19)
                     {
-                        if (barEntry.TotalSales > 0 && barEntry.Status == "Submitted")
+                        targetShift = "Day";
+                    }
+                    else
+                    {
+                        targetShift = "Night";
+                    }
+
+                    var barEntry = await db.BarSaleEntries
+                        .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == targetDate && e.Shift == targetShift && e.IsRentalHall == false);
+
+                    // Skip creating a new blank entry if this is a $0.00 quick reset Z-report with no hours worked
+                    bool isZeroGrossQuickReset = reportDto.TotalGrossSales == 0 && (!reportDto.HoursWorked.HasValue || reportDto.HoursWorked.Value == 0);
+
+                    if (barEntry == null && !isZeroGrossQuickReset)
+                    {
+                        barEntry = new BarSaleEntry
                         {
-                            barEntry.TotalSales += reportDto.TotalGrossSales;
+                            SaleDate = targetDate,
+                            AdjustedSaleDate = targetDate,
+                            Shift = targetShift,
+                            IsRentalHall = false,
+                            CreatedAt = DateTime.UtcNow,
+                            CreatedBy = reportDto.BartenderName,
+                            Status = reportDto.RecordSalesToBar ? "Submitted" : "Draft"
+                        };
+                        db.BarSaleEntries.Add(barEntry);
+                    }
+
+                    if (barEntry != null)
+                    {
+                        if (reportDto.HoursWorked.HasValue && (reportDto.HoursWorked.Value > 0 || barEntry.TotalHours == 0))
+                        {
+                            barEntry.TotalHours = reportDto.HoursWorked.Value;
                         }
-                        else
+
+                        if (reportDto.RecordSalesToBar)
                         {
-                            barEntry.TotalSales = reportDto.TotalGrossSales;
+                            if (reportDto.TotalGrossSales > 0)
+                            {
+                                if (barEntry.TotalSales > 0 && barEntry.Status == "Submitted")
+                                {
+                                    barEntry.TotalSales += reportDto.TotalGrossSales;
+                                }
+                                else
+                                {
+                                    barEntry.TotalSales = reportDto.TotalGrossSales;
+                                }
+                            }
+                            barEntry.Status = "Submitted";
+                        }
+
+                        barEntry.ModifiedAt = DateTime.UtcNow;
+                        barEntry.ModifiedBy = reportDto.BartenderName;
+                        if (!string.IsNullOrWhiteSpace(reportDto.BartenderName) && (string.IsNullOrWhiteSpace(barEntry.EmployeeUsername) || reportDto.TotalGrossSales > 0))
+                        {
+                            barEntry.EmployeeUsername = reportDto.BartenderName;
                         }
                     }
-                    barEntry.Status = "Submitted";
                 }
-
-                barEntry.ModifiedAt = DateTime.UtcNow;
-                barEntry.ModifiedBy = reportDto.BartenderName;
-                barEntry.EmployeeUsername = reportDto.BartenderName;
-            }
 
             // Handle Inventory Pulls
             if (!string.IsNullOrEmpty(reportDto.InventoryPullsJson))
@@ -1212,7 +1161,7 @@ public class PosApiController : ControllerBase
     {
         try
         {
-            // The POS page can be identified by either the legacy "pos" route or the canonical "/admin/pos-terminal"
+            // The POS page permission can be identified by either "/admin/pos-terminal" or "pos"
             var posPage = _pagePermissionRepo.GetPageByRoute("/admin/pos-terminal") ?? _pagePermissionRepo.GetPageByRoute("pos");
 
             if (posPage == null)
@@ -1558,6 +1507,7 @@ public class PosApiController : ControllerBase
 
     private class DonatedLogEntry
     {
+        public string? RecordId { get; set; }
         public int ItemId { get; set; }
         public string? BeerName { get; set; }
         public int Cases { get; set; }

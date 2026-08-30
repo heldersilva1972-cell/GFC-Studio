@@ -27,6 +27,8 @@ public class EventTemplate : BaseEntity
 
     public bool IsRecurring { get; set; }
 
+    public bool PromptPrintSummaryOnClose { get; set; } = false;
+
     [MaxLength(100)]
     public string? RecipientEventName { get; set; }
 

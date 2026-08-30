@@ -298,7 +298,7 @@ namespace GFC.BlazorServer.Services
                 }
 
                 // Final refinement in memory to ensure we group by the CORRECT date (Adjusted if available)
-                var barEntries = barEntriesRaw.Select(e => new {
+                var barEntriesUnfiltered = barEntriesRaw.Select(e => new {
                     Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
                     e.Shift,
                     e.IsRentalHall,
@@ -312,6 +312,104 @@ namespace GFC.BlazorServer.Services
                                                  (userRatesByName.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername.Trim() : e.CreatedBy.Trim(), out var r2) ? r2 : 0m)),
                     e.Status
                 }).Where(e => e.Date >= start && e.Date <= end).ToList();
+
+                // Fetch POS Z-Reports for self-healing fallback
+                var posZReportsRaw = await db.PosZReports
+                    .AsNoTracking()
+                    .Where(r => r.Timestamp >= start && r.Timestamp < end.AddDays(2))
+                    .ToListAsync();
+
+                var zReportsByDateShift = posZReportsRaw
+                    .Select(z => {
+                        var localTime = z.Timestamp;
+                        var localHour = localTime.Hour;
+                        DateTime tDate = localTime.Date;
+                        string tShift = "Day";
+                        if (localHour >= 0 && localHour < 5)
+                        {
+                            tDate = tDate.AddDays(-1);
+                            tShift = "Night";
+                        }
+                        else if (localHour >= 5 && localHour < 19)
+                        {
+                            tShift = "Day";
+                        }
+                        else
+                        {
+                            tShift = "Night";
+                        }
+                        return new { TargetDate = tDate, TargetShift = tShift, z.TotalGrossSales, z.BartenderName, z.Timestamp };
+                    })
+                    .GroupBy(x => (x.TargetDate, x.TargetShift))
+                    .ToDictionary(
+                        g => g.Key,
+                        g => new {
+                            TotalSales = g.Sum(x => x.TotalGrossSales),
+                            BartenderName = g.OrderByDescending(x => x.TotalGrossSales).ThenByDescending(x => x.Timestamp).Select(x => x.BartenderName).FirstOrDefault() ?? "Unknown"
+                        }
+                    );
+
+                // Group & deduplicate barEntries per (Date, Shift, IsRentalHall), picking highest sales first
+                var barEntries = barEntriesUnfiltered
+                    .GroupBy(e => (e.Date, e.Shift, e.IsRentalHall))
+                    .Select(g => {
+                        var best = g.OrderByDescending(e => e.TotalSales).ThenByDescending(e => e.CreatedAt).First();
+                        decimal finalSales = best.TotalSales;
+                        string finalUsername = best.EmployeeUsername;
+
+                        // Self-heal from POS Z-Report if entry has 0 sales but Z-Report recorded positive sales
+                        if (finalSales == 0 && !best.IsRentalHall && zReportsByDateShift.TryGetValue((best.Date, best.Shift), out var zData) && zData.TotalSales > 0)
+                        {
+                            finalSales = zData.TotalSales;
+                            if (string.IsNullOrWhiteSpace(finalUsername) || finalUsername == "Unknown")
+                            {
+                                finalUsername = zData.BartenderName;
+                            }
+                        }
+
+                        return new {
+                            best.Date,
+                            best.Shift,
+                            best.IsRentalHall,
+                            TotalSales = finalSales,
+                            best.TotalHours,
+                            best.Notes,
+                            best.CreatedBy,
+                            best.CreatedAt,
+                            EmployeeUsername = finalUsername,
+                            best.HourlyRate,
+                            best.Status
+                        };
+                    })
+                    .ToList();
+
+                // Inject virtual entries for missing shifts that have valid POS Z-Reports
+                foreach (var kvp in zReportsByDateShift)
+                {
+                    if (kvp.Value.TotalSales > 0)
+                    {
+                        bool exists = barEntries.Any(e => e.Date == kvp.Key.TargetDate && e.Shift == kvp.Key.TargetShift && !e.IsRentalHall);
+                        if (!exists)
+                        {
+                            var userRate = userRatesByUsername.TryGetValue(kvp.Value.BartenderName, out var r1) ? r1 :
+                                          (userRatesByName.TryGetValue(kvp.Value.BartenderName, out var r2) ? r2 : 0m);
+
+                            barEntries.Add(new {
+                                Date = kvp.Key.TargetDate,
+                                Shift = kvp.Key.TargetShift,
+                                IsRentalHall = false,
+                                TotalSales = kvp.Value.TotalSales,
+                                TotalHours = 0m,
+                                Notes = "Recovered from POS Z-Report",
+                                CreatedBy = kvp.Value.BartenderName,
+                                CreatedAt = kvp.Key.TargetDate,
+                                EmployeeUsername = kvp.Value.BartenderName,
+                                HourlyRate = userRate,
+                                Status = "Submitted"
+                            });
+                        }
+                    }
+                }
 
                 Console.WriteLine($"[FinancialService] Found {barEntries.Count} barEntries.");
 
@@ -1332,9 +1430,85 @@ namespace GFC.BlazorServer.Services
             };
 
             // 1. Bar Sales - include submitted entries as well as active POS entries with TotalSales > 0
-            var barEntries = await db.BarSaleEntries.AsNoTracking()
+            var barEntriesRaw = await db.BarSaleEntries.AsNoTracking()
                 .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
                 .ToListAsync();
+
+            // Fetch POS Z-Reports for self-healing in income audit summary
+            var zReportsRawSummary = await db.PosZReports.AsNoTracking()
+                .Where(r => r.Timestamp >= start && r.Timestamp < end.AddDays(2))
+                .ToListAsync();
+
+            var zSummaryByDateShift = zReportsRawSummary
+                .Select(z => {
+                    var localTime = z.Timestamp;
+                    var localHour = localTime.Hour;
+                    DateTime tDate = localTime.Date;
+                    string tShift = "Day";
+                    if (localHour >= 0 && localHour < 5)
+                    {
+                        tDate = tDate.AddDays(-1);
+                        tShift = "Night";
+                    }
+                    else if (localHour >= 5 && localHour < 19)
+                    {
+                        tShift = "Day";
+                    }
+                    else
+                    {
+                        tShift = "Night";
+                    }
+                    return new { TargetDate = tDate, TargetShift = tShift, z.TotalGrossSales, z.BartenderName, z.Timestamp };
+                })
+                .GroupBy(x => (x.TargetDate, x.TargetShift))
+                .ToDictionary(
+                    g => g.Key,
+                    g => new {
+                        TotalSales = g.Sum(x => x.TotalGrossSales),
+                        BartenderName = g.OrderByDescending(x => x.TotalGrossSales).ThenByDescending(x => x.Timestamp).Select(x => x.BartenderName).FirstOrDefault() ?? "Staff"
+                    }
+                );
+
+            // Deduplicate BarSaleEntries by (Date, Shift, IsRentalHall) and pick highest sales entry
+            var barEntries = barEntriesRaw
+                .GroupBy(b => ((b.AdjustedSaleDate ?? b.SaleDate).Date, b.Shift, b.IsRentalHall))
+                .Select(g => {
+                    var best = g.OrderByDescending(b => b.TotalSales).ThenByDescending(b => b.CreatedAt).First();
+                    if (best.TotalSales == 0 && !best.IsRentalHall && zSummaryByDateShift.TryGetValue(((best.AdjustedSaleDate ?? best.SaleDate).Date, best.Shift), out var zData) && zData.TotalSales > 0)
+                    {
+                        best.TotalSales = zData.TotalSales;
+                        if (string.IsNullOrWhiteSpace(best.EmployeeUsername))
+                        {
+                            best.EmployeeUsername = zData.BartenderName;
+                        }
+                    }
+                    return best;
+                })
+                .ToList();
+
+            // Inject virtual BarSaleEntry for shifts recorded in PosZReports missing from BarSaleEntries
+            foreach (var kvp in zSummaryByDateShift)
+            {
+                if (kvp.Value.TotalSales > 0)
+                {
+                    bool exists = barEntries.Any(b => (b.AdjustedSaleDate ?? b.SaleDate).Date == kvp.Key.TargetDate && b.Shift == kvp.Key.TargetShift && !b.IsRentalHall);
+                    if (!exists)
+                    {
+                        barEntries.Add(new BarSaleEntry
+                        {
+                            SaleDate = kvp.Key.TargetDate,
+                            AdjustedSaleDate = kvp.Key.TargetDate,
+                            Shift = kvp.Key.TargetShift,
+                            IsRentalHall = false,
+                            TotalSales = kvp.Value.TotalSales,
+                            EmployeeUsername = kvp.Value.BartenderName,
+                            CreatedBy = kvp.Value.BartenderName,
+                            CreatedAt = kvp.Key.TargetDate,
+                            Status = "Submitted"
+                        });
+                    }
+                }
+            }
 
             summary.TotalBarSales = barEntries.Sum(b => b.TotalSales);
 

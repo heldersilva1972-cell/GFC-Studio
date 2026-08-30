@@ -389,14 +389,6 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<ILotterySettlementService, LotterySettlementService>();
         builder.Services.AddScoped<IUserUsageService, UserUsageService>();
         
-        // Simulated POS Terminal Mock Services (in-memory, no SQL writes)
-        builder.Services.AddScoped<GFC.Pos.UI.Services.IPosTerminalService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPosTerminalService>();
-        builder.Services.AddScoped<GFC.Pos.UI.Services.ConnectivityService>();
-        builder.Services.AddScoped<GFC.Pos.UI.Services.IStationSettingsService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockStationSettingsService>();
-        builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterService>();
-        builder.Services.AddScoped<GFC.Pos.UI.Services.IPrinterConfigService, GFC.BlazorServer.Components.Pages.Admin.Pos.MockPrinterConfigService>();
-        builder.Services.AddScoped<GFC.Pos.UI.Services.IUpdateService, GFC.Pos.UI.Services.UpdateServiceMock>();
-        
         // Controller Client Wiring
         // Register the endpoint resolver that uses AgentApiOptions
         builder.Services.AddSingleton<GFC.BlazorServer.Connectors.Mengqi.Abstractions.IControllerEndpointResolver, GFC.BlazorServer.Services.Controllers.BlazorControllerEndpointResolver>();
@@ -1206,31 +1198,9 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine(">>> Event Donated Beer Schema Applied Successfully.");
                 }
 
-                // Cleanup query to reset non-donating event templates in database
-                try
-                {
-                    var cleanDonationDefaultsSql = @"
-                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'EventTemplates')
-                        BEGIN
-                            UPDATE EventTemplates 
-                            SET ClubDonatedCasesCap = 0, Enable100PercentDonatedProceeds = 0 
-                            WHERE RecipientEventName IS NULL OR RecipientEventName = '';
-                        END;
-                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'ActiveEvents')
-                        BEGIN
-                            UPDATE ActiveEvents 
-                            SET ClubDonatedCasesCap = 0, Enable100PercentDonatedProceeds = 0 
-                            WHERE RecipientEventName IS NULL OR RecipientEventName = '';
-                        END;
-                    ";
-                    dbContext.Database.ExecuteSqlRaw(cleanDonationDefaultsSql);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($">>> Error cleaning donation defaults: {ex.Message}");
-                }
 
-                // [AUTO-FIX 19] Rename 'Manage Users' to 'Users / Workstations' and deactivate '/admin/users/active-sessions'
+
+
                 try
                 {
                     var pagePermissionsFixSql = @"
@@ -1617,6 +1587,26 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error executing BingoGameEntries ProgressiveBallGoal repair: {ex.Message}");
+                }
+
+                // [AUTO-FIX 12] Add PromptPrintSummaryOnClose to EventTemplates and ActiveEvents
+                try
+                {
+                    var promptPrintFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[EventTemplates]') AND name = 'PromptPrintSummaryOnClose')
+                        BEGIN
+                            ALTER TABLE [dbo].[EventTemplates] ADD [PromptPrintSummaryOnClose] BIT NOT NULL DEFAULT 0;
+                        END
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ActiveEvents]') AND name = 'PromptPrintSummaryOnClose')
+                        BEGIN
+                            ALTER TABLE [dbo].[ActiveEvents] ADD [PromptPrintSummaryOnClose] BIT NOT NULL DEFAULT 0;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(promptPrintFixSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing PromptPrintSummaryOnClose column repair: {ex.Message}");
                 }
             }
             catch (Exception ex)
