@@ -106,6 +106,11 @@ namespace GFC.Core.Models
         public decimal DuesMomGrowth => PrevMonthMembershipDues > 0 ? (((CurrentMtdMembershipDues > 0 ? CurrentMtdMembershipDues : TotalMembershipDues) - PrevMonthMembershipDues) / PrevMonthMembershipDues) * 100m : 0m;
         public decimal CombinedMomGrowth => PrevMonthTotalIncome > 0 ? (((CurrentMtdTotalIncome > 0 ? CurrentMtdTotalIncome : CombinedTotalIncome) - PrevMonthTotalIncome) / PrevMonthTotalIncome) * 100m : 0m;
 
+        public decimal BarSalesMomDiff => (CurrentMtdBarSales > 0 ? CurrentMtdBarSales : TotalBarSales) - PrevMonthBarSales;
+        public decimal LotteryMomDiff => (CurrentMtdLotteryCommissions > 0 ? CurrentMtdLotteryCommissions : TotalLotteryCommissions) - PrevMonthLotteryCommissions;
+        public decimal DuesMomDiff => (CurrentMtdMembershipDues > 0 ? CurrentMtdMembershipDues : TotalMembershipDues) - PrevMonthMembershipDues;
+        public decimal CombinedMomDiff => (CurrentMtdTotalIncome > 0 ? CurrentMtdTotalIncome : CombinedTotalIncome) - PrevMonthTotalIncome;
+
         public List<MissingEntryWarningDto> Warnings { get; set; } = new();
         public List<IncomeStreamEntryDto> LedgerEntries { get; set; } = new();
         public List<IncomeStreamEntryDto> ComparisonLedgerEntries { get; set; } = new();

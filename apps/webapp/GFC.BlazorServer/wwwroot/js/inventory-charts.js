@@ -65,30 +65,55 @@ window.inventoryCharts = {
             this.charts[canvasId].destroy();
         }
 
+        const datasets = [];
+
+        if (config.startingStockData && config.startingStockData.length > 0) {
+            datasets.push({
+                label: 'Starting Stock (Period Baseline)',
+                data: config.startingStockData,
+                backgroundColor: 'rgba(100, 116, 139, 0.75)', // slate/gray
+                borderColor: '#64748b',
+                borderWidth: 1.5,
+                borderRadius: 6
+            });
+        }
+
+        datasets.push({
+            label: 'Current Stock (On-Hand)',
+            data: config.stockData,
+            backgroundColor: 'rgba(59, 130, 246, 0.85)', // vibrant blue
+            borderColor: '#2563eb',
+            borderWidth: 1.5,
+            borderRadius: 6
+        });
+
+        if (config.addedData && config.addedData.length > 0) {
+            datasets.push({
+                label: 'Restocked / Added (+)',
+                data: config.addedData,
+                backgroundColor: 'rgba(16, 185, 129, 0.8)', // emerald green
+                borderColor: '#059669',
+                borderWidth: 1.5,
+                borderRadius: 6
+            });
+        }
+
+        datasets.push({
+            label: 'Quantity Consumed (Used)',
+            data: config.usedData,
+            rawUnits: config.rawUsedData,
+            pourSizes: config.pourSizes,
+            backgroundColor: 'rgba(239, 68, 68, 0.8)', // red
+            borderColor: '#dc2626',
+            borderWidth: 1.5,
+            borderRadius: 6
+        });
+
         this.charts[canvasId] = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: config.labels,
-                datasets: [
-                    {
-                        label: 'Current Stock',
-                        data: config.stockData,
-                        backgroundColor: 'rgba(59, 130, 246, 0.75)', // blue
-                        borderColor: '#3b82f6',
-                        borderWidth: 1.5,
-                        borderRadius: 6
-                    },
-                    {
-                        label: 'Quantity Consumed (Used)',
-                        data: config.usedData,
-                        rawUnits: config.rawUsedData,
-                        pourSizes: config.pourSizes,
-                        backgroundColor: 'rgba(239, 68, 68, 0.75)', // red
-                        borderColor: '#ef4444',
-                        borderWidth: 1.5,
-                        borderRadius: 6
-                    }
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -100,11 +125,23 @@ window.inventoryCharts = {
                         intersect: false,
                         callbacks: {
                             label: function (context) {
-                                if (context.datasetIndex === 1) {
-                                    const rawVal = context.dataset.rawUnits ? context.dataset.rawUnits[context.dataIndex] : context.raw;
-                                    return context.dataset.label + ': ' + rawVal + ' units';
+                                const ds = context.dataset;
+                                if (ds.rawUnits && ds.rawUnits[context.dataIndex]) {
+                                    return ds.label + ': ' + ds.rawUnits[context.dataIndex] + ' units (' + context.formattedValue + ' btls)';
                                 }
-                                return context.dataset.label + ': ' + context.formattedValue + ' bottles';
+                                return ds.label + ': ' + context.formattedValue + ' btls';
+                            },
+                            afterBody: function (tooltipItems) {
+                                if (!tooltipItems || tooltipItems.length === 0) return [];
+                                const idx = tooltipItems[0].dataIndex;
+                                const lines = [];
+                                if (config.lastRestocked && config.lastRestocked[idx]) {
+                                    lines.push('📦 Last Restocked: ' + config.lastRestocked[idx]);
+                                }
+                                if (config.lastAudited && config.lastAudited[idx]) {
+                                    lines.push('📋 Last Audited: ' + config.lastAudited[idx]);
+                                }
+                                return lines;
                             }
                         }
                     }

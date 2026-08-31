@@ -363,11 +363,12 @@ namespace GFC.BlazorServer.Services
                 AppendLine(sb, $"  {group.Key} TOTAL", $"{groupTotal:C}");
             }
 
-            // Event Activity
-            if (banquetSummary.Any())
+            // Event Activity (Only include events where money was collected or spent for the club)
+            var billableBanquets = banquetSummary.Where(b => b.Deposits.Any(d => d != 0) || b.TotalSpent > 0).ToList();
+            if (billableBanquets.Any())
             {
                 AppendSectionHeader(sb, "EVENT ACTIVITY");
-                foreach (var b in banquetSummary)
+                foreach (var b in billableBanquets)
                 {
                     var isRunningTab = b.EventType == "RunningTab";
                     AppendBlank(sb);
