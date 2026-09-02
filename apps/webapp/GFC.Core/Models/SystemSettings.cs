@@ -132,6 +132,23 @@ public class SystemSettings
     public int? LotteryDefaultCategoryId { get; set; }
     public DateTime? LotterySettingsLastEnabledUtc { get; set; }
 
+    // --- LOTTERY GMAIL AUTO-FETCH SETTINGS ---
+    public string? LotteryEmailAddress { get; set; }
+    public string? LotteryEmailAppPassword { get; set; }
+    public string? LotteryEmailSender { get; set; }
+    public string? LotteryEmailSubjectKeyword { get; set; } = "Lottery";
+    public string? LotteryDailyGmailLabel { get; set; } = "INBOX";
+    public string? LotteryWeeklyGmailLabel { get; set; } = "INBOX";
+    public bool LotteryAutoSyncEnabled { get; set; } = false;
+    public bool LotteryAutoCommitEnabled { get; set; } = false;
+    public bool LotteryDownloadWeeklyEnabled { get; set; } = true;
+    public bool LotteryDownloadDailyEnabled { get; set; } = true;
+    public bool LotteryIncludeReadEmails { get; set; } = false;
+    public int LotterySyncIntervalHours { get; set; } = 6;
+    public DateTime? LotteryLastSyncTime { get; set; }
+    public string? LotteryLastSyncStatus { get; set; }
+    public int LotteryLastSyncFileCount { get; set; } = 0;
+
     // --- REVISION TRACKING (DB-DRIVEN FOR INDEPENDENT UPDATES) ---
     public string? WebappRevision { get; set; }
     public string? MobileRevision { get; set; }

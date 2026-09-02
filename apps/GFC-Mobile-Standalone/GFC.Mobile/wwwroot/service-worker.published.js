@@ -1,4 +1,4 @@
-// GFC Mobile Revision: 2.43.56
+// GFC Mobile Revision: 2.43.57
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });

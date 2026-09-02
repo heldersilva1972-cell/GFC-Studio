@@ -104,11 +104,10 @@ public class MobileReportingService : IMobileReportingService
         }
 
 
-        // Time lock removed at user request to allow editing regardless of shift age
         if (data.ExistingEntryFound)
         {
-            var createdBy = barEntry?.CreatedBy ?? lottoEntry?.CreatedBy;
-            data.LockOwner = createdBy;
+            var owner = lottoEntry?.ModifiedBy ?? barEntry?.EmployeeUsername ?? barEntry?.ModifiedBy ?? lottoEntry?.CreatedBy ?? barEntry?.CreatedBy;
+            data.LockOwner = owner;
         }
 
         return data;
@@ -543,14 +542,16 @@ public class MobileReportingService : IMobileReportingService
                 if (isRental)
                 {
                     status.Submitted = (bar != null && string.Equals(bar.Status, "Submitted", StringComparison.OrdinalIgnoreCase));
-                    status.HasData = (bar != null);
+                    status.HasData = bar != null && (bar.TotalSales > 0 || (bar.TotalHours ?? 0) > 0 || !string.IsNullOrWhiteSpace(bar.Notes));
                 }
                 else
                 {
                     status.Submitted = (lotto != null && string.Equals(lotto.Status, "Submitted", StringComparison.OrdinalIgnoreCase));
-                    status.HasData = (bar != null || lotto != null);
+                    bool barHasData = bar != null && (bar.TotalSales > 0 || (bar.TotalHours ?? 0) > 0 || !string.IsNullOrWhiteSpace(bar.Notes));
+                    bool lottoHasData = lotto != null && (lotto.TotalSales > 0 || lotto.TotalPayouts > 0 || lotto.TotalCancels > 0 || (lotto.EndingCash > 0 && lotto.EndingCash != 300) || !string.IsNullOrWhiteSpace(lotto.Notes));
+                    status.HasData = barHasData || lottoHasData;
                 }
-                status.Closer = lotto?.ModifiedBy ?? bar?.ModifiedBy ?? lotto?.CreatedBy ?? bar?.CreatedBy;
+                status.Closer = lotto?.ModifiedBy ?? bar?.EmployeeUsername ?? bar?.ModifiedBy ?? lotto?.CreatedBy ?? bar?.CreatedBy;
                 status.Modified = lotto?.ModifiedDate != null || bar?.ModifiedAt != null;
             }
         }

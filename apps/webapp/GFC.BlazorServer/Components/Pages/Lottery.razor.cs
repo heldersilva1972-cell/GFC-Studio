@@ -282,7 +282,12 @@ namespace GFC.BlazorServer.Components.Pages
             InitializeWeeks();
             await LoadAvailableYears();
 
-            if (_breakdownRangeType == "month")
+            if (_viewMode == "daily")
+            {
+                _filterStartDate = GetWeekStart(DateTime.Today);
+                _filterEndDate = _filterStartDate.AddDays(6);
+            }
+            else if (_breakdownRangeType == "month")
             {
                 var monthRange = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = monthRange.Start;
@@ -683,7 +688,7 @@ namespace GFC.BlazorServer.Components.Pages
             }
             else if (_viewMode == "daily")
             {
-                _filterStartDate = GetWeekStart(_filterStartDate);
+                _filterStartDate = GetWeekStart(DateTime.Today);
                 _filterEndDate = _filterStartDate.AddDays(6);
             }
             else if (_viewMode == "weekly")
@@ -983,6 +988,18 @@ namespace GFC.BlazorServer.Components.Pages
                     await Task.Run(() => LotteryService.CreateShift(shift, username));
                 }
 
+                // [STATUS SYNC] Synchronize status to corresponding BarSaleEntry
+                if (!_shiftForm.IsFullDayShift)
+                {
+                    using var db = await DbFactory.CreateDbContextAsync();
+                    var barEntry = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == shift.ShiftDate.Date && e.Shift == shift.ShiftType && !e.IsRentalHall);
+                    if (barEntry != null && barEntry.Status != _shiftForm.Status)
+                    {
+                        barEntry.Status = _shiftForm.Status;
+                        await db.SaveChangesAsync();
+                    }
+                }
+
                 // [FULL DAY AUTO-FULFILLMENT & TWO-WAY REVERSIBILITY]
                 if (_shiftForm.IsFullDayShift && string.Equals(shift.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1267,23 +1284,18 @@ namespace GFC.BlazorServer.Components.Pages
             [Range(0, double.MaxValue, ErrorMessage = "Starting cash must be 0 or greater")]
             public decimal? StartingCash { get; set; }
             
-            [Required(ErrorMessage = "Ending cash is required")]
             [Range(0, double.MaxValue, ErrorMessage = "Ending cash must be 0 or greater")]
             public decimal? EndingCash { get; set; }
             
-            [Required(ErrorMessage = "Total sales is required")]
             [Range(0, double.MaxValue, ErrorMessage = "Total sales must be 0 or greater")]
             public decimal? TotalSales { get; set; }
             
-            [Required(ErrorMessage = "Total payouts is required")]
             [Range(0, double.MaxValue, ErrorMessage = "Total payouts must be 0 or greater")]
             public decimal? TotalPayouts { get; set; }
             
-            [Required(ErrorMessage = "Tickets (RPT 34) is required")]
             [Range(0, double.MaxValue, ErrorMessage = "Tickets must be 0 or greater")]
             public decimal? TotalCancels { get; set; }
 
-            [Required(ErrorMessage = "Net Due (RPT 50) is required")]
             public decimal? NetDue { get; set; }
 
             [Range(0, double.MaxValue, ErrorMessage = "Backup Bag must be 0 or greater")]
@@ -1340,6 +1352,8 @@ namespace GFC.BlazorServer.Components.Pages
                 if (other == null) return true;
                 return ShiftDate != other.ShiftDate ||
                        EmployeeName != other.EmployeeName ||
+                       Status != other.Status ||
+                       Notes != other.Notes ||
                        IsFullDayShift != other.IsFullDayShift ||
                        StartingCash != other.StartingCash ||
                        EndingCash != other.EndingCash ||

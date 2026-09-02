@@ -3,11 +3,13 @@
 @using GFC.BlazorServer.Services
 @using GFC.Core.Models
 @using GFC.Core.DTOs
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IFinancialAnalyticsService FinancialService
 @inject IJSRuntime JS
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @inject IConfiguration AppConfig
 @inject IToastService ToastService
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 @using Microsoft.EntityFrameworkCore
 
@@ -321,6 +323,40 @@
         font-weight: 800 !important;
     }
 
+    /* Interactive cell styles */
+    .shift-badge-interactive {
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        cursor: pointer;
+    }
+    .shift-badge-interactive:hover {
+        transform: scale(1.08);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
+    }
+
+    .empty-shift-cell {
+        border-radius: 6px;
+        transition: background-color 0.15s ease, color 0.15s ease;
+        min-height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+    .empty-shift-cell:hover {
+        background-color: rgba(59, 130, 246, 0.12);
+        color: #3b82f6 !important;
+    }
+    .empty-shift-cell:hover .empty-dash {
+        display: none;
+    }
+    .empty-shift-cell .empty-add-icon {
+        display: none;
+    }
+    .empty-shift-cell:hover .empty-add-icon {
+        display: inline-block;
+        font-size: 0.85rem;
+    }
+
     /* Hide Number Input Spinners (Arrows) */
     input::-webkit-outer-spin-button,
     input::-webkit-inner-spin-button {
@@ -362,7 +398,7 @@
                 </p>
             </div>
 
-            <div class="d-flex gap-3 align-items-center">
+            <div class="d-flex gap-3 align-items-center flex-wrap">
                 <div class="period-selector">
                     <button class="period-btn @(_viewMode == "Week" ? "active" : "")" @onclick='() => SetViewMode("Week")'>WEEKLY</button>
                     <button class="period-btn @(_viewMode == "Month" ? "active" : "")" @onclick='() => SetViewMode("Month")'>MONTHLY</button>
@@ -407,7 +443,18 @@
                     </select>
                 </div>
 
-
+                @if (!_isEditMode)
+                {
+                    <button class="btn btn-outline-primary shadow-sm rounded-3 fw-bold px-3 d-flex align-items-center gap-2" @onclick="ToggleEditMode">
+                        <i class="bi bi-pencil-square"></i> <span>Edit Hours</span>
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-warning text-dark shadow-sm rounded-3 fw-bold px-3 d-flex align-items-center gap-2 border border-warning" @onclick="ToggleEditMode">
+                        <i class="bi bi-lock-fill"></i> <span>Exit Edit Mode</span>
+                    </button>
+                }
 
                 <button class="btn btn-white shadow-sm rounded-3 btn-print border" @onclick="PrintReport">
                     <i class="bi bi-printer me-2"></i> Print
@@ -507,18 +554,16 @@
                     </div>
                 </div>
 
-
-
                 <h6 class="fw-black text-uppercase border-bottom pb-2 mb-3" style="letter-spacing: 0.1rem;">EMPLOYEE LABOR BREAKDOWN</h6>
                 <table class="table table-bordered align-middle">
-                            <thead class="bg-light">
-                                <tr class="x-small fw-black text-uppercase">
-                                    <th class="ps-3">Employee</th>
-                                    <th class="text-center">Shifts</th>
-                                    <th class="text-center">Hours</th>
-                                    <th class="text-end pe-3">Gross Pay</th>
-                                </tr>
-                            </thead>
+                    <thead class="bg-light">
+                        <tr class="x-small fw-black text-uppercase">
+                            <th class="ps-3">Employee</th>
+                            <th class="text-center">Shifts</th>
+                            <th class="text-center">Hours</th>
+                            <th class="text-end pe-3">Gross Pay</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         @foreach (var item in FilteredData)
                         {
@@ -552,7 +597,21 @@
                 </div>
             </div>
 
-            <div class="table-content-area">
+            <!-- EDIT MODE ACTIVE BANNER -->
+            @if (_isEditMode)
+            {
+                <div class="alert alert-warning border-warning shadow-sm py-2 px-3 mb-3 rounded-4 d-flex justify-content-between align-items-center no-print">
+                    <div class="d-flex align-items-center gap-2 small fw-bold text-dark">
+                        <i class="bi bi-pencil-fill text-warning fs-5"></i>
+                        <span><strong>Edit Mode Active:</strong> Click any shift badge or empty cell to add/edit hours. Edit mode will automatically lock once changes are saved.</span>
+                    </div>
+                    <button class="btn btn-sm btn-dark rounded-pill px-3 fw-bold shadow-sm" @onclick="() => _isEditMode = false">
+                        <i class="bi bi-lock me-1"></i> Lock Editing
+                    </button>
+                </div>
+            }
+
+            <div class="table-content-area flex-grow-1 d-flex flex-column overflow-hidden" style="min-height: 0;">
                 @if (_loading)
                 {
                     <div class="text-center py-5 shadow-sm rounded-4 bg-white border">
@@ -562,39 +621,63 @@
                 }
                 else if (!FilteredData.Any())
                 {
-                    <div class="empty-state text-center py-5 bg-white rounded-4 border shadow-sm">
+                    <div class="empty-state text-center py-5 bg-white rounded-4 border shadow-sm flex-grow-1 d-flex flex-column justify-content-center align-items-center">
                         <i class="bi bi-calendar-x display-4 text-muted opacity-25"></i>
                         <h3 class="h5 fw-bold text-dark mt-3">No records found</h3>
-                        <p class="text-muted">There are no hours reported for the selected period.</p>
+                        <p class="text-muted mb-3">There are no hours reported for the selected period.</p>
+                        @if (_isEditMode)
+                        {
+                            <button class="btn btn-outline-primary rounded-pill px-4 fw-bold" @onclick="OpenAddHoursModal">
+                                <i class="bi bi-plus-circle me-1"></i> Log Hours Now
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-primary rounded-pill px-4 fw-bold" @onclick="ToggleEditMode">
+                                <i class="bi bi-pencil-square me-1"></i> Enable Edit Mode to Add Hours
+                            </button>
+                        }
                     </div>
                 }
                 else
                 {
                     @if (_layoutMode == "Grid")
                     {
-                        <div class="d-flex align-items-center justify-content-between mb-3 px-4 border shadow-sm py-2 rounded-4 bg-light bg-opacity-50 no-print">
+                        <div class="d-flex align-items-center justify-content-between mb-3 px-4 border shadow-sm py-2 rounded-4 bg-light bg-opacity-50 no-print flex-wrap gap-2">
                             <div class="small fw-black text-muted text-uppercase tracking-wider">Shift Legend:</div>
-                            <div class="d-flex gap-4">
-                                <div class="d-flex align-items-center gap-2">
+                            <div class="d-flex gap-3 align-items-center flex-wrap">
+                                <div class="d-flex align-items-center gap-1">
                                     <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(13, 110, 253, 0.25); border: 1px solid rgba(13, 110, 253, 0.4);"></div>
-                                    <span class="x-small fw-bold text-dark opacity-75">DAY SHIFT</span>
+                                    <span class="x-small fw-bold text-dark opacity-75">DAY</span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-1">
                                     <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(225, 29, 72, 0.25); border: 1px solid rgba(225, 29, 72, 0.4);"></div>
-                                    <span class="x-small fw-bold text-dark opacity-75">NIGHT SHIFT</span>
+                                    <span class="x-small fw-bold text-dark opacity-75">NIGHT</span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-1">
                                     <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(25, 135, 84, 0.25); border: 1px solid rgba(25, 135, 84, 0.4);"></div>
-                                    <span class="x-small fw-bold text-dark opacity-75">DOUBLE SHIFT (BOTH)</span>
+                                    <span class="x-small fw-bold text-dark opacity-75">DOUBLE</span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-1">
                                     <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(251, 191, 36, 0.25); border: 1px solid rgba(251, 191, 36, 0.4);"></div>
-                                    <span class="x-small fw-bold text-dark opacity-75">UPSTAIRS BAR</span>
+                                    <span class="x-small fw-bold text-dark opacity-75">HALL</span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-1">
                                     <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(167, 139, 250, 0.25); border: 1px solid rgba(167, 139, 250, 0.4);"></div>
-                                    <span class="x-small fw-bold text-dark opacity-75">JANITOR HOURS</span>
+                                    <span class="x-small fw-bold text-dark opacity-75">JANITOR</span>
                                 </div>
+                                @if (_isEditMode)
+                                {
+                                    <span class="badge bg-warning text-dark border ms-2 x-small fw-bold">
+                                        <i class="bi bi-pencil-fill me-1"></i> Edit Mode Active: Click cells to edit/add
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-white text-muted border ms-2 x-small">
+                                        <i class="bi bi-lock-fill me-1"></i> View Mode
+                                    </span>
+                                }
                             </div>
                         </div>
                     }
@@ -604,205 +687,537 @@
                             @if (_layoutMode == "List")
                             {
                                 <table class="table table-hover align-middle mb-0">
-                            <thead class="bg-light sticky-top">
-                                <tr class="x-small fw-black text-muted text-uppercase tracking-wider">
-                                    <th class="ps-4 py-2 border-0">EMPLOYEE</th>
-                                    <th class="py-2 text-center border-0">SHIFTS</th>
-                                    <th class="py-2 text-center border-0">HOURS</th>
-                                    <th class="pe-4 py-2 text-end border-0">GROSS PAY</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in FilteredData)
-                                {
-                                    <tr>
-                                        <td class="ps-4 py-1">
-                                            <div class="d-flex align-items-center gap-2 cursor-pointer" @onclick="() => OpenPayDetails(item)">
-                                                <div class="avatar-xs bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center fw-black" style="width: 28px; height: 28px; font-size: 0.65rem;">
-                                                    @item.MemberName.Substring(0,1).ToUpper()
-                                                </div>
-                                                <div class="fw-bold text-dark hover-primary small">@item.MemberName</div>
-                                            </div>
-                                        </td>
-                                        <td class="text-center py-1">
-                                            <span class="badge bg-indigo bg-opacity-10 text-indigo-emphasis border border-indigo-subtle shadow-sm" style="font-size: 0.65rem; color: #4338ca !important; padding: 0.2rem 0.4rem;">
-                                                @item.EntryCount @(item.EntryCount == 1 ? "SHIFT" : "SHIFTS")
-                                            </span>
-                                        </td>
-                                        <td class="text-center">
-                                            <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-1 rounded-pill fw-bold" style="font-size: 0.75rem;">
-                                                @item.TotalHours.ToString("N1") <small class="fw-normal opacity-75">hrs</small>
-                                            </span>
-                                        </td>
-                                        <td class="text-end pe-4 fw-black text-dark">@item.TotalPay.ToString("C")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot class="sticky-bottom bg-light border-top-2">
-                                <tr class="fw-black text-dark">
-                                    <td colspan="2" class="ps-4">TOTALS</td>
-                                    <td class="text-center">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
-                                    <td class="text-end pe-4">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    }
-                    else if (_layoutMode == "Grid")
-                    {
-                        <table class="table table-hover align-middle mb-0 hours-table">
-                            <thead class="bg-light sticky-top">
-                                <tr style="height: 25px;">
-                                    <th class="ps-3 sticky-col border-end text-uppercase x-small py-1">Employee</th>
-                                    @foreach (var day in GetWeekDays())
-                                    {
-                                        <th class="text-center">
-                                            <div class="small fw-bold">@day.ToString("ddd")</div>
-                                            <div class="x-small text-muted" style="font-size: 0.65rem;">@day.ToString("MM/dd")</div>
-                                        </th>
-                                    }
-                                    <th class="text-center border-start sticky-right-audit-2">TOTAL HRS</th>
-                                    <th class="text-end pe-4 sticky-right-audit-1">GROSS PAY</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in FilteredData)
-                                {
-                                    <tr>
-                                        <td class="ps-3 py-1 sticky-col border-end p-0" style="height: 30px;">
-                                            <div class="d-flex align-items-center gap-2 cursor-pointer" @onclick="() => OpenPayDetails(item)">
-                                                <div class="avatar-xxs bg-light text-muted border rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 18px; height: 18px; font-size: 0.55rem;">
-                                                    @item.MemberName.Substring(0,1).ToUpper()
-                                                </div>
-                                                <div class="fw-bold text-dark x-small hover-primary" style="white-space: nowrap;">@item.MemberName</div>
-                                            </div>
-                                        </td>
-                                        @foreach (var day in GetWeekDays())
+                                    <thead class="bg-light sticky-top">
+                                        <tr class="x-small fw-black text-muted text-uppercase tracking-wider">
+                                            <th class="ps-4 py-2 border-0">EMPLOYEE</th>
+                                            <th class="py-2 text-center border-0">SHIFTS</th>
+                                            <th class="py-2 text-center border-0">HOURS</th>
+                                            <th class="py-2 text-end border-0">GROSS PAY</th>
+                                            <th class="pe-4 py-2 text-center border-0" style="width: 140px;">ACTIONS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in FilteredData)
                                         {
-                                            <td class="text-center">
-                                                @if (item.DailyHours.ContainsKey(day.Date))
-                                                {
-                                                    var shiftType = item.DailyShiftTypes.ContainsKey(day.Date) ? item.DailyShiftTypes[day.Date] : "Day";
-                                                    if (shiftType.Contains('|'))
-                                                    {
-                                                        <div class="d-flex flex-wrap gap-1 justify-content-center align-items-center">
-                                                            @foreach (var part in shiftType.Split('|', StringSplitOptions.RemoveEmptyEntries))
-                                                            {
-                                                                var segments = part.Split(':');
-                                                                if (segments.Length == 2)
-                                                                {
-                                                                    var subType = segments[0].Trim();
-                                                                    var subHours = segments[1];
-                                                                    <span class="badge @GetShiftColorClass(subType) rounded-1 shadow-sm px-1 py-0.5" style="font-size: 0.6rem; min-width: 28px;" title="@subType">
-                                                                        @subHours
-                                                                    </span>
-                                                                }
-                                                            }
+                                            <tr>
+                                                <td class="ps-4 py-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="avatar-xs bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center fw-black" style="width: 28px; height: 28px; font-size: 0.65rem;">
+                                                            @item.MemberName?.Substring(0,1).ToUpper()
                                                         </div>
+                                                        <div>
+                                                            <div class="fw-bold text-dark small">@item.MemberName</div>
+                                                            <div class="text-muted x-small">@@@item.Username</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="text-center py-1">
+                                                    <span class="badge bg-indigo bg-opacity-10 text-indigo-emphasis border border-indigo-subtle shadow-sm" 
+                                                          style="font-size: 0.65rem; color: #4338ca !important; padding: 0.2rem 0.4rem;">
+                                                        @item.EntryCount @(item.EntryCount == 1 ? "SHIFT" : "SHIFTS")
+                                                    </span>
+                                                </td>
+                                                <td class="text-center">
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-1 rounded-pill fw-bold" style="font-size: 0.75rem;">
+                                                        @item.TotalHours.ToString("N1") <small class="fw-normal opacity-75">hrs</small>
+                                                    </span>
+                                                </td>
+                                                <td class="text-end fw-black text-dark">@item.TotalPay.ToString("C")</td>
+                                                <td class="pe-4 text-center">
+                                                    @if (_isEditMode)
+                                                    {
+                                                        <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-bold" 
+                                                                @onclick="() => OpenEditRateModal(item)" 
+                                                                title="Edit Pay Rate">
+                                                            <i class="bi bi-currency-dollar me-1"></i> Edit Rate
+                                                        </button>
                                                     }
                                                     else
                                                     {
-                                                        <div class="badge @GetShiftColorClass(shiftType) rounded-1 w-100 py-1 border shadow-sm" style="font-size: 0.7rem; min-height: 22px; display: flex; align-items: center; justify-content: center;">
-                                                            @if (shiftType == "Hall" && item.DailyHours[day.Date] == 0)
+                                                        <span class="text-muted x-small">-</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot class="sticky-bottom bg-light border-top-2">
+                                        <tr class="fw-black text-dark">
+                                            <td colspan="2" class="ps-4">TOTALS</td>
+                                            <td class="text-center">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                                            <td class="text-end">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            }
+                            else if (_layoutMode == "Grid")
+                            {
+                                <table class="table table-hover align-middle mb-0 hours-table">
+                                    <thead class="bg-light sticky-top">
+                                        <tr style="height: 25px;">
+                                            <th class="ps-3 sticky-col border-end text-uppercase x-small py-1">Employee</th>
+                                            @foreach (var day in GetWeekDays())
+                                            {
+                                                <th class="text-center">
+                                                    <div class="small fw-bold">@day.ToString("ddd")</div>
+                                                    <div class="x-small text-muted" style="font-size: 0.65rem;">@day.ToString("MM/dd")</div>
+                                                </th>
+                                            }
+                                            <th class="text-center border-start sticky-right-audit-2">TOTAL HRS</th>
+                                            <th class="text-end pe-4 sticky-right-audit-1">GROSS PAY</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in FilteredData)
+                                        {
+                                            <tr>
+                                                <td class="ps-3 py-1 sticky-col border-end p-0" style="height: 30px;">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="avatar-xxs bg-light text-muted border rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 18px; height: 18px; font-size: 0.55rem;">
+                                                            @item.MemberName?.Substring(0,1).ToUpper()
+                                                        </div>
+                                                        <div class="fw-bold text-dark x-small" style="white-space: nowrap;">@item.MemberName</div>
+                                                    </div>
+                                                </td>
+                                                @foreach (var day in GetWeekDays())
+                                                {
+                                                    <td class="text-center p-1">
+                                                        @if (item.DailyHours.ContainsKey(day.Date))
+                                                        {
+                                                            var shiftType = item.DailyShiftTypes.ContainsKey(day.Date) ? item.DailyShiftTypes[day.Date] : "Day";
+                                                            if (shiftType.Contains('|'))
                                                             {
-                                                                <i class="bi bi-star-fill" style="font-size: 0.6rem;"></i>
+                                                                <div class="d-flex flex-wrap gap-1 justify-content-center align-items-center">
+                                                                    @foreach (var part in shiftType.Split('|', StringSplitOptions.RemoveEmptyEntries))
+                                                                    {
+                                                                        var segments = part.Split(':');
+                                                                        if (segments.Length == 2)
+                                                                        {
+                                                                            var subType = segments[0].Trim();
+                                                                            var subHours = segments[1];
+                                                                            <span class="badge @GetShiftColorClass(subType) @(_isEditMode ? "shift-badge-interactive cursor-pointer" : "") rounded-1 shadow-sm px-1 py-0.5" 
+                                                                                  style="font-size: 0.6rem; min-width: 28px; @(_isEditMode ? "cursor: pointer;" : "")" 
+                                                                                  title="@(_isEditMode ? $"Click to edit {subType} shift ({subHours} hrs)" : "")"
+                                                                                  @onclick="@(async () => { if (_isEditMode) await OpenEditShiftForDay(item, day.Date, subType); })">
+                                                                                @subHours
+                                                                            </span>
+                                                                        }
+                                                                    }
+                                                                </div>
                                                             }
                                                             else
                                                             {
-                                                                @item.DailyHours[day.Date].ToString("N1")
+                                                                <div class="badge @GetShiftColorClass(shiftType) @(_isEditMode ? "shift-badge-interactive" : "") rounded-1 w-100 py-1 border shadow-sm" 
+                                                                     style="font-size: 0.7rem; min-height: 22px; display: flex; align-items: center; justify-content: center; @(_isEditMode ? "cursor: pointer;" : "")" 
+                                                                     @onclick="@(async () => { if (_isEditMode) await OpenEditShiftForDay(item, day.Date); })"
+                                                                     title="@(_isEditMode ? $"Click to edit shift on {day:MMM dd}" : "")">
+                                                                    @if (shiftType == "Hall" && item.DailyHours[day.Date] == 0)
+                                                                    {
+                                                                        <i class="bi bi-star-fill" style="font-size: 0.6rem;"></i>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        @item.DailyHours[day.Date].ToString("N1")
+                                                                    }
+                                                                </div>
                                                             }
-                                                        </div>
-                                                    }
+                                                        }
+                                                        else
+                                                        {
+                                                            @if (_isEditMode)
+                                                            {
+                                                                <div class="empty-shift-cell text-muted" 
+                                                                     @onclick="() => OpenAddShiftForDay(item, day.Date)"
+                                                                     title="Click to add hours for @item.MemberName on @day.ToString("MMM dd")">
+                                                                    <span class="empty-dash opacity-25">-</span>
+                                                                    <i class="bi bi-plus-circle-fill empty-add-icon text-primary"></i>
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="opacity-25">-</span>
+                                                            }
+                                                        }
+                                                    </td>
                                                 }
-                                                else
-                                                {
-                                                    <span class="opacity-25">-</span>
-                                                }
-                                            </td>
+                                                <td class="text-center fw-black border-start sticky-right-audit-2 x-small">@item.TotalHours.ToString("N1")</td>
+                                                <td class="text-end pe-4 fw-black text-dark sticky-right-audit-1 x-small p-1">@item.TotalPay.ToString("C")</td>
+                                            </tr>
                                         }
-                                        <td class="text-center fw-black border-start sticky-right-audit-2 x-small">@item.TotalHours.ToString("N1")</td>
-                                        <td class="text-end pe-4 fw-black text-dark sticky-right-audit-1 x-small p-1">@item.TotalPay.ToString("C")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot class="bg-light bg-opacity-50 sticky-bottom border-top-2">
-                                <tr class="fw-black">
-                                    <td class="ps-4 sticky-col border-end">Totals</td>
-                                    @foreach (var day in GetWeekDays())
-                                    {
-                                        <td class="text-center text-primary">@FilteredData.SelectMany(d => d.DailyHours).Where(h => h.Key.Date == day.Date).Sum(h => h.Value).ToString("N1")</td>
-                                    }
-                                    <td class="text-center fw-black border-start sticky-right-audit-2">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
-                                    <td class="text-end pe-4 fw-black text-dark sticky-right-audit-1 small">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    }
-                </div>
+                                    </tbody>
+                                    <tfoot class="bg-light bg-opacity-50 sticky-bottom border-top-2">
+                                        <tr class="fw-black">
+                                            <td class="ps-4 sticky-col border-end">Totals</td>
+                                            @foreach (var day in GetWeekDays())
+                                            {
+                                                <td class="text-center text-primary">@FilteredData.SelectMany(d => d.DailyHours).Where(h => h.Key.Date == day.Date).Sum(h => h.Value).ToString("N1")</td>
+                                            }
+                                            <td class="text-center fw-black border-start sticky-right-audit-2">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                                            <td class="text-end pe-4 fw-black text-dark sticky-right-audit-1 small">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
-        }
+        </div>
     </div>
 </div>
-</div>
-</div>
 
-
-
-@if (_showPayDetails && _selectedUserPayDetails != null)
+<!-- ========================================================================= -->
+<!-- 1. SHIFT ROSTER & PAY DETAILS MODAL -->
+<!-- ========================================================================= -->
+@if (_showShiftRoster && _selectedRosterEmployee != null)
 {
-    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(8px);" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg" style="border-radius: 32px; overflow: hidden;">
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); z-index: 1050;" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 28px; overflow: hidden;">
                 <div class="modal-header border-0 bg-primary bg-opacity-10 p-4">
                     <div class="d-flex align-items-center gap-3">
-                        <div class="avatar-md bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm fw-black fs-4" style="width: 64px; height: 64px; border: 2px solid white;">
-                            @_selectedUserPayDetails.Username.Substring(0,1).ToUpper()
+                        <div class="avatar-md bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm fw-black fs-4" style="width: 54px; height: 54px; border: 2px solid white;">
+                            @_selectedRosterEmployee.Username.Substring(0,1).ToUpper()
                         </div>
                         <div>
-                            <h4 class="modal-title fw-black mb-0">Payroll Breakdown</h4>
-                            <div class="fw-bold text-primary">@_selectedUserPayDetails.MemberName</div>
+                            <h4 class="modal-title fw-black mb-0">Shift Hours & Payroll</h4>
+                            <div class="fw-bold text-primary">@_selectedRosterEmployee.MemberName <span class="text-muted small fw-normal">(@_selectedRosterEmployee.Username)</span></div>
                         </div>
                     </div>
-                    <button type="button" class="btn-close" @onclick="() => _showPayDetails = false"></button>
+                    <button type="button" class="btn-close" @onclick="CloseShiftRoster"></button>
                 </div>
+                
                 <div class="modal-body p-4 bg-white">
-                    <div class="text-center mb-4 p-3 bg-light rounded-4 border">
-                         <div class="text-muted small fw-bold">TOTAL HOURS WORKED</div>
-                         <div class="h2 fw-black text-dark mb-0">@_selectedUserPayDetails.TotalHours.ToString("N1") <span class="fs-6 opacity-50">hrs</span></div>
+                    <!-- Quick Stats Header -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-4 border text-center">
+                                <div class="text-muted x-small fw-bold text-uppercase">TOTAL HOURS</div>
+                                <div class="h3 fw-black text-dark mb-0">@_selectedRosterEmployee.TotalHours.ToString("N1") <span class="fs-6 opacity-50">hrs</span></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-4 border text-center">
+                                <div class="text-muted x-small fw-bold text-uppercase">HOURLY RATE</div>
+                                <div class="h3 fw-black text-primary mb-0">@(_selectedRosterEmployee.HourlyRate?.ToString("C") ?? "$0.00")</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-4 border text-center">
+                                <div class="text-muted x-small fw-bold text-uppercase">EST. GROSS PAY</div>
+                                <div class="h3 fw-black text-success mb-0">@_selectedRosterEmployee.TotalPay.ToString("C")</div>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="card border-0 bg-white rounded-4 mb-4 border shadow-sm">
-                        <div class="card-body p-4">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="fw-bold text-muted small">GROSS EARNINGS</span>
-                                <span class="fw-black text-dark fs-5">@_selectedUserPayDetails.TotalPay.ToString("C")</span>
-                            </div>
-                            <div class="x-small text-muted mb-0">Rate: @(_selectedUserPayDetails.HourlyRate?.ToString("C") ?? "$0.00")/hr</div>
+                    <!-- Shift List Header & Actions -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-black text-dark text-uppercase mb-0 tracking-wider">
+                            <i class="bi bi-calendar-check me-2 text-primary"></i> Recorded Shifts for Selected Period
+                        </h6>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-bold" @onclick="() => OpenEditRateModal(_selectedRosterEmployee)">
+                                <i class="bi bi-currency-dollar me-1"></i> Edit Rate
+                            </button>
+                            <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold" @onclick="AddShiftForRosterEmployee">
+                                <i class="bi bi-plus-lg me-1"></i> Add Shift
+                            </button>
                         </div>
                     </div>
-                    
-                    <div class="bg-primary bg-opacity-5 p-3 rounded-4 border border-primary border-opacity-10 text-center">
-                         <div class="x-small fw-black text-primary text-uppercase mb-1">Audit Record</div>
-                         <div class="small fw-bold text-muted">This record focuses on labor hours and gross wages.</div>
+
+                    <!-- Individual Shifts Table -->
+                    <div class="border rounded-4 overflow-hidden shadow-sm">
+                        <div class="table-responsive" style="max-height: 280px;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="bg-light">
+                                    <tr class="x-small fw-black text-muted text-uppercase">
+                                        <th class="ps-3 py-2">Date</th>
+                                        <th class="py-2">Shift Type</th>
+                                        <th class="py-2">Location</th>
+                                        <th class="py-2 text-center">Hours</th>
+                                        <th class="py-2 text-end">Est. Pay</th>
+                                        <th class="py-2">Notes</th>
+                                        <th class="pe-3 py-2 text-end" style="width: 100px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!_rosterShifts.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="7" class="text-center py-4 text-muted">
+                                                <i class="bi bi-clock-history display-6 text-muted opacity-25 d-block mb-2"></i>
+                                                No individual shifts recorded in this period.
+                                            </td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var s in _rosterShifts)
+                                        {
+                                            <tr>
+                                                <td class="ps-3 py-2 fw-bold small text-dark">
+                                                    @s.Date.ToString("ddd, MMM dd, yyyy")
+                                                </td>
+                                                <td class="py-2">
+                                                    <span class="badge @GetShiftColorClass(s.ShiftType) rounded-1 shadow-sm px-2 py-1 x-small fw-bold">
+                                                        @s.ShiftType
+                                                    </span>
+                                                </td>
+                                                <td class="py-2 small text-muted">
+                                                    @(s.Location == "Hall" ? "Upstairs Bar" : "Downstairs Bar")
+                                                </td>
+                                                <td class="py-2 text-center fw-bold small text-dark">
+                                                    @s.Hours.ToString("N1") hrs
+                                                </td>
+                                                <td class="py-2 text-end fw-bold small text-success">
+                                                    @s.GrossPay.ToString("C")
+                                                </td>
+                                                <td class="py-2 small text-muted text-truncate" style="max-width: 150px;" title="@s.Notes">
+                                                    @(string.IsNullOrWhiteSpace(s.Notes) ? "-" : s.Notes)
+                                                </td>
+                                                <td class="pe-3 py-2 text-end">
+                                                    <button class="btn btn-outline-primary btn-sm py-0 px-2 rounded-2 me-1" 
+                                                            @onclick="() => EditRosterShift(s)" 
+                                                            title="Edit this shift">
+                                                        <i class="bi bi-pencil-square"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger btn-sm py-0 px-2 rounded-2" 
+                                                            @onclick="() => PromptDeleteShift(s)" 
+                                                            title="Delete this shift">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
+
                 <div class="modal-footer border-0 p-4 pt-0 bg-white">
-                    <button type="button" class="btn btn-outline-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="() => _showPayDetails = false">DONE</button>
+                    <button type="button" class="btn btn-outline-secondary px-4 rounded-pill fw-black" @onclick="CloseShiftRoster">CLOSE</button>
                 </div>
             </div>
         </div>
     </div>
 }
 
+<!-- ========================================================================= -->
+<!-- 2. SHIFT EDITOR MODAL (ADD / EDIT SHIFT HOURS) -->
+<!-- ========================================================================= -->
+@if (_showShiftEditor && _editingShift != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); z-index: 1060;" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 28px; overflow: hidden;">
+                <div class="modal-header border-0 @(_editingShift.IsNew ? "bg-primary" : "bg-dark") text-white p-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-white bg-opacity-25 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                            <i class="bi @(_editingShift.IsNew ? "bi-clock-history" : "bi-pencil-square")"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">@(_editingShift.IsNew ? "Log Employee Hours" : "Edit Shift Hours")</h5>
+                            <div class="small opacity-75">@(_editingShift.IsNew ? "Add missed or additional hours" : "Modify recorded work hours")</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseShiftEditor"></button>
+                </div>
+                
+                <div class="modal-body p-4 bg-white">
+                    <!-- Employee Picker -->
+                    <div class="mb-3">
+                        <label class="form-label small text-uppercase fw-bold text-muted">Employee</label>
+                        <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Username">
+                            <option value="">-- Select Employee --</option>
+                            @foreach (var user in allSystemUsers)
+                            {
+                                <option value="@user.Username">@GetUserDisplayName(user.Username) (@@@user.Username)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Date & Shift Row -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Shift Date</label>
+                            <input type="date" class="form-control border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Date" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Shift Type</label>
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_editingShift.ShiftType" @bind:after="OnShiftTypeChanged">
+                                <option value="Day">Day Shift</option>
+                                <option value="Night">Night Shift</option>
+                                <option value="Both">Double Shift (Both)</option>
+                                <option value="Hall">Upstairs Bar (Hall)</option>
+                                <option value="Janitor">Janitor</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Location & Hours Row -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Location</label>
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Location">
+                                <option value="Main">Downstairs Bar</option>
+                                <option value="Hall">Upstairs Bar (Hall)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Hours Worked</label>
+                            <div class="input-group shadow-sm rounded-3 overflow-hidden">
+                                <input type="number" step="0.25" min="0.25" max="24" class="form-control fw-black text-primary fs-5 text-center" @bind="_editingShift.Hours" placeholder="0.0" autofocus />
+                                <span class="input-group-text bg-light text-muted fw-bold">hrs</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notes / Adjustment Reason -->
+                    <div class="mb-2">
+                        <label class="form-label small text-uppercase fw-bold text-muted">Notes / Reason for Adjustment</label>
+                        <textarea class="form-control border shadow-sm rounded-3" rows="2" placeholder="e.g. Forgot to clock in on tablet, covered extra hours, manager adjustment..." @bind="_editingShift.Notes"></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-0 p-4 pt-0 bg-white d-flex justify-content-between">
+                    @if (!_editingShift.IsNew)
+                    {
+                        <button type="button" class="btn btn-outline-danger rounded-pill px-3 fw-bold" @onclick="RequestDeleteCurrentShift">
+                            <i class="bi bi-trash me-1"></i> Delete Shift
+                        </button>
+                    }
+                    else
+                    {
+                        <div></div>
+                    }
+
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="CloseShiftEditor">Cancel</button>
+                        <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="RequestSaveShift">
+                            <i class="bi bi-check-lg me-1"></i> Save Hours
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- 3. EXPLICIT CONFIRMATION DIALOG MODAL -->
+<!-- ========================================================================= -->
+@if (_showConfirmModal && _confirmData != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); z-index: 1070;" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 28px; overflow: hidden;">
+                <div class="modal-header border-0 @(_confirmData.ActionType == "Delete" ? "bg-danger text-white" : (_confirmData.ActionType == "Add" ? "bg-primary text-white" : "bg-dark text-white")) p-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-white bg-opacity-25 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.3rem;">
+                            <i class="bi @(_confirmData.ActionType == "Delete" ? "bi-exclamation-triangle-fill" : (_confirmData.ActionType == "Add" ? "bi-plus-circle-fill" : "bi-pencil-fill"))"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">@_confirmData.Title</h5>
+                            <div class="small opacity-75">Please review and confirm this change</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-body p-4 bg-white">
+                    <div class="card border rounded-4 p-3 mb-3 bg-light">
+                        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                            <span class="text-muted small fw-bold text-uppercase">Employee</span>
+                            <span class="fw-black text-dark">@_confirmData.EmployeeName</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                            <span class="text-muted small fw-bold text-uppercase">Date & Shift</span>
+                            <span class="fw-bold text-dark">@_confirmData.Date.ToString("MMM dd, yyyy") (@_confirmData.ShiftType)</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                            <span class="text-muted small fw-bold text-uppercase">Location</span>
+                            <span class="fw-bold text-dark">@(_confirmData.Location == "Hall" ? "Upstairs Bar" : "Downstairs Bar")</span>
+                        </div>
+                        
+                        @if (_confirmData.ActionType == "Edit")
+                        {
+                            <div class="d-flex justify-content-between align-items-center pt-1">
+                                <span class="text-muted small fw-bold text-uppercase">Hours Change</span>
+                                <div>
+                                    <span class="text-muted text-decoration-line-through me-2">@(_confirmData.PreviousHours?.ToString("N1") ?? "0.0") hrs</span>
+                                    <i class="bi bi-arrow-right text-primary me-2"></i>
+                                    <span class="badge bg-primary fs-6 fw-black">@_confirmData.NewHours.ToString("N1") hrs</span>
+                                </div>
+                            </div>
+                        }
+                        else if (_confirmData.ActionType == "Add")
+                        {
+                            <div class="d-flex justify-content-between align-items-center pt-1">
+                                <span class="text-muted small fw-bold text-uppercase">Hours to Record</span>
+                                <span class="badge bg-success fs-6 fw-black">@_confirmData.NewHours.ToString("N1") hrs</span>
+                            </div>
+                        }
+                        else if (_confirmData.ActionType == "Delete")
+                        {
+                            <div class="d-flex justify-content-between align-items-center pt-1">
+                                <span class="text-danger small fw-bold text-uppercase">Hours Being Removed</span>
+                                <span class="badge bg-danger fs-6 fw-black">@_confirmData.PreviousHours?.ToString("N1") hrs</span>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_confirmData.Notes))
+                    {
+                        <div class="small bg-white p-3 rounded-3 border text-muted">
+                            <span class="fw-bold text-dark">Notes:</span> @_confirmData.Notes
+                        </div>
+                    }
+
+                    @if (_confirmData.ActionType == "Delete")
+                    {
+                        <div class="alert alert-warning rounded-3 py-2 small mb-0 mt-3 d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-circle-fill"></i>
+                            <div>This will delete the shift record and update calculated payroll totals.</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer border-0 p-4 pt-0 bg-white">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="() => _showConfirmModal = false" disabled="@_savingShift">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn @(_confirmData.ActionType == "Delete" ? "btn-danger" : "btn-primary") rounded-pill px-4 fw-bold shadow-sm" @onclick="ExecuteConfirmedActionAsync" disabled="@_savingShift">
+                        @if (_savingShift)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi @(_confirmData.ActionType == "Delete" ? "bi-trash" : "bi-check-circle") me-1"></i>
+                            <span>Confirm & @(_confirmData.ActionType == "Delete" ? "Delete" : "Apply")</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- 4. EDIT PAY RATE MODAL -->
+<!-- ========================================================================= -->
 @if (showRateModal)
 {
-    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); z-index: 1080;" role="dialog">
         <div class="modal-dialog modal-sm modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white border-0">
-                    <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Edit Pay Rate</h5>
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 24px; overflow: hidden;">
+                <div class="modal-header bg-primary text-white border-0 p-4">
+                    <h5 class="modal-title fw-black"><i class="bi bi-cash-coin me-2"></i>Edit Pay Rate</h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => showRateModal = false"></button>
                 </div>
-                <div class="modal-body p-4">
+                <div class="modal-body p-4 bg-white">
                     <div class="text-center mb-4">
                         <div class="fw-bold h5 mb-1 text-dark">@editingItem?.MemberName</div>
                         <div class="text-muted small">@@@editingItem?.Username</div>
@@ -811,13 +1226,13 @@
                     <label class="form-label small text-uppercase fw-bold text-muted">Hourly Rate ($)</label>
                     <div class="input-group input-group-lg shadow-sm rounded-3 overflow-hidden">
                         <span class="input-group-text bg-white border-end-0 text-primary">$</span>
-                        <input type="number" step="0.01" class="form-control border-start-0" @bind="newRate" autofocus onfocus="this.select()" />
+                        <input type="number" step="0.01" class="form-control border-start-0 fw-bold" @bind="newRate" autofocus onfocus="this.select()" />
                     </div>
-                    <div class="form-text mt-3">This rate will be used to calculate total pay for all shifts for this user.</div>
+                    <div class="form-text mt-3">This rate applies to shifts for this user in @_selectedYear.</div>
                 </div>
-                <div class="modal-footer border-0 p-3">
-                    <button type="button" class="btn btn-light rounded-3 px-4" @onclick="() => showRateModal = false">Cancel</button>
-                    <button type="button" class="btn btn-primary rounded-3 px-4 shadow-sm" @onclick="SavePayRate">Save Rate</button>
+                <div class="modal-footer border-0 p-3 bg-white">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="() => showRateModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold" @onclick="SavePayRate">Save Rate</button>
                 </div>
             </div>
         </div>
@@ -837,20 +1252,13 @@
     };
 
     private List<AppUser> allSystemUsers = new();
+    private Dictionary<string, string> userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private List<EmployeeHoursDto> _data = new();
     private string _searchQuery = "";
     private bool _loading = true;
     private string _viewMode = "Month"; // Week, Month, Custom
     private string _layoutMode = "Grid"; // List, Grid
     private string _selectedLocation = "All"; // All, Main, Hall
-
-
-    
-    // Detailed Pay Breakdown State
-    private bool _showPayDetails = false;
-    private EmployeeHoursDto? _selectedUserPayDetails = null;
-
-
 
     private int _selectedMonth = DateTime.Now.Month;
     private int _selectedYear = DateTime.Now.Year;
@@ -865,9 +1273,31 @@
     private int _summaryActiveEmployees = 0;
     private int _summaryTotalShifts = 0;
     
+    private bool _isEditMode = false;
+
+    private void ToggleEditMode()
+    {
+        _isEditMode = !_isEditMode;
+    }
+
+    // Pay rate modal
     private bool showRateModal = false;
     private EmployeeHoursDto? editingItem;
     private decimal newRate;
+
+    // Shift Roster Modal State
+    private bool _showShiftRoster = false;
+    private EmployeeHoursDto? _selectedRosterEmployee = null;
+    private List<ShiftDetailItem> _rosterShifts = new();
+
+    // Shift Form State (Add / Edit)
+    private bool _showShiftEditor = false;
+    private ShiftFormModel? _editingShift = null;
+
+    // Confirmation Modal State
+    private bool _showConfirmModal = false;
+    private ShiftConfirmationModel? _confirmData = null;
+    private bool _savingShift = false;
 
     private IEnumerable<EmployeeHoursDto> FilteredData => _data
         .Where(d => string.IsNullOrEmpty(_searchQuery) || 
@@ -901,8 +1331,6 @@
         }
     }
 
-
-
     private async Task LoadAllUsers()
     {
         try
@@ -912,9 +1340,13 @@
                 .OrderBy(u => u.Username)
                 .ToListAsync();
             
-            if (allSystemUsers == null || !allSystemUsers.Any())
+            var members = await db.Members.AsNoTracking().ToListAsync();
+            userDisplayNames.Clear();
+            foreach (var u in allSystemUsers)
             {
-                Console.WriteLine("[DIAGNOSTIC] allSystemUsers is empty after fetch.");
+                var member = u.MemberId.HasValue ? members.FirstOrDefault(m => m.MemberID == u.MemberId.Value) : null;
+                var name = member != null ? $"{member.FirstName} {member.LastName}".Trim() : u.Username;
+                userDisplayNames[u.Username] = name;
             }
         }
         catch (Exception ex)
@@ -923,20 +1355,437 @@
         }
     }
 
+    private string GetUserDisplayName(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return "Unknown";
+        if (userDisplayNames.TryGetValue(username, out var name) && !string.IsNullOrWhiteSpace(name)) return name;
+        return username;
+    }
+
     private IEnumerable<DateTime> GetWeekDays()
     {
         for (var d = _startDate.Date; d <= _endDate.Date; d = d.AddDays(1)) yield return d;
     }
 
+    // =========================================================================
+    // SHIFT ROSTER & EDITING ACTIONS
+    // =========================================================================
 
-
-
-
-    private void OpenPayDetails(EmployeeHoursDto item)
+    private async Task OpenEmployeeShiftsRoster(EmployeeHoursDto item)
     {
-        _selectedUserPayDetails = item;
-        _showPayDetails = true;
+        _selectedRosterEmployee = item;
+        await LoadRosterShiftsAsync(item.Username);
+        _showShiftRoster = true;
+        StateHasChanged();
     }
+
+    private async Task LoadRosterShiftsAsync(string username)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var entries = await db.BarSaleEntries.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => !e.IsDeleted && 
+                       (e.AdjustedSaleDate ?? e.SaleDate) >= _startDate.Date && 
+                       (e.AdjustedSaleDate ?? e.SaleDate) <= _endDate.Date &&
+                       (e.EmployeeUsername == username || e.ModifiedBy == username || e.CreatedBy == username))
+                .OrderByDescending(e => (e.AdjustedSaleDate ?? e.SaleDate))
+                .ToListAsync();
+
+            _rosterShifts = entries.Select(e => new ShiftDetailItem
+            {
+                Id = e.Id,
+                Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                ShiftType = e.Shift ?? "Day",
+                Location = (e.IsRentalHall || e.Shift == "Hall") ? "Hall" : (e.BarLocation ?? "Main"),
+                Hours = e.TotalHours ?? 0,
+                Notes = e.Notes,
+                HourlyRate = e.HourlyRate_AtTimeOfShift ?? _selectedRosterEmployee?.HourlyRate,
+                Status = e.Status
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error loading shifts: {ex.Message}");
+        }
+    }
+
+    private void CloseShiftEditor()
+    {
+        _showShiftEditor = false;
+        _isEditMode = false;
+        StateHasChanged();
+    }
+
+    private void CloseShiftRoster()
+    {
+        _showShiftRoster = false;
+        StateHasChanged();
+    }
+
+    private void OpenAddHoursModal()
+    {
+        var defaultUser = allSystemUsers.FirstOrDefault()?.Username ?? "";
+        _editingShift = new ShiftFormModel
+        {
+            Id = null,
+            Username = defaultUser,
+            MemberName = GetUserDisplayName(defaultUser),
+            Date = DateTime.Today,
+            ShiftType = "Day",
+            Location = _selectedLocation == "Hall" ? "Hall" : "Main",
+            Hours = null,
+            OriginalHours = null,
+            Notes = ""
+        };
+        _showShiftEditor = true;
+    }
+
+    private void OpenAddShiftForEmployee(EmployeeHoursDto item)
+    {
+        _editingShift = new ShiftFormModel
+        {
+            Id = null,
+            Username = item.Username,
+            MemberName = item.MemberName ?? GetUserDisplayName(item.Username),
+            Date = DateTime.Today,
+            ShiftType = "Day",
+            Location = _selectedLocation == "Hall" ? "Hall" : "Main",
+            Hours = null,
+            OriginalHours = null,
+            Notes = ""
+        };
+        _showShiftEditor = true;
+    }
+
+    private void AddShiftForRosterEmployee()
+    {
+        if (_selectedRosterEmployee == null) return;
+        _editingShift = new ShiftFormModel
+        {
+            Id = null,
+            Username = _selectedRosterEmployee.Username,
+            MemberName = _selectedRosterEmployee.MemberName ?? GetUserDisplayName(_selectedRosterEmployee.Username),
+            Date = DateTime.Today,
+            ShiftType = "Day",
+            Location = _selectedLocation == "Hall" ? "Hall" : "Main",
+            Hours = null,
+            OriginalHours = null,
+            Notes = ""
+        };
+        _showShiftEditor = true;
+    }
+
+    private async Task OpenEditShiftForDay(EmployeeHoursDto item, DateTime day, string? targetShiftType = null)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var entries = await db.BarSaleEntries.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => !e.IsDeleted && 
+                       (e.AdjustedSaleDate ?? e.SaleDate).Date == day.Date &&
+                       (e.EmployeeUsername == item.Username || e.ModifiedBy == item.Username || e.CreatedBy == item.Username))
+                .ToListAsync();
+
+            if (entries.Any())
+            {
+                var e = (!string.IsNullOrWhiteSpace(targetShiftType) 
+                        ? entries.FirstOrDefault(x => string.Equals(x.Shift, targetShiftType, StringComparison.OrdinalIgnoreCase)) 
+                        : null) ?? entries.First();
+
+                _editingShift = new ShiftFormModel
+                {
+                    Id = e.Id,
+                    Username = item.Username,
+                    MemberName = item.MemberName ?? GetUserDisplayName(item.Username),
+                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                    ShiftType = e.Shift ?? "Day",
+                    Location = (e.IsRentalHall || e.Shift == "Hall") ? "Hall" : (e.BarLocation ?? "Main"),
+                    Hours = e.TotalHours ?? 0,
+                    OriginalHours = e.TotalHours ?? 0,
+                    Notes = e.Notes,
+                    OriginalNotes = e.Notes
+                };
+                _showShiftEditor = true;
+            }
+            else
+            {
+                OpenAddShiftForDay(item, day);
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error loading day shift: {ex.Message}");
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private void OpenAddShiftForDay(EmployeeHoursDto item, DateTime day)
+    {
+        _editingShift = new ShiftFormModel
+        {
+            Id = null,
+            Username = item.Username,
+            MemberName = item.MemberName ?? GetUserDisplayName(item.Username),
+            Date = day.Date,
+            ShiftType = "Day",
+            Location = _selectedLocation == "Hall" ? "Hall" : "Main",
+            Hours = null,
+            OriginalHours = null,
+            Notes = ""
+        };
+        _showShiftEditor = true;
+    }
+
+    private void EditRosterShift(ShiftDetailItem s)
+    {
+        _editingShift = new ShiftFormModel
+        {
+            Id = s.Id,
+            Username = _selectedRosterEmployee?.Username ?? "",
+            MemberName = _selectedRosterEmployee?.MemberName ?? GetUserDisplayName(_selectedRosterEmployee?.Username),
+            Date = s.Date,
+            ShiftType = s.ShiftType,
+            Location = s.Location,
+            Hours = s.Hours,
+            OriginalHours = s.Hours,
+            Notes = s.Notes,
+            OriginalNotes = s.Notes
+        };
+        _showShiftEditor = true;
+    }
+
+    private void OnShiftTypeChanged()
+    {
+        if (_editingShift == null) return;
+        if (_editingShift.ShiftType == "Hall") _editingShift.Location = "Hall";
+    }
+
+    // =========================================================================
+    // CONFIRMATION WORKFLOWS
+    // =========================================================================
+
+    private void RequestSaveShift()
+    {
+        if (_editingShift == null) return;
+
+        if (string.IsNullOrWhiteSpace(_editingShift.Username))
+        {
+            ToastService.ShowWarning("Please select an employee.");
+            return;
+        }
+
+        if (!_editingShift.Hours.HasValue || _editingShift.Hours.Value <= 0)
+        {
+            ToastService.ShowWarning("Please enter a valid number of hours (greater than 0).");
+            return;
+        }
+
+        var empName = !string.IsNullOrWhiteSpace(_editingShift.MemberName) 
+            ? _editingShift.MemberName 
+            : GetUserDisplayName(_editingShift.Username);
+
+        if (_editingShift.IsNew)
+        {
+            _confirmData = new ShiftConfirmationModel
+            {
+                ActionType = "Add",
+                Title = "Confirm Adding Shift Hours",
+                TargetId = null,
+                Username = _editingShift.Username,
+                EmployeeName = empName,
+                Date = _editingShift.Date,
+                ShiftType = _editingShift.ShiftType,
+                Location = _editingShift.Location,
+                PreviousHours = null,
+                NewHours = _editingShift.Hours.Value,
+                Notes = _editingShift.Notes
+            };
+        }
+        else
+        {
+            _confirmData = new ShiftConfirmationModel
+            {
+                ActionType = "Edit",
+                Title = "Confirm Updating Shift Hours",
+                TargetId = _editingShift.Id,
+                Username = _editingShift.Username,
+                EmployeeName = empName,
+                Date = _editingShift.Date,
+                ShiftType = _editingShift.ShiftType,
+                Location = _editingShift.Location,
+                PreviousHours = _editingShift.OriginalHours,
+                NewHours = _editingShift.Hours.Value,
+                Notes = _editingShift.Notes
+            };
+        }
+
+        _showConfirmModal = true;
+    }
+
+    private void RequestDeleteCurrentShift()
+    {
+        if (_editingShift == null || _editingShift.Id == null || _editingShift.Id <= 0) return;
+
+        var empName = !string.IsNullOrWhiteSpace(_editingShift.MemberName) 
+            ? _editingShift.MemberName 
+            : GetUserDisplayName(_editingShift.Username);
+
+        _confirmData = new ShiftConfirmationModel
+        {
+            ActionType = "Delete",
+            Title = "Confirm Deleting Shift Record",
+            TargetId = _editingShift.Id,
+            Username = _editingShift.Username,
+            EmployeeName = empName,
+            Date = _editingShift.Date,
+            ShiftType = _editingShift.ShiftType,
+            Location = _editingShift.Location,
+            PreviousHours = _editingShift.OriginalHours ?? _editingShift.Hours,
+            NewHours = 0,
+            Notes = _editingShift.Notes
+        };
+
+        _showConfirmModal = true;
+    }
+
+    private void PromptDeleteShift(ShiftDetailItem s)
+    {
+        var empName = _selectedRosterEmployee?.MemberName ?? GetUserDisplayName(_selectedRosterEmployee?.Username);
+
+        _confirmData = new ShiftConfirmationModel
+        {
+            ActionType = "Delete",
+            Title = "Confirm Shift Removal",
+            TargetId = s.Id,
+            Username = _selectedRosterEmployee?.Username ?? "",
+            EmployeeName = empName,
+            Date = s.Date,
+            ShiftType = s.ShiftType,
+            Location = s.Location,
+            PreviousHours = s.Hours,
+            NewHours = 0,
+            Notes = s.Notes
+        };
+
+        _showConfirmModal = true;
+    }
+
+    private async Task ExecuteConfirmedActionAsync()
+    {
+        if (_confirmData == null) return;
+
+        _savingShift = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var currentUser = authState.User.Identity?.Name ?? "Manager";
+
+            if (_confirmData.ActionType == "Delete")
+            {
+                if (_confirmData.TargetId.HasValue && _confirmData.TargetId.Value > 0)
+                {
+                    var record = await db.BarSaleEntries.FirstOrDefaultAsync(e => e.Id == _confirmData.TargetId.Value);
+                    if (record != null)
+                    {
+                        record.IsDeleted = true;
+                        record.TotalHours = 0;
+                        record.ModifiedBy = currentUser;
+                        record.ModifiedAt = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+                    }
+                }
+                await ToastService.ShowSuccess($"Removed shift record for {_confirmData.EmployeeName}.");
+            }
+            else // Add or Edit
+            {
+                BarSaleEntry? record = null;
+                if (_editingShift?.Id.HasValue == true && _editingShift.Id.Value > 0)
+                {
+                    record = await db.BarSaleEntries.FirstOrDefaultAsync(e => e.Id == _editingShift.Id.Value);
+                }
+
+                var isHall = _editingShift!.Location == "Hall" || _editingShift.ShiftType == "Hall";
+
+                if (record == null)
+                {
+                    // Create new BarSaleEntry
+                    record = new BarSaleEntry
+                    {
+                        SaleDate = _editingShift.Date.Date,
+                        AdjustedSaleDate = _editingShift.Date.Date,
+                        Shift = _editingShift.ShiftType,
+                        IsRentalHall = isHall,
+                        BarLocation = _editingShift.Location,
+                        TotalHours = _editingShift.Hours,
+                        EmployeeUsername = _editingShift.Username,
+                        Notes = _editingShift.Notes,
+                        Status = "Audited",
+                        IsAudited = true,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedBy = currentUser,
+                        ModifiedBy = currentUser
+                    };
+
+                    var userObj = await db.AppUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Username == _editingShift.Username);
+                    if (userObj != null)
+                    {
+                        var yearWage = await db.YearlyWages.AsNoTracking().FirstOrDefaultAsync(w => w.Username == _editingShift.Username && w.Year == _editingShift.Date.Year);
+                        record.HourlyRate_AtTimeOfShift = yearWage?.HourlyRate ?? userObj.HourlyRate;
+                    }
+
+                    db.BarSaleEntries.Add(record);
+                }
+                else
+                {
+                    record.AdjustedSaleDate = _editingShift.Date.Date;
+                    record.Shift = _editingShift.ShiftType;
+                    record.IsRentalHall = isHall;
+                    record.BarLocation = _editingShift.Location;
+                    record.TotalHours = _editingShift.Hours;
+                    record.EmployeeUsername = _editingShift.Username;
+                    record.Notes = _editingShift.Notes;
+                    record.Status = "Audited";
+                    record.IsAudited = true;
+                    record.ModifiedBy = currentUser;
+                    record.ModifiedAt = DateTime.UtcNow;
+                }
+
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess($"Shift hours successfully {(_editingShift.IsNew ? "added" : "updated")} for {_confirmData.EmployeeName}.");
+            }
+
+            _showConfirmModal = false;
+            _showShiftEditor = false;
+            _isEditMode = false; // Auto-disable Edit Mode after saving as requested
+
+            if (_showShiftRoster && _selectedRosterEmployee != null)
+            {
+                await LoadRosterShiftsAsync(_selectedRosterEmployee.Username);
+            }
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to process shift: {ex.Message}");
+        }
+        finally
+        {
+            _savingShift = false;
+            StateHasChanged();
+        }
+    }
+
+    // =========================================================================
+    // PAY RATE MANAGEMENT
+    // =========================================================================
 
     private void OpenEditRateModal(EmployeeHoursDto item)
     {
@@ -958,7 +1807,6 @@
             {
                 user.HourlyRate = newRate;
                 
-                // Also update the yearly record for the currently viewed year
                 var yearly = await db.YearlyWages.FirstOrDefaultAsync(w => w.Username == user.Username && w.Year == _selectedYear);
                 if (yearly != null) yearly.HourlyRate = newRate;
                 else db.YearlyWages.Add(new YearlyWage { Username = user.Username, Year = _selectedYear, HourlyRate = newRate, CreatedAt = DateTime.UtcNow });
@@ -966,6 +1814,13 @@
                 await db.SaveChangesAsync();
                 await ToastService.ShowSuccess($"Saved pay rate for {editingItem.MemberName} in {_selectedYear}");
                 showRateModal = false;
+                
+                if (_showShiftRoster && _selectedRosterEmployee != null)
+                {
+                    _selectedRosterEmployee.HourlyRate = newRate;
+                    await LoadRosterShiftsAsync(_selectedRosterEmployee.Username);
+                }
+
                 await LoadData();
             }
         }
@@ -974,6 +1829,10 @@
             await ToastService.ShowError($"Error saving rate: {ex.Message}");
         }
     }
+
+    // =========================================================================
+    // PERIOD NAVIGATION & DATA FETCHING
+    // =========================================================================
 
     private void PopulateWeekOptions()
     {
@@ -990,7 +1849,6 @@
     private async Task SetViewMode(string mode)
     {
         _viewMode = mode;
-        // Default to grid for weekly, list for monthly/yearly
         if (mode == "Week") _layoutMode = "Grid";
         else if (mode == "Month" || mode == "Year") _layoutMode = "List";
         
@@ -1016,10 +1874,6 @@
         {
             _startDate = FirstDateOfWeekIso8601(_selectedYear, _selectedWeek);
             _endDate = _startDate.AddDays(6);
-        }
-        else
-        {
-            // Custom mode
         }
 
         try 
@@ -1058,5 +1912,52 @@
         if (firstWeek <= 1) weekNum -= 1;
         var result = firstThursday.AddDays(weekNum * 7);
         return result.AddDays(-4);
+    }
+
+    // =========================================================================
+    // HELPER CLASSES
+    // =========================================================================
+
+    public class ShiftDetailItem
+    {
+        public int Id { get; set; }
+        public DateTime Date { get; set; }
+        public string ShiftType { get; set; } = "Day";
+        public string Location { get; set; } = "Main";
+        public decimal Hours { get; set; }
+        public string? Notes { get; set; }
+        public decimal? HourlyRate { get; set; }
+        public decimal GrossPay => Hours * (HourlyRate ?? 0);
+        public string Status { get; set; } = "Draft";
+    }
+
+    public class ShiftFormModel
+    {
+        public int? Id { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string MemberName { get; set; } = string.Empty;
+        public DateTime Date { get; set; } = DateTime.Today;
+        public string ShiftType { get; set; } = "Day";
+        public string Location { get; set; } = "Main";
+        public decimal? Hours { get; set; } = null;
+        public decimal? OriginalHours { get; set; }
+        public string? Notes { get; set; }
+        public string? OriginalNotes { get; set; }
+        public bool IsNew => !Id.HasValue || Id.Value == 0;
+    }
+
+    public class ShiftConfirmationModel
+    {
+        public string ActionType { get; set; } = "Save"; // "Add", "Edit", "Delete"
+        public string Title { get; set; } = "Confirm Change";
+        public int? TargetId { get; set; }
+        public string Username { get; set; } = "";
+        public string EmployeeName { get; set; } = "";
+        public DateTime Date { get; set; }
+        public string ShiftType { get; set; } = "";
+        public string Location { get; set; } = "";
+        public decimal? PreviousHours { get; set; }
+        public decimal NewHours { get; set; }
+        public string? Notes { get; set; }
     }
 }

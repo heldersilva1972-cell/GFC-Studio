@@ -1159,8 +1159,8 @@
                                             <tr>
                                                 <th class="ps-4">PRODUCT / BRAND</th>
                                                 <th class="text-center">CURRENT STOCK</th>
-                                                <th class="text-center">7-DAY FORECAST</th>
-                                                <th class="text-end pe-4">RECOMMENDED ORDER</th>
+                                                <th class="text-center">7-DAY FORECAST (EST. DEMAND)</th>
+                                                <th class="text-end pe-4">RECOMMENDED ORDER (7-DAY SUPPLY)</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -2161,18 +2161,211 @@
                             <!-- STACKED FULL-WIDTH SECTIONS (DISTRIBUTED PROPORTIONATELY) -->
                             <div class="flex-grow-1 p-4 overflow-auto custom-scrollbar d-flex flex-column gap-3" style="min-height: 0;">
                                 
-                                <!-- VISUAL TOKEN FLOW COMPARISON CHART -->
+                                <!-- VISUAL TOKEN FLOW COMPARISON CHART (TRIPLE MODE: BY TOKEN TYPE / BY BARTENDER / BY PRODUCT) -->
                                 <div class="card border shadow-sm rounded-4 p-4 bg-white flex-shrink-0">
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                                         <h6 class="fw-black mb-0 text-dark d-flex align-items-center" style="font-size: 0.88rem;">
-                                            <i class="bi bi-bar-chart-line text-success me-2 fs-6"></i>TOKEN FLOW VISUAL COMPARISON (SOLD VS REDEEMED)
+                                            <i class="bi bi-bar-chart-line text-success me-2 fs-6"></i>
+                                            @(_tokenChartViewMode == "TOKEN_TYPE" ? "TOKEN FLOW VISUAL COMPARISON (BY TOKEN TYPE)" : (_tokenChartViewMode == "BARTENDER" ? "BARTENDER TOKEN FLOW (SOLD VS REDEEMED)" : "TOKENS USED PER PRODUCT (UNITS REDEEMED)"))
                                         </h6>
-                                        <span class="text-muted extra-small fw-bold">Comparing Units Sold, Redeemed & Legacy Returned per Token Type</span>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="text-muted extra-small fw-bold d-none d-md-inline">View Mode:</span>
+                                            <div class="btn-group btn-group-sm shadow-xs rounded-pill border p-0.5 bg-light" role="group">
+                                                <button class="btn btn-xs rounded-pill fw-black px-3 @(_tokenChartViewMode == "TOKEN_TYPE" ? "btn-primary shadow-sm" : "btn-light border-0 text-muted")" style="font-size: 0.72rem;" @onclick='() => SetTokenChartViewMode("TOKEN_TYPE")'>
+                                                    <i class="bi bi-tag-fill me-1"></i>BY TOKEN TYPE
+                                                </button>
+                                                <button class="btn btn-xs rounded-pill fw-black px-3 @(_tokenChartViewMode == "BARTENDER" ? "btn-primary shadow-sm" : "btn-light border-0 text-muted")" style="font-size: 0.72rem;" @onclick='() => SetTokenChartViewMode("BARTENDER")'>
+                                                    <i class="bi bi-person-badge-fill me-1"></i>BY BARTENDER
+                                                </button>
+                                                <button class="btn btn-xs rounded-pill fw-black px-3 @(_tokenChartViewMode == "DRINK_SPREAD" ? "btn-primary shadow-sm" : "btn-light border-0 text-muted")" style="font-size: 0.72rem;" @onclick='() => SetTokenChartViewMode("DRINK_SPREAD")'>
+                                                    <i class="bi bi-cup-straw me-1"></i>BY PRODUCT
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="chart-container" style="position: relative; width: 100%; min-height: 280px; height: 280px;">
-                                        <canvas id="tokenFlowChart"></canvas>
-                                    </div>
+
+                                    @if (_tokenChartViewMode == "TOKEN_TYPE")
+                                    {
+                                        <div class="chart-container" style="position: relative; width: 100%; min-height: 280px; height: 280px;">
+                                            <canvas id="tokenFlowChart"></canvas>
+                                        </div>
+                                    }
+                                    else if (_tokenChartViewMode == "BARTENDER")
+                                    {
+                                        <div class="chart-container" style="position: relative; width: 100%; min-height: 280px; height: 280px;">
+                                            <canvas id="bartenderTokenChart"></canvas>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="chart-container" style="position: relative; width: 100%; min-height: 280px; height: 280px;">
+                                            <canvas id="productTokenFlowChart"></canvas>
+                                        </div>
+                                    }
                                 </div>
+
+                                @if (_tokenChartViewMode == "DRINK_SPREAD")
+                                {
+                                    <!-- PRODUCT & GENERIC TOKEN FLOW BREAKDOWN TABLE -->
+                                    var pMetrics = GetProductTokenFlowMetrics();
+                                    <div class="card border shadow-sm rounded-4 flex-shrink-0">
+                                        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                            <div>
+                                                <h6 class="fw-black mb-0 text-dark" style="font-size: 0.88rem;">
+                                                    <i class="bi bi-box-seam-fill text-primary me-2 fs-6"></i>TOKENS SOLD VS REDEEMED BY ITEM & PRODUCT
+                                                </h6>
+                                                <span class="text-muted extra-small">Comparing tokens purchased specifically for drinks, generic beer/liquor tokens, and drinks claimed</span>
+                                            </div>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1" style="font-size: 0.72rem;">@pMetrics.Sum(x => x.TokensSoldQty) Tokens Sold</span>
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1" style="font-size: 0.72rem;">@pMetrics.Sum(x => x.TokensRedeemedQty) Tokens Redeemed</span>
+                                            </div>
+                                        </div>
+                                        <div class="card-body p-0">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                                    <thead class="bg-light">
+                                                        <tr>
+                                                            <th class="ps-4 py-2">PRODUCT / TOKEN ITEM</th>
+                                                            <th class="text-center py-2">CLASSIFICATION</th>
+                                                            <th class="text-center py-2">TOKENS SOLD</th>
+                                                            <th class="text-center py-2">TOKENS REDEEMED</th>
+                                                            <th class="pe-4 text-end py-2">NET FLOW</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @if (!pMetrics.Any(x => x.TokensSoldQty > 0 || x.TokensRedeemedQty > 0))
+                                                        {
+                                                            <tr>
+                                                                <td colspan="5" class="text-center py-4 text-muted fw-bold">
+                                                                    No token sales or redemptions recorded in selected timeframe.
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var pm in pMetrics.Where(x => x.TokensSoldQty > 0 || x.TokensRedeemedQty > 0))
+                                                            {
+                                                                <tr>
+                                                                    <td class="ps-4 py-2.5 fw-black text-dark">
+                                                                        @if (pm.IsGenericToken)
+                                                                        {
+                                                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle me-1.5 px-2 py-1">
+                                                                                <i class="bi bi-coin me-1"></i>GENERIC TOKEN
+                                                                            </span>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <i class="bi bi-cup-straw text-primary me-2"></i>
+                                                                        }
+                                                                        @pm.ProductName.ToUpper()
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 text-muted fw-bold">
+                                                                        <span class="badge bg-light text-dark border px-2 py-1" style="font-size: 0.72rem;">
+                                                                            @pm.TokenCategory
+                                                                        </span>
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 fw-bold text-success">
+                                                                        @(pm.TokensSoldQty > 0 ? $"{pm.TokensSoldQty} sold" : "-")
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 fw-bold text-primary">
+                                                                        @(pm.TokensRedeemedQty > 0 ? $"{pm.TokensRedeemedQty} redeemed" : "-")
+                                                                    </td>
+                                                                    <td class="pe-4 text-end py-2.5">
+                                                                        @if (pm.NetBalance > 0)
+                                                                        {
+                                                                            <span class="badge bg-success-subtle text-success border border-success-subtle fw-black px-2.5 py-1">
+                                                                                +@pm.NetBalance (Sold Surplus)
+                                                                            </span>
+                                                                        }
+                                                                        else if (pm.NetBalance < 0)
+                                                                        {
+                                                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-black px-2.5 py-1">
+                                                                                @Math.Abs(pm.NetBalance) (Net Redeemed)
+                                                                            </span>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <span class="badge bg-light text-muted border px-2 py-1">0 (Balanced)</span>
+                                                                        }
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (_tokenChartViewMode == "BARTENDER")
+                                {
+                                    <!-- BARTENDER TOKEN ACTIVITY BREAKDOWN TABLE -->
+                                    var bMetrics = GetBartenderTokenMetrics();
+                                    <div class="card border shadow-sm rounded-4 flex-shrink-0">
+                                        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+                                            <h6 class="fw-black mb-0 text-dark" style="font-size: 0.88rem;">
+                                                <i class="bi bi-people-fill text-primary me-2 fs-6"></i>BARTENDER TOKEN ACTIVITY BREAKDOWN
+                                            </h6>
+                                            <span class="badge bg-light text-muted border px-2 py-1" style="font-size: 0.7rem;">@bMetrics.Count Bartenders Active</span>
+                                        </div>
+                                        <div class="card-body p-0">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                                    <thead class="bg-light">
+                                                        <tr>
+                                                            <th class="ps-4 py-2">BARTENDER</th>
+                                                            <th class="text-center py-2">TOKENS SOLD</th>
+                                                            <th class="text-center py-2">CASH COLLECTED</th>
+                                                            <th class="text-center py-2">TOKENS REDEEMED</th>
+                                                            <th class="text-center py-2">MENU VALUE SERVED</th>
+                                                            <th class="pe-4 text-end py-2">NET BALANCE</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @if (!bMetrics.Any())
+                                                        {
+                                                            <tr>
+                                                                <td colspan="6" class="text-center py-4 text-muted fw-bold">
+                                                                    No bartender token activity recorded in selected timeframe.
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var bm in bMetrics)
+                                                            {
+                                                                <tr>
+                                                                    <td class="ps-4 py-2.5 fw-black text-dark">
+                                                                        <i class="bi bi-person-circle text-primary me-2"></i>@bm.BartenderName.ToUpper()
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 fw-bold text-success">
+                                                                        +@bm.Sold
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 text-muted fw-bold">
+                                                                        @bm.CashCollected.ToString("C")
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 fw-bold text-danger">
+                                                                        -@bm.Redeemed
+                                                                    </td>
+                                                                    <td class="text-center py-2.5 text-muted fw-bold">
+                                                                        @bm.MenuValueRedeemed.ToString("C")
+                                                                    </td>
+                                                                    <td class="pe-4 text-end py-2.5">
+                                                                        <span class="badge @(bm.NetBalance >= 0 ? "bg-success-subtle text-success border-success-subtle" : "bg-danger-subtle text-danger border-danger-subtle") border fw-black px-2.5 py-1">
+                                                                            @(bm.NetBalance > 0 ? $"+{bm.NetBalance}" : $"{bm.NetBalance}")
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
 
                                 <!-- 1. TOKEN SALES BREAKDOWN TABLE (FULL WIDTH) -->
                                 <div class="card border shadow-sm rounded-4 flex-shrink-0">
@@ -3914,6 +4107,19 @@
                                         <option value="@y">@y</option>
                                     }
                                 </select>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (ActiveTab == "INVENTORY" && _inventorySubTab == "reorder")
+                {
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">7-DAY REORDER ENGINE</label>
+                        <div class="p-3 bg-light rounded-4 border text-center shadow-sm">
+                            <i class="bi bi-clock-history fs-3 text-primary d-block mb-1"></i>
+                            <div class="fw-black text-dark x-small text-uppercase">Automated 7-Day Model</div>
+                            <div class="text-muted extra-small mt-2" style="font-size: 0.72rem; line-height: 1.35;">
+                                The Reorder Predictor evaluates continuous 30-day velocity and seasonal YoY demand to calculate 7-day inventory supply requirements.
                             </div>
                         </div>
                     </div>
@@ -6086,7 +6292,7 @@
         else if (tab == "TOKENS")
         {
             await Task.Delay(100);
-            await RenderTokenFlowChart();
+            await RefreshActiveTokenChart();
         }
         else if (tab == "REVENUE")
         {
@@ -7073,12 +7279,22 @@
                 break;
         }
         await LoadSales();
+        if (ActiveTab == "TOKENS")
+        {
+            await Task.Delay(50);
+            await RefreshActiveTokenChart();
+        }
     }
 
     private async Task OnShiftFilterChanged()
     {
         TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
+        if (ActiveTab == "TOKENS")
+        {
+            await Task.Delay(50);
+            await RefreshActiveTokenChart();
+        }
     }
 
     private async Task ClearShiftFilter()
@@ -7087,6 +7303,11 @@
         SelectedZReport = null;
         TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
+        if (ActiveTab == "TOKENS")
+        {
+            await Task.Delay(50);
+            await RefreshActiveTokenChart();
+        }
     }
 
     private async Task SelectShiftFilter(Guid shiftId)
@@ -7101,6 +7322,11 @@
         }
         TokenFilterMode = "FILTERED_DATES";
         await LoadSales();
+        if (ActiveTab == "TOKENS")
+        {
+            await Task.Delay(50);
+            await RefreshActiveTokenChart();
+        }
     }
 
     private async Task OnDateManualChanged()
@@ -7110,6 +7336,11 @@
         FilterShiftValue = "";
         SelectedZReport = null;
         await LoadSales();
+        if (ActiveTab == "TOKENS")
+        {
+            await Task.Delay(50);
+            await RefreshActiveTokenChart();
+        }
     }
 
     private void GenerateSummary()
@@ -7203,6 +7434,7 @@
     public class TokenUsageEntry {
         public string DrinkName { get; set; } = "";
         public string TokenName { get; set; } = "";
+        public string BartenderName { get; set; } = "";
         public int Quantity { get; set; }
         public decimal MenuPrice { get; set; }
         public decimal TokenSalePrice { get; set; }
@@ -7215,10 +7447,32 @@
     public class TokenSaleRecord {
         public string ItemName { get; set; } = "";
         public string TerminalName { get; set; } = "";
+        public string BartenderName { get; set; } = "";
         public int Quantity { get; set; }
         public decimal UnitPrice { get; set; }
         public decimal TotalCash => UnitPrice * Quantity;
         public DateTime Timestamp { get; set; }
+    }
+
+    public class BartenderTokenMetric
+    {
+        public string BartenderName { get; set; } = "";
+        public int Sold { get; set; }
+        public decimal CashCollected { get; set; }
+        public int Redeemed { get; set; }
+        public decimal MenuValueRedeemed { get; set; }
+        public int NetBalance => Sold - Redeemed;
+    }
+
+    public class ProductTokenFlowMetric
+    {
+        public string ProductName { get; set; } = "";
+        public string TokenCategory { get; set; } = "";
+        public int TokensSoldQty { get; set; }
+        public decimal CashCollected { get; set; }
+        public int TokensRedeemedQty { get; set; }
+        public bool IsGenericToken { get; set; }
+        public int NetBalance => TokensSoldQty - TokensRedeemedQty;
     }
 
     private string LeftTokenPanelMode = "REDEMPTIONS"; // "REDEMPTIONS" or "SALES"
@@ -7625,16 +7879,16 @@
                     await InvokeAsync(async () => await RenderVelocityMovementChart());
                 });
             }
-            else if (ActiveTab == "TOKENS")
-            {
-                _ = Task.Run(async () => {
-                    await Task.Delay(150);
-                    await InvokeAsync(async () => await RenderTokenFlowChart());
-                });
-            }
             
             try {
                 await CalculateTokenAnalysis(db);
+                if (ActiveTab == "TOKENS")
+                {
+                    _ = Task.Run(async () => {
+                        await Task.Delay(100);
+                        await InvokeAsync(async () => await RefreshActiveTokenChart());
+                    });
+                }
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in CalculateTokenAnalysis: " + ex.Message, ex);
             }
@@ -8020,8 +8274,238 @@
         using var db = DbFactory.CreateDbContext();
         await CalculateTokenAnalysis(db);
         await Task.Delay(100);
-        await RenderTokenFlowChart();
+        await RefreshActiveTokenChart();
         StateHasChanged();
+    }
+
+    private string _tokenChartViewMode = "TOKEN_TYPE"; // "TOKEN_TYPE", "BARTENDER", or "DRINK_SPREAD"
+
+    private async Task SetTokenChartViewMode(string mode)
+    {
+        _tokenChartViewMode = mode;
+        StateHasChanged();
+        await Task.Delay(50);
+        await RefreshActiveTokenChart();
+    }
+
+    private async Task RefreshActiveTokenChart()
+    {
+        if (ActiveTab != "TOKENS") return;
+        if (_tokenChartViewMode == "BARTENDER")
+        {
+            await RenderBartenderTokenChart();
+        }
+        else if (_tokenChartViewMode == "DRINK_SPREAD")
+        {
+            await RenderProductTokenFlowChart();
+        }
+        else
+        {
+            await RenderTokenFlowChart();
+        }
+    }
+
+    private List<BartenderTokenMetric> GetBartenderTokenMetrics()
+    {
+        var dict = new Dictionary<string, BartenderTokenMetric>(StringComparer.OrdinalIgnoreCase);
+
+        // Seed all known active staff so every roster bartender appears
+        if (_allSalesForStats != null && _allSalesForStats.Any())
+        {
+            foreach (var bName in _allSalesForStats.Select(s => s.BartenderName).Where(b => !string.IsNullOrWhiteSpace(b)).Distinct())
+            {
+                var clean = bName!.Trim();
+                if (!dict.ContainsKey(clean)) dict[clean] = new BartenderTokenMetric { BartenderName = clean };
+            }
+        }
+        if (ZReports != null && ZReports.Any())
+        {
+            foreach (var bName in ZReports.Select(z => z.BartenderName).Where(b => !string.IsNullOrWhiteSpace(b)).Distinct())
+            {
+                var clean = bName!.Trim();
+                if (!dict.ContainsKey(clean)) dict[clean] = new BartenderTokenMetric { BartenderName = clean };
+            }
+        }
+
+        foreach (var s in TokenSalesList)
+        {
+            var name = string.IsNullOrWhiteSpace(s.BartenderName) ? "Unassigned" : s.BartenderName.Trim();
+            if (!dict.TryGetValue(name, out var metric))
+            {
+                metric = new BartenderTokenMetric { BartenderName = name };
+                dict[name] = metric;
+            }
+            metric.Sold += s.Quantity;
+            metric.CashCollected += s.TotalCash;
+        }
+
+        foreach (var u in TokenUsages)
+        {
+            var name = string.IsNullOrWhiteSpace(u.BartenderName) ? "Unassigned" : u.BartenderName.Trim();
+            if (!dict.TryGetValue(name, out var metric))
+            {
+                metric = new BartenderTokenMetric { BartenderName = name };
+                dict[name] = metric;
+            }
+            metric.Redeemed += u.Quantity;
+            metric.MenuValueRedeemed += u.MenuPrice * u.Quantity;
+        }
+
+        return dict.Values
+            .OrderByDescending(x => x.Sold + x.Redeemed)
+            .ThenBy(x => x.BartenderName)
+            .ToList();
+    }
+
+    private (string ProductName, string TokenCategory, bool IsGeneric) ParseTokenSaleItem(string rawName)
+    {
+        if (string.IsNullOrWhiteSpace(rawName)) return ("Generic Token", "Generic Token", true);
+        
+        string clean = rawName.Trim();
+        if (clean.StartsWith("> ")) clean = clean.Substring(2).Trim();
+        
+        clean = clean.Replace("(TOKEN SALE)", "", StringComparison.OrdinalIgnoreCase)
+                     .Replace("(DARTS)", "", StringComparison.OrdinalIgnoreCase)
+                     .Trim();
+
+        int firstParen = clean.IndexOf('(');
+        int lastParen = clean.LastIndexOf(')');
+        if (firstParen != -1 && lastParen > firstParen)
+        {
+            string tokenPart = clean.Substring(0, firstParen).Trim();
+            string drinkPart = clean.Substring(firstParen + 1, lastParen - firstParen - 1).Trim();
+            
+            if (!string.IsNullOrWhiteSpace(drinkPart))
+            {
+                return (CleanProductName(drinkPart), string.IsNullOrWhiteSpace(tokenPart) ? "Specific Drink Token" : tokenPart, false);
+            }
+        }
+
+        var upper = clean.ToUpper();
+        bool isGeneric = upper.Contains("BEER TOKEN") || upper.Contains("DRINK TOKEN") || upper.Contains("LIQUOR TOKEN") || upper == "TOKEN" || upper == "TOKENS";
+        string category = isGeneric ? (upper.Contains("BEER") ? "Generic Beer Token" : "Generic Mixed Drink Token") : "Specific Drink Token";
+        
+        return (clean, category, isGeneric);
+    }
+
+    private List<ProductTokenFlowMetric> GetProductTokenFlowMetrics()
+    {
+        var dict = new Dictionary<string, ProductTokenFlowMetric>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. Tokens Sold (Generic Beer / Mixed Drink tokens + Tokens sold for specific drinks)
+        foreach (var s in TokenSalesList)
+        {
+            var (prodName, catName, isGen) = ParseTokenSaleItem(s.ItemName);
+
+            if (!dict.TryGetValue(prodName, out var metric))
+            {
+                metric = new ProductTokenFlowMetric
+                {
+                    ProductName = prodName,
+                    IsGenericToken = isGen,
+                    TokenCategory = catName
+                };
+                dict[prodName] = metric;
+            }
+            metric.TokensSoldQty += s.Quantity;
+            metric.CashCollected += s.TotalCash;
+        }
+
+        // 2. Tokens Redeemed per Product (which drink was handed out for a token)
+        foreach (var u in TokenUsages)
+        {
+            var dName = CleanProductName(u.DrinkName);
+            if (string.IsNullOrWhiteSpace(dName)) continue;
+
+            var upper = dName.ToUpper();
+            bool isGeneric = upper.Contains("BEER TOKEN") || upper.Contains("DRINK TOKEN") || upper.Contains("LIQUOR TOKEN") || upper == "TOKEN" || upper == "TOKENS";
+            string category = isGeneric ? (upper.Contains("BEER") ? "Generic Beer Token" : "Generic Mixed Drink Token") : "Specific Drink";
+
+            if (!dict.TryGetValue(dName, out var metric))
+            {
+                metric = new ProductTokenFlowMetric
+                {
+                    ProductName = dName,
+                    IsGenericToken = isGeneric,
+                    TokenCategory = category
+                };
+                dict[dName] = metric;
+            }
+            metric.TokensRedeemedQty += u.Quantity;
+        }
+
+        return dict.Values
+            .OrderByDescending(x => x.TokensSoldQty + x.TokensRedeemedQty)
+            .ThenBy(x => x.ProductName)
+            .ToList();
+    }
+
+    private async Task RenderProductTokenFlowChart()
+    {
+        if (ActiveTab != "TOKENS") return;
+
+        var metrics = GetProductTokenFlowMetrics().Where(x => x.TokensSoldQty > 0 || x.TokensRedeemedQty > 0).ToList();
+        var labels = metrics.Select(x => x.ProductName.ToUpper()).ToArray();
+        var tokensSoldData = metrics.Select(x => x.TokensSoldQty).ToArray();
+        var tokensRedeemedData = metrics.Select(x => x.TokensRedeemedQty).ToArray();
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('productTokenFlowChart');
+                    if (el && window.Chart) {
+                        var chart = window.Chart.getChart(el);
+                        if (chart) { try { chart.destroy(); } catch(e){} }
+                    }
+                })()
+            ");
+            await Task.Delay(20);
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderProductTokenFlowChart", "productTokenFlowChart", new {
+                labels,
+                tokensSoldData,
+                tokensRedeemedData
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error rendering product token flow chart: " + ex.Message);
+        }
+    }
+
+    private async Task RenderBartenderTokenChart()
+    {
+        if (ActiveTab != "TOKENS") return;
+
+        var metrics = GetBartenderTokenMetrics();
+        var labels = metrics.Select(x => x.BartenderName.ToUpper()).ToArray();
+        var soldData = metrics.Select(x => x.Sold).ToArray();
+        var redeemedData = metrics.Select(x => x.Redeemed).ToArray();
+        var netData = metrics.Select(x => x.NetBalance).ToArray();
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('bartenderTokenChart');
+                    if (el && window.Chart) {
+                        var chart = window.Chart.getChart(el);
+                        if (chart) { try { chart.destroy(); } catch(e){} }
+                    }
+                })()
+            ");
+            await Task.Delay(20);
+            await JSRuntime.InvokeVoidAsync("inventoryCharts.renderBartenderTokenChart", "bartenderTokenChart", new {
+                labels,
+                soldData,
+                redeemedData,
+                netData
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error rendering bartender token chart: " + ex.Message);
+        }
     }
 
     private async Task RenderTokenFlowChart()
@@ -8332,11 +8816,11 @@
 
                     string rawName = item.Name ?? "";
                     if (rawName.StartsWith("> ")) rawName = rawName.Substring(2).Trim();
-                    string cleanSaleName = rawName.Contains("(TOKEN SALE)") ? rawName.Replace("(TOKEN SALE)", "").Trim() : CleanProductName(rawName);
 
                     TokenSalesList.Add(new TokenSaleRecord {
-                        ItemName = cleanSaleName,
+                        ItemName = rawName,
                         TerminalName = sale.TerminalName ?? "POS Station",
+                        BartenderName = string.IsNullOrWhiteSpace(sale.BartenderName) ? "Unassigned" : sale.BartenderName.Trim(),
                         Quantity = item.Quantity,
                         UnitPrice = item.Price,
                         Timestamp = sale.Timestamp
@@ -8420,6 +8904,7 @@
                                 var usage = new TokenUsageEntry {
                                     DrinkName = drinkName,
                                     TokenName = match.Name,
+                                    BartenderName = string.IsNullOrWhiteSpace(sale.BartenderName) ? "Unassigned" : sale.BartenderName.Trim(),
                                     MenuPrice = item.Category == "TOKEN_CREDIT" ? valueOfRedemption : menuPrice,
                                     TokenSalePrice = exactTokenPrice,
                                     IsUpgrade = item.Category == "TOKEN_CREDIT",
@@ -9426,22 +9911,28 @@
             }
         }
 
-        // Calculate Trailing 30D and YoY Sales from historical sales cache if available
-        if (_allSalesForStats != null && _allSalesForStats.Any())
+        // Calculate Trailing 30D and YoY Sales from historical sales database
+        try
         {
+            using var db = DbFactory.CreateDbContext();
             var thirtyDaysAgo = DateTime.Today.AddDays(-30);
-            var recentSales = _allSalesForStats.Where(s => s.Timestamp >= thirtyDaysAgo).ToList();
-            foreach (var sale in recentSales)
+            var recentSales = db.PosSales.AsNoTracking()
+                .Where(s => s.Timestamp >= thirtyDaysAgo && !s.IsVoided && (!s.ActiveEventId.HasValue || s.ActiveEventId.Value <= 0) && s.PaymentType != "DEPOSIT")
+                .Select(s => s.ItemsJson)
+                .ToList();
+
+            foreach (var itemsJson in recentSales)
             {
-                var items = GetItemsList(sale.ItemsJson);
+                var items = GetItemsList(itemsJson);
                 foreach (var sItem in items)
                 {
                     var cleanName = CleanProductName(sItem.Name);
-                    var matchedDbItem = DbLiquorItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
-                    if (matchedDbItem != null && matchedDbItem.ParentItemId.HasValue)
+                    if (liquorByName.TryGetValue(cleanName, out var matchedDbItem) && matchedDbItem.ParentItemId.HasValue)
                     {
-                        var parentItem = DbLiquorItems.FirstOrDefault(p => p.Id == matchedDbItem.ParentItemId.Value);
-                        if (parentItem != null) cleanName = parentItem.Name.Trim();
+                        if (liquorById.TryGetValue(matchedDbItem.ParentItemId.Value, out var parentItem))
+                        {
+                            cleanName = parentItem.Name.Trim();
+                        }
                     }
 
                     if (dict.TryGetValue(cleanName, out var metric))
@@ -9453,18 +9944,23 @@
 
             var lastYearStart = new DateTime(DateTime.Today.Year - 1, DateTime.Today.Month, 1);
             var lastYearEnd = lastYearStart.AddMonths(1).AddDays(-1);
-            var yoySales = _allSalesForStats.Where(s => s.Timestamp >= lastYearStart && s.Timestamp <= lastYearEnd).ToList();
-            foreach (var sale in yoySales)
+            var yoySales = db.PosSales.AsNoTracking()
+                .Where(s => s.Timestamp >= lastYearStart && s.Timestamp <= lastYearEnd && !s.IsVoided && (!s.ActiveEventId.HasValue || s.ActiveEventId.Value <= 0) && s.PaymentType != "DEPOSIT")
+                .Select(s => s.ItemsJson)
+                .ToList();
+
+            foreach (var itemsJson in yoySales)
             {
-                var items = GetItemsList(sale.ItemsJson);
+                var items = GetItemsList(itemsJson);
                 foreach (var sItem in items)
                 {
                     var cleanName = CleanProductName(sItem.Name);
-                    var matchedDbItem = DbLiquorItems.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
-                    if (matchedDbItem != null && matchedDbItem.ParentItemId.HasValue)
+                    if (liquorByName.TryGetValue(cleanName, out var matchedDbItem) && matchedDbItem.ParentItemId.HasValue)
                     {
-                        var parentItem = DbLiquorItems.FirstOrDefault(p => p.Id == matchedDbItem.ParentItemId.Value);
-                        if (parentItem != null) cleanName = parentItem.Name.Trim();
+                        if (liquorById.TryGetValue(matchedDbItem.ParentItemId.Value, out var parentItem))
+                        {
+                            cleanName = parentItem.Name.Trim();
+                        }
                     }
 
                     if (dict.TryGetValue(cleanName, out var metric))
@@ -9473,6 +9969,10 @@
                     }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error computing 30D / YoY sales in BuildProductAuditMetrics: {ex.Message}");
         }
 
         // Compute exact LastSoldDate for each product metric from cached sales history

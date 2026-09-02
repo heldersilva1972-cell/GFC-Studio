@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
 using MimeKit;
+using Microsoft.EntityFrameworkCore;
+using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 
 namespace GFC.BlazorServer.Services
 {
@@ -32,10 +37,11 @@ namespace GFC.BlazorServer.Services
     public class LotteryEmailService
     {
         private readonly string _settingsFilePath;
+        private readonly IDbContextFactory<GfcDbContext>? _dbFactory;
 
-        public LotteryEmailService()
+        public LotteryEmailService(IDbContextFactory<GfcDbContext>? dbFactory = null)
         {
-            // Save in App_Data/lottery-email-settings.json within Blazor app root
+            _dbFactory = dbFactory;
             var appDataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data");
             if (!Directory.Exists(appDataDir))
             {
@@ -46,6 +52,42 @@ namespace GFC.BlazorServer.Services
 
         public LotteryEmailSettings LoadSettings()
         {
+            // 1. Try loading from Database first
+            if (_dbFactory != null)
+            {
+                try
+                {
+                    using var db = _dbFactory.CreateDbContext();
+                    var sys = db.SystemSettings.AsNoTracking().FirstOrDefault();
+                    if (sys != null && (!string.IsNullOrEmpty(sys.LotteryEmailAddress) || !string.IsNullOrEmpty(sys.LotteryEmailAppPassword) || sys.LotteryAutoSyncEnabled))
+                    {
+                        return new LotteryEmailSettings
+                        {
+                            EmailAddress = sys.LotteryEmailAddress ?? string.Empty,
+                            AppPassword = sys.LotteryEmailAppPassword ?? string.Empty,
+                            SenderAddress = sys.LotteryEmailSender ?? string.Empty,
+                            SubjectKeyword = sys.LotteryEmailSubjectKeyword ?? "Lottery",
+                            DailyGmailLabel = sys.LotteryDailyGmailLabel ?? "INBOX",
+                            WeeklyGmailLabel = sys.LotteryWeeklyGmailLabel ?? "INBOX",
+                            AutoSyncEnabled = sys.LotteryAutoSyncEnabled,
+                            AutoCommitEnabled = sys.LotteryAutoCommitEnabled,
+                            DownloadWeeklyEnabled = sys.LotteryDownloadWeeklyEnabled,
+                            DownloadDailyEnabled = sys.LotteryDownloadDailyEnabled,
+                            IncludeReadEmails = sys.LotteryIncludeReadEmails,
+                            SyncIntervalHours = sys.LotterySyncIntervalHours > 0 ? sys.LotterySyncIntervalHours : 6,
+                            LastSyncTime = sys.LotteryLastSyncTime,
+                            LastSyncStatus = sys.LotteryLastSyncStatus,
+                            LastSyncFileCount = sys.LotteryLastSyncFileCount
+                        };
+                    }
+                }
+                catch
+                {
+                    // Fallback to JSON file if DB is not yet migrated or fails
+                }
+            }
+
+            // 2. Fallback to JSON file
             try
             {
                 if (File.Exists(_settingsFilePath))
@@ -63,13 +105,56 @@ namespace GFC.BlazorServer.Services
 
         public void SaveSettings(LotteryEmailSettings settings)
         {
-            var appDataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data");
-            if (!Directory.Exists(appDataDir))
+            // 1. Persist to Database
+            if (_dbFactory != null)
             {
-                Directory.CreateDirectory(appDataDir);
+                try
+                {
+                    using var db = _dbFactory.CreateDbContext();
+                    var sys = db.SystemSettings.FirstOrDefault();
+                    if (sys == null)
+                    {
+                        sys = new SystemSettings { Id = 1 };
+                        db.SystemSettings.Add(sys);
+                    }
+
+                    sys.LotteryEmailAddress = settings.EmailAddress;
+                    sys.LotteryEmailAppPassword = settings.AppPassword;
+                    sys.LotteryEmailSender = settings.SenderAddress;
+                    sys.LotteryEmailSubjectKeyword = settings.SubjectKeyword;
+                    sys.LotteryDailyGmailLabel = settings.DailyGmailLabel;
+                    sys.LotteryWeeklyGmailLabel = settings.WeeklyGmailLabel;
+                    sys.LotteryAutoSyncEnabled = settings.AutoSyncEnabled;
+                    sys.LotteryAutoCommitEnabled = settings.AutoCommitEnabled;
+                    sys.LotteryDownloadWeeklyEnabled = settings.DownloadWeeklyEnabled;
+                    sys.LotteryDownloadDailyEnabled = settings.DownloadDailyEnabled;
+                    sys.LotteryIncludeReadEmails = settings.IncludeReadEmails;
+                    sys.LotterySyncIntervalHours = settings.SyncIntervalHours;
+                    sys.LotteryLastSyncTime = settings.LastSyncTime;
+                    sys.LotteryLastSyncStatus = settings.LastSyncStatus;
+                    sys.LotteryLastSyncFileCount = settings.LastSyncFileCount;
+                    sys.LastUpdatedUtc = DateTime.UtcNow;
+
+                    db.SaveChanges();
+                }
+                catch
+                {
+                    // Fallback to file write below
+                }
             }
-            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_settingsFilePath, json);
+
+            // 2. Also save to JSON file as local backup/cache
+            try
+            {
+                var appDataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "App_Data");
+                if (!Directory.Exists(appDataDir))
+                {
+                    Directory.CreateDirectory(appDataDir);
+                }
+                var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_settingsFilePath, json);
+            }
+            catch { }
         }
 
         public async Task<List<EmailAttachmentFile>> FetchLotteryReportsAsync(
@@ -145,15 +230,16 @@ namespace GFC.BlazorServer.Services
                 // For dedicated Gmail labels or if IncludeReadEmails is enabled, scan ALL messages (read + unread)
                 SearchQuery query = (isDedicatedLabel || settings.IncludeReadEmails) ? SearchQuery.All : SearchQuery.NotSeen;
 
-                // Only filter by sender address if scanning generic INBOX and sender address is explicitly provided
-                if (!isDedicatedLabel && !string.IsNullOrWhiteSpace(settings.SenderAddress) && settings.SenderAddress != "reports@lottery.com")
+                // Filter by sender address if provided
+                if (!string.IsNullOrWhiteSpace(settings.SenderAddress) && !settings.SenderAddress.Equals("reports@lottery.com", StringComparison.OrdinalIgnoreCase))
                 {
                     query = query.And(SearchQuery.FromContains(settings.SenderAddress.Trim()));
                 }
 
-                if (!string.IsNullOrEmpty(settings.SubjectKeyword) && !isDedicatedLabel)
+                // Filter by subject keyword if provided
+                if (!string.IsNullOrWhiteSpace(settings.SubjectKeyword))
                 {
-                    query = query.And(SearchQuery.SubjectContains(settings.SubjectKeyword));
+                    query = query.And(SearchQuery.SubjectContains(settings.SubjectKeyword.Trim()));
                 }
 
                 progress?.Report($"Searching '{folderName}' for matching messages...");

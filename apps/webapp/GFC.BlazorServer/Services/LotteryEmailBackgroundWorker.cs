@@ -104,7 +104,7 @@ namespace GFC.BlazorServer.Services
 
                 if (settings.AutoCommitEnabled)
                 {
-                    _logger.LogInformation("Auto-Commit is enabled. Automatically committing staged reports to SQL Server...");
+                    _logger.LogInformation("Auto-Commit is enabled. Automatically committing staged weekly invoice reports to SQL Server...");
                     try
                     {
                         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<GfcDbContext>>();
@@ -112,11 +112,29 @@ namespace GFC.BlazorServer.Services
 
                         foreach (var file in fetchedFiles)
                         {
-                            bool isWeekly = file.Content.Contains("Gross Sales") || file.Content.Contains("Return Sales") || file.Content.Contains("Commission") || file.Content.Contains("TOTAL DUE");
+                            // Strictly identify Weekly Invoice Reports (must contain TOTAL DUE and INSTANT/ONLINE, or filename has Invoice/Weekly)
+                            bool isWeekly = (file.FileName.Contains("Invoice", StringComparison.OrdinalIgnoreCase) || 
+                                             file.FileName.Contains("Weekly", StringComparison.OrdinalIgnoreCase) ||
+                                             file.Content.Contains("TOTAL DUE:", StringComparison.OrdinalIgnoreCase)) &&
+                                            (file.Content.Contains("INSTANT", StringComparison.OrdinalIgnoreCase) || 
+                                             file.Content.Contains("ONLINE", StringComparison.OrdinalIgnoreCase));
+
                             if (isWeekly)
                             {
                                 var weeklyStat = ParseWeeklyContent(file.FileName, file.Content);
-                                var existing = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(db.LotteryWeeklyStats, w => w.WeekEndingDate.Date == weeklyStat.WeekEndingDate.Date, stoppingToken);
+                                
+                                // Guard against empty / unparseable zero records
+                                if (weeklyStat == null || (weeklyStat.TotalDue == 0 && weeklyStat.OnlineNetSales == 0 && weeklyStat.InstantGrossSales == 0))
+                                {
+                                    _logger.LogWarning("Skipping auto-commit for {FileName}: parsed values are zero or format is invalid.", file.FileName);
+                                    continue;
+                                }
+
+                                var existing = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+                                    db.LotteryWeeklyStats, 
+                                    w => w.WeekEndingDate.Date == weeklyStat.WeekEndingDate.Date, 
+                                    stoppingToken);
+
                                 if (existing != null)
                                 {
                                     existing.OnlineNetSales = weeklyStat.OnlineNetSales;
@@ -148,6 +166,7 @@ namespace GFC.BlazorServer.Services
                                     await db.LotteryWeeklyStats.AddAsync(weeklyStat, stoppingToken);
                                 }
                                 await db.SaveChangesAsync(stoppingToken);
+                                _logger.LogInformation("Successfully committed weekly lottery report for week ending {WeekEndingDate:yyyy-MM-dd}.", weeklyStat.WeekEndingDate);
 
                                 // Clean up file from staging
                                 var filePath = Path.Combine(stagedDir, file.FileName);
@@ -173,46 +192,108 @@ namespace GFC.BlazorServer.Services
             emailService.SaveSettings(settings);
         }
 
-        private GFC.Core.Models.LotteryWeeklyStat ParseWeeklyContent(string fileName, string csvContent)
+        private GFC.Core.Models.LotteryWeeklyStat? ParseWeeklyContent(string fileName, string csvContent)
         {
+            if (string.IsNullOrWhiteSpace(csvContent)) return null;
+
             var stat = new GFC.Core.Models.LotteryWeeklyStat();
+            
+            // 1. Resolve true WeekEndingDate from filename or content
+            var fnMatch = System.Text.RegularExpressions.Regex.Match(fileName, @"_(\d{2})(\d{2})(\d{4})\.[Cc][Ss][Vv]$");
+            if (fnMatch.Success && 
+                int.TryParse(fnMatch.Groups[1].Value, out var month) &&
+                int.TryParse(fnMatch.Groups[2].Value, out var day) &&
+                int.TryParse(fnMatch.Groups[3].Value, out var year))
+            {
+                try
+                {
+                    // Sunday invoice date -> Saturday week ending date
+                    stat.WeekEndingDate = new DateTime(year, month, day).AddDays(-1);
+                }
+                catch { stat.WeekEndingDate = DateTime.Today; }
+            }
+            else
+            {
+                // Fallback: search within text "From ... to MM/dd/yyyy"
+                var toMatch = System.Text.RegularExpressions.Regex.Match(csvContent, @"to\s+(\d{1,2}/\d{1,2}/\d{4})");
+                if (toMatch.Success && DateTime.TryParse(toMatch.Groups[1].Value, out var parsedDate))
+                {
+                    stat.WeekEndingDate = parsedDate;
+                }
+                else
+                {
+                    stat.WeekEndingDate = DateTime.Today;
+                }
+            }
+
             var lines = csvContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+
             for (int i = 0; i < lines.Length; i++)
             {
-                var cols = lines[i].Split(',');
+                var line = lines[i];
+                var cols = SplitCsvLine(line);
                 if (cols.Length == 0) continue;
+
                 var firstCol = cols[0].Trim().ToUpperInvariant();
+
                 if (firstCol == "INSTANT" && i + 1 < lines.Length)
                 {
-                    var dataCols = lines[i + 1].Split(',');
+                    var dataCols = SplitCsvLine(lines[i + 1]);
                     if (dataCols.Length > 1) stat.InstantGrossSales = ParseCurrency(dataCols[1]);
                     if (dataCols.Length > 2) stat.InstantReturnSales = ParseCurrency(dataCols[2]);
                     if (dataCols.Length > 3) stat.InstantCommission = ParseCurrency(dataCols[3]);
                     if (dataCols.Length > 4) stat.InstantCashes = ParseCurrency(dataCols[4]);
+                    if (dataCols.Length > 5) stat.InstantCashBonus = ParseCurrency(dataCols[5]);
+                    if (dataCols.Length > 6) stat.InstantClaimsBonus = ParseCurrency(dataCols[6]);
+                    if (dataCols.Length > 7) stat.InstantAdjustments = ParseCurrency(dataCols[7]);
                     if (dataCols.Length > 10) stat.InstantDue = ParseCurrency(dataCols[10]);
                 }
                 else if (firstCol == "ONLINE" && i + 1 < lines.Length)
                 {
-                    var dataCols = lines[i + 1].Split(',');
+                    var dataCols = SplitCsvLine(lines[i + 1]);
                     if (dataCols.Length > 1) stat.OnlineNetSales = ParseCurrency(dataCols[1]);
                     if (dataCols.Length > 3) stat.OnlineCommission = ParseCurrency(dataCols[3]);
                     if (dataCols.Length > 4) stat.OnlineCashes = ParseCurrency(dataCols[4]);
+                    if (dataCols.Length > 5) stat.OnlineCashBonus = ParseCurrency(dataCols[5]);
+                    if (dataCols.Length > 6) stat.OnlineClaimsBonus = ParseCurrency(dataCols[6]);
+                    if (dataCols.Length > 7) stat.OnlineAdjustments = ParseCurrency(dataCols[7]);
+                    if (dataCols.Length > 8) stat.OnlineServiceFee = ParseCurrency(dataCols[8]);
+                    if (dataCols.Length > 9) stat.OnlineBondingFee = ParseCurrency(dataCols[9]);
                     if (dataCols.Length > 10) stat.OnlineDue = ParseCurrency(dataCols[10]);
                 }
-                else if (lines[i].Contains("TOTAL DUE:"))
+                else if (line.Contains("TOTAL DUE:", StringComparison.OrdinalIgnoreCase))
                 {
                     if (cols.Length > 10) stat.TotalDue = ParseCurrency(cols[10]);
                 }
             }
-            if (stat.TotalDue == 0) stat.TotalDue = stat.OnlineDue + stat.InstantDue;
-            stat.WeekEndingDate = DateTime.Now;
+
+            if (stat.TotalDue == 0)
+            {
+                stat.TotalDue = stat.OnlineDue + stat.InstantDue;
+            }
+
             return stat;
+        }
+
+        private string[] SplitCsvLine(string line)
+        {
+            var pattern = ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
+            var parts = System.Text.RegularExpressions.Regex.Split(line, pattern);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                parts[i] = parts[i].Trim('"', ' ');
+            }
+            return parts;
         }
 
         private decimal ParseCurrency(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return 0;
             var clean = text.Replace("$", "").Replace(",", "").Trim();
+            if (clean.StartsWith("(") && clean.EndsWith(")"))
+            {
+                clean = "-" + clean.Substring(1, clean.Length - 2);
+            }
             decimal.TryParse(clean, out var result);
             return result;
         }
