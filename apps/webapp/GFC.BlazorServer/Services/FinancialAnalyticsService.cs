@@ -1028,9 +1028,6 @@ namespace GFC.BlazorServer.Services
                 {
                     var totalHours = userEntries.Sum(e => e.Hours);
 
-                    // Skip if they worked 0 hours
-                    if (totalHours <= 0) continue;
-
                     var defaultRate = user.HourlyRate ?? 0;
                     
                     decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
@@ -1152,6 +1149,11 @@ namespace GFC.BlazorServer.Services
                         else if (shiftsWithHours.Any())
                         {
                             dto.DailyShiftTypes[date] = shiftsWithHours.First().Shift;
+                        }
+                        else if (entryGroup.Any())
+                        {
+                            var firstEntry = entryGroup.First();
+                            dto.DailyShiftTypes[date] = firstEntry.IsHall ? "Hall" : firstEntry.Shift;
                         }
                     }
 

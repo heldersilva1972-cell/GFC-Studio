@@ -43,6 +43,7 @@ public interface IPosTerminalService
     Task<MemberDrawPoolDto?> GetMemberDrawPoolAsync();
     Task<MemberDrawStatusDto?> GetMemberDrawStatusAsync(int memberId);
     Task<List<LiquorItem>> GetLiquorInventoryAsync(bool force = false);
+    Task<EmployeeMonthlyShiftsDto?> GetEmployeeShiftsAsync(string username, int year, int month);
     bool IsTransactionInProgress { get; set; }
     Task<VersionCheckResult?> CheckForUpdatesApiAsync();
 }

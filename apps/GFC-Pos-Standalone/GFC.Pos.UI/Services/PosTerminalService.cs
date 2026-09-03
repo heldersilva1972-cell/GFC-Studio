@@ -1804,6 +1804,23 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         }
     }
 
+    public async Task<EmployeeMonthlyShiftsDto?> GetEmployeeShiftsAsync(string username, int year, int month)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"api/pos/employee-shifts?username={Uri.EscapeDataString(username)}&year={year}&month={month}");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<EmployeeMonthlyShiftsDto>(_jsonOptions);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error fetching employee shifts for {username}: {ex.Message}");
+        }
+        return null;
+    }
+
     public bool IsTransactionInProgress { get; set; } = false;
 
     public async Task<VersionCheckResult?> CheckForUpdatesApiAsync()

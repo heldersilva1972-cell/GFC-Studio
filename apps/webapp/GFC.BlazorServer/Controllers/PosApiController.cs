@@ -1496,6 +1496,66 @@ public class PosApiController : ControllerBase
             return StatusCode(500, "Internal Server Error");
         }
     }
+
+    [HttpGet("employee-shifts")]
+    public async Task<IActionResult> GetEmployeeShifts([FromQuery] string username, [FromQuery] int year, [FromQuery] int month)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var startDate = new DateTime(year, month, 1);
+            var endDate = startDate.AddMonths(1).AddDays(-1);
+
+            var entries = await db.BarSaleEntries.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => !e.IsDeleted &&
+                       (e.AdjustedSaleDate ?? e.SaleDate).Date >= startDate.Date &&
+                       (e.AdjustedSaleDate ?? e.SaleDate).Date <= endDate.Date &&
+                       (e.EmployeeUsername == username || e.CreatedBy == username || e.ModifiedBy == username) &&
+                       (e.TotalHours.HasValue && e.TotalHours.Value > 0))
+                .OrderBy(e => e.AdjustedSaleDate ?? e.SaleDate)
+                .ToListAsync();
+
+            var shifts = entries.Select(e => new EmployeeShiftItemDto
+            {
+                Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                DayOfWeek = (e.AdjustedSaleDate ?? e.SaleDate).Date.ToString("ddd"),
+                FormattedDate = (e.AdjustedSaleDate ?? e.SaleDate).Date.ToString("MM/dd/yyyy"),
+                ShiftType = e.Shift ?? "Day",
+                Location = (e.IsRentalHall || e.Shift == "Hall") ? "Hall" : (e.BarLocation ?? "Main"),
+                Hours = e.TotalHours ?? 0,
+                Notes = e.Notes
+            }).ToList();
+
+            var user = await db.AppUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+            Member? member = null;
+            if (user?.MemberId.HasValue == true)
+            {
+                member = await db.Members.AsNoTracking().FirstOrDefaultAsync(m => m.MemberID == user.MemberId.Value);
+            }
+            string displayName = member != null ? $"{member.FirstName} {member.LastName}".Trim() : username;
+
+            var result = new EmployeeMonthlyShiftsDto
+            {
+                Username = username,
+                DisplayName = displayName,
+                Month = month,
+                Year = year,
+                MonthName = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(month),
+                TotalDaysWorked = shifts.Select(s => s.Date).Distinct().Count(),
+                TotalShifts = shifts.Count,
+                TotalHours = shifts.Sum(s => s.Hours),
+                Shifts = shifts
+            };
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[POS API] Error retrieving employee shifts for {Username} in {Month}/{Year}", username, month, year);
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
+
     /// <summary>Minimal DTO for deserializing a single BeerTallyItem entry from the client's BeerTalliesJson.</summary>
     private class TallyEntry
     {

@@ -250,46 +250,64 @@
     }
 
     @@media print {
-        @@page { size: portrait; margin: 1cm; overflow: visible; }
-        
-        /* Hide ALL framework shell elements */
-        .app-topbar, .app-sidebar, .sidebar-overlay, .menu-toggle-btn, .theme-toggle, .desktop-actions, .app-badge, .badge, .btn-primary, .btn-light, .btn-white {
+        .no-print, .modal, .modal-backdrop, .hours-page, .glass-card, .app-topbar, .app-sidebar, .sidebar-overlay, nav, header, footer, .sidebar, #blazor-error-ui {
             display: none !important;
         }
 
-        /* Reset all layout containers to be plain blocks */
-        .app-shell, .app-main, .app-content, .content, .container-fluid, .hours-page, .glass-card {
+        /* Force parent layout containers to release so children can print */
+        .app-shell, .app-main, .app-content, .content, .container-fluid {
             display: block !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            background: white !important;
-            width: 100% !important;
-            max-width: none !important;
-            min-height: auto !important;
             overflow: visible !important;
-            float: none !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            background: white !important;
         }
 
-        /* Hide interactive controls and placeholders */
-        .no-print, nav, .sidebar, .period-selector, .search-box, .btn, .breadcrumb, .stat-card, footer, .main-header, .search-input, .settings-btn, .table-content-area, .spinner-border { 
-            display: none !important; 
+        /* Display the selected employee's monthly print sheet fitting on one page */
+        .employee-monthly-print-sheet {
+            display: block !important;
+            width: 100% !important;
+            background: white !important;
+            color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-size: 8.5pt !important;
+            line-height: 1.2 !important;
         }
-        
-        #blazor-error-ui { display: none !important; }
-        
-        /* Force display of the detailed report only */
-        .print-only-report { 
-            display: block !important; 
+
+        .employee-monthly-print-sheet table {
+            font-size: 8.5pt !important;
+            margin-bottom: 8px !important;
+        }
+
+        .employee-monthly-print-sheet th,
+        .employee-monthly-print-sheet td {
+            padding: 2.5px 5px !important;
+            vertical-align: middle !important;
+        }
+
+        .employee-monthly-print-sheet tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+        }
+
+        body, html {
+            height: auto !important;
             width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
-            visibility: visible !important;
+            background: white !important;
+        }
+
+        @@page {
+            size: letter portrait;
+            margin: 0.35in 0.4in;
         }
     }
 
-    .print-only-report { display: none; }
+    .employee-monthly-print-sheet { display: none; }
 
     /* Shift Badge Styling - Ultra Readable & Distinct */
     .shift-badge-day { 
@@ -376,7 +394,7 @@
     thead th.sticky-col { z-index: 10; background: #f8f9fa; }
 </style>
 
-<div class="hours-page">
+<div class="hours-page no-print">
     <div class="container-fluid max-width-1400 flex-grow-1 d-flex flex-column overflow-hidden">
         
         <!-- Header Section -->
@@ -410,14 +428,14 @@
                     {
                         @if (_viewMode == "Month")
                         {
-                            <select class="form-select border-0 shadow-sm rounded-3 me-2" @bind="_selectedMonth" @bind:after="LoadData">
+                            <select class="form-select border-0 shadow-sm rounded-3 me-2" style="min-width: 145px;" @bind="_selectedMonth" @bind:after="LoadData">
                                 @foreach (var m in Enumerable.Range(1, 12))
                                 {
                                     <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
                                 }
                             </select>
                         }
-                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedYear" @bind:after="LoadData">
+                        <select class="form-select border-0 shadow-sm rounded-3" style="min-width: 95px;" @bind="_selectedYear" @bind:after="LoadData">
                             @foreach (var year in _availableYears)
                             {
                                 <option value="@year">@year</option>
@@ -426,7 +444,7 @@
                     }
                     else if (_viewMode == "Week")
                     {
-                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedWeek" @bind:after="LoadData">
+                        <select class="form-select border-0 shadow-sm rounded-3" style="min-width: 200px;" @bind="_selectedWeek" @bind:after="LoadData">
                             @foreach (var week in _weekOptions)
                             {
                                 <option value="@week.Value">@week.Text</option>
@@ -456,8 +474,8 @@
                     </button>
                 }
 
-                <button class="btn btn-white shadow-sm rounded-3 btn-print border" @onclick="PrintReport">
-                    <i class="bi bi-printer me-2"></i> Print
+                <button class="btn btn-white shadow-sm rounded-3 btn-print border" @onclick="OpenPrintModal" title="Print monthly hours for an employee">
+                    <i class="bi bi-printer me-2"></i> Print Hours
                 </button>
             </div>
         </div>
@@ -521,79 +539,6 @@
                 <div class="search-box position-relative no-print" style="min-width: 300px;">
                     <i class="bi bi-search position-absolute text-muted" style="left: 1rem; top: 50%; transform: translateY(-50%);"></i>
                     <input type="text" class="search-input w-100 ps-5" placeholder="Search by name or username..." @bind="_searchQuery" @bind:event="oninput" />
-                </div>
-            </div>
-
-            <!-- PRINT ONLY REPORT HEADER -->
-            <div class="print-only-report">
-                <div class="d-flex justify-content-between align-items-center border-bottom pb-4 mb-4">
-                    <div>
-                        <h1 class="h2 fw-black mb-1">PAYROLL SUMMARY</h1>
-                        <div class="text-primary fw-bold fs-5">@(_selectedLocation == "All" ? "Complete Facility" : (_selectedLocation == "Main" ? "Downstairs Bar" : "Upstairs Bar")) Report</div>
-                        <div class="text-muted fw-bold mt-2">
-                            <i class="bi bi-calendar3 me-2"></i>
-                            @(_viewMode == "Month" ? $"{System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_selectedMonth)} {_selectedYear}" : $"{_startDate:MMM dd, yyyy} - {_endDate:MMM dd, yyyy}")
-                        </div>
-                    </div>
-                    <div class="text-end">
-                        <div class="small fw-black text-muted uppercase">GENERATED ON</div>
-                        <div class="fw-bold">@DateTime.Now.ToString("G")</div>
-                    </div>
-                </div>
-
-                <div class="row g-0 border rounded-4 overflow-hidden mb-4 bg-light">
-                    <div class="col-6 p-4 border-end text-center">
-                        <div class="x-small fw-black text-muted mb-1 text-uppercase">TOTAL HOURS</div>
-                        <div class="h3 fw-black mb-0">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</div>
-                        <div class="x-small text-muted opacity-75">Confirmed Labor</div>
-                    </div>
-                    <div class="col-6 p-4 bg-primary text-white text-center">
-                        <div class="x-small fw-black mb-1 text-uppercase opacity-75">GROSS PAYROLL</div>
-                        <div class="h2 fw-black mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</div>
-                        <div class="x-small text-muted opacity-75">Pre-Tax Estimated Total</div>
-                    </div>
-                </div>
-
-                <h6 class="fw-black text-uppercase border-bottom pb-2 mb-3" style="letter-spacing: 0.1rem;">EMPLOYEE LABOR BREAKDOWN</h6>
-                <table class="table table-bordered align-middle">
-                    <thead class="bg-light">
-                        <tr class="x-small fw-black text-uppercase">
-                            <th class="ps-3">Employee</th>
-                            <th class="text-center">Shifts</th>
-                            <th class="text-center">Hours</th>
-                            <th class="text-end pe-3">Gross Pay</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in FilteredData)
-                        {
-                            <tr>
-                                <td class="ps-3 py-1">
-                                    <div class="fw-bold text-dark small">@item.MemberName</div>
-                                </td>
-                                <td class="text-center py-1">
-                                    <span class="badge bg-light text-dark border small fw-bold">
-                                        @item.EntryCount @(item.EntryCount == 1 ? "SHIFT" : "SHIFTS")
-                                    </span>
-                                </td>
-                                <td class="text-center py-1 fw-bold">@item.TotalHours.ToString("N1")</td>
-                                <td class="text-end pe-3 py-1 fw-black">@item.TotalPay.ToString("C")</td>
-                            </tr>
-                        }
-                    </tbody>
-                    <tfoot class="bg-light fw-black">
-                        <tr>
-                            <td class="ps-3 py-1">TOTALS</td>
-                            <td class="text-center">-</td>
-                            <td class="text-center">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
-                            <td class="text-end pe-3">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
-                        </tr>
-                    </tfoot>
-                </table>
-
-                <div class="text-center mt-5 pt-5 x-small text-muted opacity-50 border-top">
-                    This report represents estimated labor costs based on recorded shifts and current hourly rates.<br/>
-                    End of Report - GFC Management System
                 </div>
             </div>
 
@@ -1029,20 +974,40 @@
                     <!-- Employee Picker -->
                     <div class="mb-3">
                         <label class="form-label small text-uppercase fw-bold text-muted">Employee</label>
-                        <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Username">
-                            <option value="">-- Select Employee --</option>
-                            @foreach (var user in allSystemUsers)
-                            {
-                                <option value="@user.Username">@GetUserDisplayName(user.Username) (@@@user.Username)</option>
-                            }
-                        </select>
+                        @if (_editingShift.IsEmployeeLocked)
+                        {
+                            <div class="input-group">
+                                <span class="input-group-text bg-light border-0 text-muted"><i class="bi bi-person-fill"></i></span>
+                                <input type="text" class="form-control bg-light fw-bold text-dark border-0 shadow-sm rounded-end-3" value="@(!string.IsNullOrWhiteSpace(_editingShift.MemberName) ? _editingShift.MemberName : GetUserDisplayName(_editingShift.Username))" readonly disabled />
+                            </div>
+                        }
+                        else
+                        {
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Username">
+                                <option value="">-- Select Employee --</option>
+                                @foreach (var user in allSystemUsers)
+                                {
+                                    <option value="@user.Username">@GetUserDisplayName(user.Username) (@@@user.Username)</option>
+                                }
+                            </select>
+                        }
                     </div>
 
                     <!-- Date & Shift Row -->
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <label class="form-label small text-uppercase fw-bold text-muted">Shift Date</label>
-                            <input type="date" class="form-control border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Date" />
+                            @if (_editingShift.IsDateLocked)
+                            {
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-0 text-muted"><i class="bi bi-calendar-event"></i></span>
+                                    <input type="text" class="form-control bg-light fw-bold text-dark border-0 shadow-sm rounded-end-3" value="@_editingShift.Date.ToString("ddd, MMM dd, yyyy")" readonly disabled />
+                                </div>
+                            }
+                            else
+                            {
+                                <input type="date" class="form-control border shadow-sm rounded-3 fw-bold" @bind="_editingShift.Date" />
+                            }
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small text-uppercase fw-bold text-muted">Shift Type</label>
@@ -1240,6 +1205,253 @@
 }
 
 
+<!-- ========================================================================= -->
+<!-- 5. PRINT MONTHLY HOURS SELECTION & PREVIEW MODAL -->
+<!-- ========================================================================= -->
+@if (_showPrintModal)
+{
+    <div class="modal fade show d-block no-print" style="background: rgba(0,0,0,0.65); backdrop-filter: blur(8px); z-index: 1085;" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 28px; overflow: hidden;">
+                <div class="modal-header border-0 bg-primary bg-opacity-10 p-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-white text-primary d-flex align-items-center justify-content-center shadow-sm" style="width: 48px; height: 48px; font-size: 1.4rem; border: 2px solid white;">
+                            <i class="bi bi-printer-fill"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-black text-dark mb-0">Print Monthly Employee Hours</h5>
+                            <div class="text-muted small fw-bold mt-1">Select an employee and month to preview and print their timesheet</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="ClosePrintModal"></button>
+                </div>
+
+                <div class="modal-body p-4 bg-white">
+                    <!-- Filters Row -->
+                    <div class="row g-3 mb-4 bg-light p-3 rounded-4 border">
+                        <div class="col-md-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Select Employee</label>
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_printSelectedUsername" @bind:after="LoadMonthlyPrintDataAsync">
+                                <option value="">-- Choose Employee --</option>
+                                @foreach (var user in allSystemUsers)
+                                {
+                                    <option value="@user.Username">@GetUserDisplayName(user.Username) (@@@user.Username)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Month</label>
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_printSelectedMonth" @bind:after="LoadMonthlyPrintDataAsync">
+                                @for (int m = 1; m <= 12; m++)
+                                {
+                                    <option value="@m">@GetMonthName(m)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <label class="form-label small text-uppercase fw-bold text-muted">Year</label>
+                            <select class="form-select border shadow-sm rounded-3 fw-bold" @bind="_printSelectedYear" @bind:after="LoadMonthlyPrintDataAsync">
+                                @for (int y = DateTime.Today.Year - 3; y <= DateTime.Today.Year + 1; y++)
+                                {
+                                    <option value="@y">@y</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Live Summary Header -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <div class="p-3 bg-light rounded-3 border text-center">
+                                <div class="text-muted x-small fw-bold text-uppercase">Days Worked</div>
+                                <div class="h4 fw-black text-dark mb-0">@_printItems.Select(x => x.Date.Date).Distinct().Count()</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-3 bg-light rounded-3 border text-center">
+                                <div class="text-muted x-small fw-bold text-uppercase">Shifts Logged</div>
+                                <div class="h4 fw-black text-dark mb-0">@_printItems.Count</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-3 bg-primary bg-opacity-10 rounded-3 border border-primary border-opacity-25 text-center">
+                                <div class="text-primary x-small fw-bold text-uppercase">Total Monthly Hours</div>
+                                <div class="h4 fw-black text-primary mb-0">@_printItems.Sum(x => x.Hours).ToString("N1") <span class="fs-6 opacity-75">hrs</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preview Table -->
+                    <div class="border rounded-4 overflow-hidden shadow-sm">
+                        <div class="table-responsive" style="max-height: 280px;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="bg-light">
+                                    <tr class="x-small fw-black text-muted text-uppercase">
+                                        <th class="ps-3 py-2">Day of Week</th>
+                                        <th class="py-2">Date</th>
+                                        <th class="py-2">Shift Type</th>
+                                        <th class="py-2">Location</th>
+                                        <th class="py-2 text-end">Hours Worked</th>
+                                        <th class="pe-3 py-2">Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_loadingPrintData)
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="text-center py-4 text-muted">
+                                                <div class="spinner-border spinner-border-sm text-primary me-2"></div> Loading monthly shift data...
+                                            </td>
+                                        </tr>
+                                    }
+                                    else if (string.IsNullOrEmpty(_printSelectedUsername))
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="text-center py-4 text-muted">
+                                                <i class="bi bi-person-bounding-box display-6 text-muted opacity-25 d-block mb-2"></i>
+                                                Please select an employee above to preview their monthly hours.
+                                            </td>
+                                        </tr>
+                                    }
+                                    else if (!_printItems.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="text-center py-4 text-muted">
+                                                <i class="bi bi-calendar-x display-6 text-muted opacity-25 d-block mb-2"></i>
+                                                No shifts recorded for <strong>@GetPrintEmployeeName()</strong> in <strong>@GetMonthName(_printSelectedMonth) @_printSelectedYear</strong>.
+                                            </td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var shift in _printItems)
+                                        {
+                                            <tr>
+                                                <td class="ps-3 py-2 fw-bold text-dark small">@shift.DayOfWeek</td>
+                                                <td class="py-2 small text-muted">@shift.FormattedDate</td>
+                                                <td class="py-2">
+                                                    <span class="badge @GetShiftColorClass(shift.ShiftType) rounded-1 px-2 py-1 x-small fw-bold">
+                                                        @shift.ShiftType
+                                                    </span>
+                                                </td>
+                                                <td class="py-2 small text-muted">
+                                                    @(shift.Location == "Hall" ? "Upstairs Bar" : "Downstairs Bar")
+                                                </td>
+                                                <td class="py-2 text-end fw-black text-primary small">
+                                                    @shift.Hours.ToString("N1") hrs
+                                                </td>
+                                                <td class="pe-3 py-2 small text-muted text-truncate" style="max-width: 160px;" title="@shift.Notes">
+                                                    @(string.IsNullOrWhiteSpace(shift.Notes) ? "-" : shift.Notes)
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                                @if (_printItems.Any())
+                                {
+                                    <tfoot class="bg-light fw-bold">
+                                        <tr>
+                                            <td colspan="4" class="ps-3 py-2 text-uppercase small text-dark fw-black">Total Hours for @GetMonthName(_printSelectedMonth) @_printSelectedYear:</td>
+                                            <td class="py-2 text-end fw-black text-primary">@_printItems.Sum(x => x.Hours).ToString("N1") hrs</td>
+                                            <td class="pe-3"></td>
+                                        </tr>
+                                    </tfoot>
+                                }
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-0 p-4 pt-0 bg-white d-flex justify-content-between">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="ClosePrintModal">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2" @onclick="ExecutePrint" disabled="@(string.IsNullOrEmpty(_printSelectedUsername) || !_printItems.Any())">
+                        <i class="bi bi-printer-fill"></i> Print Timesheet
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- 6. OFFICIAL PRINTABLE DOCUMENT (RENDERED WHEN PRINT IS TRIGGERED) -->
+<!-- ========================================================================= -->
+<div class="employee-monthly-print-sheet">
+    <!-- Compact Header -->
+    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+        <div>
+            <h3 class="fw-black text-dark mb-0 fs-5">GFC</h3>
+            <div class="text-secondary fw-bold small">Employee Monthly Hours Report</div>
+        </div>
+        <div class="text-end">
+            <div class="fw-bold text-dark fs-6">@GetMonthName(_printSelectedMonth) @_printSelectedYear</div>
+            <div class="text-muted" style="font-size: 7.5pt;">Generated: @DateTime.Now.ToString("MM/dd/yyyy h:mm tt")</div>
+        </div>
+    </div>
+
+    <!-- Compact Employee Info Box -->
+    <div class="d-flex justify-content-between align-items-center p-2 mb-2 bg-light rounded border" style="font-size: 9pt;">
+        <div>
+            <span class="text-muted text-uppercase fw-bold me-1">Employee:</span>
+            <strong class="text-dark fs-6">@GetPrintEmployeeName()</strong>
+            <span class="text-muted small ms-1">(@_printSelectedUsername)</span>
+        </div>
+        <div>
+            <span class="text-muted text-uppercase fw-bold me-1">Days Worked:</span>
+            <strong class="text-dark">@_printItems.Select(x => x.Date.Date).Distinct().Count()</strong>
+        </div>
+        <div>
+            <span class="text-muted text-uppercase fw-bold me-1">Total Monthly Hours:</span>
+            <strong class="text-dark fs-6">@_printItems.Sum(x => x.Hours).ToString("N1") hrs</strong>
+        </div>
+    </div>
+
+    <!-- Compact Shift Table -->
+    <table class="table table-sm table-bordered table-striped align-middle mb-2">
+        <thead class="table-dark">
+            <tr>
+                <th style="width: 22%;">Day of Week</th>
+                <th style="width: 20%;">Date</th>
+                <th style="width: 23%;">Shift Type</th>
+                <th style="width: 20%;">Location</th>
+                <th class="text-end" style="width: 15%;">Hours</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (!_printItems.Any())
+            {
+                <tr>
+                    <td colspan="5" class="text-center py-3 text-muted fst-italic">
+                        No recorded shifts for this employee in @GetMonthName(_printSelectedMonth) @_printSelectedYear.
+                    </td>
+                </tr>
+            }
+            else
+            {
+                @foreach (var item in _printItems)
+                {
+                    <tr>
+                        <td class="fw-bold">@item.DayOfWeek</td>
+                        <td>@item.FormattedDate</td>
+                        <td><span class="fw-bold">@item.ShiftType</span></td>
+                        <td>@(item.Location == "Hall" ? "Upstairs Bar" : "Downstairs Bar")</td>
+                        <td class="text-end fw-bold">@item.Hours.ToString("N1") hrs</td>
+                    </tr>
+                }
+            }
+        </tbody>
+        @if (_printItems.Any())
+        {
+            <tfoot class="table-light fw-bold">
+                <tr>
+                    <td colspan="4" class="text-uppercase text-end pe-2">Total Monthly Hours Worked:</td>
+                    <td class="text-end text-dark fw-black">@_printItems.Sum(x => x.Hours).ToString("N1") hrs</td>
+                </tr>
+            </tfoot>
+        }
+    </table>
+</div>
+
 @code {
     private string GetShiftColorClass(string? type) => type switch
     {
@@ -1436,7 +1648,9 @@
             Location = _selectedLocation == "Hall" ? "Hall" : "Main",
             Hours = null,
             OriginalHours = null,
-            Notes = ""
+            Notes = "",
+            IsEmployeeLocked = false,
+            IsDateLocked = false
         };
         _showShiftEditor = true;
     }
@@ -1453,7 +1667,9 @@
             Location = _selectedLocation == "Hall" ? "Hall" : "Main",
             Hours = null,
             OriginalHours = null,
-            Notes = ""
+            Notes = "",
+            IsEmployeeLocked = true,
+            IsDateLocked = false
         };
         _showShiftEditor = true;
     }
@@ -1471,7 +1687,9 @@
             Location = _selectedLocation == "Hall" ? "Hall" : "Main",
             Hours = null,
             OriginalHours = null,
-            Notes = ""
+            Notes = "",
+            IsEmployeeLocked = true,
+            IsDateLocked = false
         };
         _showShiftEditor = true;
     }
@@ -1504,7 +1722,9 @@
                     Hours = e.TotalHours ?? 0,
                     OriginalHours = e.TotalHours ?? 0,
                     Notes = e.Notes,
-                    OriginalNotes = e.Notes
+                    OriginalNotes = e.Notes,
+                    IsEmployeeLocked = true,
+                    IsDateLocked = true
                 };
                 _showShiftEditor = true;
             }
@@ -1535,7 +1755,9 @@
             Location = _selectedLocation == "Hall" ? "Hall" : "Main",
             Hours = null,
             OriginalHours = null,
-            Notes = ""
+            Notes = "",
+            IsEmployeeLocked = true,
+            IsDateLocked = true
         };
         _showShiftEditor = true;
     }
@@ -1553,7 +1775,9 @@
             Hours = s.Hours,
             OriginalHours = s.Hours,
             Notes = s.Notes,
-            OriginalNotes = s.Notes
+            OriginalNotes = s.Notes,
+            IsEmployeeLocked = true,
+            IsDateLocked = true
         };
         _showShiftEditor = true;
     }
@@ -1578,15 +1802,38 @@
             return;
         }
 
-        if (!_editingShift.Hours.HasValue || _editingShift.Hours.Value <= 0)
-        {
-            ToastService.ShowWarning("Please enter a valid number of hours (greater than 0).");
-            return;
-        }
-
         var empName = !string.IsNullOrWhiteSpace(_editingShift.MemberName) 
             ? _editingShift.MemberName 
             : GetUserDisplayName(_editingShift.Username);
+
+        // If hours is null or 0 on an existing shift, treat as removing/zeroing out the shift
+        if (!_editingShift.Hours.HasValue || _editingShift.Hours.Value <= 0)
+        {
+            if (!_editingShift.IsNew)
+            {
+                _confirmData = new ShiftConfirmationModel
+                {
+                    ActionType = "Delete",
+                    Title = "Confirm Removing Shift Hours",
+                    TargetId = _editingShift.Id,
+                    Username = _editingShift.Username,
+                    EmployeeName = empName,
+                    Date = _editingShift.Date,
+                    ShiftType = _editingShift.ShiftType,
+                    Location = _editingShift.Location,
+                    PreviousHours = _editingShift.OriginalHours,
+                    NewHours = 0,
+                    Notes = _editingShift.Notes
+                };
+                _showConfirmModal = true;
+                return;
+            }
+            else
+            {
+                ToastService.ShowWarning("Please enter a valid number of hours (greater than 0).");
+                return;
+            }
+        }
 
         if (_editingShift.IsNew)
         {
@@ -1896,9 +2143,93 @@
         }
     }
 
-    private async Task PrintReport()
+    // =========================================================================
+    // MONTHLY PRINT REPORT METHODS
+    // =========================================================================
+
+    private bool _showPrintModal = false;
+    private string _printSelectedUsername = "";
+    private int _printSelectedMonth = DateTime.Today.Month;
+    private int _printSelectedYear = DateTime.Today.Year;
+    private List<MonthlyShiftPrintItem> _printItems = new();
+    private bool _loadingPrintData = false;
+
+    private async Task OpenPrintModal()
+    {
+        _printSelectedUsername = "";
+        _printItems.Clear();
+        _printSelectedMonth = _selectedMonth;
+        _printSelectedYear = _selectedYear;
+
+        _showPrintModal = true;
+        await Task.CompletedTask;
+    }
+
+    private void ClosePrintModal()
+    {
+        _showPrintModal = false;
+    }
+
+    private async Task LoadMonthlyPrintDataAsync()
+    {
+        if (string.IsNullOrEmpty(_printSelectedUsername))
+        {
+            _printItems.Clear();
+            return;
+        }
+
+        _loadingPrintData = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var startDate = new DateTime(_printSelectedYear, _printSelectedMonth, 1);
+            var endDate = startDate.AddMonths(1).AddDays(-1);
+
+            var entries = await db.BarSaleEntries.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => !e.IsDeleted &&
+                       (e.AdjustedSaleDate ?? e.SaleDate).Date >= startDate.Date &&
+                       (e.AdjustedSaleDate ?? e.SaleDate).Date <= endDate.Date &&
+                       (e.EmployeeUsername == _printSelectedUsername || e.CreatedBy == _printSelectedUsername || e.ModifiedBy == _printSelectedUsername) &&
+                       (e.TotalHours.HasValue && e.TotalHours.Value > 0))
+                .OrderBy(e => e.AdjustedSaleDate ?? e.SaleDate)
+                .ToListAsync();
+
+            _printItems = entries.Select(e => new MonthlyShiftPrintItem
+            {
+                Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                ShiftType = e.Shift ?? "Day",
+                Location = (e.IsRentalHall || e.Shift == "Hall") ? "Hall" : (e.BarLocation ?? "Main"),
+                Hours = e.TotalHours ?? 0,
+                Notes = e.Notes
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error loading monthly print data: {ex.Message}");
+        }
+        finally
+        {
+            _loadingPrintData = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExecutePrint()
     {
         await JS.InvokeVoidAsync("window.print");
+    }
+
+    private string GetPrintEmployeeName()
+    {
+        if (string.IsNullOrWhiteSpace(_printSelectedUsername)) return "Employee";
+        return GetUserDisplayName(_printSelectedUsername);
+    }
+
+    private string GetMonthName(int month)
+    {
+        return System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(month);
     }
 
     private static DateTime FirstDateOfWeekIso8601(int year, int weekOfYear)
@@ -1943,6 +2274,8 @@
         public decimal? OriginalHours { get; set; }
         public string? Notes { get; set; }
         public string? OriginalNotes { get; set; }
+        public bool IsEmployeeLocked { get; set; } = false;
+        public bool IsDateLocked { get; set; } = false;
         public bool IsNew => !Id.HasValue || Id.Value == 0;
     }
 
@@ -1958,6 +2291,17 @@
         public string Location { get; set; } = "";
         public decimal? PreviousHours { get; set; }
         public decimal NewHours { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class MonthlyShiftPrintItem
+    {
+        public DateTime Date { get; set; }
+        public string DayOfWeek => Date.ToString("dddd");
+        public string FormattedDate => Date.ToString("MM/dd/yyyy");
+        public string ShiftType { get; set; } = "Day";
+        public string Location { get; set; } = "Main";
+        public decimal Hours { get; set; }
         public string? Notes { get; set; }
     }
 }
