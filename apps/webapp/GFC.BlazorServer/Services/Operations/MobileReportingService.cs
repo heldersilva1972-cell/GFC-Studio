@@ -279,7 +279,7 @@ public class MobileReportingService : IMobileReportingService
         {
             await db.SaveChangesAsync();
 
-            if (!data.IsRentalHall && data.ShiftType != "Janitor")
+            if (!data.IsRentalHall && data.ShiftType != "Janitor" && data.ShiftType != "Bar Manager")
             {
                 // [FIX] Ensure ShiftType is never empty to prevent DB rejections
                 if (string.IsNullOrEmpty(data.ShiftType)) {
