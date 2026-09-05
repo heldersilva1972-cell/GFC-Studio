@@ -716,11 +716,15 @@ window.inventoryCharts = {
                         chartCtx.fillStyle = '#0f172a';
 
                         let text = '';
-                        if (metric === 'VALUE') {
+                        if (config.displayTexts && config.displayTexts[index]) {
+                            text = config.displayTexts[index];
+                        } else if (metric === 'VALUE') {
                             text = '$' + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(val);
                         } else {
                             if (val <= 0.45) {
                                 text = 'Today';
+                            } else if (val >= 999) {
+                                text = 'Never';
                             } else {
                                 text = Math.round(val) + 'd';
                             }
@@ -772,6 +776,10 @@ window.inventoryCharts = {
                         intersect: false,
                         callbacks: {
                             label: function (context) {
+                                const index = context.dataIndex;
+                                if (config.tooltipDetails && config.tooltipDetails[index]) {
+                                    return config.tooltipDetails[index];
+                                }
                                 const val = context.raw;
                                 if (metric === 'VALUE') {
                                     const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
@@ -779,6 +787,9 @@ window.inventoryCharts = {
                                 }
                                 if (val <= 0.45) {
                                     return ' Days Since Last Sale: Today (0 days ago)';
+                                }
+                                if (val >= 999) {
+                                    return ' Days Since Last Sale: Never / No sales on record';
                                 }
                                 return ' Days Since Last Sale: ' + Math.round(val) + ' days';
                             }

@@ -5573,23 +5573,21 @@
     private async Task PrintZReport()
     {
         if (SelectedZReport == null) return;
-        if (_zreportShowThermal)
-        {
-            var printText = GetThermalZReportText(SelectedZReport);
-            var encodedText = global::System.Net.WebUtility.HtmlEncode(printText);
-            var htmlContent = "<!DOCTYPE html><html><head><title>Z-Report - " + SelectedZReport.TerminalName + "</title>" +
-                              "<style>@media print { body { margin: 0; } } body { font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.35; white-space: pre-wrap; padding: 20px; color: #000; background: #fff; }</style>" +
-                              "</head><body><pre style=\"margin:0; font-family:inherit;\">" + encodedText + "</pre>" +
-                              "<script>window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 500); };</script></body></html>";
+        var printText = GetThermalZReportText(SelectedZReport);
+        var encodedText = global::System.Net.WebUtility.HtmlEncode(printText);
+        var htmlContent = "<!DOCTYPE html><html><head><title>Z-Report - " + (SelectedZReport.TerminalName ?? "POS") + "</title>" +
+                          "<style>" +
+                          "@page { size: letter portrait; margin: 0.35in 0.4in; } " +
+                          "@media print { html, body { margin: 0; padding: 0; background: #fff; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .print-container { width: 100% !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important; column-count: 2; column-gap: 30px; column-rule: 1px dashed #94a3b8; height: auto; } } " +
+                          "body { font-family: 'Consolas', 'Courier New', Courier, monospace; font-size: 10.5px; line-height: 1.25; color: #000; background: #fff; margin: 0; padding: 15px; } " +
+                          ".print-container { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: inherit; line-height: inherit; column-count: 2; column-gap: 30px; column-rule: 1px dashed #94a3b8; }" +
+                          "</style>" +
+                          "</head><body><pre class=\"print-container\">" + encodedText + "</pre>" +
+                          "<script>window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 750); };</script></body></html>";
 
-            var jsonHtml = JsonSerializer.Serialize(htmlContent);
-            var script = "var printWin = window.open('', '_blank', 'width=450,height=700'); if (printWin) { printWin.document.write(" + jsonHtml + "); printWin.document.close(); }";
-            await JSRuntime.InvokeVoidAsync("eval", script);
-        }
-        else
-        {
-            await JSRuntime.InvokeVoidAsync("window.print");
-        }
+        var jsonHtml = JsonSerializer.Serialize(htmlContent);
+        var script = "var printWin = window.open('', '_blank', 'width=700,height=900'); if (printWin) { printWin.document.write(" + jsonHtml + "); printWin.document.close(); }";
+        await JSRuntime.InvokeVoidAsync("eval", script);
     }
     private List<ReconEntry> ReconResults = new();
     private SystemSettings? _settings;
@@ -9787,30 +9785,21 @@
                 continue;
             }
 
-            if (!dict.TryGetValue(key, out var metric))
+            var cleanName = CleanProductName(item.Name);
+            if (!dict.ContainsKey(cleanName))
             {
-                // True liquor items are poured by the ounce/shot (not unit-based, not beer, and category is liquor/spirits)
-                bool isLiquorByOunce = !item.IsUnitBased && !item.IsBeer &&
-                                       (item.InventoryTrackType == 2 ||
-                                        catUpper.Contains("LIQUOR") || catUpper.Contains("SPIRIT") || catUpper.Contains("VODKA") ||
-                                        catUpper.Contains("RUM") || catUpper.Contains("TEQUILA") || catUpper.Contains("WHISKEY") ||
-                                        catUpper.Contains("GIN") || catUpper.Contains("BOURBON") || catUpper.Contains("SCOTCH"));
-
-                decimal cost = item.CasePrice.HasValue && item.PackSize > 1 ? item.CasePrice.Value / item.PackSize : (item.CurrentPrice > 0 ? item.CurrentPrice : (item.RetailPrice > 0 ? item.RetailPrice * 0.4m : 12.50m));
-
-                metric = new ProductAuditMetric
+                dict[cleanName] = new ProductAuditMetric
                 {
-                    Name = key,
+                    Name = cleanName,
                     Category = !string.IsNullOrEmpty(item.Category) ? item.Category.ToUpper() : "UNCATEGORIZED",
                     CurrentStock = (int)GetEffectiveStock(item),
                     MinStockLimit = item.MinStockLimit,
-                    PackSize = item.PackSize > 1 ? item.PackSize : 1,
-                    WholesaleCost = cost > 0 ? cost : 12.50m,
-                    IsLiquor = isLiquorByOunce,
+                    PackSize = item.PackSize > 0 ? item.PackSize : 1,
+                    WholesaleCost = (item.CasePrice.HasValue && item.PackSize > 1 ? item.CasePrice.Value / item.PackSize : (item.CurrentPrice > 0 ? item.CurrentPrice : 12.50m)),
+                    IsLiquor = IsLiquorInventoryItem(item),
                     PourSizeOz = item.PourSize > 0 ? item.PourSize : 1.5m,
                     BottleVolumeOz = item.BottleVolumeOunces.HasValue && item.BottleVolumeOunces > 0 ? item.BottleVolumeOunces.Value : 25.36m
                 };
-                dict[key] = metric;
             }
         }
 
@@ -9831,7 +9820,7 @@
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var tokenUsageByName = TokenUsages
-            .Where(u => u != null && !string.IsNullOrEmpty(u.DrinkName) && u.MenuPrice > 0)
+            .Where(u => u != null && u.DrinkName != null && u.MenuPrice > 0)
             .GroupBy(u => CleanProductName(u.DrinkName), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().MenuPrice, StringComparer.OrdinalIgnoreCase);
 
@@ -9911,19 +9900,19 @@
             }
         }
 
-        // Calculate Trailing 30D and YoY Sales from historical sales database
+        // Calculate Trailing 30D, YoY Sales, and Extended 180-day History for accurate LastSoldDate
         try
         {
             using var db = DbFactory.CreateDbContext();
             var thirtyDaysAgo = DateTime.Today.AddDays(-30);
-            var recentSales = db.PosSales.AsNoTracking()
-                .Where(s => s.Timestamp >= thirtyDaysAgo && !s.IsVoided && (!s.ActiveEventId.HasValue || s.ActiveEventId.Value <= 0) && s.PaymentType != "DEPOSIT")
-                .Select(s => s.ItemsJson)
+            var historySales = db.PosSales.AsNoTracking()
+                .Where(s => s.Timestamp >= DateTime.Today.AddDays(-180) && !s.IsVoided && (!s.ActiveEventId.HasValue || s.ActiveEventId.Value <= 0) && s.PaymentType != "DEPOSIT")
+                .Select(s => new { s.Timestamp, s.ItemsJson })
                 .ToList();
 
-            foreach (var itemsJson in recentSales)
+            foreach (var saleRecord in historySales)
             {
-                var items = GetItemsList(itemsJson);
+                var items = GetItemsList(saleRecord.ItemsJson);
                 foreach (var sItem in items)
                 {
                     var cleanName = CleanProductName(sItem.Name);
@@ -9937,7 +9926,15 @@
 
                     if (dict.TryGetValue(cleanName, out var metric))
                     {
-                        metric.Quantity30D += sItem.Quantity;
+                        if (saleRecord.Timestamp >= thirtyDaysAgo)
+                        {
+                            metric.Quantity30D += sItem.Quantity;
+                        }
+
+                        if (!metric.LastSoldDate.HasValue || saleRecord.Timestamp > metric.LastSoldDate.Value)
+                        {
+                            metric.LastSoldDate = saleRecord.Timestamp;
+                        }
                     }
                 }
             }
@@ -9972,10 +9969,10 @@
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error computing 30D / YoY sales in BuildProductAuditMetrics: {ex.Message}");
+            Console.WriteLine($"Error computing historical sales in BuildProductAuditMetrics: {ex.Message}");
         }
 
-        // Compute exact LastSoldDate for each product metric from cached sales history
+        // Include current in-memory shift sales for up-to-the-minute LastSoldDate
         if (_cachedSalesItems != null && _cachedSalesItems.Any())
         {
             foreach (var saleItem in _cachedSalesItems)
@@ -10004,16 +10001,28 @@
 
     private string _productTrendsSubView = "TRENDS"; // "TRENDS" or "VELOCITY"
     private string _velocityStatusFilter = "ALL"; // "ALL", "FAST_MOVER", "MODERATE", "SLOW_MOVER", "DEAD_STOCK"
-    private string _velocitySortBy = "DAYS_DESC"; // "DAYS_DESC", "DAYS_ASC", "REVENUE_DESC", "STOCK_VALUE_DESC", "NAME"
+    private string _velocitySortBy = "DAYS_ASC"; // Default to Most Recent Sale first!
     private string _velocitySearchTerm = "";
 
     private List<ProductAuditMetric> GetFilteredAuditVelocityMetrics()
     {
         var query = _auditProductMetrics.Where(x => IsItemInSelectedCategory(x));
 
-        if (_velocityStatusFilter != "ALL")
+        if (_velocityStatusFilter == "FAST_MOVER")
         {
-            query = query.Where(x => x.VelocityStatus == _velocityStatusFilter);
+            query = query.Where(x => x.LastSoldDate.HasValue && x.DaysSinceLastSale <= 7);
+        }
+        else if (_velocityStatusFilter == "MODERATE")
+        {
+            query = query.Where(x => x.LastSoldDate.HasValue && x.DaysSinceLastSale > 7 && x.DaysSinceLastSale <= 30);
+        }
+        else if (_velocityStatusFilter == "SLOW_MOVER")
+        {
+            query = query.Where(x => x.LastSoldDate.HasValue && x.DaysSinceLastSale > 30 && x.DaysSinceLastSale <= 60);
+        }
+        else if (_velocityStatusFilter == "DEAD_STOCK")
+        {
+            query = query.Where(x => !x.LastSoldDate.HasValue || x.DaysSinceLastSale > 60);
         }
 
         if (!string.IsNullOrWhiteSpace(_velocitySearchTerm))
@@ -10023,7 +10032,7 @@
 
         query = _velocitySortBy switch
         {
-            "DAYS_ASC" => query.OrderBy(x => x.DaysSinceLastSale).ThenBy(x => x.Name),
+            "DAYS_ASC" => query.OrderBy(x => !x.LastSoldDate.HasValue).ThenBy(x => x.DaysSinceLastSale).ThenBy(x => x.Name),
             "REVENUE_DESC" => query.OrderByDescending(x => x.Revenue).ThenBy(x => x.Name),
             "STOCK_VALUE_DESC" => query.OrderByDescending(x => x.CurrentStock * (x.WholesaleCost > 0 ? x.WholesaleCost : 12.50m)).ThenBy(x => x.Name),
             "NAME" => query.OrderBy(x => x.Name),
@@ -10036,7 +10045,7 @@
     private int GetVelocityCount(string status) => _auditProductMetrics.Where(x => IsItemInSelectedCategory(x)).Count(x => x.VelocityStatus == status);
     private decimal GetDeadStockCapital() => _auditProductMetrics.Where(x => IsItemInSelectedCategory(x) && x.VelocityStatus == "DEAD_STOCK").Sum(x => x.CurrentStock * (x.WholesaleCost > 0 ? x.WholesaleCost : 12.50m));
 
-    private string _velocityViewMode = "TABLE"; // "TABLE" or "CHART"
+    private string _velocityViewMode = "CHART"; // "TABLE" or "CHART"
     private string _velocityChartMetric = "DAYS"; // "DAYS" or "VALUE"
     private int _velocityChartTopLimit = 15; // 10, 15, 25, 0 (All)
     private bool _velocityChartHorizontal = false;
@@ -10121,6 +10130,8 @@
             double[] data;
             string datasetLabel;
             string[] colors;
+            string[] displayTexts;
+            string[] tooltipDetails;
 
             if (_velocityChartMetric == "VALUE")
             {
@@ -10130,11 +10141,36 @@
                     return (double)val;
                 }).ToArray();
                 datasetLabel = "Stock Capital at Risk ($)";
+                displayTexts = itemList.Select(x => {
+                    decimal val = x.CurrentStock * (x.WholesaleCost > 0 ? x.WholesaleCost : 12.50m);
+                    if (val == 0 && x.Revenue > 0) val = x.Revenue;
+                    return "$" + val.ToString("N0");
+                }).ToArray();
+                tooltipDetails = itemList.Select(x => {
+                    decimal val = x.CurrentStock * (x.WholesaleCost > 0 ? x.WholesaleCost : 12.50m);
+                    return $" Stock Capital at Risk: ${val:N2} ({x.CurrentStock} units on hand)";
+                }).ToArray();
             }
             else
             {
-                data = itemList.Select(x => x.DaysSinceLastSale <= 0 ? 0.4 : (double)x.DaysSinceLastSale).ToArray();
+                // Cap visual bar height at 60 for clean readable scaling (prevents 999 skew on axis)
+                data = itemList.Select(x => {
+                    if (!x.LastSoldDate.HasValue) return 60.0;
+                    if (x.DaysSinceLastSale <= 0) return 0.4;
+                    if (x.DaysSinceLastSale > 60) return 60.0;
+                    return (double)x.DaysSinceLastSale;
+                }).ToArray();
                 datasetLabel = "Days Since Last Sale";
+                displayTexts = itemList.Select(x => {
+                    if (!x.LastSoldDate.HasValue) return "Never";
+                    if (x.DaysSinceLastSale <= 0) return "Today";
+                    if (x.DaysSinceLastSale >= 60) return $"{x.DaysSinceLastSale}d (60+)";
+                    return $"{x.DaysSinceLastSale}d";
+                }).ToArray();
+                tooltipDetails = itemList.Select(x => {
+                    if (!x.LastSoldDate.HasValue) return " Last Sold: Never / No sales on record (Dormant)";
+                    return $" Last Sold: {x.LastSoldDate.Value:MMM dd, yyyy h:mm tt} ({x.DaysSinceLastSale} days ago)";
+                }).ToArray();
             }
 
             colors = itemList.Select(x => x.VelocityStatus switch
@@ -10150,6 +10186,8 @@
                 labels,
                 data,
                 colors,
+                displayTexts,
+                tooltipDetails,
                 datasetLabel,
                 metricType = _velocityChartMetric,
                 horizontal = _velocityChartHorizontal

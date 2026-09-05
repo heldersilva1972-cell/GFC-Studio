@@ -5,19 +5,9 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.DTOs
+@using GFC.BlazorServer.Components.Pages.Finance
 
 <style>
-    /* Prevent outer shell scrolling so sticky table headers work */
-    .app-content {
-        overflow: hidden !important;
-    }
-    .content {
-        height: 100% !important;
-        display: flex !important;
-        flex-direction: column !important;
-        overflow: hidden !important;
-    }
-
     /* HIGH READABILITY CONTROLS */
     .data-table {
         width: 100%;
@@ -381,13 +371,6 @@
     .animate-slide-up { animation: slide-up 0.4s ease-out forwards; }
     @@keyframes slide-up { from { transform: translateY(15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .tracking-widest { letter-spacing: 0.1em; }
-
-    .weekly-sweep-table th {
-        padding: 0.6rem 0.75rem !important;
-    }
-    .weekly-sweep-table td {
-        padding: 0.5rem 0.75rem !important;
-    }
 </style>
 
 <div class="lottery-page-container">
@@ -515,10 +498,10 @@
 
 <div class="filter-bar mb-2 py-2">
     <div class="row g-3 align-items-center">
-        @if (_viewMode != "imported")
+        @if (_viewMode != "imported" && _viewMode != "summaries" && _viewMode != "compliance")
         {
             <div class="col-auto">
-                @if (_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending")
+                @if (_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics")
                 {
                     <div class="d-inline-flex align-items-center gap-2">
                         <div class="pill-group">
@@ -583,27 +566,7 @@
                         }
                     </div>
                 }
-                else if (_viewMode == "weekly" || _viewMode == "monthly" || _viewMode == "analytics")
-                {
-                    <div class="input-group input-group-sm shadow-sm rounded-3 overflow-hidden border">
-                        <span class="input-group-text border-0 bg-light text-muted fw-bold px-3">Filter Period:</span>
-                        @if (_viewMode != "monthly")
-                        {
-                            <select class="form-select border-0 fw-black px-3" @bind="_selectedMonth" @bind:after="OnMonthYearChanged" style="width: 140px; height: 38px;">
-                                @for (int m = 1; m <= 12; m++)
-                                {
-                                    <option value="@m">@System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(m)</option>
-                                }
-                            </select>
-                        }
-                        <select class="form-select border-0 fw-black px-3 @(_viewMode != "monthly" ? "border-start" : "")" @bind="_selectedYear" @bind:after="OnMonthYearChanged" style="width: 100px; height: 38px;">
-                            @foreach (var y in _availableYears)
-                            {
-                                <option value="@y">@y</option>
-                            }
-                        </select>
-                    </div>
-                }
+
                 else
                 {
                     <div class="input-group input-group-sm shadow-sm rounded-3 overflow-hidden border">
@@ -619,7 +582,7 @@
                     </div>
                 }
 
-                @if (_viewMode == "daily" || _viewMode == "analytics" || _viewMode == "breakdown")
+                @if (_viewMode == "daily" || _viewMode == "breakdown")
                 {
                     <select class="form-select border-0 shadow-sm fw-bold px-4 py-2 ms-3" style="max-width: 200px; border: 1px solid #e2e8f0 !important;" @bind="_filterEmployee" @bind:after="LoadData">
                         <option value="">All Employees</option>
@@ -642,8 +605,12 @@
                         <i class="bi bi-ticket-perforated me-1"></i> Ticket Vending
                     </button>
                     <button class="pill-btn @(_viewMode == "commissions" ? "active" : "")" @onclick='() => ChangeViewMode("commissions")'>Commissions</button>
-                    <button class="pill-btn @(_viewMode == "weekly" ? "active" : "")" @onclick='() => ChangeViewMode("weekly")'>Monthly View</button>
-                    <button class="pill-btn @(_viewMode == "monthly" ? "active" : "")" @onclick='() => ChangeViewMode("monthly")'>Yearly View</button>
+                    <button class="pill-btn @(_viewMode == "summaries" ? "active" : "")" @onclick='() => ChangeViewMode("summaries")'>
+                        <i class="bi bi-calculator me-1"></i> Daily Summaries
+                    </button>
+                    <button class="pill-btn @(_viewMode == "compliance" ? "active" : "")" @onclick='() => ChangeViewMode("compliance")'>
+                        <i class="bi bi-calendar-check me-1"></i> Compliance
+                    </button>
                     <button class="pill-btn @(_viewMode == "analytics" ? "active" : "")" @onclick='() => ChangeViewMode("analytics")'>
                         <i class="bi bi-graph-up-arrow me-1"></i> Insights
                     </button>
@@ -911,6 +878,13 @@
     if (_showMetricClaimsBonus) totalEarnings += totalClaimsBonus;
     if (_showMetricFees) totalEarnings -= totalFees;
 
+    int weekCount = _weeklyCommissionsStats.Count;
+    decimal avgEarnings = weekCount > 0 ? totalEarnings / weekCount : 0m;
+    decimal avgComm = weekCount > 0 ? totalComm / weekCount : 0m;
+    decimal avgCashBonus = weekCount > 0 ? totalCashBonus / weekCount : 0m;
+    decimal avgClaimsBonus = weekCount > 0 ? totalClaimsBonus / weekCount : 0m;
+    decimal avgFees = weekCount > 0 ? totalFees / weekCount : 0m;
+
     <div class="mb-3 px-1">
         <div class="d-flex flex-wrap gap-2 w-100">
             @if (_showMetricCommissions)
@@ -918,8 +892,11 @@
                 <!-- 1. Total Commissions -->
                 <div class="flex-fill" style="min-width: 140px;">
                     <div class="data-card py-2 border-0 bg-success bg-opacity-10 border-start border-4 border-success rounded-3 h-100">
-                        <div class="extra-small fw-bold text-success text-uppercase px-3 mb-0">Total Commissions</div>
-                        <div class="h5 mb-0 fw-black text-success px-3">@totalComm.ToString("C2")</div>
+                        <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                            <span class="extra-small fw-bold text-success text-uppercase">Total Commissions</span>
+                            <span class="badge bg-success bg-opacity-25 text-success extra-small" style="font-size: 0.65rem;">@avgComm.ToString("C2")/wk</span>
+                        </div>
+                        <div class="h5 mb-0 fw-black text-success px-3 mt-1">@totalComm.ToString("C2")</div>
                     </div>
                 </div>
             }
@@ -928,8 +905,11 @@
                 <!-- 2. Total Cash Bonus -->
                 <div class="flex-fill" style="min-width: 140px;">
                     <div class="data-card py-2 border-0 bg-primary bg-opacity-10 border-start border-4 border-primary rounded-3 h-100">
-                        <div class="extra-small fw-bold text-primary text-uppercase px-3 mb-0">Total Cash Bonus</div>
-                        <div class="h5 mb-0 fw-black text-primary px-3">@totalCashBonus.ToString("C2")</div>
+                        <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                            <span class="extra-small fw-bold text-primary text-uppercase">Total Cash Bonus</span>
+                            <span class="badge bg-primary bg-opacity-25 text-primary extra-small" style="font-size: 0.65rem;">@avgCashBonus.ToString("C2")/wk</span>
+                        </div>
+                        <div class="h5 mb-0 fw-black text-primary px-3 mt-1">@totalCashBonus.ToString("C2")</div>
                     </div>
                 </div>
             }
@@ -938,8 +918,11 @@
                 <!-- 3. Total Claims Bonus -->
                 <div class="flex-fill" style="min-width: 140px;">
                     <div class="data-card py-2 border-0 bg-indigo bg-opacity-10 border-start border-4 border-indigo rounded-3 h-100" style="border-left-color: #6366f1 !important;">
-                        <div class="extra-small fw-bold text-indigo text-uppercase px-3 mb-0" style="color: #6366f1 !important;">Total Claims Bonus</div>
-                        <div class="h5 mb-0 fw-black text-indigo px-3" style="color: #6366f1 !important;">@totalClaimsBonus.ToString("C2")</div>
+                        <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                            <span class="extra-small fw-bold text-indigo text-uppercase" style="color: #6366f1 !important;">Total Claims Bonus</span>
+                            <span class="badge bg-indigo-subtle text-indigo extra-small" style="font-size: 0.65rem;">@avgClaimsBonus.ToString("C2")/wk</span>
+                        </div>
+                        <div class="h5 mb-0 fw-black text-indigo px-3 mt-1" style="color: #6366f1 !important;">@totalClaimsBonus.ToString("C2")</div>
                     </div>
                 </div>
             }
@@ -948,8 +931,11 @@
                 <!-- 4. Total Fees -->
                 <div class="flex-fill" style="min-width: 140px;">
                     <div class="data-card py-2 border-0 bg-danger bg-opacity-10 border-start border-4 border-danger rounded-3 h-100">
-                        <div class="extra-small fw-bold text-danger text-uppercase px-3 mb-0">Total Fees</div>
-                        <div class="h5 mb-0 fw-black text-danger px-3">@totalFees.ToString("C2")</div>
+                        <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                            <span class="extra-small fw-bold text-danger text-uppercase">Total Fees</span>
+                            <span class="badge bg-danger bg-opacity-25 text-danger extra-small" style="font-size: 0.65rem;">@avgFees.ToString("C2")/wk</span>
+                        </div>
+                        <div class="h5 mb-0 fw-black text-danger px-3 mt-1">@totalFees.ToString("C2")</div>
                     </div>
                 </div>
             }
@@ -957,164 +943,132 @@
             <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
                     <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0 text-primary">Total Net Earnings</div>
-                    <div class="h5 mb-0 fw-black text-primary px-3">@totalEarnings.ToString("C2")</div>
+                    <div class="h5 mb-0 fw-black text-primary px-3 mt-1">@totalEarnings.ToString("C2")</div>
+                </div>
+            </div>
+            <!-- 6. Average Weekly Earnings -->
+            <div class="flex-fill" style="min-width: 140px;">
+                <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100 border-start border-4 border-dark">
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold text-dark">Avg. Weekly Earnings</span>
+                        <i class="bi bi-calculator text-muted"></i>
+                    </div>
+                    <div class="h5 mb-0 fw-black text-dark px-3 mt-1">@avgEarnings.ToString("C2")</div>
+                    <div class="extra-small text-muted px-3" style="font-size: 0.68rem;">Across @weekCount @(weekCount == 1 ? "week" : "weeks")</div>
                 </div>
             </div>
         </div>
     </div>
 }
-else if (_viewMode != "imported" && _viewMode != "commissions" && (_shifts.Any() || _weeklySummaries.Any() || _monthlySummaries.Any()))
+else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "analytics" && _viewMode != "summaries" && _viewMode != "compliance" && _shifts.Any())
 {
-    bool isYearContext = _viewMode == "monthly";
-    bool isMonthContext = _viewMode == "weekly";
-    
-    decimal contextCommissions = 0;
-    decimal contextFees = 0;
-    decimal contextVariance = 0;
-    
-    if (isYearContext)
-    {
-        contextCommissions = _monthlySummaries.Sum(m => m.TotalIncome);
-        contextFees = _monthlySummaries.Sum(m => m.TotalFees);
-        contextVariance = _monthlySummaries.Sum(m => m.TotalVariance);
-    }
-    else if (isMonthContext)
-    {
-        contextCommissions = _weeklySummaries.Sum(w => w.TotalIncome);
-        contextFees = _weeklySummaries.Sum(w => w.TotalFees);
-        contextVariance = _weeklySummaries.Sum(w => w.TotalVariance);
-    }
-    else
-    {
-        // [SMART-AUDIT]: Commission for the summary cards is calculated from the cumulative machine readings
-        // of the final shift of each day (Night shift) to ensure it matches the official reports.
-        contextCommissions = _shifts
-            .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => {
-                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
-                
-                var latest = night;
-                if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+    // [SMART-AUDIT]: Commission for the summary cards is calculated from the cumulative machine readings
+    // of the final shift of each day (Night shift) to ensure it matches the official reports.
+    decimal contextCommissions = _shifts
+        .GroupBy(s => s.ShiftDate.Date)
+        .Sum(g => {
+            var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+            var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+            
+            var latest = night;
+            if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+            {
+                if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
-                    {
-                        latest = day;
-                    }
+                    latest = day;
                 }
-                latest ??= night ?? day ?? g.First();
+            }
+            latest ??= night ?? day ?? g.First();
 
-                var rates = _commissionRates.FirstOrDefault(r => r.Year == g.Key.Year);
-                if (rates == null) return 0;
-                return (latest.TotalSales * rates.SalesCommissionMultiplier) + 
-                       (latest.TotalPayouts * rates.CashingBonusMultiplier) + 
-                       (latest.TotalCancels * rates.TicketBonusMultiplier);
-            });
+            var rates = _commissionRates.FirstOrDefault(r => r.Year == g.Key.Year);
+            if (rates == null) return 0;
+            return (latest.TotalSales * rates.SalesCommissionMultiplier) + 
+                   (latest.TotalPayouts * rates.CashingBonusMultiplier) + 
+                   (latest.TotalCancels * rates.TicketBonusMultiplier);
+        });
 
-        var rates = _commissionRates.FirstOrDefault(r => r.Year == _filterStartDate.Year);
-        decimal dailyTotalFee = (rates?.DailySystemFee ?? 0) + (rates?.DailyBondingFee ?? 0);
-        contextFees = (decimal)_shifts.Select(s => s.ShiftDate.Date).Distinct().Count() * dailyTotalFee;
-        contextVariance = TotalVariance;
-    }
+    var rates = _commissionRates.FirstOrDefault(r => r.Year == _filterStartDate.Year);
+    decimal dailyTotalFee = (rates?.DailySystemFee ?? 0) + (rates?.DailyBondingFee ?? 0);
+    decimal contextFees = (decimal)_shifts.Select(s => s.ShiftDate.Date).Distinct().Count() * dailyTotalFee;
+    decimal contextVariance = TotalVariance;
 
-    string contextLabel = isYearContext ? "Yearly" : (isMonthContext ? "Monthly" : "Weekly");
+    string contextLabel = "Weekly";
 
     <div class="mb-2 px-1">
         @{
-            decimal cumulativeNetSales = 0;
-            decimal cumulativeCashes = 0;
-            decimal cumulativeTickets = 0;
-            decimal cumulativeNetDue = 0;
-
-            if (_viewMode == "weekly")
-            {
-                cumulativeNetSales = _weeklySummaries.Sum(w => w.TotalSales);
-                cumulativeCashes = _weeklySummaries.Sum(w => w.TotalPayouts);
-                cumulativeTickets = _weeklySummaries.Sum(w => w.TotalCancels);
-                cumulativeNetDue = _weeklySummaries.Sum(w => w.TotalNetDue);
-            }
-            else if (_viewMode == "monthly")
-            {
-                cumulativeNetSales = _monthlySummaries.Sum(m => m.TotalSales);
-                cumulativeCashes = _monthlySummaries.Sum(m => m.TotalPayouts);
-                cumulativeTickets = _monthlySummaries.Sum(m => m.TotalCancels);
-                cumulativeNetDue = _monthlySummaries.Sum(m => m.TotalNetDue);
-            }
-            else
-            {
-                var finalShiftsOfDay = _shifts
-                    .GroupBy(s => s.ShiftDate.Date)
-                    .Select(g => {
-                        var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                        var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
-                        
-                        var representative = night;
-                        if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+            var finalShiftsOfDay = _shifts
+                .GroupBy(s => s.ShiftDate.Date)
+                .Select(g => {
+                    var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
+                    var day = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
+                    
+                    var representative = night;
+                    if (night == null || string.Equals(night.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (day != null && !string.Equals(day.EmployeeName, "Club Closed", StringComparison.OrdinalIgnoreCase))
-                            {
-                                representative = day;
-                            }
+                            representative = day;
                         }
-                        return representative ?? night ?? day ?? g.First();
-                    })
-                    .ToList();
+                    }
+                    return representative ?? night ?? day ?? g.First();
+                })
+                .ToList();
 
-                cumulativeNetSales = finalShiftsOfDay.Sum(s => s.TotalSales);
-                cumulativeCashes = finalShiftsOfDay.Sum(s => s.TotalPayouts);
-                cumulativeTickets = finalShiftsOfDay.Sum(s => s.TotalCancels);
-                cumulativeNetDue = finalShiftsOfDay.Sum(s => s.NetDue);
-            }
+            decimal cumulativeNetSales = finalShiftsOfDay.Sum(s => s.TotalSales);
+            decimal cumulativeCashes = finalShiftsOfDay.Sum(s => s.TotalPayouts);
+            decimal cumulativeTickets = finalShiftsOfDay.Sum(s => s.TotalCancels);
+            decimal cumulativeNetDue = finalShiftsOfDay.Sum(s => s.NetDue);
         }
 
         <div class="d-flex flex-wrap gap-2 w-100">
             <!-- 1. Net Sales -->
-            <div class="flex-fill" style="min-width: 130px;">
+            <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Sales</div>
-                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetSales.ToString("C2")</div>
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold">Net Sales</span>
+                        <span class="badge bg-light text-secondary border extra-small" style="font-size: 0.62rem;">Shift Reports</span>
+                    </div>
+                    <div class="h5 mb-0 fw-black text-dark px-3 mt-1">@cumulativeNetSales.ToString("C2")</div>
                 </div>
             </div>
             <!-- 2. Total Cashes -->
-            <div class="flex-fill" style="min-width: 130px;">
+            <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Cashes</div>
-                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeCashes.ToString("C2")</div>
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold">Total Cashes</span>
+                        <span class="badge bg-light text-secondary border extra-small" style="font-size: 0.62rem;">Shift Reports</span>
+                    </div>
+                    <div class="h5 mb-0 fw-black text-dark px-3 mt-1">@cumulativeCashes.ToString("C2")</div>
                 </div>
             </div>
             <!-- 3. Total Tickets -->
-            <div class="flex-fill" style="min-width: 130px;">
+            <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Total Tickets</div>
-                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeTickets.ToString("C2")</div>
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold">Total Tickets</span>
+                        <span class="badge bg-light text-secondary border extra-small" style="font-size: 0.62rem;">Shift Reports</span>
+                    </div>
+                    <div class="h5 mb-0 fw-black text-dark px-3 mt-1">@cumulativeTickets.ToString("C2")</div>
                 </div>
             </div>
             <!-- 4. Net Due -->
-            <div class="flex-fill" style="min-width: 130px;">
+            <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0">Net Due</div>
-                    <div class="h5 mb-0 fw-black text-dark px-3">@cumulativeNetDue.ToString("C2")</div>
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold">Net Due</span>
+                        <span class="badge bg-light text-secondary border extra-small" style="font-size: 0.62rem;">Shift Reports</span>
+                    </div>
+                    <div class="h5 mb-0 fw-black text-dark px-3 mt-1">@cumulativeNetDue.ToString("C2")</div>
                 </div>
             </div>
-            <!-- 5. Commissions -->
-            <div class="flex-fill" style="min-width: 130px;">
-                <div class="data-card py-2 border-0 bg-primary bg-opacity-10 border-start border-4 border-primary rounded-3 h-100">
-                    <div class="extra-small fw-bold text-primary text-uppercase px-3 mb-0">@contextLabel Commissions</div>
-                    <div class="h5 mb-0 fw-black text-primary px-3">@contextCommissions.ToString("C2")</div>
-                </div>
-            </div>
-            <!-- 6. Fees -->
-            <div class="flex-fill" style="min-width: 130px;">
-                <div class="data-card py-2 border-0 bg-danger bg-opacity-10 border-start border-4 border-danger rounded-3 h-100">
-                    <div class="extra-small fw-bold text-danger text-uppercase px-3 mb-0">@contextLabel Fees</div>
-                    <div class="h5 mb-0 fw-black text-danger px-3">-@contextFees.ToString("C2")</div>
-                </div>
-            </div>
-            <!-- 7. Total Variance -->
-            <div class="flex-fill" style="min-width: 130px;">
+            <!-- 5. Total Variance -->
+            <div class="flex-fill" style="min-width: 140px;">
                 <div class="data-card py-2 border rounded-3 bg-white shadow-sm h-100">
-                    <div class="text-muted extra-small text-uppercase fw-bold px-3 mb-0 text-danger">Total Variance</div>
-                    <div class="h5 mb-0 fw-black px-3 @(contextVariance < 0 ? "text-danger" : contextVariance > 0 ? "text-success" : "text-dark")">
+                    <div class="d-flex justify-content-between align-items-center px-3 mb-0">
+                        <span class="text-muted extra-small text-uppercase fw-bold text-danger">Total Variance</span>
+                        <span class="badge bg-light text-secondary border extra-small" style="font-size: 0.62rem;">Shift Drawer</span>
+                    </div>
+                    <div class="h5 mb-0 fw-black px-3 mt-1 @(contextVariance < 0 ? "text-danger" : contextVariance > 0 ? "text-success" : "text-dark")">
                         @contextVariance.ToString("C2")
                     </div>
                 </div>
@@ -1475,102 +1429,14 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && (_shifts.Any()
     </div>
 }
 
-@if (ShowContent && _viewMode == "weekly")
+
+@if (ShowContent && _viewMode == "summaries")
 {
-    @* Monthly View (Old Reconcile View) - One line per week, simple and read-only *@
-    <div class="data-card border-0 shadow-sm rounded-3 overflow-hidden mb-4 bg-white">
-        <h5 class="fw-black text-muted mb-2 pt-3 px-3 text-uppercase x-small tracking-widest">Monthly Weekly Summaries</h5>
-        <div class="table-container-fixed">
-            <table class="data-table">
-                <thead>
-                    <tr class="text-uppercase x-small tracking-widest text-muted">
-                        <th class="ps-4">Fiscal Period</th>
-                        <th class="text-end">Sales (RPT 50)</th>
-                        <th class="text-end">Cashes (RPT 50)</th>
-                        <th class="text-end">Tickets (RPT 34)</th>
-                        <th class="text-end fw-bold">Net Due</th>
-                        <th class="text-end text-danger fw-bold">Due to Lottery</th>
-                        <th class="text-end text-primary fw-bold">Envelope Cash</th>
-                        <th class="text-end pe-4">Net Revenue</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (_weeklySummaries != null && _weeklySummaries.Any())
-                    {
-                        @foreach (var week in _weeklySummaries.OrderByDescending(w => w.PeriodStart))
-                        {
-                            var weekDueToLottery = week.TotalNetDue - week.TotalCancels;
-                            var weekRevenue = week.TotalEnvelope - weekDueToLottery;
-                            
-                            <tr class="align-middle">
-                                <td class="ps-4 fw-bold">@week.PeriodLabel</td>
-                                <td class="text-end">@week.TotalSales.ToString("C2")</td>
-                                <td class="text-end">@week.TotalPayouts.ToString("C2")</td>
-                                <td class="text-end">@week.TotalCancels.ToString("C2")</td>
-                                <td class="text-end fw-bold">@week.TotalNetDue.ToString("C2")</td>
-                                <td class="text-end text-danger fw-bold">@weekDueToLottery.ToString("C2")</td>
-                                <td class="text-end text-primary fw-bold">@week.TotalEnvelope.ToString("C2")</td>
-                                <td class="text-end pe-4 fw-black @(weekRevenue >= 0 ? "text-success" : "text-danger")">
-                                    @weekRevenue.ToString("C2")
-                                </td>
-                            </tr>
-                        }
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <LotterySummaries />
 }
-
-
-
-@if (ShowContent && _viewMode == "monthly")
+@if (ShowContent && _viewMode == "compliance")
 {
-        @* Yearly View (Months summary) *@
-        <div class="data-card">
-            <h4>Yearly View (Months) for @_selectedYear</h4>
-            <div class="d-flex gap-2 mb-3">
-                <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear - 1)">Previous Year</button>
-                <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear + 1)">Next Year</button>
-            </div>
-            <div class="table-container-fixed">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Month</th>
-                            <th>Shifts</th>
-                            <th>Net Sales</th>
-                            <th>Cashes</th>
-                            <th>Instant Tickets</th>
-                            <th>Net Due</th>
-                            <th>Shift Net Sales</th>
-                            <th>Total Envelopes</th>
-                            <th>Cash Variance</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var summary in _monthlySummaries)
-                        {
-                            <tr>
-                                <td>@summary.PeriodLabel</td>
-                                <td>@summary.ShiftCount</td>
-                                <td>@summary.TotalSales.ToString("C2")</td>
-                                <td>@summary.TotalPayouts.ToString("C2")</td>
-                                <td>@summary.TotalCancels.ToString("C2")</td>
-                                <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
-                                <td>@summary.TotalNetSales.ToString("C2")</td>
-                                <td>@summary.TotalEnvelope.ToString("C2")</td>
-                                <td>
-                                    <span class="variance-pill @(summary.TotalVariance < 0 ? "variance-neg" : summary.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
-                                        @summary.TotalVariance.ToString("C2")
-                                    </span>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </div>
+    <LotteryCompliance />
 }
 @if (ShowContent && _viewMode == "imported")
 {

@@ -45,14 +45,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
-        private List<LotteryShiftSummaryDto> _weeklySummaries = new();
-        private List<LotteryShiftSummaryDto> _monthlySummaries = new();
         private List<string> _employeeNames = new();
         private List<LotteryWeeklyStat> _weeklyCommissionsStats = new();
+        private List<LotteryWeeklyStat> _analyticsWeeklyStats = new();
         private bool _showMetricCommissions = true;
         private bool _showMetricCashBonus = true;
         private bool _showMetricClaimsBonus = true;
-        private bool _showMetricFees = true;
+        private bool _showMetricFees = false;
         private List<(string Username, string FullName)> _employeeMetadata = new();
         private bool _loading = true;
         private string _error = string.Empty;
@@ -193,13 +192,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly" || _viewMode == "analytics" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "month"))
+            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "month")
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "year"))
+            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "year")
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
@@ -226,37 +225,17 @@ namespace GFC.BlazorServer.Components.Pages
         private List<LotteryCommissionRate> _commissionRates = new();
 
         // Summary stats computed from _shifts list using Business Day logic
-        private decimal TotalSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalSales) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalSales));
-
-        private decimal TotalPayouts => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalPayouts) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalPayouts));
-
-        private decimal TotalNetSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalNetSales) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.NetSales));
-
-        private decimal TotalEnvelope => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalEnvelope) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.EnvelopeAmount));
-
-        private decimal TotalVariance => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalVariance) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.Variance));
-
-        private decimal TotalEarnings => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalIncome) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.Commission));
-
-        private decimal TotalFees => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalFees) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.IdentifiedFees));
-        
-        private decimal TotalBagOut => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalBagOut) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.BackupBagAmount));
-
-        private decimal TotalBagIn => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalBagIn) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.BagRefillAmount));
-
+        private decimal TotalSales => _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalSales);
+        private decimal TotalPayouts => _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalPayouts);
+        private decimal TotalNetSales => _shifts.Where(s => s.Status != "Draft").Sum(s => s.NetSales);
+        private decimal TotalEnvelope => _shifts.Where(s => s.Status != "Draft").Sum(s => s.EnvelopeAmount);
+        private decimal TotalVariance => _shifts.Where(s => s.Status != "Draft").Sum(s => s.Variance);
+        private decimal TotalEarnings => _shifts.Where(s => s.Status != "Draft").Sum(s => s.Commission);
+        private decimal TotalFees => _shifts.Where(s => s.Status != "Draft").Sum(s => s.IdentifiedFees);
+        private decimal TotalBagOut => _shifts.Where(s => s.Status != "Draft").Sum(s => s.BackupBagAmount);
+        private decimal TotalBagIn => _shifts.Where(s => s.Status != "Draft").Sum(s => s.BagRefillAmount);
         private decimal NetBagDebt => TotalBagOut - TotalBagIn;
-
-        private decimal TotalInstantTickets => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalCancels) : 
-            _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalCancels));
+        private decimal TotalInstantTickets => _shifts.Where(s => s.Status != "Draft").Sum(s => s.TotalCancels);
 
         private ShiftFormModel _shiftForm = new();
         private ShiftFormModel _originalForm = new(); // CHANGE TRACKER
@@ -345,14 +324,6 @@ namespace GFC.BlazorServer.Components.Pages
                 if (_viewMode == "daily")
                 {
                     await LoadDailySummaries();
-                }
-                else if (_viewMode == "weekly")
-                {
-                    await LoadWeeklySummaries();
-                }
-                else if (_viewMode == "monthly")
-                {
-                    await LoadMonthlySummaries();
                 }
                 else if (_viewMode == "commissions")
                 {
@@ -566,7 +537,7 @@ namespace GFC.BlazorServer.Components.Pages
             var lastSaturday = saturdays.Max();
 
             var start = GetWeekStart(firstSaturday); // Sunday of the week ending on first Saturday
-            var end = lastSaturday; // The last Saturday itself
+            var end = lastSaturday < lastDayOfYear ? lastDayOfYear : lastSaturday;
             return (start, end);
         }
 
@@ -603,35 +574,7 @@ namespace GFC.BlazorServer.Components.Pages
             }
         }
 
-        private async Task LoadWeeklySummaries()
-        {
-            try
-            {
-                var summaries = await Task.Run(() => LotteryService.GetWeeklySummaries(_filterStartDate, _filterEndDate));
-                _weeklySummaries = summaries ?? new List<LotteryShiftSummaryDto>();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error loading weekly summaries");
-                _weeklySummaries = new List<LotteryShiftSummaryDto>();
-                throw;
-            }
-        }
 
-        private async Task LoadMonthlySummaries()
-        {
-            try
-            {
-                var summaries = await Task.Run(() => LotteryService.GetMonthlySummaries(_selectedYear));
-                _monthlySummaries = summaries ?? new List<LotteryShiftSummaryDto>();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error loading monthly summaries");
-                _monthlySummaries = new List<LotteryShiftSummaryDto>();
-                throw;
-            }
-        }
 
 
 
@@ -691,13 +634,6 @@ namespace GFC.BlazorServer.Components.Pages
                 _filterStartDate = GetWeekStart(DateTime.Today);
                 _filterEndDate = _filterStartDate.AddDays(6);
             }
-            else if (_viewMode == "weekly")
-            {
-                // Snap to the full month for the weekly totals view
-                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
-                _filterStartDate = range.Start;
-                _filterEndDate = range.End;
-            }
             else if (_viewMode == "analytics")
             {
                 // Snap to the full month for analytics view as requested
@@ -705,16 +641,9 @@ namespace GFC.BlazorServer.Components.Pages
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "monthly")
+            else if (_viewMode == "summaries" || _viewMode == "compliance" || _viewMode == "imported")
             {
-                // Snap to the full year for the monthly totals (Yearly View)
-                var range = GetSnappedYearRange(_selectedYear);
-                _filterStartDate = range.Start;
-                _filterEndDate = range.End;
-            }
-            else if (_viewMode == "imported")
-            {
-                // No special date snapping needed for imported reports workspace
+                // Child component handles its own filter controls and data loading
             }
 
             await LoadData();
@@ -723,13 +652,13 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeYear(int year)
         {
             _selectedYear = year;
-            if (_viewMode == "monthly" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "year"))
+            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "year")
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if (_viewMode == "weekly" || _viewMode == "analytics" || ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending") && _breakdownRangeType == "month"))
+            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "month")
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
@@ -1371,16 +1300,14 @@ namespace GFC.BlazorServer.Components.Pages
             try
             {
                 var shifts = await FinancialService.GetLotteryAnalyticsAsync(_filterStartDate, _filterEndDate);
-                
-                // Filtering
-                IEnumerable<LotteryShift> query = shifts;
-                if (!string.IsNullOrEmpty(_filterEmployee))
-                {
-                    query = query.Where(s => s.EmployeeName != null && 
-                        s.EmployeeName.Trim().Equals(_filterEmployee.Trim(), StringComparison.OrdinalIgnoreCase));
-                }
-                
-                _analyticsShifts = query.OrderByDescending(s => s.ShiftDate).ToList();
+                _analyticsShifts = shifts.OrderByDescending(s => s.ShiftDate).ToList();
+
+                using var db = await DbFactory.CreateDbContextAsync();
+                _analyticsWeeklyStats = await db.LotteryWeeklyStats
+                    .Where(w => w.WeekEndingDate >= _filterStartDate.Date && w.WeekEndingDate <= _filterEndDate.Date)
+                    .OrderBy(w => w.WeekEndingDate)
+                    .ToListAsync();
+
                 CalculateAnalyticsStats();
                 
                 // We need to wait for the UI to render the canvas before calling JS
@@ -1395,21 +1322,27 @@ namespace GFC.BlazorServer.Components.Pages
 
         private void CalculateAnalyticsStats()
         {
-            if (!_analyticsShifts.Any())
+            if (!_analyticsShifts.Any() && !_analyticsWeeklyStats.Any())
             {
                 _stats = new LotteryAnalyticsStats();
                 return;
             }
 
-            _stats.TotalIncome = _analyticsShifts.Sum(s => s.LotteryIncome);
+            decimal totalWeeklyIncome = _analyticsWeeklyStats.Sum(w => 
+                Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) + 
+                Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) + 
+                Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus) - 
+                (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
+
+            _stats.TotalIncome = totalWeeklyIncome;
             _stats.TotalVariance = _analyticsShifts.Sum(s => s.Variance);
             _stats.TotalNetProfit = _stats.TotalIncome + _stats.TotalVariance;
-            _stats.AvgVariance = _analyticsShifts.Average(s => s.Variance);
+            _stats.AvgVariance = _analyticsShifts.Any() ? _analyticsShifts.Average(s => s.Variance) : 0m;
             
             _stats.PerfectShiftCount = _analyticsShifts.Count(s => Math.Abs(s.Variance) <= 0.05m);
             _stats.ShortShiftCount = _analyticsShifts.Count(s => s.Variance < -0.05m);
-            _stats.StabilityScore = (decimal)_stats.PerfectShiftCount / _analyticsShifts.Count * 100;
-            _stats.ShortageFrequency = (decimal)_stats.ShortShiftCount / _analyticsShifts.Count * 100;
+            _stats.StabilityScore = _analyticsShifts.Any() ? (decimal)_stats.PerfectShiftCount / _analyticsShifts.Count * 100 : 0m;
+            _stats.ShortageFrequency = _analyticsShifts.Any() ? (decimal)_stats.ShortShiftCount / _analyticsShifts.Count * 100 : 0m;
             
             var shortUsers = _analyticsShifts
                 .Where(s => s.Variance < 0)
@@ -1423,24 +1356,117 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task UpdateAnalyticsCharts()
         {
-            var dailyData = _analyticsShifts
-                .GroupBy(s => s.ShiftDate.Date)
-                .OrderBy(g => g.Key)
-                .Select(g => new { 
-                    Date = g.Key.ToString("MM/dd"), 
-                    Income = g.Sum(s => s.LotteryIncome), 
-                    Variance = g.Sum(s => s.Variance),
-                    Net = g.Sum(s => s.LotteryIncome + s.Variance)
+            List<object> incomeVsVarDatasets;
+            List<object> varianceTrendDatasets;
+            List<string> labels;
+
+            if (_breakdownRangeType == "year")
+            {
+                var year = _selectedYear;
+                var monthLabels = new List<string>();
+                var monthlyIncome = new List<decimal>();
+                var monthlyVariance = new List<decimal>();
+                var monthlyNet = new List<decimal>();
+
+                for (int m = 1; m <= 12; m++)
+                {
+                    var mStart = new DateTime(year, m, 1);
+                    var mEnd = mStart.AddMonths(1).AddDays(-1);
+
+                    var mWeekly = _analyticsWeeklyStats
+                        .Where(w => w.WeekEndingDate >= mStart && w.WeekEndingDate <= mEnd)
+                        .ToList();
+
+                    decimal mIncome = mWeekly.Sum(w => 
+                        Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) + 
+                        Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) + 
+                        Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus) - 
+                        (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
+
+                    decimal mVariance = _analyticsShifts
+                        .Where(s => s.ShiftDate.Date >= mStart && s.ShiftDate.Date <= mEnd)
+                        .Sum(s => s.Variance);
+
+                    monthLabels.Add(mStart.ToString("MMM"));
+                    monthlyIncome.Add(mIncome);
+                    monthlyVariance.Add(mVariance);
+                    monthlyNet.Add(mIncome + mVariance);
+                }
+
+                incomeVsVarDatasets = new List<object>
+                {
+                    new { label = "Downloaded Commission Income", data = monthlyIncome, color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar" },
+                    new { label = "Cash Variance", data = monthlyVariance, color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar" },
+                    new { label = "Net Profit", data = monthlyNet, color = "#10b981", bg = "rgba(16, 185, 129, 0.1)", type = "line" }
+                };
+
+                await JS.InvokeVoidAsync("financialCharts.renderChart", "incomeVarianceChart", new { 
+                    type = "bar", 
+                    labels = monthLabels, 
+                    datasets = incomeVsVarDatasets
+                });
+
+                varianceTrendDatasets = new List<object>
+                {
+                    new { label = "Monthly Variance", data = monthlyVariance, color = "#f59e0b", bg = "rgba(245, 158, 11, 0.1)", type = "line" }
+                };
+
+                await JS.InvokeVoidAsync("financialCharts.renderChart", "varianceTrendChart", new { 
+                    type = "line", 
+                    labels = monthLabels, 
+                    datasets = varianceTrendDatasets
+                });
+                return;
+            }
+
+            if (_analyticsWeeklyStats.Any())
+            {
+                var weeklyData = _analyticsWeeklyStats.Select(w => {
+                    var weekStart = w.WeekEndingDate.AddDays(-6);
+                    var weekEnd = w.WeekEndingDate;
+                    decimal income = Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) + 
+                                     Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) + 
+                                     Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus) - 
+                                     (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee));
+                    decimal variance = _analyticsShifts
+                        .Where(s => s.ShiftDate.Date >= weekStart && s.ShiftDate.Date <= weekEnd)
+                        .Sum(s => s.Variance);
+                    return new {
+                        Date = $"{w.WeekEndingDate:MM/dd}",
+                        Income = income,
+                        Variance = variance,
+                        Net = income + variance
+                    };
                 }).ToList();
 
-            var labels = dailyData.Select(d => d.Date).ToList();
-            
-            var incomeVsVarDatasets = new List<object>
+                labels = weeklyData.Select(d => d.Date).ToList();
+                incomeVsVarDatasets = new List<object>
+                {
+                    new { label = "Downloaded Commission Income", data = weeklyData.Select(d => d.Income).ToList(), color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar" },
+                    new { label = "Cash Variance", data = weeklyData.Select(d => d.Variance).ToList(), color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar" },
+                    new { label = "Net Profit", data = weeklyData.Select(d => d.Net).ToList(), color = "#10b981", bg = "rgba(16, 185, 129, 0.1)", type = "line" }
+                };
+            }
+            else
             {
-                new { label = "Actual Income", data = dailyData.Select(d => d.Income).ToList(), color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar" },
-                new { label = "Variance", data = dailyData.Select(d => d.Variance).ToList(), color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar" },
-                new { label = "Net Profit", data = dailyData.Select(d => d.Net).ToList(), color = "#10b981", bg = "rgba(16, 185, 129, 0.1)", type = "line" }
-            };
+                var dailyData = _analyticsShifts
+                    .GroupBy(s => s.ShiftDate.Date)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new { 
+                        Date = g.Key.ToString("MM/dd"), 
+                        Income = 0m, 
+                        Variance = g.Sum(s => s.Variance),
+                        Net = g.Sum(s => s.Variance)
+                    }).ToList();
+
+                labels = dailyData.Select(d => d.Date).ToList();
+                incomeVsVarDatasets = new List<object>
+                {
+                    new { label = "Downloaded Commission Income", data = dailyData.Select(d => d.Income).ToList(), color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar" },
+                    new { label = "Cash Variance", data = dailyData.Select(d => d.Variance).ToList(), color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar" },
+                    new { label = "Net Profit", data = dailyData.Select(d => d.Net).ToList(), color = "#10b981", bg = "rgba(16, 185, 129, 0.1)", type = "line" }
+                };
+            }
 
             await JS.InvokeVoidAsync("financialCharts.renderChart", "incomeVarianceChart", new { 
                 type = "bar", 
@@ -1448,14 +1474,22 @@ namespace GFC.BlazorServer.Components.Pages
                 datasets = incomeVsVarDatasets
             });
 
-            var varianceTrendDatasets = new List<object>
+            var dailyVarianceData = _analyticsShifts
+                .GroupBy(s => s.ShiftDate.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new { 
+                    Date = g.Key.ToString("MM/dd"), 
+                    Variance = g.Sum(s => s.Variance)
+                }).ToList();
+
+            varianceTrendDatasets = new List<object>
             {
-                new { label = "Daily Variance", data = dailyData.Select(d => d.Variance).ToList(), color = "#f59e0b", bg = "rgba(245, 158, 11, 0.1)", type = "line" }
+                new { label = "Daily Variance", data = dailyVarianceData.Select(d => d.Variance).ToList(), color = "#f59e0b", bg = "rgba(245, 158, 11, 0.1)", type = "line" }
             };
 
             await JS.InvokeVoidAsync("financialCharts.renderChart", "varianceTrendChart", new { 
                 type = "line", 
-                labels = labels, 
+                labels = dailyVarianceData.Select(d => d.Date).ToList(), 
                 datasets = varianceTrendDatasets
             });
         }
@@ -1492,11 +1526,10 @@ namespace GFC.BlazorServer.Components.Pages
                         decimal dayEnvelope = dayShifts.Sum(s => s.EnvelopeAmount);
                         decimal dayVending = vendingDrops.Where(v => v.CollectionDate.Date == currentDate.Date).Sum(v => v.AmountCollected);
 
-                        var nightShift = dayShifts.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-
-                        decimal dayNetDue = nightShift != null ? nightShift.NetDue : 0;
-                        decimal daySales = nightShift != null ? nightShift.TotalCancels : 0;
-                        decimal dayVariance = nightShift != null ? nightShift.Variance : 0;
+                        var closingShift = dayShifts.OrderByDescending(s => s.ShiftId).FirstOrDefault();
+                        decimal dayNetDue = closingShift != null ? closingShift.NetDue : 0;
+                        decimal daySales = dayShifts.Sum(s => s.TotalSales);
+                        decimal dayVariance = dayShifts.Sum(s => s.Variance);
 
                         double pct = periodTotalEnvelope > 0 ? (double)(dayEnvelope / periodTotalEnvelope * 100) : 0;
 
@@ -1538,23 +1571,12 @@ namespace GFC.BlazorServer.Components.Pages
                         decimal weekNetDue = weekShifts
                             .GroupBy(s => s.ShiftDate.Date)
                             .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.NetDue : 0;
+                                var lastShift = g.OrderByDescending(s => s.ShiftId).FirstOrDefault();
+                                return lastShift != null ? lastShift.NetDue : 0;
                             });
 
-                        decimal weekSales = weekShifts
-                            .GroupBy(s => s.ShiftDate.Date)
-                            .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.TotalCancels : 0;
-                            });
-
-                        decimal weekVariance = weekShifts
-                            .GroupBy(s => s.ShiftDate.Date)
-                            .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.Variance : 0;
-                            });
+                        decimal weekSales = weekShifts.Sum(s => s.TotalSales);
+                        decimal weekVariance = weekShifts.Sum(s => s.Variance);
 
                         double pct = periodTotalEnvelope > 0 ? (double)(weekEnvelope / periodTotalEnvelope * 100) : 0;
 
@@ -1597,23 +1619,12 @@ namespace GFC.BlazorServer.Components.Pages
                         decimal mNetDue = monthShifts
                             .GroupBy(s => s.ShiftDate.Date)
                             .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.NetDue : 0;
+                                var lastShift = g.OrderByDescending(s => s.ShiftId).FirstOrDefault();
+                                return lastShift != null ? lastShift.NetDue : 0;
                             });
 
-                        decimal mSales = monthShifts
-                            .GroupBy(s => s.ShiftDate.Date)
-                            .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.TotalCancels : 0;
-                            });
-
-                        decimal mVariance = monthShifts
-                            .GroupBy(s => s.ShiftDate.Date)
-                            .Sum(g => {
-                                var night = g.FirstOrDefault(s => string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase));
-                                return night != null ? night.Variance : 0;
-                            });
+                        decimal mSales = monthShifts.Sum(s => s.TotalSales);
+                        decimal mVariance = monthShifts.Sum(s => s.Variance);
 
                         double pct = periodTotalEnvelope > 0 ? (double)(mEnvelope / periodTotalEnvelope * 100) : 0;
 
@@ -1819,6 +1830,44 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task UpdateCommissionsChart()
         {
             if (!_weeklyCommissionsStats.Any()) return;
+
+            if (_breakdownRangeType == "year")
+            {
+                var year = _selectedYear;
+                var monthLabels = new List<string>();
+                var commData = new List<decimal>();
+                var cashBonusData = new List<decimal>();
+                var claimsBonusData = new List<decimal>();
+                var feesData = new List<decimal>();
+
+                for (int m = 1; m <= 12; m++)
+                {
+                    var mStart = new DateTime(year, m, 1);
+                    var mEnd = mStart.AddMonths(1).AddDays(-1);
+                    var mStats = _weeklyCommissionsStats.Where(w => w.WeekEndingDate >= mStart && w.WeekEndingDate <= mEnd).ToList();
+
+                    monthLabels.Add(mStart.ToString("MMM"));
+                    commData.Add(_showMetricCommissions ? mStats.Sum(w => Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission)) : 0m);
+                    cashBonusData.Add(_showMetricCashBonus ? mStats.Sum(w => Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus)) : 0m);
+                    claimsBonusData.Add(_showMetricClaimsBonus ? mStats.Sum(w => Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) : 0m);
+                    feesData.Add(_showMetricFees ? mStats.Sum(w => Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)) : 0m);
+                }
+
+                var yearDatasets = new List<object>
+                {
+                    new { label = "Commissions", data = commData, color = "#10b981", bg = "rgba(16, 185, 129, 0.7)", type = "bar", stack = "earnings" },
+                    new { label = "Cash Bonus", data = cashBonusData, color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar", stack = "earnings" },
+                    new { label = "Claims Bonus", data = claimsBonusData, color = "#8b5cf6", bg = "rgba(139, 92, 246, 0.7)", type = "bar", stack = "earnings" },
+                    new { label = "Weekly Fees", data = feesData, color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar", stack = "fees" }
+                };
+
+                await JS.InvokeVoidAsync("financialCharts.renderChart", "commissionsReportChart", new { 
+                    type = "bar", 
+                    labels = monthLabels, 
+                    datasets = yearDatasets 
+                });
+                return;
+            }
 
             var labels = _weeklyCommissionsStats.Select(w => w.WeekEndingDate.ToString("MM/dd")).ToList();
             var datasets = new List<object>();
