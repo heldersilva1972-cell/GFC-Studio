@@ -3,6 +3,7 @@ using GFC.Core.Models;
 using GFC.Core.DTOs;
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Data.Entities;
+using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -18,6 +19,7 @@ public class PosApiController : ControllerBase
     private readonly ILiquorService _liquorService;
     private readonly ILogger<PosApiController> _logger;
     private readonly IPagePermissionRepository _pagePermissionRepo;
+    private readonly PosSyncLogService _syncLog;
 
     [HttpGet("debug-pages")]
     public async Task<IActionResult> DebugPages()
@@ -165,12 +167,34 @@ public class PosApiController : ControllerBase
         IDbContextFactory<GfcDbContext> dbFactory,
         ILiquorService liquorService,
         ILogger<PosApiController> logger,
-        IPagePermissionRepository pagePermissionRepo)
+        IPagePermissionRepository pagePermissionRepo,
+        PosSyncLogService syncLog)
     {
         _dbFactory = dbFactory;
         _liquorService = liquorService;
         _logger = logger;
         _pagePermissionRepo = pagePermissionRepo;
+        _syncLog = syncLog;
+    }
+
+    private void TouchTerminalLastSeen(string? terminalName)
+    {
+        if (string.IsNullOrWhiteSpace(terminalName)) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var db = await _dbFactory.CreateDbContextAsync();
+                var searchName = terminalName.Trim();
+                await db.PosTerminals
+                    .Where(t => !t.IsDeleted && (t.TerminalName == searchName || t.TerminalName.ToLower() == searchName.ToLower()))
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastSeenAt, DateTime.UtcNow));
+            }
+            catch
+            {
+                // Ignore background last-seen collision
+            }
+        });
     }
 
     [HttpGet("menu")]
@@ -687,6 +711,7 @@ public class PosApiController : ControllerBase
     [HttpPost("sale")]
     public async Task<IActionResult> SaveSale([FromBody] PosSaleDto saleDto)
     {
+        TouchTerminalLastSeen(saleDto?.TerminalName);
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
@@ -738,67 +763,25 @@ public class PosApiController : ControllerBase
                     else
                     {
                         // Case-insensitive fallback
-                        var userObjCI = await db.AppUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == saleDto.BartenderName.ToLower());
-                        if (userObjCI != null)
+                        userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == saleDto.BartenderName.ToLower());
+                        if (userObj != null)
                         {
-                            userId = userObjCI.UserId;
+                            userId = userObj.UserId;
                         }
                     }
                 }
 
-                var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(saleDto.ItemsJson);
-                if (items != null)
+                if (!string.IsNullOrEmpty(saleDto.ItemsJson))
                 {
-                    foreach (var parent in items)
+                    var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(saleDto.ItemsJson);
+                    if (items != null)
                     {
-                        if (parent.Id > 0)
+                        foreach (var parent in items)
                         {
-                            try {
-                                var liquorItem = await db.LiquorItems.FindAsync(parent.Id);
-                                if (liquorItem != null)
-                                {
-                                    if (liquorItem.ParentItemId.HasValue)
-                                    {
-                                        var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
-                                        if (parentItem != null)
-                                        {
-                                            decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
-                                            decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
-                                            
-                                            parentItem.OuncesAccumulator += (parent.Quantity * pourSize);
-                                            
-                                            int bottlesToDeduct = 0;
-                                            if (bottleVolume > 0)
-                                            {
-                                                bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
-                                                parentItem.OuncesAccumulator %= bottleVolume;
-                                            }
-                                            
-                                            await db.SaveChangesAsync();
-                                            
-                                            if (bottlesToDeduct > 0)
-                                            {
-                                                await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale: {parent.Quantity}x {parent.Name} (Accumulated depletion)");
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
-                                    }
-                                }
-                            } catch (Exception invEx) {
-                                _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
-                            }
-                        }
-
-                        if (parent.Modifiers != null)
-                        {
-                            foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
+                            if (parent.Id > 0)
                             {
                                 try {
-                                    int totalModQty = parent.Quantity * mod.Quantity;
-                                    var liquorItem = await db.LiquorItems.FindAsync(mod.Id);
+                                    var liquorItem = await db.LiquorItems.FindAsync(parent.Id);
                                     if (liquorItem != null)
                                     {
                                         if (liquorItem.ParentItemId.HasValue)
@@ -809,7 +792,7 @@ public class PosApiController : ControllerBase
                                                 decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
                                                 decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
                                                 
-                                                parentItem.OuncesAccumulator += (totalModQty * pourSize);
+                                                parentItem.OuncesAccumulator += (parent.Quantity * pourSize);
                                                 
                                                 int bottlesToDeduct = 0;
                                                 if (bottleVolume > 0)
@@ -822,17 +805,62 @@ public class PosApiController : ControllerBase
                                                 
                                                 if (bottlesToDeduct > 0)
                                                 {
-                                                    await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale (Add-on): {totalModQty}x {mod.Name} (for {parent.Name}) (Accumulated depletion)");
+                                                    await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale: {parent.Quantity}x {parent.Name} (Accumulated depletion)");
                                                 }
                                             }
                                         }
                                         else
                                         {
-                                            await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                            await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
                                         }
                                     }
                                 } catch (Exception invEx) {
-                                    _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
+                                    _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
+                                }
+                            }
+
+                            if (parent.Modifiers != null)
+                            {
+                                foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
+                                {
+                                    try {
+                                        int totalModQty = parent.Quantity * mod.Quantity;
+                                        var liquorItem = await db.LiquorItems.FindAsync(mod.Id);
+                                        if (liquorItem != null)
+                                        {
+                                            if (liquorItem.ParentItemId.HasValue)
+                                            {
+                                                var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
+                                                if (parentItem != null)
+                                                {
+                                                    decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
+                                                    decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
+                                                    
+                                                    parentItem.OuncesAccumulator += (totalModQty * pourSize);
+                                                    
+                                                    int bottlesToDeduct = 0;
+                                                    if (bottleVolume > 0)
+                                                    {
+                                                        bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
+                                                        parentItem.OuncesAccumulator %= bottleVolume;
+                                                    }
+                                                    
+                                                    await db.SaveChangesAsync();
+                                                    
+                                                    if (bottlesToDeduct > 0)
+                                                    {
+                                                        await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale (Add-on): {totalModQty}x {mod.Name} (for {parent.Name}) (Accumulated depletion)");
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
+                                            }
+                                        }
+                                    } catch (Exception invEx) {
+                                        _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
+                                    }
                                 }
                             }
                         }
@@ -863,6 +891,7 @@ public class PosApiController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save POS sale");
+            _syncLog.RecordError(saleDto?.TerminalName ?? "POS Terminal", "POST api/pos/sale", ex.Message, $"Sale ID: {saleDto?.Id}, Total: {saleDto?.TotalAmount:C}");
             return StatusCode(500, ex.Message);
         }
     }
@@ -870,6 +899,7 @@ public class PosApiController : ControllerBase
     [HttpPost("z-report")]
     public async Task<IActionResult> SaveZReport([FromBody] PosZReportDto reportDto)
     {
+        TouchTerminalLastSeen(reportDto?.TerminalName);
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
@@ -1026,6 +1056,7 @@ public class PosApiController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save Z-Report");
+            _syncLog.RecordError(reportDto?.TerminalName ?? "POS Terminal", "POST api/pos/z-report", ex.Message, $"Report ID: {reportDto?.Id}, Gross: {reportDto?.TotalGrossSales:C}");
             return StatusCode(500, ex.Message);
         }
     }
@@ -1033,6 +1064,7 @@ public class PosApiController : ControllerBase
     [HttpGet("darts-check/{terminalName}")]
     public async Task<ActionResult<PosSaleDto?>> GetDartsRoundToday(string terminalName)
     {
+        TouchTerminalLastSeen(terminalName);
         using var db = await _dbFactory.CreateDbContextAsync();
         var today = DateTime.Today;
         // A Darts Round sale is marked as TOKEN/COMP and contains (DARTS) items
@@ -1063,6 +1095,7 @@ public class PosApiController : ControllerBase
     [HttpGet("darts-rounds-today/{terminalName}")]
     public async Task<ActionResult<List<PosSaleDto>>> GetDartsRoundsToday(string terminalName)
     {
+        TouchTerminalLastSeen(terminalName);
         using var db = await _dbFactory.CreateDbContextAsync();
         var today = DateTime.Today;
         var sales = await db.PosSales
@@ -1092,6 +1125,7 @@ public class PosApiController : ControllerBase
     [HttpGet("z-reports/{terminalName}")]
     public async Task<ActionResult<List<PosZReportDto>>> GetZReports(string terminalName)
     {
+        TouchTerminalLastSeen(terminalName);
         using var db = await _dbFactory.CreateDbContextAsync();
         var reports = await db.PosZReports
             .Where(r => r.TerminalName == terminalName)

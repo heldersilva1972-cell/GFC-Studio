@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
+using Microsoft.EntityFrameworkCore;
+using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Services.Diagnostics;
 
 namespace GFC.BlazorServer.Controllers;
@@ -11,11 +13,16 @@ namespace GFC.BlazorServer.Controllers;
 public class HealthController : ControllerBase
 {
     private readonly DatabaseHealthService _dbHealthService;
+    private readonly IDbContextFactory<GfcDbContext> _dbFactory;
     private readonly ILogger<HealthController> _logger;
 
-    public HealthController(DatabaseHealthService dbHealthService, ILogger<HealthController> logger)
+    public HealthController(
+        DatabaseHealthService dbHealthService, 
+        IDbContextFactory<GfcDbContext> dbFactory,
+        ILogger<HealthController> logger)
     {
         _dbHealthService = dbHealthService;
+        _dbFactory = dbFactory;
         _logger = logger;
     }
 
@@ -37,6 +44,25 @@ public class HealthController : ControllerBase
         try 
         {
             var dbStatus = await _dbHealthService.TestDatabaseConnectionAsync();
+            if (dbStatus.Success)
+            {
+                // Asynchronously update POS terminal LastSeenAt without blocking heartbeat response
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var db = await _dbFactory.CreateDbContextAsync();
+                        await db.PosTerminals
+                            .Where(t => !t.IsDeleted)
+                            .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastSeenAt, DateTime.UtcNow));
+                    }
+                    catch
+                    {
+                        // Ignore heartbeat db update collision
+                    }
+                });
+            }
+
             return Ok(new { 
                 Status = "Online", 
                 Database = dbStatus.Success ? "Connected" : "Disconnected",

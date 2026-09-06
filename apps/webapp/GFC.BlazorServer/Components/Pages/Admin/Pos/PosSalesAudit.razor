@@ -14,6 +14,7 @@
 @inject GFC.Core.Interfaces.IVersionService VersionService
 @inject IJSRuntime JSRuntime
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject PosSyncLogService SyncLog
 @attribute [Authorize]
 
 <PageTitle>POS Sales Audit</PageTitle>
@@ -5152,7 +5153,18 @@
 
                 <!-- POS STATION STATUS / LAST SYNCED -->
                 <div class="sidebar-section mb-3">
-                    <label class="sidebar-label">POS TERMINAL STATUS (LAST SEEN)</label>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="sidebar-label m-0">POS TERMINAL STATUS</label>
+                        @if (_syncErrors != null && _syncErrors.Any())
+                        {
+                            <button type="button" class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold text-decoration-none px-2 py-0.5 rounded-pill" 
+                                    style="font-size: 0.65rem; cursor: pointer;" 
+                                    @onclick="() => _showErrorModal = true"
+                                    title="Click to view sync errors">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>@_syncErrors.Count Sync Alert@(_syncErrors.Count > 1 ? "s" : "")
+                            </button>
+                        }
+                    </div>
                     <div class="bg-light rounded-4 p-3 border">
                         @if (TerminalsWithStatus == null || !TerminalsWithStatus.Any())
                         {
@@ -5162,12 +5174,13 @@
                         {
                             @foreach (var t in TerminalsWithStatus)
                             {
+                                var isOnline = (DateTime.UtcNow - t.LastSeenAt).TotalMinutes <= 2;
                                 <div class="d-flex justify-content-between align-items-center mb-2 last-seen-row" style="font-size: 0.8rem;">
                                     <div class="d-flex align-items-center gap-2">
-                                        <span class="status-dot @(DateTime.UtcNow.Subtract(t.LastSeenAt).TotalMinutes <= 10 ? "online" : "offline")"></span>
+                                        <span class="status-dot @(isOnline ? "online" : "offline")"></span>
                                         <span class="fw-bold text-dark">@t.TerminalName</span>
                                     </div>
-                                    <span class="text-muted fw-bold" style="font-size: 0.72rem;">
+                                    <span class="@(isOnline ? "text-success" : "text-muted") fw-bold" style="font-size: 0.72rem;">
                                         @FormatLastSeen(t.LastSeenAt)
                                     </span>
                                 </div>
@@ -6320,6 +6333,70 @@
                             <span><i class="bi bi-check-circle-fill me-1"></i>RECORD & REALIGN AUDIT</span>
                         }
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showErrorModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 10600;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content rounded-4 shadow border-0 overflow-hidden">
+                <div class="modal-header border-bottom px-4 py-3 bg-light d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-octagon-fill text-danger fs-5"></i>
+                        <h5 class="modal-title fw-bold m-0" style="font-size: 1.05rem;">POS Sync &amp; Communication Alerts</h5>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showErrorModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (_syncErrors == null || !_syncErrors.Any())
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-check-circle-fill text-success fs-1 mb-2 d-block"></i>
+                            <div class="fw-bold text-dark">No Active Sync Errors</div>
+                            <small class="text-muted">All recent communication and transactions from POS terminals processed cleanly.</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <span class="text-muted small">Showing last @(_syncErrors.Count) sync alert(s)</span>
+                            <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" @onclick="ClearSyncErrors">
+                                <i class="bi bi-trash3 me-1"></i> Clear Alerts
+                            </button>
+                        </div>
+                        <div class="table-responsive rounded-3 border">
+                            <table class="table table-hover table-sm mb-0 align-middle" style="font-size: 0.8rem;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3 py-2">Time</th>
+                                        <th class="py-2">Terminal</th>
+                                        <th class="py-2">Endpoint</th>
+                                        <th class="py-2">Error Reason</th>
+                                        <th class="py-2">Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var err in _syncErrors)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 text-nowrap text-muted">@err.Timestamp.ToLocalTime().ToString("g")</td>
+                                            <td class="fw-bold text-dark text-nowrap">@err.TerminalName</td>
+                                            <td><code class="text-primary small">@err.Endpoint</code></td>
+                                            <td class="text-danger fw-semibold">@err.ErrorMessage</td>
+                                            <td class="text-muted small text-truncate" style="max-width: 220px;" title="@err.PayloadSummary">@err.PayloadSummary</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer border-top px-4 py-2 bg-light d-flex justify-content-end">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4 btn-sm fw-bold" @onclick="() => _showErrorModal = false">Close</button>
                 </div>
             </div>
         </div>
@@ -8504,6 +8581,7 @@
     public void Dispose()
     {
         _objRef?.Dispose();
+        _terminalHeartbeatTimer?.Dispose();
     }
 
     private async Task UpdateWeeklyBreakdown()
@@ -9714,11 +9792,37 @@
     private List<PosCategory> DbPosCategories = new();
 
     private DotNetObjectReference<PosSalesAudit>? _objRef;
+    private global::System.Threading.Timer? _terminalHeartbeatTimer;
+    private List<PosSyncErrorEntry> _syncErrors = new();
+    private bool _showErrorModal = false;
+
+    private void ClearSyncErrors()
+    {
+        SyncLog.ClearErrors();
+        _syncErrors.Clear();
+        StateHasChanged();
+    }
 
     protected override async Task OnInitializedAsync()
     {
         _objRef = DotNetObjectReference.Create(this);
         try {
+            _syncErrors = SyncLog.GetRecentErrors().ToList();
+            _terminalHeartbeatTimer = new global::System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        using var db = DbFactory.CreateDbContext();
+                        TerminalsWithStatus = await db.PosTerminals.AsNoTracking().Where(t => !t.IsDeleted).OrderBy(t => t.TerminalName).ToListAsync();
+                        _syncErrors = SyncLog.GetRecentErrors().ToList();
+                        StateHasChanged();
+                    }
+                    catch { }
+                });
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10));
+
             _settings = await SystemSettingsService.GetAsync();
             using var db = DbFactory.CreateDbContext();
             
@@ -12049,12 +12153,13 @@
     private string FormatLastSeen(DateTime lastSeenUtc)
     {
         if (lastSeenUtc == default) return "Never";
-        var localTime = lastSeenUtc.ToLocalTime();
-        var diff = DateTime.Now - localTime;
-        if (diff.TotalMinutes < 1) return "Just now";
+        var diff = DateTime.UtcNow - lastSeenUtc;
+        if (diff.TotalSeconds < 0) return "Just now";
+        if (diff.TotalSeconds < 30) return "Just now";
+        if (diff.TotalSeconds < 60) return $"{(int)diff.TotalSeconds}s ago";
         if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
         if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        return localTime.ToString("MMM dd, h:mm tt");
+        return lastSeenUtc.ToLocalTime().ToString("MMM dd, h:mm tt");
     }
 
     private string GetStockSummaryForLocation(LiquorItem item, string location)
