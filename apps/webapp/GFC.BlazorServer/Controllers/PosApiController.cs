@@ -20,6 +20,7 @@ public class PosApiController : ControllerBase
     private readonly ILogger<PosApiController> _logger;
     private readonly IPagePermissionRepository _pagePermissionRepo;
     private readonly PosSyncLogService _syncLog;
+    private readonly PosTelemetryStateService _telemetryService;
 
     [HttpGet("debug-pages")]
     public async Task<IActionResult> DebugPages()
@@ -168,13 +169,39 @@ public class PosApiController : ControllerBase
         ILiquorService liquorService,
         ILogger<PosApiController> logger,
         IPagePermissionRepository pagePermissionRepo,
-        PosSyncLogService syncLog)
+        PosSyncLogService syncLog,
+        PosTelemetryStateService telemetryService)
     {
         _dbFactory = dbFactory;
         _liquorService = liquorService;
         _logger = logger;
         _pagePermissionRepo = pagePermissionRepo;
         _syncLog = syncLog;
+        _telemetryService = telemetryService;
+    }
+
+    [HttpPost("telemetry")]
+    public async Task<IActionResult> RecordTelemetry([FromBody] PosTelemetryDto? telemetry)
+    {
+        if (telemetry == null || string.IsNullOrWhiteSpace(telemetry.TerminalName))
+        {
+            return Ok(new PosTelemetryResponseDto());
+        }
+
+        var termName = telemetry.TerminalName.Trim();
+        _telemetryService.UpdateTelemetry(telemetry);
+        TouchTerminalLastSeen(termName);
+
+        var resetCmd = _telemetryService.ConsumeResetRetries(termName);
+        var forceSyncCmd = _telemetryService.ConsumeForceSync(termName);
+
+        return Ok(new PosTelemetryResponseDto
+        {
+            Success = true,
+            ReceivedAt = DateTime.UtcNow,
+            ResetRetriesRequested = resetCmd,
+            ForceSyncRequested = forceSyncCmd
+        });
     }
 
     private void TouchTerminalLastSeen(string? terminalName)

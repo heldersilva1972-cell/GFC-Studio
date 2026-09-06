@@ -22,6 +22,7 @@ public interface IPosTerminalService
     int PendingSalesCount { get; }
     int PendingZCount { get; }
     DateTime? LastSynced { get; }
+    string? CurrentOperator { get; set; }
     Task<int> GetTotalPendingAsync();
     Task<DateTime> GetLastZTimeAsync(string terminalName);
     Task<PosSaleDto?> GetDartsRoundTodayAsync(string terminalName);
@@ -37,6 +38,8 @@ public interface IPosTerminalService
     Task<ShiftAuditDto> GetShiftAuditAsync();
     Task ClearShiftAsync();
     Task FlushAllPendingAsync();
+    Task ResetAllRetryCountersAsync();
+    Task SendTelemetryHeartbeatAsync();
     Task<string> GetServerVersionAsync();
     Task<BanquetMasterSummaryDto?> GetBanquetMasterSummaryAsync(int eventId);
     Task<List<PosSaleDto>> GetUnsyncedSalesAsync();

@@ -15,6 +15,7 @@
 @inject IJSRuntime JSRuntime
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject PosSyncLogService SyncLog
+@inject PosTelemetryStateService TelemetryService
 @attribute [Authorize]
 
 <PageTitle>POS Sales Audit</PageTitle>
@@ -5155,34 +5156,69 @@
                 <div class="sidebar-section mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <label class="sidebar-label m-0">POS TERMINAL STATUS</label>
-                        @if (_syncErrors != null && _syncErrors.Any())
-                        {
-                            <button type="button" class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold text-decoration-none px-2 py-0.5 rounded-pill" 
+                        <div class="d-flex align-items-center gap-1">
+                            @if (_syncErrors != null && _syncErrors.Any())
+                            {
+                                <button type="button" class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold text-decoration-none px-2 py-0.5 rounded-pill" 
+                                        style="font-size: 0.65rem; cursor: pointer;" 
+                                        @onclick="() => _showErrorModal = true"
+                                        title="Click to view sync errors">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>@_syncErrors.Count Alert@(_syncErrors.Count > 1 ? "s" : "")
+                                </button>
+                            }
+                            <button type="button" class="badge bg-white text-secondary border fw-bold text-decoration-none px-2 py-0.5 rounded-pill shadow-xs" 
                                     style="font-size: 0.65rem; cursor: pointer;" 
-                                    @onclick="() => _showErrorModal = true"
-                                    title="Click to view sync errors">
-                                <i class="bi bi-exclamation-triangle-fill me-1"></i>@_syncErrors.Count Sync Alert@(_syncErrors.Count > 1 ? "s" : "")
+                                    @onclick="() => OpenDiagnosticsHistoryModal()"
+                                    title="Click to view terminal telemetry and connection history">
+                                <i class="bi bi-clock-history me-1"></i>History
                             </button>
-                        }
+                        </div>
                     </div>
                     <div class="bg-light rounded-4 p-3 border">
-                        @if (TerminalsWithStatus == null || !TerminalsWithStatus.Any())
+                        @{
+                            var allTermNames = (TerminalsWithStatus?.Select(t => t.TerminalName) ?? Enumerable.Empty<string>())
+                                .Union(TelemetryService.GetAllLatestTelemetry().Select(te => te.TerminalName), StringComparer.OrdinalIgnoreCase)
+                                .Where(name => !string.IsNullOrWhiteSpace(name))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                        }
+                        @if (!allTermNames.Any())
                         {
                             <div class="text-muted small italic text-center">No terminal check-in data.</div>
                         }
                         else
                         {
-                            @foreach (var t in TerminalsWithStatus)
+                            @foreach (var termName in allTermNames)
                             {
-                                var isOnline = (DateTime.UtcNow - t.LastSeenAt).TotalMinutes <= 2;
-                                <div class="d-flex justify-content-between align-items-center mb-2 last-seen-row" style="font-size: 0.8rem;">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <span class="status-dot @(isOnline ? "online" : "offline")"></span>
-                                        <span class="fw-bold text-dark">@t.TerminalName</span>
+                                var dbTerm = TerminalsWithStatus?.FirstOrDefault(t => t.TerminalName.Equals(termName, StringComparison.OrdinalIgnoreCase));
+                                var telem = TelemetryService.GetLatestTelemetry(termName);
+                                var lastSeen = telem?.Timestamp ?? dbTerm?.LastSeenAt ?? DateTime.MinValue;
+                                var isOnline = (DateTime.UtcNow - lastSeen).TotalMinutes <= 2;
+                                <div class="d-flex flex-column mb-2 pb-2 border-bottom last-seen-row" 
+                                     style="cursor: pointer;" 
+                                     @onclick="() => OpenDiagnosticsHistoryModal(termName)"
+                                     title="Click to view diagnostics for @termName">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="status-dot @(isOnline ? "online" : "offline")"></span>
+                                            <span class="fw-bold text-dark" style="font-size: 0.82rem;">@termName</span>
+                                            @if (telem != null && telem.PendingVaultCount > 0)
+                                            {
+                                                <span class="badge bg-warning-subtle text-dark border px-1.5 py-0" style="font-size: 0.6rem;" title="@telem.PendingVaultCount unsynced sales in local vault">
+                                                    @telem.PendingVaultCount unsynced
+                                                </span>
+                                            }
+                                        </div>
+                                        <span class="@(isOnline ? "text-success" : "text-muted") fw-bold" style="font-size: 0.72rem;">
+                                            @FormatLastSeen(lastSeen)
+                                        </span>
                                     </div>
-                                    <span class="@(isOnline ? "text-success" : "text-muted") fw-bold" style="font-size: 0.72rem;">
-                                        @FormatLastSeen(t.LastSeenAt)
-                                    </span>
+                                    <div class="d-flex align-items-center justify-content-between text-muted" style="font-size: 0.72rem; padding-left: 14px;">
+                                        <span class="d-flex align-items-center gap-1">
+                                            <i class="bi bi-person-badge"></i>
+                                            <span>Operator: <strong class="@(!string.IsNullOrWhiteSpace(telem?.CurrentUser) && telem.CurrentUser != "Locked" ? "text-primary" : "text-muted")">@(string.IsNullOrWhiteSpace(telem?.CurrentUser) ? "Locked / None" : telem.CurrentUser)</strong></span>
+                                        </span>
+                                    </div>
                                 </div>
                             }
                         }
@@ -6397,6 +6433,154 @@
                 </div>
                 <div class="modal-footer border-top px-4 py-2 bg-light d-flex justify-content-end">
                     <button type="button" class="btn btn-secondary rounded-pill px-4 btn-sm fw-bold" @onclick="() => _showErrorModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showTerminalDiagnosticsModal)
+{
+    var selectedTelem = !string.IsNullOrEmpty(_selectedDiagnosticsTerminal) 
+        ? TelemetryService.GetLatestTelemetry(_selectedDiagnosticsTerminal) 
+        : TelemetryService.GetAllLatestTelemetry().FirstOrDefault();
+    var historyEvents = TelemetryService.GetHistory(_selectedDiagnosticsTerminal);
+
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 10600;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content rounded-4 shadow border-0 overflow-hidden">
+                <div class="modal-header border-bottom px-4 py-3 bg-light d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-cpu text-primary fs-5"></i>
+                        <h5 class="modal-title fw-bold m-0" style="font-size: 1.05rem;">
+                            Terminal Diagnostics &amp; Event History
+                        </h5>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showTerminalDiagnosticsModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(_remoteCommandFeedback))
+                    {
+                        <div class="alert alert-info alert-dismissible fade show rounded-3 py-2 px-3 small mb-3 d-flex align-items-center justify-content-between" role="alert">
+                            <div>
+                                <i class="bi bi-info-circle-fill me-2"></i>@_remoteCommandFeedback
+                            </div>
+                            <button type="button" class="btn-close py-2" @onclick="() => _remoteCommandFeedback = null"></button>
+                        </div>
+                    }
+
+                    <!-- Live Hardware & Telemetry Snapshot -->
+                    <div class="row g-2 mb-4">
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-3 border h-100">
+                                <div class="text-muted extra-small fw-bold text-uppercase mb-1">Terminal Status</div>
+                                <div class="fw-bold text-dark fs-6 d-flex align-items-center gap-2">
+                                    <span class="status-dot @(selectedTelem != null && (DateTime.UtcNow - selectedTelem.Timestamp).TotalMinutes <= 2 ? "online" : "offline")"></span>
+                                    @(selectedTelem?.TerminalName ?? (_selectedDiagnosticsTerminal ?? "POS Terminal"))
+                                </div>
+                                <div class="text-muted small mt-1">
+                                    Operator: <strong class="@(!string.IsNullOrWhiteSpace(selectedTelem?.CurrentUser) && selectedTelem.CurrentUser != "Locked" ? "text-primary" : "text-muted")">@(string.IsNullOrWhiteSpace(selectedTelem?.CurrentUser) ? "Locked / None" : selectedTelem.CurrentUser)</strong>
+                                </div>
+                                <div class="text-muted small mt-0.5">
+                                    Version: <strong>@(selectedTelem?.AppVersion ?? "v2.43.2")</strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-3 border h-100">
+                                <div class="text-muted extra-small fw-bold text-uppercase mb-1">Offline Queue / Vault</div>
+                                <div class="fw-bold @(selectedTelem != null && selectedTelem.PendingVaultCount > 0 ? "text-warning" : "text-success") fs-6">
+                                    @(selectedTelem?.PendingVaultCount ?? 0) Unsynced Items
+                                </div>
+                                <div class="text-muted small mt-1">
+                                    @(selectedTelem != null && selectedTelem.PendingVaultCount > 0 ? "Waiting for sync sweep" : "All transactions synced")
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 bg-light rounded-3 border h-100">
+                                <div class="text-muted extra-small fw-bold text-uppercase mb-1">Hardware &amp; Network</div>
+                                <div class="fw-bold text-dark fs-6">
+                                    Printer: <span class="badge @(selectedTelem?.PrinterStatus == "Ready" ? "bg-success-subtle text-success border border-success-subtle" : "bg-secondary-subtle text-secondary border")">@(selectedTelem?.PrinterStatus ?? "Ready")</span>
+                                </div>
+                                <div class="text-muted small mt-1 text-truncate" title="@(selectedTelem?.ApiBaseAddress ?? "Default Production")">
+                                    Target: <code>@(selectedTelem?.ApiBaseAddress ?? "https://gfc.lovanow.com/")</code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chronological Events Table -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-bold small text-dark">
+                            <i class="bi bi-clock-history me-1 text-primary"></i>Recent Communication &amp; Diagnostic Events
+                        </span>
+                        @if (historyEvents.Any())
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" style="font-size: 0.72rem;" @onclick="() => TelemetryService.ClearHistory(_selectedDiagnosticsTerminal)">
+                                <i class="bi bi-trash3 me-1"></i>Clear History
+                            </button>
+                        }
+                    </div>
+
+                    @if (!historyEvents.Any())
+                    {
+                        <div class="text-center py-4 text-muted border rounded-3 bg-white">
+                            <i class="bi bi-check-circle-fill text-success fs-2 mb-2 d-block"></i>
+                            <div class="fw-bold">No Disconnections or Errors Recorded</div>
+                            <small>Terminal heartbeat and network checks are processing smoothly.</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive rounded-3 border" style="max-height: 280px;">
+                            <table class="table table-hover table-sm mb-0 align-middle" style="font-size: 0.8rem;">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th class="ps-3 py-2">Time</th>
+                                        <th class="py-2">Category</th>
+                                        <th class="py-2">Severity</th>
+                                        <th class="py-2">Event Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var ev in historyEvents)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 text-nowrap text-muted">@ev.Timestamp.ToLocalTime().ToString("MMM dd, h:mm:ss tt")</td>
+                                            <td><span class="badge bg-light text-dark border">@ev.Category</span></td>
+                                            <td>
+                                                @if (ev.Severity == "Error")
+                                                {
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Error</span>
+                                                }
+                                                else if (ev.Severity == "Warning")
+                                                {
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Warning</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">Info</span>
+                                                }
+                                            </td>
+                                            <td class="text-dark fw-semibold">@ev.Message</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer border-top px-4 py-2 bg-light d-flex justify-content-between align-items-center">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-warning rounded-pill px-3 btn-sm fw-bold" @onclick="() => RemoteResetRetries(selectedTelem?.TerminalName ?? _selectedDiagnosticsTerminal)" title="Clear retry limits on the POS terminal">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Remote Reset Retries
+                        </button>
+                        <button type="button" class="btn btn-outline-primary rounded-pill px-3 btn-sm fw-bold" @onclick="() => RemoteForceSync(selectedTelem?.TerminalName ?? _selectedDiagnosticsTerminal)" title="Trigger an immediate background sync sweep">
+                            <i class="bi bi-cloud-arrow-up-fill me-1"></i>Remote Force Sync
+                        </button>
+                    </div>
+                    <button type="button" class="btn btn-secondary rounded-pill px-4 btn-sm fw-bold" @onclick="() => _showTerminalDiagnosticsModal = false">Close</button>
                 </div>
             </div>
         </div>
@@ -9795,6 +9979,32 @@
     private global::System.Threading.Timer? _terminalHeartbeatTimer;
     private List<PosSyncErrorEntry> _syncErrors = new();
     private bool _showErrorModal = false;
+    private bool _showTerminalDiagnosticsModal = false;
+    private string? _selectedDiagnosticsTerminal = null;
+    private string? _remoteCommandFeedback = null;
+
+    private void OpenDiagnosticsHistoryModal(string? terminalName = null)
+    {
+        _selectedDiagnosticsTerminal = terminalName;
+        _remoteCommandFeedback = null;
+        _showTerminalDiagnosticsModal = true;
+    }
+
+    private void RemoteResetRetries(string? terminalName)
+    {
+        var term = !string.IsNullOrWhiteSpace(terminalName) ? terminalName : "Downstairs Bar POS";
+        TelemetryService.RequestResetRetries(term);
+        _remoteCommandFeedback = $"Remote retry reset queued for '{term}'. The terminal will clear stuck retry counters and re-attempt syncing on its next heartbeat (~30s).";
+        StateHasChanged();
+    }
+
+    private void RemoteForceSync(string? terminalName)
+    {
+        var term = !string.IsNullOrWhiteSpace(terminalName) ? terminalName : "Downstairs Bar POS";
+        TelemetryService.RequestForceSync(term);
+        _remoteCommandFeedback = $"Remote force sync queued for '{term}'. The terminal will initiate a sync sweep on its next heartbeat (~30s).";
+        StateHasChanged();
+    }
 
     private void ClearSyncErrors()
     {

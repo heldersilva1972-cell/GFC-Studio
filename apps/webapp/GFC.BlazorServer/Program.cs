@@ -273,6 +273,7 @@ public class Program
         builder.Services.AddScoped<GFC.BlazorServer.Services.BarSalesStateContainer>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.FinancialInsightsStateContainer>();
         builder.Services.AddSingleton<PosSyncLogService>();
+        builder.Services.AddSingleton<PosTelemetryStateService>();
 
         builder.Services.AddScoped<ICardReaderProfileService, CardReaderProfileService>();
         builder.Services.AddScoped<ICardEligibilityService, CardEligibilityService>();

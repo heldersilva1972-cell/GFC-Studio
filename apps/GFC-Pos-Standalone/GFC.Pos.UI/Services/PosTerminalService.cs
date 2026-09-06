@@ -36,6 +36,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     public int PendingZCount      { get; private set; }
     public int TotalPendingCount  => PendingSalesCount + PendingZCount;
     public DateTime? LastSynced   { get; private set; }
+    public string? CurrentOperator { get; set; }
 
     // ─── LOCAL SHIFT DATABASE (PROPER ARCHITECTURE) ───────────────────────────────────
 
@@ -416,8 +417,95 @@ public class PosTerminalService : IPosTerminalService, IDisposable
     private async Task SafeFlushAsync()
     {
         if (!await _syncLock.WaitAsync(0)) return;
-        try { await FlushAllPendingAsync(); }
+        try 
+        { 
+            try { await FlushAllPendingAsync(); } catch (Exception ex) { Console.WriteLine($"[SYNC] Flush exception: {ex.Message}"); }
+            try { await SendTelemetryHeartbeatAsync(); } catch (Exception ex) { Console.WriteLine($"[SYNC] Telemetry exception: {ex.Message}"); }
+        }
         finally { _syncLock.Release(); }
+    }
+
+    public async Task SendTelemetryHeartbeatAsync()
+    {
+        try
+        {
+            var terminalName = await _stationSettings.GetTerminalNameAsync();
+            if (string.IsNullOrWhiteSpace(terminalName))
+            {
+                terminalName = "Downstairs Bar POS";
+            }
+
+            int pendingCount = 0;
+            try
+            {
+                pendingCount = await GetTotalPendingAsync();
+            }
+            catch { }
+
+            var telemetry = new PosTelemetryDto
+            {
+                TerminalName = terminalName,
+                AppVersion = new PosVersionService().GetRevision(),
+                Timestamp = DateTime.UtcNow,
+                IsOnline = _connectivity.IsOnline,
+                CircuitState = _connectivity.CurrentCircuitState.ToString(),
+                PendingVaultCount = pendingCount,
+                ApiBaseAddress = _http.BaseAddress?.ToString(),
+                PrinterStatus = "Ready",
+                CurrentUser = !string.IsNullOrWhiteSpace(CurrentOperator) ? CurrentOperator : "Locked",
+                DiagnosticEvents = PosTelemetryLogger.FlushEvents()
+            };
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var resp = await _http.PostAsJsonAsync("api/pos/telemetry", telemetry, cts.Token);
+            if (resp.IsSuccessStatusCode)
+            {
+                var respDto = await resp.Content.ReadFromJsonAsync<PosTelemetryResponseDto>(cancellationToken: cts.Token);
+                if (respDto != null)
+                {
+                    if (respDto.ResetRetriesRequested)
+                    {
+                        await ResetAllRetryCountersAsync();
+                        PosTelemetryLogger.Log("Sync", "Info", "Remote retry reset executed from Web App.");
+                        _ = SafeFlushAsync();
+                    }
+                    else if (respDto.ForceSyncRequested)
+                    {
+                        PosTelemetryLogger.Log("Sync", "Info", "Remote force sync triggered from Web App.");
+                        _ = SafeFlushAsync();
+                    }
+                }
+            }
+            else
+            {
+                PosTelemetryLogger.Log("Sync", "Warning", $"Telemetry response: {resp.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            PosTelemetryLogger.Log("Network", "Warning", $"Telemetry ping skipped: {ex.Message}");
+        }
+    }
+
+    public async Task ResetAllRetryCountersAsync()
+    {
+        try
+        {
+            await _js.InvokeVoidAsync("eval", @"
+                (function() {
+                    const keys = Object.keys(localStorage);
+                    for (let i = 0; i < keys.length; i++) {
+                        if (keys[i].startsWith('gfc_sync_retry_') || keys[i].startsWith('gfc_sync_err_')) {
+                            localStorage.removeItem(keys[i]);
+                        }
+                    }
+                })()
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SYNC] Error clearing retry counters: {ex.Message}");
+        }
     }
 
     // ─── READ OPERATIONS ──────────────────────────────────────────────────────────────
@@ -1089,6 +1177,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 Console.WriteLine($"[SYNC] Server rejected offline event start: {resp.StatusCode}");
                                 retryCount++;
                                 try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
+                                PosTelemetryLogger.Log("Sync", "Error", $"Offline Event '{data?.Name}' start rejected ({resp.StatusCode})");
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error starting offline event {data.Name}: {ex.Message}");
@@ -1144,17 +1233,25 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                             if (resp.IsSuccessStatusCode) {
                                 Console.WriteLine($"[SYNC] Sale {data.Id} SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
+                                try { 
+                                    await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); 
+                                    await _js.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_err_{key}");
+                                } catch {}
                                 LastSynced = DateTime.Now;
                             } else {
                                 Console.WriteLine($"[SYNC] Server REJECTED sale {data.Id}: {resp.StatusCode} at {_http.BaseAddress}");
                                 var err = await resp.Content.ReadAsStringAsync();
                                 Console.WriteLine($"[SYNC] Server Error Detail: {err}");
                                 retryCount++;
-                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
+                                try { 
+                                    await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); 
+                                    await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_err_{key}", $"{(int)resp.StatusCode}: {err}");
+                                } catch {}
+                                PosTelemetryLogger.Log("Sync", "Error", $"Sale {data.Id} rejected ({resp.StatusCode}): {err}");
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error sending sale {data.Id}: {ex.Message}");
+                            try { await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_err_{key}", $"Network: {ex.Message}"); } catch {}
                         }
                     }
                 }
@@ -1188,15 +1285,23 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                             if (resp.IsSuccessStatusCode) {
                                 Console.WriteLine($"[SYNC] Z-Report SYNCED successfully. Removing from vault.");
                                 await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
-                                try { await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); } catch {}
+                                try { 
+                                    await _js.InvokeVoidAsync("localStorage.removeItem", retryKey); 
+                                    await _js.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_err_{key}");
+                                } catch {}
                                 LastSynced = DateTime.Now;
                             } else {
                                 Console.WriteLine($"[SYNC] Server REJECTED Z-Report: {resp.StatusCode}");
                                 retryCount++;
-                                try { await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); } catch {}
+                                try { 
+                                    await _js.InvokeVoidAsync("localStorage.setItem", retryKey, retryCount.ToString()); 
+                                    await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_err_{key}", $"{(int)resp.StatusCode} Rejection");
+                                } catch {}
+                                PosTelemetryLogger.Log("Sync", "Error", $"Z-Report rejected ({resp.StatusCode})");
                             }
                         } catch (Exception ex) {
                             Console.WriteLine($"[SYNC] Network error sending Z-Report: {ex.Message}");
+                            try { await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_err_{key}", $"Network: {ex.Message}"); } catch {}
                         }
                     }
                 }

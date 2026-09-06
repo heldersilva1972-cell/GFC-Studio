@@ -1308,9 +1308,17 @@
                                               <div class="item-details" style="min-width: 0; flex-grow: 1; text-align: left;">
                                                   <span class="item-type fw-bold d-block text-dark">@item.DisplayName</span>
                                                   <span class="item-desc text-muted d-block text-truncate" style="font-size: 0.65rem;" title="@item.Key">@item.Key</span>
-                                                  <span class="badge @(item.RetryCount >= 5 ? "bg-danger" : "bg-warning text-dark")" style="font-size: 0.6rem;">
-                                                      Retries: @item.RetryCount @(item.RetryCount >= 5 ? "(Stuck)" : "")
-                                                  </span>
+                                                  <div class="d-flex align-items-center gap-1 mt-0.5">
+                                                      <span class="badge @(item.RetryCount >= 5 ? "bg-danger" : "bg-warning text-dark")" style="font-size: 0.6rem;">
+                                                          Retries: @item.RetryCount @(item.RetryCount >= 5 ? "(Stuck)" : "")
+                                                      </span>
+                                                  </div>
+                                                  @if (!string.IsNullOrEmpty(item.LastError))
+                                                  {
+                                                      <span class="text-danger d-block mt-1" style="font-size: 0.62rem; line-height: 1.2; word-break: break-word;">
+                                                          <i class="bi bi-exclamation-triangle-fill me-1"></i>@item.LastError
+                                                      </span>
+                                                  }
                                               </div>
                                               <div class="d-flex gap-1 ms-2">
                                                   @if (item.RetryCount >= 5)
@@ -6101,7 +6109,22 @@
         StateHasChanged();
     }
 
-    private string CurrentUserName = string.Empty;
+    private string _currentUserName = string.Empty;
+    private string CurrentUserName
+    {
+        get => _currentUserName;
+        set
+        {
+            _currentUserName = value;
+            if (PosService != null)
+            {
+                PosService.CurrentOperator = value;
+                _ = Task.Run(async () => {
+                    try { await PosService.SendTelemetryHeartbeatAsync(); } catch {}
+                });
+            }
+        }
+    }
     private string _displayProfile = "normal"; // "normal" | "large" | "accessible"
     private bool _showDisplayPopover = false;
     private bool _showSyncPopover = false;
@@ -6119,6 +6142,7 @@
         public string Type { get; set; } = "";
         public string DisplayName { get; set; } = "";
         public int RetryCount { get; set; }
+        public string? LastError { get; set; }
     }
 
     private string TerminalName = "TERMINAL 1";
@@ -7331,6 +7355,7 @@
         try
         {
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_sync_retry_{key}", "0");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_err_{key}");
             Toast.ShowSuccess("Retry counter reset to 0.");
             await RefreshPendingItemsAsync();
         }
@@ -7346,6 +7371,7 @@
         {
             await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", key);
             await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_retry_{key}");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_sync_err_{key}");
             Toast.ShowSuccess("Pending item deleted from local queue.");
             await PosService.GetTotalPendingAsync();
             await RefreshPendingItemsAsync();
@@ -7373,6 +7399,9 @@
                     var key = item.GetProperty("key").GetString() ?? string.Empty;
                     if (string.IsNullOrEmpty(key)) continue;
 
+                    // Strictly filter to only outbox vault items awaiting server sync
+                    if (!key.StartsWith("gfc_pos_vault_")) continue;
+
                     string type = "Unknown";
                     string displayName = key;
 
@@ -7398,7 +7427,7 @@
                         else if (key.StartsWith("gfc_pos_vault_event_tally_")) displayName = "Event Tally";
                         else displayName = "Event Transaction";
                     }
-                    else if (key.StartsWith("gfc_pos_vault_liq_receipt_"))
+                    else if (key.StartsWith("gfc_pos_vault_liq"))
                     {
                         _pendingLiquorCount++;
                         type = "Liquor";
@@ -7416,14 +7445,29 @@
                     }
                     catch {}
 
+                    string? lastError = null;
+                    try
+                    {
+                        lastError = await JSRuntime.InvokeAsync<string>("localStorage.getItem", $"gfc_sync_err_{key}");
+                    }
+                    catch {}
+
                     _pendingItems.Add(new VaultItemModel
                     {
                         Key = key,
                         Type = type,
                         DisplayName = displayName,
-                        RetryCount = retries
+                        RetryCount = retries,
+                        LastError = lastError
                     });
                 }
+
+                // Sort stuck and problem items to the very top
+                _pendingItems = _pendingItems
+                    .OrderByDescending(x => x.RetryCount >= 5 ? 2 : (x.RetryCount > 0 ? 1 : 0))
+                    .ThenByDescending(x => x.RetryCount)
+                    .ThenBy(x => x.DisplayName)
+                    .ToList();
             }
         }
         catch (Exception ex)
