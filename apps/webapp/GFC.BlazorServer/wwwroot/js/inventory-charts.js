@@ -832,5 +832,279 @@ window.inventoryCharts = {
                 }
             }
         });
+    },
+    renderSimpleMonthlyNetGapChart: function (canvasId, config) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const existingChart = (typeof Chart !== 'undefined' && Chart.getChart) ? Chart.getChart(el) || Chart.getChart(canvasId) : null;
+        if (existingChart) {
+            try { existingChart.destroy(); } catch (e) {}
+        }
+        if (this.charts[canvasId]) {
+            try { this.charts[canvasId].destroy(); } catch (e) {}
+            delete this.charts[canvasId];
+        }
+
+        const bgColors = (config.data || []).map(v => v >= 0 ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.85)');
+        const borderColors = (config.data || []).map(v => v >= 0 ? '#059669' : '#dc2626');
+
+        const ctx = el.getContext('2d');
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: config.labels || [],
+                datasets: [{
+                    label: 'Net Monthly Profit / Deficit ($)',
+                    data: config.data || [],
+                    backgroundColor: bgColors,
+                    borderColor: borderColors,
+                    borderWidth: 1.5,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        titleFont: { weight: 'bold', size: 12 },
+                        callbacks: {
+                            label: function (context) {
+                                const val = Number(context.parsed.y || 0);
+                                const sign = val >= 0 ? '+' : '';
+                                return `Net Result: ${sign}$${val.toLocaleString()}`;
+                            },
+                            afterLabel: function (context) {
+                                const idx = context.dataIndex;
+                                const actual = config.actual ? config.actual[idx] : null;
+                                const expected = config.expected ? config.expected[idx] : null;
+                                const lines = [];
+                                if (actual !== null) lines.push(`Actual Sales: $${Number(actual).toLocaleString()}`);
+                                if (expected !== null) lines.push(`Target Expected: $${Number(expected).toLocaleString()}`);
+                                return lines.join('\n');
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { weight: 'bold', size: 11 } }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Net Gap vs Target ($)', font: { size: 10, weight: 'bold' } },
+                        ticks: {
+                            callback: function (val) {
+                                const sign = val >= 0 ? '+' : '';
+                                return sign + '$' + val;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    },
+    renderProductVarianceChart: function (canvasId, config) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const existingChart = (typeof Chart !== 'undefined' && Chart.getChart) ? Chart.getChart(el) || Chart.getChart(canvasId) : null;
+        if (existingChart) {
+            try { existingChart.destroy(); } catch (e) {}
+        }
+        if (this.charts[canvasId]) {
+            try { this.charts[canvasId].destroy(); } catch (e) {}
+            delete this.charts[canvasId];
+        }
+
+        const percentages = config.percentages || [];
+        const bgColors = percentages.map(pct => {
+            if (pct >= 90 && pct <= 112) return 'rgba(16, 185, 129, 0.85)'; // Green (Normal / Healthy Tolerance)
+            if (pct >= 80 && pct < 90) return 'rgba(245, 158, 11, 0.85)'; // Yellow / Amber (Mild Warning / Watchlist)
+            if (pct > 112) return 'rgba(147, 51, 234, 0.85)'; // Purple (Unrecorded Bottle Pull / Surplus >112%)
+            return 'rgba(239, 68, 68, 0.85)'; // Red (< 80% Critical Deficit)
+        });
+        const borderColors = percentages.map(pct => {
+            if (pct >= 90 && pct <= 112) return '#059669';
+            if (pct >= 80 && pct < 90) return '#d97706';
+            if (pct > 112) return '#7e22ce'; // Deep purple
+            return '#dc2626';
+        });
+
+        // Dynamically adjust container height so every product has comfortable spacing
+        const numItems = (config.labels || []).length;
+        if (numItems > 0 && el.parentElement) {
+            const dynamicHeight = Math.max(480, numItems * 25 + 70);
+            el.parentElement.style.height = `${dynamicHeight}px`;
+        }
+
+        const ctx = el.getContext('2d');
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: config.labels || [],
+                datasets: [{
+                    label: '% Target Yield Realized',
+                    data: percentages,
+                    backgroundColor: bgColors,
+                    borderColor: borderColors,
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    maxBarThickness: 13,
+                    categoryPercentage: 0.85,
+                    barPercentage: 0.9
+                }]
+            },
+            plugins: [{
+                id: 'targetLinePlugin',
+                afterDraw: function (chart) {
+                    const ctx2 = chart.ctx;
+                    const xAxis = chart.scales.x;
+                    const yAxis = chart.scales.y;
+                    if (!xAxis || !yAxis) return;
+                    const xPos = xAxis.getPixelForValue(100);
+                    if (xPos >= xAxis.left && xPos <= xAxis.right) {
+                        ctx2.save();
+                        ctx2.beginPath();
+                        ctx2.setLineDash([4, 3]);
+                        ctx2.moveTo(xPos, yAxis.top);
+                        ctx2.lineTo(xPos, yAxis.bottom);
+                        ctx2.lineWidth = 1.5;
+                        ctx2.strokeStyle = '#0284c7'; // Clean sky blue
+                        ctx2.stroke();
+
+                        // Label at the top of the line
+                        ctx2.fillStyle = '#0284c7';
+                        ctx2.font = 'bold 8.5px sans-serif';
+                        ctx2.textAlign = 'center';
+                        ctx2.fillText('100% TARGET', xPos, yAxis.top - 4);
+                        ctx2.restore();
+                    }
+                }
+            }],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y', // Horizontal bars for clean reading of brand names
+                interaction: {
+                    mode: 'nearest',
+                    intersect: true
+                },
+                layout: {
+                    padding: { top: 12, right: 10 }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        padding: 10,
+                        cornerRadius: 8,
+                        caretSize: 6,
+                        caretPadding: 18, // Generous padding so tooltip does not block cursor
+                        titleFont: { weight: 'bold', size: 11 },
+                        callbacks: {
+                            title: function (tooltipItems) {
+                                if (!tooltipItems || tooltipItems.length === 0) return '';
+                                const idx = tooltipItems[0].dataIndex;
+                                const name = config.names ? config.names[idx] : tooltipItems[0].label;
+                                const pct = (config.percentages && config.percentages[idx] !== undefined) ? config.percentages[idx] : null;
+                                return pct !== null ? `${name} — ${pct}% Target Yield` : name;
+                            },
+                            label: function (context) {
+                                const val = Number(context.parsed.x || 0);
+                                const idx = context.dataIndex;
+                                const pulls = (config.pulls && config.pulls[idx] !== undefined) ? Number(config.pulls[idx]) : 0;
+                                const shots = (config.shots && config.shots[idx] !== undefined) ? Number(config.shots[idx]) : 0;
+                                const targetShots = (config.targetShots && config.targetShots[idx] !== undefined && config.targetShots[idx] > 0) ? Number(config.targetShots[idx]) : 22;
+
+                                let status = '';
+                                if (val >= 90 && val <= 112) {
+                                    status = '🟢 Healthy / Normal';
+                                } else if (val >= 80 && val < 90) {
+                                    status = '🟡 Mild Variance / Watchlist';
+                                } else if (val > 112) {
+                                    const expectedShots = pulls * targetShots;
+                                    const extraShots = shots - expectedShots;
+                                    const estMissing = Math.max(1, Math.ceil(extraShots / targetShots));
+                                    const bottleWord = estMissing === 1 ? 'bottle' : 'bottles';
+                                    status = `🟣 Unrecorded Pull (~${estMissing} ${bottleWord} missing)`;
+                                } else {
+                                    status = '🔴 Action Needed / Deficit';
+                                }
+                                return `Yield Realized: ${val}% (${status})`;
+                            },
+                            afterLabel: function (context) {
+                                const idx = context.dataIndex;
+                                const pulls = config.pulls ? config.pulls[idx] : null;
+                                const shots = config.shots ? config.shots[idx] : null;
+                                const avgShots = config.avgShots ? config.avgShots[idx] : null;
+                                const targetShots = config.targetShots ? config.targetShots[idx] : null;
+                                const actual = config.actual ? config.actual[idx] : null;
+                                const expected = config.expected ? config.expected[idx] : null;
+                                const gap = (actual !== null && expected !== null) ? (actual - expected) : null;
+                                const val = Number(context.parsed.x || 0);
+
+                                const lines = [];
+                                const traj = (config.trajectories && config.trajectories[idx]) ? config.trajectories[idx] : null;
+                                const trendBadge = (config.trendBadges && config.trendBadges[idx]) ? config.trendBadges[idx] : null;
+                                const confBadge = (config.confidenceBadges && config.confidenceBadges[idx]) ? config.confidenceBadges[idx] : null;
+
+                                if (traj) {
+                                    lines.push(`📈 Trajectory: ${traj}${trendBadge ? ` [${trendBadge}]` : ''}`);
+                                }
+                                if (confBadge) {
+                                    lines.push(`🔍 Confidence: ${confBadge}`);
+                                }
+                                if (val > 112 && targetShots && targetShots > 0 && pulls !== null && shots !== null) {
+                                    const extra = shots - (pulls * targetShots);
+                                    const estMissing = Math.Max ? Math.max(1, Math.ceil(extra / targetShots)) : Math.max(1, Math.ceil(extra / targetShots));
+                                    const btlWord = estMissing === 1 ? 'bottle' : 'bottles';
+                                    lines.push(`⚠️ Suspected Missing Pull: ~${estMissing} ${btlWord} missing from checkout logs`);
+                                }
+                                if (avgShots !== null && targetShots !== null) {
+                                    lines.push(`🥃 Shots / Bottle: ${avgShots} avg / ${targetShots} target`);
+                                }
+                                if (pulls !== null && shots !== null) {
+                                    lines.push(`📦 Total Activity: ${pulls} btls pulled, ${shots} shots sold`);
+                                }
+                                if (actual !== null && expected !== null && gap !== null) {
+                                    const sign = gap >= 0 ? '+' : '';
+                                    lines.push(`💰 Revenue: $${Number(actual).toLocaleString()} actual / $${Number(expected).toLocaleString()} target (${sign}$${Number(gap).toLocaleString()})`);
+                                }
+                                return lines.join('\n');
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        min: 0,
+                        suggestedMax: 120,
+                        grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                        ticks: {
+                            font: { weight: 'bold', size: 9.5 },
+                            callback: function (val) {
+                                return val + '%';
+                            }
+                        },
+                        title: { display: true, text: 'Target Yield Realized (% of Target Yield, 100% = Target)', font: { size: 9.5, weight: 'bold' } }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            autoSkip: false, // Always show every single product name
+                            font: { weight: 'bold', size: 10 }
+                        }
+                    }
+                }
+            }
+        });
     }
 };

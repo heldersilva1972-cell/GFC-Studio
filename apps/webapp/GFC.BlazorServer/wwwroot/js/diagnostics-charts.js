@@ -39,7 +39,13 @@ window.renderChart = (canvasId, chartData, dotNetHelper) => {
                 if (label) label += ': ';
                 let val = context.parsed.y !== undefined ? context.parsed.y : context.raw;
                 if (typeof val === 'number') {
-                    label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+                    const lLower = (context.dataset.label || '').toLowerCase();
+                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || context.dataset.yAxisID === 'y1';
+                    if (isUnit) {
+                        label += val.toLocaleString();
+                    } else {
+                        label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+                    }
                 } else {
                     label += val;
                 }
@@ -47,15 +53,22 @@ window.renderChart = (canvasId, chartData, dotNetHelper) => {
             },
             footer: function (tooltipItems) {
                 let total = 0;
-                let count = 0;
+                let currencyCount = 0;
+                let hasUnits = false;
                 tooltipItems.forEach(function (item) {
+                    const lLower = (item.dataset.label || '').toLowerCase();
+                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || item.dataset.yAxisID === 'y1';
                     let val = item.parsed.y !== undefined ? item.parsed.y : item.raw;
                     if (typeof val === 'number') {
-                        total += val;
-                        count++;
+                        if (isUnit) {
+                            hasUnits = true;
+                        } else {
+                            total += val;
+                            currencyCount++;
+                        }
                     }
                 });
-                if (count > 0) {
+                if (currencyCount > 1 && !hasUnits) {
                     const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(total);
                     return 'Total: ' + formatted;
                 }
