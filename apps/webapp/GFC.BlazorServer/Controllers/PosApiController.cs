@@ -954,6 +954,8 @@ public class PosApiController : ControllerBase
                 HoursWorked = reportDto.HoursWorked,
                 ShiftType = reportDto.ShiftType,
                 RecordSalesToBar = reportDto.RecordSalesToBar,
+                PhysicalTokensJson = reportDto.PhysicalTokensJson,
+                ShiftDrinkJson = reportDto.ShiftDrinkJson,
                 IsSynced = true
             };
 

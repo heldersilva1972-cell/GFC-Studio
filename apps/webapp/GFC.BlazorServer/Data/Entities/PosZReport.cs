@@ -40,6 +40,10 @@ namespace GFC.BlazorServer.Data.Entities
 
         public bool RecordSalesToBar { get; set; } = false;
 
+        public string? PhysicalTokensJson { get; set; }
+
+        public string? ShiftDrinkJson { get; set; }
+
         public bool IsSynced { get; set; } = false;
     }
 }

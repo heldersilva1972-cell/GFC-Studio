@@ -334,14 +334,6 @@ window.inventoryCharts = {
                         borderColor: '#ef4444',
                         borderWidth: 1.5,
                         borderRadius: 6
-                    },
-                    {
-                        label: 'Legacy Returned (Qty)',
-                        data: config.legacyData,
-                        backgroundColor: 'rgba(245, 158, 11, 0.75)', // amber
-                        borderColor: '#f59e0b',
-                        borderWidth: 1.5,
-                        borderRadius: 6
                     }
                 ]
             },

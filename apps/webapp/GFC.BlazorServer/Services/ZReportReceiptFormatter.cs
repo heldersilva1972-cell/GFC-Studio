@@ -98,6 +98,13 @@ namespace GFC.BlazorServer.Services
             public string EventType { get; set; } = "RunningTab";
         }
 
+        public class ShiftDrinkReceiptDto
+        {
+            public string Type { get; set; } = "DECLINED";
+            public string ItemName { get; set; } = "";
+            public decimal Price { get; set; }
+        }
+
         public static string BuildZReportReceiptText(
             Guid id,
             DateTime timestamp,
@@ -112,7 +119,9 @@ namespace GFC.BlazorServer.Services
             IEnumerable<LiquorItem>? dbItems = null,
             IEnumerable<PosToken>? dbTokens = null,
             bool isReprint = false,
-            string? itemTotalsJson = null)
+            string? itemTotalsJson = null,
+            string? physicalTokensJson = null,
+            string? shiftDrinkJson = null)
         {
             var sb = new StringBuilder();
 
@@ -412,6 +421,54 @@ namespace GFC.BlazorServer.Services
                     var itemName = prod != null ? prod.Name : $"Item #{pull.Key}";
                     AppendLine(sb, itemName.ToUpper(), pull.Value.ToString());
                 }
+            }
+
+            // Physical Token Count
+            if (!string.IsNullOrWhiteSpace(physicalTokensJson))
+            {
+                try
+                {
+                    var tokenCounts = JsonSerializer.Deserialize<Dictionary<string, int>>(physicalTokensJson);
+                    if (tokenCounts != null && tokenCounts.Any())
+                    {
+                        AppendSectionHeader(sb, "CONTAINER TOKEN COUNT");
+                        foreach (var kvp in tokenCounts)
+                        {
+                            AppendLine(sb, kvp.Key.ToUpper(), kvp.Value.ToString());
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Shift Drink Reward
+            if (!string.IsNullOrWhiteSpace(shiftDrinkJson))
+            {
+                try
+                {
+                    var shiftDrink = JsonSerializer.Deserialize<ShiftDrinkReceiptDto>(shiftDrinkJson);
+                    if (shiftDrink != null)
+                    {
+                        AppendSectionHeader(sb, "BARTENDER SHIFT DRINK");
+                        if (shiftDrink.Type == "POUR_NOW")
+                        {
+                            AppendLine(sb, "DRINK TYPE", "POURED TONIGHT");
+                            AppendLine(sb, "DRINK", shiftDrink.ItemName);
+                            AppendLine(sb, "VALUE", $"{shiftDrink.Price:C}");
+                        }
+                        else if (shiftDrink.Type == "TOKEN")
+                        {
+                            AppendLine(sb, "DRINK TYPE", "TOKEN ISSUED");
+                            AppendLine(sb, "TOKEN FOR", shiftDrink.ItemName);
+                            AppendLine(sb, "VALUE", $"{shiftDrink.Price:C}");
+                        }
+                        else
+                        {
+                            AppendLine(sb, "DRINK TYPE", "DECLINED");
+                        }
+                    }
+                }
+                catch { }
             }
 
             // Total Sales footer

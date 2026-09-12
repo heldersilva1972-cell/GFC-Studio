@@ -18,4 +18,6 @@ public class PosZReportDto
     public decimal? HoursWorked { get; set; }
     public string? ShiftType { get; set; }
     public bool RecordSalesToBar { get; set; }
+    public string? PhysicalTokensJson { get; set; }
+    public string? ShiftDrinkJson { get; set; }
 }
