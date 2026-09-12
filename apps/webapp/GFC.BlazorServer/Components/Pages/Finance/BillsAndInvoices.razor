@@ -65,6 +65,20 @@
     input[type=number] {
         -moz-appearance: textfield;
     }
+
+    /* Recurring Badges and Row Accents */
+    .recurring-badge {
+        background-color: #f3e8ff !important;
+        color: #7e22ce !important;
+        border: 1px solid #d8b4fe !important;
+        font-weight: 800 !important;
+    }
+    .recurring-card-bill {
+        border-left: 5px solid #8b5cf6 !important;
+    }
+    .recurring-card-loan {
+        border-left: 5px solid #3b82f6 !important;
+    }
 </style>
 
 <div class="audit-page-wrapper full-view">
@@ -81,6 +95,7 @@
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "PAYMENTS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("PAYMENTS")'>PAYMENT HISTORY</button>
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "VENDORS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("VENDORS")'>VENDORS</button>
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "LOANS" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("LOANS")'>LOANS</button>
+                 <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "RECURRING" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("RECURRING")'>RECURRING</button>
                  <button class="btn btn-sm px-4 rounded-pill fw-black @(CurrentView == "AUDIT" ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none")" @onclick='() => SetView("AUDIT")'>AUDIT LOG</button>
               </div>
               <button class="btn btn-outline-secondary rounded-pill px-4 fw-bold shadow-sm" @onclick="GoToReport" style="font-size: 0.8rem;">VIEW REPORT</button>
@@ -92,6 +107,10 @@
               else if (CurrentView == "LOANS")
               {
                   <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddLoanModal" style="font-size: 0.8rem;">NEW LOAN</button>
+              }
+              else if (CurrentView == "RECURRING")
+              {
+                  <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="OpenAddRecurringBillModal" style="font-size: 0.8rem;">NEW RECURRING BILL</button>
               }
               else
               {
@@ -217,6 +236,12 @@
                                                             @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
                                                         </span>
                                                     }
+                                                    @if (bill.IsRecurring && !string.IsNullOrEmpty(bill.RecurringFrequency))
+                                                    {
+                                                        <span class="badge rounded-pill recurring-badge" style="font-size: 0.6rem; padding: 3px 8px;">
+                                                            <i class="bi bi-arrow-repeat me-1"></i>RECURRING • @bill.RecurringFrequency.ToUpper()
+                                                        </span>
+                                                    }
                                                 </div>
                                                 <div class="text-muted small" style="line-height: 1.35;">
                                                     @if (bill.InvoiceDate.HasValue)
@@ -307,7 +332,7 @@
                                                     <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
                                                     @if (bill.Id < 0)
                                                     {
-                                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => SkipLoanMonth(bill.LoanId!.Value)">SKIP</button>
+                                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => InitiateTogglePauseLoan(bill.LoanId!.Value)">PAUSE / SKIP</button>
                                                     }
                                                 }
                                             </div>
@@ -384,6 +409,12 @@
                                                     {
                                                         <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.65rem; padding: 3px 8px;">
                                                             @GetPriorityName(bill.Vendor.Priority).ToUpper() PRIORITY
+                                                        </span>
+                                                    }
+                                                    @if (bill.IsRecurring && !string.IsNullOrEmpty(bill.RecurringFrequency))
+                                                    {
+                                                        <span class="badge rounded-pill recurring-badge" style="font-size: 0.6rem; padding: 3px 8px;">
+                                                            <i class="bi bi-arrow-repeat me-1"></i>RECURRING • @bill.RecurringFrequency.ToUpper()
                                                         </span>
                                                     }
                                                 </div>
@@ -478,7 +509,7 @@
                                                     <button class="btn btn-sm btn-success rounded-pill px-4 fw-bold shadow-sm" @onclick:stopPropagation="true" @onclick="() => MarkAsPaid(bill)">PAY</button>
                                                     @if (bill.Id < 0)
                                                     {
-                                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => SkipLoanMonth(bill.LoanId!.Value)">SKIP</button>
+                                                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold mt-1" style="font-size: 0.55rem;" @onclick:stopPropagation="true" @onclick="() => InitiateTogglePauseLoan(bill.LoanId!.Value)">PAUSE / SKIP</button>
                                                     }
                                                 }
                                             </div>
@@ -524,6 +555,12 @@
                                             {
                                                 <span class="badge rounded-pill bg-success" style="font-size: 0.55rem; padding: 2px 6px;">
                                                     LOAN
+                                                </span>
+                                            }
+                                            @if (bill.IsRecurring && !string.IsNullOrEmpty(bill.RecurringFrequency))
+                                            {
+                                                <span class="badge rounded-pill recurring-badge" style="font-size: 0.55rem; padding: 2px 6px;">
+                                                    <i class="bi bi-arrow-repeat me-1"></i>RECURRING
                                                 </span>
                                             }
                                         </div>
@@ -1390,6 +1427,284 @@
                     </div>
                 </div>
             }
+            else if (CurrentView == "RECURRING")
+            {
+                <!-- RECURRING BILLS & LOANS HUB (70% Main Panel) -->
+                <div class="audit-list-panel bg-white p-4" style="width: 70%; flex: 0 0 70%;">
+                    <div class="d-flex justify-content-between align-items-center mb-4 px-2 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-arrow-repeat text-primary h4 mb-0"></i>
+                            <div>
+                                <h4 class="mb-0 fw-black text-uppercase letter-spacing-2">RECURRING OBLIGATIONS</h4>
+                                <small class="text-muted" style="font-size: 0.7rem;">Manage standing vendor subscriptions and monthly loan repayment schedules</small>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 align-items-center flex-wrap">
+                            <!-- Type Filter (All / Bills / Loans) -->
+                            <div class="btn-group btn-group-sm rounded-pill p-0.5 bg-light border" style="font-size: 0.7rem;">
+                                <button class="btn btn-sm rounded-pill px-2.5 py-1 @(RecurringTypeFilter == "ALL" ? "btn-primary text-white fw-bold shadow-sm" : "btn-light text-muted border-0 fw-semibold")" style="font-size: 0.68rem;" @onclick='() => RecurringTypeFilter = "ALL"'>ALL (@(FilteredRecurringBills.Count + FilteredRecurringLoans.Count))</button>
+                                <button class="btn btn-sm rounded-pill px-2.5 py-1 @(RecurringTypeFilter == "BILLS" ? "btn-primary text-white fw-bold shadow-sm" : "btn-light text-muted border-0 fw-semibold")" style="font-size: 0.68rem;" @onclick='() => RecurringTypeFilter = "BILLS"'>BILLS (@FilteredRecurringBills.Count)</button>
+                                <button class="btn btn-sm rounded-pill px-2.5 py-1 @(RecurringTypeFilter == "LOANS" ? "btn-primary text-white fw-bold shadow-sm" : "btn-light text-muted border-0 fw-semibold")" style="font-size: 0.68rem;" @onclick='() => RecurringTypeFilter = "LOANS"'>LOANS (@FilteredRecurringLoans.Count)</button>
+                            </div>
+
+                            <!-- Frequency Filter -->
+                            <select class="form-select form-select-sm rounded-pill border shadow-sm" 
+                                    style="font-size: 0.75rem; width: 140px; height: 32px;" 
+                                    @bind="RecurringFrequencyFilter">
+                                <option value="ALL">All Frequencies</option>
+                                <option value="Monthly">Monthly</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="BiWeekly">Bi-Weekly</option>
+                                <option value="Quarterly">Quarterly</option>
+                                <option value="Yearly">Yearly</option>
+                            </select>
+
+                            <input type="text" class="form-control form-control-sm rounded-pill px-3 py-1 border shadow-sm" 
+                                   placeholder="Search recurring..." @bind-value="RecurringSearchText" @bind-value:event="oninput" style="font-size: 0.75rem; width: 180px; height: 32px;" />
+                        </div>
+                    </div>
+
+                    <div class="scroll-container custom-scrollbar px-2">
+                        @if (!FilteredRecurringBills.Any() && !FilteredRecurringLoans.Any())
+                        {
+                            <div class="text-center py-5 opacity-50">
+                                <i class="bi bi-arrow-repeat h1 d-block mb-3"></i>
+                                <div class="italic">No recurring obligations found matching filters.</div>
+                            </div>
+                        }
+
+                        <!-- SECTION 1: RECURRING VENDOR BILLS -->
+                        @if (RecurringTypeFilter != "LOANS" && FilteredRecurringBills.Any())
+                        {
+                            <div class="section-divider-label text-purple fw-black mb-3 d-flex align-items-center justify-content-between" style="font-size: 0.75rem; letter-spacing: 1px; color: #7e22ce;">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-file-earmark-text-fill"></i> RECURRING VENDOR BILLS (@FilteredRecurringBills.Count)
+                                </div>
+                                <span class="badge bg-purple-subtle text-purple rounded-pill" style="font-size: 0.65rem;">Auto-generates on payment</span>
+                            </div>
+
+                            <div class="d-flex flex-column gap-2 mb-4">
+                                @foreach (var bill in FilteredRecurringBills)
+                                {
+                                    <div class="transaction-item d-flex align-items-center p-3 border rounded-4 hover-bg-light transition-base bg-white shadow-sm recurring-card-bill" style="cursor: pointer;" @onclick="() => SelectBill(bill)">
+                                        <!-- Left Column: Vendor & Metadata -->
+                                        <div class="ps-2 flex-grow-1" style="min-width: 200px;">
+                                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                                <span class="fw-black h6 mb-0 text-dark">@(bill.Vendor?.Name ?? "Unknown Vendor")</span>
+                                                <span class="badge rounded-pill recurring-badge" style="font-size: 0.6rem; padding: 2px 8px;">
+                                                    <i class="bi bi-arrow-repeat me-1"></i>@bill.RecurringFrequency?.ToUpper()
+                                                </span>
+                                                @if (bill.Category != null)
+                                                {
+                                                    <span class="badge rounded-pill" style="font-size: 0.6rem; background-color: @bill.Category.Color; color: white;">
+                                                        <i class="bi @bill.Category.Icon me-1"></i>@bill.Category.Name
+                                                    </span>
+                                                }
+                                                @if (bill.Vendor != null)
+                                                {
+                                                    <span class="badge rounded-pill @GetPriorityBadgeClass(bill.Vendor.Priority)" style="font-size: 0.6rem;">
+                                                        @GetPriorityName(bill.Vendor.Priority).ToUpper()
+                                                    </span>
+                                                }
+                                            </div>
+                                            <div class="small text-muted d-flex gap-3 mt-1" style="font-size: 0.72rem;">
+                                                <span><i class="bi bi-calendar-event me-1"></i>Next Due: <strong>@bill.DueDate.ToString("MMM dd, yyyy")</strong></span>
+                                                @if (bill.DueDate.Date < DateTime.Today)
+                                                {
+                                                    <span class="text-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i>OVERDUE</span>
+                                                }
+                                                else
+                                                {
+                                                    var daysAway = (bill.DueDate.Date - DateTime.Today).Days;
+                                                    <span class="text-primary"><i class="bi bi-clock me-1"></i>Due in @daysAway day@(daysAway == 1 ? "" : "s")</span>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(bill.Description))
+                                            {
+                                                <div class="text-muted small mt-1 italic" style="font-size: 0.68rem;">
+                                                    @bill.Description
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Center Column: Amount -->
+                                        <div class="px-4 text-center" style="min-width: 140px;">
+                                            <div class="fw-black text-dark h5 mb-0">@bill.OriginalAmount.ToString("C")</div>
+                                            <div class="text-muted" style="font-size: 0.6rem; text-transform: uppercase;">
+                                                per @(bill.RecurringFrequency?.ToLower() ?? "cycle")
+                                            </div>
+                                        </div>
+
+                                        <!-- Right Column: Actions -->
+                                        <div class="text-end d-flex align-items-center gap-1 ps-3" style="min-width: 220px;" @onclick:stopPropagation="true">
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3 fw-bold shadow-sm" style="font-size: 0.68rem;" @onclick="() => InitiateStopBillRecurrence(bill)">
+                                                <i class="bi bi-x-circle me-1"></i>STOP RECURRING
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.68rem;" @onclick="() => SelectBill(bill)">
+                                                EDIT
+                                            </button>
+                                            <button class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm" style="font-size: 0.68rem;" @onclick="() => MarkAsPaid(bill)">
+                                                PAY
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <!-- SECTION 2: SCHEDULED MONTHLY LOANS -->
+                        @if (RecurringTypeFilter != "BILLS" && FilteredRecurringLoans.Any())
+                        {
+                            <div class="section-divider-label text-primary fw-black mb-3 d-flex align-items-center justify-content-between" style="font-size: 0.75rem; letter-spacing: 1px;">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-bank2"></i> SCHEDULED MONTHLY LOAN REPAYMENTS (@FilteredRecurringLoans.Count)
+                                </div>
+                                <span class="badge bg-primary-subtle text-primary rounded-pill" style="font-size: 0.65rem;">Projects monthly dashboard reminder</span>
+                            </div>
+
+                            <div class="d-flex flex-column gap-2 mb-3">
+                                @foreach (var loan in FilteredRecurringLoans)
+                                {
+                                    var currentMonthKey = CurrentDate.ToString("yyyy-MM");
+                                    var isSkipped = !string.IsNullOrWhiteSpace(loan.SkippedMonths) && loan.SkippedMonths.Split(',').Contains(currentMonthKey);
+                                    var targetAmt = loan.MonthlyPaymentAmount ?? 0m;
+                                    var monthPayments = loan.Payments.Where(p => p.PaymentDate.Month == CurrentDate.Month && p.PaymentDate.Year == CurrentDate.Year).ToList();
+                                    var monthPaid = monthPayments.Sum(p => p.AmountPaid);
+
+                                    <div class="transaction-item d-flex align-items-center p-3 border rounded-4 hover-bg-light transition-base bg-white shadow-sm recurring-card-loan" style="cursor: pointer;" @onclick='() => { EditingLoan = loan; ShowLoanModal = true; }'>
+                                        <!-- Left Column: Lender & Schedule Details -->
+                                        <div class="ps-2 flex-grow-1" style="min-width: 200px;">
+                                            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                                <span class="fw-black h6 mb-0 text-dark">@loan.LenderName</span>
+                                                @if (!string.IsNullOrWhiteSpace(loan.GroupName))
+                                                {
+                                                    <span class="badge bg-light text-primary border border-primary-subtle rounded-pill" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-folder2 me-1"></i>@loan.GroupName
+                                                    </span>
+                                                }
+                                                @if (loan.PaymentDueDay.HasValue)
+                                                {
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-calendar-check me-1"></i>DUE DAY @loan.PaymentDueDay
+                                                    </span>
+                                                }
+                                                @if (isSkipped)
+                                                {
+                                                    <span class="badge bg-warning text-dark rounded-pill" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-pause-circle me-1"></i>SKIPPED THIS MONTH
+                                                    </span>
+                                                }
+                                            </div>
+                                            <div class="small text-muted d-flex gap-3 mt-1" style="font-size: 0.72rem;">
+                                                <span>Remaining Balance: <strong class="text-danger">@loan.CurrentBalance.ToString("C")</strong> of @loan.OriginalBalance.ToString("C")</span>
+                                                @if (monthPaid > 0)
+                                                {
+                                                    <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Paid this month: @monthPaid.ToString("C")</span>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(loan.Notes))
+                                            {
+                                                <div class="text-muted small mt-1 italic" style="font-size: 0.68rem;">
+                                                    @loan.Notes
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Center Column: Monthly Target Amount -->
+                                        <div class="px-4 text-center" style="min-width: 140px;">
+                                            @if (targetAmt > 0)
+                                            {
+                                                <div class="fw-black text-dark h5 mb-0">@targetAmt.ToString("C")</div>
+                                                <div class="text-muted" style="font-size: 0.6rem; text-transform: uppercase;">
+                                                    monthly target
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="fw-black text-primary h6 mb-0">FLEXIBLE</div>
+                                                <div class="text-muted" style="font-size: 0.6rem; text-transform: uppercase;">
+                                                    no fixed target
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Right Column: Actions -->
+                                        <div class="text-end d-flex align-items-center gap-1 ps-3" style="min-width: 240px;" @onclick:stopPropagation="true">
+                                            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2.5 fw-bold" style="font-size: 0.65rem;" @onclick="() => InitiateTogglePauseLoan(loan)" title="Toggle skip for current month">
+                                                @(isSkipped ? "RESUME / UNPAUSE" : "PAUSE / SKIP")
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger rounded-pill px-2.5 fw-bold shadow-sm" style="font-size: 0.65rem;" @onclick="() => InitiateStopLoanSchedule(loan)" title="Stop monthly reminder schedule">
+                                                <i class="bi bi-x-circle me-1"></i>STOP
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-2.5 fw-bold" style="font-size: 0.65rem;" @onclick='() => { EditingLoan = loan; ShowLoanModal = true; }'>
+                                                EDIT
+                                            </button>
+                                            <button class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm" style="font-size: 0.68rem;" @onclick='() => { PayingLoan = loan; ShowLoanPaymentModal = true; }'>
+                                                PAY
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- SIDEBAR FOR RECURRING TAB (30% Sidebar Panel) -->
+                <div class="audit-sidebar-panel" style="width: 30%; flex: 0 0 30%;">
+                    <!-- Total Estimated Monthly Recurring Commitment -->
+                    <div class="sidebar-section mb-4">
+                        <label class="sidebar-label">FIXED MONTHLY OVERHEAD</label>
+                        <div class="stat-card mb-3 highlight p-3 shadow-sm border-2">
+                            <div class="label text-primary">ESTIMATED MONTHLY TOTAL</div>
+                            <div class="value text-primary" style="font-size: 2rem;">@TotalMonthlyRecurringOverhead.ToString("C")</div>
+                            <div class="text-muted mt-1" style="font-size: 0.68rem;">Normalized fixed monthly burn rate</div>
+                        </div>
+
+                        <!-- Subtotals Breakdown -->
+                        <div class="p-3 bg-light rounded-4 border mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span class="fw-bold text-dark" style="font-size: 0.75rem;"><i class="bi bi-file-earmark-text text-primary me-1"></i> Recurring Bills (@AllSystemRecurringBills.Count)</span>
+                                <span class="fw-black text-dark" style="font-size: 0.85rem;">@TotalMonthlyRecurringBillsAmount.ToString("C")/mo</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-dark" style="font-size: 0.75rem;"><i class="bi bi-bank text-success me-1"></i> Loan Targets (@AllRecurringLoans.Count)</span>
+                                <span class="fw-black text-dark" style="font-size: 0.85rem;">@TotalMonthlyRecurringLoansAmount.ToString("C")/mo</span>
+                            </div>
+                        </div>
+
+                        <!-- Frequency Distribution Breakdown -->
+                        <div class="p-3 bg-white rounded-4 border shadow-sm mb-3">
+                            <label class="sidebar-label mb-2">BILL FREQUENCIES</label>
+                            <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                <span class="text-muted">Monthly</span>
+                                <span class="fw-bold text-dark">@AllSystemRecurringBills.Count(b => string.Equals(b.RecurringFrequency, "Monthly", StringComparison.OrdinalIgnoreCase))</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                <span class="text-muted">Weekly / Bi-Weekly</span>
+                                <span class="fw-bold text-dark">@AllSystemRecurringBills.Count(b => string.Equals(b.RecurringFrequency, "Weekly", StringComparison.OrdinalIgnoreCase) || string.Equals(b.RecurringFrequency, "BiWeekly", StringComparison.OrdinalIgnoreCase))</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                <span class="text-muted">Quarterly / Yearly</span>
+                                <span class="fw-bold text-dark">@AllSystemRecurringBills.Count(b => string.Equals(b.RecurringFrequency, "Quarterly", StringComparison.OrdinalIgnoreCase) || string.Equals(b.RecurringFrequency, "Yearly", StringComparison.OrdinalIgnoreCase))</span>
+                            </div>
+                        </div>
+
+                        <!-- Guide / Explainer Card -->
+                        <div class="alert alert-info py-3 px-3 rounded-4 shadow-sm border-0 mb-0" style="font-size: 0.7rem; background-color: #f5f3ff; border-left: 4px solid #8b5cf6 !important; color: #5b21b6; line-height: 1.45;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <i class="bi bi-arrow-repeat text-primary" style="font-size: 1.1rem;"></i>
+                                <h6 class="fw-bold text-primary mb-0">HOW RECURRING WORKS</h6>
+                            </div>
+                            <ul class="mb-0 ps-3 text-muted" style="font-size: 0.68rem;">
+                                <li><strong>Vendor Bills:</strong> When marked as paid, the system automatically schedules the next due date based on its frequency.</li>
+                                <li><strong>Stopping Bills:</strong> Click <strong>Stop Recurring</strong> to make it a one-time bill without generating future instances.</li>
+                                <li><strong>Loans:</strong> Configured due days project monthly reminders on your Bills Due dashboard. Click <strong>Pause / Skip</strong> or <strong>Stop</strong> to control them.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 
@@ -1508,6 +1823,265 @@
             </div>
         </div>
     }
+
+    @if (ShowStopRecurrenceModal)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(5px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: @(BillToStopRecurrence != null ? "640px" : "480px");">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 28px;">
+                    <div class="modal-body p-4 p-md-5">
+                        @if (BillToStopRecurrence != null)
+                        {
+                            <div class="d-flex align-items-center justify-content-between pb-3 mb-3 border-bottom">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="p-3 rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+                                        <i class="bi bi-arrow-repeat h4 mb-0 text-dark"></i>
+                                    </div>
+                                    <div>
+                                        <h5 class="fw-black mb-0 text-dark text-uppercase letter-spacing-1">Stop Recurring Schedule</h5>
+                                        <div class="text-muted small">Vendor: <strong class="text-primary">@(BillToStopRecurrence.Vendor?.Name ?? "Unknown")</strong></div>
+                                    </div>
+                                </div>
+                                <span class="badge bg-purple-subtle text-purple border border-purple-subtle rounded-pill px-3 py-2 fw-bold" style="font-size: 0.72rem;">
+                                    @BillToStopRecurrence.RecurringFrequency?.ToUpper() SCHEDULE
+                                </span>
+                            </div>
+
+                            <!-- STEP 1: CHOOSE ACTION -->
+                            <div class="mb-3">
+                                <label class="small fw-black text-uppercase text-muted mb-2 d-block" style="letter-spacing: 0.5px; font-size: 0.7rem;">
+                                    @(PendingBillsForStopRecurrence.Count > 1 ? "Step 1: Choose Action For Unpaid Bills" : "Choose Action For Current Bill In 'Bills Due'")
+                                </label>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <div class="p-3 rounded-4 border transition-base h-100 @(StopRecurrenceCleanupAction == "Delete" ? "border-danger bg-danger-subtle shadow-sm" : "bg-white hover-bg-light")" 
+                                             style="cursor: pointer; border-width: @(StopRecurrenceCleanupAction == "Delete" ? "2px" : "1px") !important;" 
+                                             @onclick='() => StopRecurrenceCleanupAction = "Delete"'>
+                                            <div class="form-check d-flex align-items-start gap-2 mb-0">
+                                                <input class="form-check-input mt-1" type="radio" name="cleanupActionRadio" id="actionDelete" checked="@(StopRecurrenceCleanupAction == "Delete")" @onchange='() => StopRecurrenceCleanupAction = "Delete"' />
+                                                <label class="form-check-label fw-bold text-danger" for="actionDelete" style="cursor: pointer; font-size: 0.82rem;">
+                                                    <i class="bi bi-trash3-fill me-1"></i>Delete / Remove Bill@(PendingBillsForStopRecurrence.Count > 1 ? "s" : "")
+                                                    <small class="d-block fw-normal text-muted mt-1" style="font-size: 0.7rem; line-height: 1.3;">
+                                                        Permanently removes the bill from <strong>Bills Due</strong> so it won't be shown or paid.
+                                                    </small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="p-3 rounded-4 border transition-base h-100 @(StopRecurrenceCleanupAction == "MakeOneTime" ? "border-primary bg-primary-subtle shadow-sm" : "bg-white hover-bg-light")" 
+                                             style="cursor: pointer; border-width: @(StopRecurrenceCleanupAction == "MakeOneTime" ? "2px" : "1px") !important;" 
+                                             @onclick='() => StopRecurrenceCleanupAction = "MakeOneTime"'>
+                                            <div class="form-check d-flex align-items-start gap-2 mb-0">
+                                                <input class="form-check-input mt-1" type="radio" name="cleanupActionRadio" id="actionOneTime" checked="@(StopRecurrenceCleanupAction == "MakeOneTime")" @onchange='() => StopRecurrenceCleanupAction = "MakeOneTime"' />
+                                                <label class="form-check-label fw-bold text-primary" for="actionOneTime" style="cursor: pointer; font-size: 0.82rem;">
+                                                    <i class="bi bi-file-earmark-check-fill me-1"></i>Keep As One-Time Only
+                                                    <small class="d-block fw-normal text-muted mt-1" style="font-size: 0.7rem; line-height: 1.3;">
+                                                        Leaves the bill in Bills Due to be paid once, but stops future renewals.
+                                                    </small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (PendingBillsForStopRecurrence.Count > 1)
+                            {
+                                <!-- STEP 2: SELECT BILLS (Multi-bill list) -->
+                                <div class="mt-4 mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="small fw-black text-uppercase text-muted mb-0" style="letter-spacing: 0.5px; font-size: 0.7rem;">
+                                            Step 2: Select Which Bills Apply (@SelectedPendingBillIdsToCleanup.Count of @PendingBillsForStopRecurrence.Count Selected)
+                                        </label>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-0.5 me-1" style="font-size: 0.68rem;" @onclick="() => SelectedPendingBillIdsToCleanup = new HashSet<int>(PendingBillsForStopRecurrence.Select(b => b.Id))">
+                                                Select All
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-0.5" style="font-size: 0.68rem;" @onclick="() => SelectedPendingBillIdsToCleanup.Clear()">
+                                                Deselect All
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Status Summary Banner -->
+                                    @if (StopRecurrenceCleanupAction == "Delete")
+                                    {
+                                        <div class="alert alert-danger py-2 px-3 mb-2 rounded-4 d-flex align-items-center justify-content-between shadow-sm border-0" style="background-color: #fee2e2; color: #991b1b; font-size: 0.75rem;">
+                                            <span class="fw-bold">
+                                                <i class="bi bi-exclamation-triangle-fill me-1 text-danger"></i> 
+                                                <strong>@SelectedPendingBillIdsToCleanup.Count bill@(SelectedPendingBillIdsToCleanup.Count == 1 ? "" : "s")</strong> will be permanently <strong>DELETED</strong> from Bills Due
+                                            </span>
+                                            <span class="fw-black text-danger h6 mb-0">
+                                                @(PendingBillsForStopRecurrence.Where(b => SelectedPendingBillIdsToCleanup.Contains(b.Id)).Sum(b => b.OriginalAmount).ToString("C"))
+                                            </span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-primary py-2 px-3 mb-2 rounded-4 d-flex align-items-center justify-content-between shadow-sm border-0" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.75rem;">
+                                            <span class="fw-bold">
+                                                <i class="bi bi-info-circle-fill me-1 text-primary"></i> 
+                                                <strong>@SelectedPendingBillIdsToCleanup.Count bill@(SelectedPendingBillIdsToCleanup.Count == 1 ? "" : "s")</strong> will be converted to <strong>ONE-TIME</strong> (no renewal)
+                                            </span>
+                                            <span class="fw-black text-primary h6 mb-0">
+                                                @(PendingBillsForStopRecurrence.Where(b => SelectedPendingBillIdsToCleanup.Contains(b.Id)).Sum(b => b.OriginalAmount).ToString("C"))
+                                            </span>
+                                        </div>
+                                    }
+
+                                    <!-- Bills Checklist Container -->
+                                    <div class="custom-scrollbar p-2 bg-light rounded-4 border" style="max-height: 220px; overflow-y: auto;">
+                                        @foreach (var pBill in PendingBillsForStopRecurrence)
+                                        {
+                                            var isSelected = SelectedPendingBillIdsToCleanup.Contains(pBill.Id);
+                                            var isCurrent = pBill.Id == BillToStopRecurrence.Id;
+
+                                            <div class="d-flex align-items-center justify-content-between p-3 mb-2 rounded-4 bg-white transition-base shadow-sm" 
+                                                 style="cursor: pointer; border: 2px solid @(isSelected ? (StopRecurrenceCleanupAction == "Delete" ? "#ef4444" : "#3b82f6") : "#e2e8f0"); background-color: @(isSelected ? (StopRecurrenceCleanupAction == "Delete" ? "#fef2f2" : "#eff6ff") : "#ffffff") !important;"
+                                                 @onclick="() => TogglePendingBillSelection(pBill.Id, !isSelected)">
+                                                <div class="d-flex align-items-center gap-3">
+                                                    <input class="form-check-input ms-0 mt-0" type="checkbox" id="bill_chk_@pBill.Id" 
+                                                           style="width: 1.25rem; height: 1.25rem; cursor: pointer;"
+                                                           checked="@isSelected" 
+                                                           @onclick:stopPropagation="true"
+                                                           @onchange="@((ChangeEventArgs e) => TogglePendingBillSelection(pBill.Id, (bool)(e.Value ?? false)))" />
+                                                    <div>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <strong class="text-dark" style="font-size: 0.85rem;">Due: @pBill.DueDate.ToString("MMM dd, yyyy")</strong>
+                                                            @if (isCurrent)
+                                                            {
+                                                                <span class="badge bg-dark text-white rounded-pill px-2 py-0.5" style="font-size: 0.55rem;">ACTIVE RECORD</span>
+                                                            }
+                                                        </div>
+                                                        @if (!string.IsNullOrWhiteSpace(pBill.Description))
+                                                        {
+                                                            <div class="text-muted small italic" style="font-size: 0.68rem;">@pBill.Description</div>
+                                                        }
+                                                    </div>
+                                                </div>
+
+                                                <div class="text-end d-flex flex-column align-items-end gap-1">
+                                                    <div class="fw-black @(isSelected && StopRecurrenceCleanupAction == "Delete" ? "text-danger text-decoration-line-through" : "text-dark")" style="font-size: 0.95rem;">
+                                                        @pBill.OriginalAmount.ToString("C")
+                                                    </div>
+                                                    @if (isSelected)
+                                                    {
+                                                        if (StopRecurrenceCleanupAction == "Delete")
+                                                        {
+                                                            <span class="badge bg-danger text-white rounded-pill px-2 py-0.5 shadow-sm" style="font-size: 0.6rem; font-weight: 800;">
+                                                                <i class="bi bi-trash3-fill me-1"></i>MARKED FOR DELETION
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-primary text-white rounded-pill px-2 py-0.5 shadow-sm" style="font-size: 0.6rem; font-weight: 800;">
+                                                                <i class="bi bi-check-circle-fill me-1"></i>CONVERT TO ONE-TIME
+                                                            </span>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary text-white rounded-pill px-2 py-0.5" style="font-size: 0.6rem;">
+                                                            <i class="bi bi-shield-check me-1"></i>KEEP (ONE-TIME)
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (AssociatedLoanToStop != null)
+                            {
+                                <div class="p-3 mb-3 rounded-4 border border-warning-subtle shadow-sm animate-fade-in" style="background-color: #fffdf5;">
+                                    <div class="d-flex align-items-start gap-3">
+                                        <div class="form-check form-switch pt-1">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="stopAssociatedLoanSwitch" @bind="StopAssociatedLoanSchedule" style="cursor: pointer; transform: scale(1.2);">
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <label class="form-check-label fw-bold text-dark d-block mb-1" for="stopAssociatedLoanSwitch" style="cursor: pointer; font-size: 0.85rem;">
+                                                <i class="bi bi-bank me-1 text-warning"></i> Also stop recurring monthly schedule on linked Loan: <span class="text-primary">@AssociatedLoanToStop.LenderName</span>
+                                            </label>
+                                            <div class="text-muted small" style="font-size: 0.72rem; line-height: 1.35;">
+                                                When checked, clears the monthly due day (Day @(AssociatedLoanToStop.PaymentDueDay ?? 1)) and payment amount from the Loan card so new bills and monthly reminders will <strong>no longer be created</strong>.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="d-flex justify-content-end gap-2 pt-3 border-top mt-4">
+                                <button type="button" class="btn btn-light rounded-pill px-4 py-2 fw-bold" @onclick="() => { ShowStopRecurrenceModal = false; BillToStopRecurrence = null; }">Cancel</button>
+                                <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmStopBillRecurrence">
+                                    <i class="bi bi-check2-circle me-1"></i>@(StopRecurrenceCleanupAction == "Delete" ? "Delete Bill & Stop Recurrence" : "Keep One-Time & Stop Recurrence")
+                                </button>
+                            </div>
+                        }
+                        else if (LoanToStopSchedule != null)
+                        {
+                            <div class="text-center">
+                                <div class="p-3 rounded-circle bg-warning-subtle text-warning d-inline-flex align-items-center justify-content-center mb-3" style="width: 56px; height: 56px;">
+                                    <i class="bi bi-arrow-repeat h3 mb-0 text-dark"></i>
+                                </div>
+                                <h5 class="fw-black mb-2 text-dark">Stop Loan Monthly Reminders?</h5>
+                                <p class="text-muted small mb-4" style="font-size: 0.82rem; line-height: 1.45;">
+                                    Are you sure you want to stop monthly repayment reminders for <strong>@LoanToStopSchedule.LenderName</strong>?
+                                    <br/><br/>
+                                    This clears the scheduled due day and monthly target reminder from your Bills Due dashboard. The loan balance and past payment history will remain completely intact.
+                                </p>
+                                <div class="d-flex gap-2 justify-content-center">
+                                    <button type="button" class="btn btn-light rounded-pill px-4 py-2 fw-bold" @onclick="() => { ShowStopRecurrenceModal = false; LoanToStopSchedule = null; }">Cancel</button>
+                                    <button type="button" class="btn btn-danger rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmStopLoanSchedule">Stop Reminders</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowPauseLoanModal && LoanToPause != null)
+    {
+        <div class="modal fade show d-block animate-fade-in" tabindex="-1" style="background: rgba(0,0,0,0.55); z-index: 1060; backdrop-filter: blur(4px);">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                    <div class="modal-body p-4 text-center">
+                        @if (IsUnpausingLoan)
+                        {
+                            <i class="bi bi-play-circle-fill text-success display-4 mb-3 d-block"></i>
+                            <h5 class="fw-bold mb-2 text-dark">Resume Loan Reminders?</h5>
+                            <p class="text-muted small mb-4">
+                                Are you sure you want to resume the monthly repayment reminder for <strong>@LoanToPause.LenderName</strong> for <strong>@(CurrentDate.ToString("MMMM yyyy"))</strong>?
+                                <br/><br/>
+                                It will reappear on your <strong>Bills Due</strong> dashboard.
+                            </p>
+                            <div class="d-flex gap-2 justify-content-center">
+                                <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => { ShowPauseLoanModal = false; LoanToPause = null; }">Cancel</button>
+                                <button type="button" class="btn btn-primary rounded-pill px-4 py-2 shadow-sm fw-bold" @onclick="ConfirmTogglePauseLoan">Resume Reminder</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <i class="bi bi-pause-circle-fill text-warning display-4 mb-3 d-block"></i>
+                            <h5 class="fw-bold mb-2 text-dark">Pause Repayment Reminder?</h5>
+                            <p class="text-muted small mb-4">
+                                Are you sure you want to pause / skip the monthly repayment reminder for <strong>@LoanToPause.LenderName</strong> for <strong>@(CurrentDate.ToString("MMMM yyyy"))</strong>?
+                                <br/><br/>
+                                This removes the reminder from the current month's Bills Due list. You can resume it at any time.
+                            </p>
+                            <div class="d-flex gap-2 justify-content-center">
+                                <button type="button" class="btn btn-light rounded-pill px-4 py-2" @onclick="() => { ShowPauseLoanModal = false; LoanToPause = null; }">Cancel</button>
+                                <button type="button" class="btn btn-warning rounded-pill px-4 py-2 shadow-sm fw-bold text-dark" @onclick="ConfirmTogglePauseLoan">Pause for This Month</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -1554,6 +2128,62 @@
                 .ToList();
     private List<FinanceAuditLog> AuditLogs { get; set; } = new();
     private string? CurrentUserEmail { get; set; }
+
+    // Recurring Hub State
+    private string RecurringSearchText { get; set; } = "";
+    private string RecurringTypeFilter { get; set; } = "ALL";
+    private string RecurringFrequencyFilter { get; set; } = "ALL";
+    private bool ShowStopRecurrenceModal { get; set; }
+    private FinanceBill? BillToStopRecurrence { get; set; }
+    private FinanceLoan? LoanToStopSchedule { get; set; }
+    private bool ShowPauseLoanModal { get; set; }
+    private FinanceLoan? LoanToPause { get; set; }
+    private bool IsUnpausingLoan { get; set; }
+    private List<FinanceBill> AllSystemRecurringBills { get; set; } = new();
+    private List<FinanceBill> PendingBillsForStopRecurrence { get; set; } = new();
+    private HashSet<int> SelectedPendingBillIdsToCleanup { get; set; } = new();
+    private string StopRecurrenceCleanupAction { get; set; } = "Delete";
+    private FinanceLoan? AssociatedLoanToStop { get; set; }
+    private bool StopAssociatedLoanSchedule { get; set; } = true;
+
+    private List<FinanceLoan> AllRecurringLoans =>
+        AllLoans.Where(l => l.IsActive && (l.PaymentDueDay.HasValue || (l.MonthlyPaymentAmount.HasValue && l.MonthlyPaymentAmount.Value > 0)))
+                .OrderBy(l => l.GroupName)
+                .ThenBy(l => l.PaymentDueDay)
+                .ToList();
+
+    private List<FinanceBill> FilteredRecurringBills =>
+        AllSystemRecurringBills
+            .Where(b => (string.IsNullOrWhiteSpace(RecurringSearchText) || (b.Vendor?.Name ?? "").Contains(RecurringSearchText, StringComparison.OrdinalIgnoreCase) || (b.Description ?? "").Contains(RecurringSearchText, StringComparison.OrdinalIgnoreCase)) &&
+                        (RecurringFrequencyFilter == "ALL" || string.Equals(b.RecurringFrequency, RecurringFrequencyFilter, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+    private List<FinanceLoan> FilteredRecurringLoans =>
+        AllRecurringLoans
+            .Where(l => string.IsNullOrWhiteSpace(RecurringSearchText) || l.LenderName.Contains(RecurringSearchText, StringComparison.OrdinalIgnoreCase) || (l.GroupName ?? "").Contains(RecurringSearchText, StringComparison.OrdinalIgnoreCase) || (l.Notes ?? "").Contains(RecurringSearchText, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private decimal GetNormalizedMonthlyBillAmount(FinanceBill b)
+    {
+        var freq = b.RecurringFrequency?.ToLower() ?? "monthly";
+        return freq switch
+        {
+            "weekly" => b.OriginalAmount * 52m / 12m,
+            "biweekly" or "bi-weekly" => b.OriginalAmount * 26m / 12m,
+            "quarterly" => b.OriginalAmount / 3m,
+            "yearly" => b.OriginalAmount / 12m,
+            _ => b.OriginalAmount
+        };
+    }
+
+    private decimal TotalMonthlyRecurringBillsAmount =>
+        AllSystemRecurringBills.Sum(b => GetNormalizedMonthlyBillAmount(b));
+
+    private decimal TotalMonthlyRecurringLoansAmount =>
+        AllRecurringLoans.Sum(l => l.MonthlyPaymentAmount ?? 0m);
+
+    private decimal TotalMonthlyRecurringOverhead =>
+        TotalMonthlyRecurringBillsAmount + TotalMonthlyRecurringLoansAmount;
     private decimal TotalLoanBalance { get; set; }
     private bool IsYearView { get; set; }
     private string SortColumn { get; set; } = "Date";
@@ -2012,6 +2642,29 @@
             AllLoans = (await FinanceService.GetAllLoansAsync(includeInactive: true)).ToList();
             AllPaymentTypes = (await FinanceService.GetAllPaymentTypesAsync()).ToList();
             UpdateLoansDisplay();
+
+            // Populate Recurring Bills: only query recurring bills from DB efficiently
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var allRecurring = await db.FinanceBills
+                    .AsNoTracking()
+                    .Include(b => b.Vendor)
+                    .Include(b => b.Category)
+                    .Include(b => b.Loan)
+                    .Where(b => b.IsRecurring && !string.IsNullOrEmpty(b.RecurringFrequency))
+                    .ToListAsync();
+
+                AllSystemRecurringBills = allRecurring
+                    .GroupBy(b => b.VendorId)
+                    .Select(g => g.OrderByDescending(b => b.Status != "Paid").ThenByDescending(b => b.DueDate).First())
+                    .OrderBy(b => b.DueDate)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching recurring bills: {ex.Message}");
+            }
             
             // Fetch system settings to check if lottery integration is enabled
             try
@@ -2044,61 +2697,61 @@
             WeeklyDownloadNetDue = 0;
             WeeklyDownloadWeekEnding = null;
             WeeklyDownloadDueDate = null;
-            HasWeeklyDownload = false;
-            
-            try
+            if (IsLotteryFinancialsEnabled)
             {
-                using var db = await DbFactory.CreateDbContextAsync();
-
-                // 1. Fetch weekly download from LotteryWeeklyStats (Current week ending Saturday, or latest imported)
-                var currentWeekStat = await db.LotteryWeeklyStats
-                    .AsNoTracking()
-                    .Where(w => w.WeekEndingDate.Date >= weekStart.Date && w.WeekEndingDate.Date <= weekEnd.Date)
-                    .OrderByDescending(w => w.WeekEndingDate)
-                    .FirstOrDefaultAsync();
-
-                var statToDisplay = currentWeekStat ?? await db.LotteryWeeklyStats
-                    .AsNoTracking()
-                    .OrderByDescending(w => w.WeekEndingDate)
-                    .FirstOrDefaultAsync();
-
-                if (statToDisplay != null)
+                try
                 {
-                    HasWeeklyDownload = true;
-                    WeeklyDownloadNetDue = statToDisplay.TotalDue;
-                    WeeklyDownloadWeekEnding = statToDisplay.WeekEndingDate;
-                    WeeklyDownloadDueDate = statToDisplay.WeekEndingDate.AddDays(6); // Following Friday
-                }
+                    using var db = await DbFactory.CreateDbContextAsync();
 
-                // 2. Fetch weekly settlement shifts data
-                var settlements = await LotterySettlementService.GetWeeklySettlementsForYearAsync(CurrentDate.Year);
-                var currentWeekSettlement = settlements.FirstOrDefault(s => s.WeekStartDate.Date <= today && s.WeekEndDate.Date >= today);
-                
-                decimal shiftEnvelopeDrop = 0;
-                if (currentWeekSettlement != null)
+                    // 1. Fetch weekly download from LotteryWeeklyStats (Current week ending Saturday, or latest imported)
+                    var currentWeekStat = await db.LotteryWeeklyStats
+                        .AsNoTracking()
+                        .Where(w => w.WeekEndingDate.Date >= weekStart.Date && w.WeekEndingDate.Date <= weekEnd.Date)
+                        .OrderByDescending(w => w.WeekEndingDate)
+                        .FirstOrDefaultAsync();
+
+                    var statToDisplay = currentWeekStat ?? await db.LotteryWeeklyStats
+                        .AsNoTracking()
+                        .OrderByDescending(w => w.WeekEndingDate)
+                        .FirstOrDefaultAsync();
+
+                    if (statToDisplay != null)
+                    {
+                        HasWeeklyDownload = true;
+                        WeeklyDownloadNetDue = statToDisplay.TotalDue;
+                        WeeklyDownloadWeekEnding = statToDisplay.WeekEndingDate;
+                        WeeklyDownloadDueDate = statToDisplay.WeekEndingDate.AddDays(6); // Following Friday
+                    }
+
+                    // 2. Fetch weekly settlement shifts data
+                    var settlements = await LotterySettlementService.GetWeeklySettlementsForYearAsync(CurrentDate.Year);
+                    var currentWeekSettlement = settlements.FirstOrDefault(s => s.WeekStartDate.Date <= today && s.WeekEndDate.Date >= today);
+                    
+                    decimal shiftEnvelopeDrop = 0;
+                    if (currentWeekSettlement != null)
+                    {
+                        UpcomingLotterySweepAmount = currentWeekSettlement.NetDueAmount;
+                        UpcomingLotteryRecordedShifts = currentWeekSettlement.RecordedShiftsCount;
+                        shiftEnvelopeDrop = currentWeekSettlement.EnvelopeDropAmount;
+                        weekStart = currentWeekSettlement.WeekStartDate.Date;
+                        weekEnd = currentWeekSettlement.WeekEndDate.Date;
+                    }
+
+                    // 3. Fetch scratch ticket vending collections (ITVM drops) for this weekly time period
+                    var vendingDropsAmount = await db.LotteryVendingCollections
+                        .AsNoTracking()
+                        .Where(v => v.CollectionDate.Date >= weekStart.Date && v.CollectionDate.Date <= weekEnd.Date)
+                        .SumAsync(v => (decimal?)v.AmountCollected) ?? 0m;
+
+                    UpcomingLotteryEnvelopeDrop = shiftEnvelopeDrop + vendingDropsAmount;
+                    UpcomingLotteryDaysRemaining = Math.Max(0, (weekEnd - today).Days + 1);
+                    HasUpcomingLotterySweep = true;
+                }
+                catch (Exception ex)
                 {
-                    UpcomingLotterySweepAmount = currentWeekSettlement.NetDueAmount;
-                    UpcomingLotteryRecordedShifts = currentWeekSettlement.RecordedShiftsCount;
-                    shiftEnvelopeDrop = currentWeekSettlement.EnvelopeDropAmount;
-                    weekStart = currentWeekSettlement.WeekStartDate.Date;
-                    weekEnd = currentWeekSettlement.WeekEndDate.Date;
+                    Console.WriteLine($"Database query for lottery weekly stats / settlements failed: {ex.Message}");
                 }
-
-                // 3. Fetch scratch ticket vending collections (ITVM drops) for this weekly time period
-                var vendingDropsAmount = await db.LotteryVendingCollections
-                    .AsNoTracking()
-                    .Where(v => v.CollectionDate.Date >= weekStart.Date && v.CollectionDate.Date <= weekEnd.Date)
-                    .SumAsync(v => (decimal?)v.AmountCollected) ?? 0m;
-
-                UpcomingLotteryEnvelopeDrop = shiftEnvelopeDrop + vendingDropsAmount;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Database query for lottery weekly stats / settlements failed: {ex.Message}");
-            }
-            
-            UpcomingLotteryDaysRemaining = Math.Max(0, (weekEnd - today).Days + 1);
-            HasUpcomingLotterySweep = true;
             
             Console.WriteLine($"[FINANCE_UI] Updating Display...");
             UpdateDisplay();
@@ -2218,17 +2871,47 @@
         }
     }
 
-    private async Task SkipLoanMonth(int loanId)
+    private void InitiateTogglePauseLoan(int loanId)
     {
-        var yearMonth = CurrentDate.ToString("yyyy-MM");
+        var loan = AllLoans.FirstOrDefault(l => l.Id == loanId);
+        if (loan != null)
+        {
+            InitiateTogglePauseLoan(loan);
+        }
+    }
+
+    private void InitiateTogglePauseLoan(FinanceLoan loan)
+    {
+        var currentMonthKey = CurrentDate.ToString("yyyy-MM");
+        var isSkipped = !string.IsNullOrWhiteSpace(loan.SkippedMonths) && 
+                        loan.SkippedMonths.Split(',', StringSplitOptions.RemoveEmptyEntries).Contains(currentMonthKey);
+        
+        LoanToPause = loan;
+        IsUnpausingLoan = isSkipped;
+        ShowPauseLoanModal = true;
+    }
+
+    private async Task ConfirmTogglePauseLoan()
+    {
+        if (LoanToPause == null) return;
+        var currentMonthKey = CurrentDate.ToString("yyyy-MM");
         try
         {
-            await FinanceService.SkipLoanMonthAsync(loanId, yearMonth);
+            if (IsUnpausingLoan)
+            {
+                await FinanceService.UnskipLoanMonthAsync(LoanToPause.Id, currentMonthKey);
+            }
+            else
+            {
+                await FinanceService.SkipLoanMonthAsync(LoanToPause.Id, currentMonthKey);
+            }
+            ShowPauseLoanModal = false;
+            LoanToPause = null;
             await LoadData();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error skipping loan month: {ex.Message}");
+            Console.WriteLine($"Error toggling loan pause status: {ex.Message}");
         }
     }
 
@@ -2455,11 +3138,192 @@
     private async Task SetView(string view)
     {
         CurrentView = view;
-        if (view == "PAYMENTS")
+        if (view == "PAYMENTS" || view == "RECURRING")
         {
             await LoadData();
         }
         StateHasChanged();
+    }
+
+    private void OpenAddRecurringBillModal()
+    {
+        EditingBill = new FinanceBill
+        {
+            DueDate = DateTime.Today,
+            WarningDays = 7,
+            Status = "Pending",
+            IsRecurring = true,
+            RecurringFrequency = "Monthly"
+        };
+        ShowBillModal = true;
+    }
+
+    private async Task InitiateStopBillRecurrence(FinanceBill bill)
+    {
+        BillToStopRecurrence = bill;
+        AssociatedLoanToStop = null;
+        StopAssociatedLoanSchedule = true;
+
+        try
+        {
+            // Check if this bill is associated with a loan (by LoanId or matching vendor name / lender name)
+            if (bill.LoanId.HasValue)
+            {
+                AssociatedLoanToStop = AllLoans.FirstOrDefault(l => l.Id == bill.LoanId.Value && l.IsActive);
+            }
+            else if (bill.Vendor != null)
+            {
+                AssociatedLoanToStop = AllLoans.FirstOrDefault(l => l.IsActive && 
+                    (string.Equals(l.LenderName, bill.Vendor.Name, StringComparison.OrdinalIgnoreCase) ||
+                     (!string.IsNullOrWhiteSpace(l.GroupName) && string.Equals(l.GroupName, bill.Vendor.Name, StringComparison.OrdinalIgnoreCase))) &&
+                    (l.PaymentDueDay.HasValue || (l.MonthlyPaymentAmount.HasValue && l.MonthlyPaymentAmount.Value > 0)));
+            }
+
+            using var db = await DbFactory.CreateDbContextAsync();
+            PendingBillsForStopRecurrence = await db.FinanceBills
+                .Include(b => b.Vendor)
+                .Include(b => b.Category)
+                .Where(b => b.VendorId == bill.VendorId && b.Status != "Paid")
+                .OrderBy(b => b.DueDate)
+                .ToListAsync();
+
+            SelectedPendingBillIdsToCleanup = new HashSet<int>(PendingBillsForStopRecurrence.Select(b => b.Id));
+            StopRecurrenceCleanupAction = "Delete";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching pending bills for vendor: {ex.Message}");
+            PendingBillsForStopRecurrence = new List<FinanceBill> { bill };
+            SelectedPendingBillIdsToCleanup = new HashSet<int> { bill.Id };
+        }
+        ShowStopRecurrenceModal = true;
+    }
+
+    private void TogglePendingBillSelection(int billId, bool isSelected)
+    {
+        if (isSelected)
+            SelectedPendingBillIdsToCleanup.Add(billId);
+        else
+            SelectedPendingBillIdsToCleanup.Remove(billId);
+    }
+
+    private async Task ConfirmStopBillRecurrence()
+    {
+        if (BillToStopRecurrence == null) return;
+        try
+        {
+            var vendorId = BillToStopRecurrence.VendorId;
+            var billId = BillToStopRecurrence.Id;
+
+            // 1. Process pending bills selected in the modal
+            if (PendingBillsForStopRecurrence.Any())
+            {
+                foreach (var b in PendingBillsForStopRecurrence)
+                {
+                    if (SelectedPendingBillIdsToCleanup.Contains(b.Id))
+                    {
+                        if (StopRecurrenceCleanupAction == "Delete")
+                        {
+                            await FinanceService.DeleteBillAsync(b.Id, CurrentUserEmail);
+                        }
+                        else
+                        {
+                            b.IsRecurring = false;
+                            b.RecurringFrequency = null;
+                            await FinanceService.UpdateBillAsync(b, CurrentUserEmail);
+                        }
+                    }
+                    else
+                    {
+                        // Even if kept unselected, ensure recurring is turned off
+                        b.IsRecurring = false;
+                        b.RecurringFrequency = null;
+                        await FinanceService.UpdateBillAsync(b, CurrentUserEmail);
+                    }
+                }
+            }
+            else
+            {
+                if (StopRecurrenceCleanupAction == "Delete")
+                {
+                    await FinanceService.DeleteBillAsync(billId, CurrentUserEmail);
+                }
+                else
+                {
+                    BillToStopRecurrence.IsRecurring = false;
+                    BillToStopRecurrence.RecurringFrequency = null;
+                    await FinanceService.UpdateBillAsync(BillToStopRecurrence, CurrentUserEmail);
+                }
+            }
+
+            // 2. Comprehensive DB cleanup: ensure ALL recurring bills for this vendor are marked IsRecurring = false
+            // to guarantee they disappear from the Recurring Hub immediately
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var lingeringRecurring = await db.FinanceBills
+                    .Where(b => (b.VendorId == vendorId || b.Id == billId) && b.IsRecurring)
+                    .ToListAsync();
+
+                foreach (var lb in lingeringRecurring)
+                {
+                    lb.IsRecurring = false;
+                    lb.RecurringFrequency = null;
+                }
+                if (lingeringRecurring.Any())
+                {
+                    await db.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating lingering recurring bills: {ex.Message}");
+            }
+
+            // 3. If an associated loan was detected and user checked the box to stop it too:
+            if (AssociatedLoanToStop != null && StopAssociatedLoanSchedule)
+            {
+                AssociatedLoanToStop.PaymentDueDay = null;
+                AssociatedLoanToStop.MonthlyPaymentAmount = null;
+                await FinanceService.UpdateLoanAsync(AssociatedLoanToStop);
+            }
+
+            ShowStopRecurrenceModal = false;
+            BillToStopRecurrence = null;
+            AssociatedLoanToStop = null;
+            PendingBillsForStopRecurrence.Clear();
+            SelectedPendingBillIdsToCleanup.Clear();
+            await LoadData();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error stopping bill recurrence: {ex.Message}");
+        }
+    }
+
+    private void InitiateStopLoanSchedule(FinanceLoan loan)
+    {
+        LoanToStopSchedule = loan;
+        ShowStopRecurrenceModal = true;
+    }
+
+    private async Task ConfirmStopLoanSchedule()
+    {
+        if (LoanToStopSchedule == null) return;
+        try
+        {
+            LoanToStopSchedule.PaymentDueDay = null;
+            LoanToStopSchedule.MonthlyPaymentAmount = null;
+            await FinanceService.UpdateLoanAsync(LoanToStopSchedule);
+            ShowStopRecurrenceModal = false;
+            LoanToStopSchedule = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error stopping loan schedule: {ex.Message}");
+        }
     }
 
     private void OpenAddVendorModal()
