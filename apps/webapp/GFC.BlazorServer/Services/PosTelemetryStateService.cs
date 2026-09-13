@@ -54,6 +54,18 @@ public class PosTelemetryStateService
         if (telemetry == null || string.IsNullOrWhiteSpace(telemetry.TerminalName)) return;
 
         var termKey = telemetry.TerminalName.Trim();
+
+        // Check if previous snapshot had a different version
+        if (_latestSnapshots.TryGetValue(termKey, out var prevSnapshot))
+        {
+            if (!string.IsNullOrWhiteSpace(prevSnapshot.AppVersion) &&
+                !string.IsNullOrWhiteSpace(telemetry.AppVersion) &&
+                !string.Equals(prevSnapshot.AppVersion, telemetry.AppVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                RecordEvent(termKey, "Update", "Success", $"Terminal application updated from {prevSnapshot.AppVersion} to {telemetry.AppVersion}");
+            }
+        }
+
         _latestSnapshots[termKey] = telemetry;
 
         // Record any events contained in payload
