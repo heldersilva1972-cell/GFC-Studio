@@ -43,4 +43,5 @@ public interface IDeviceTrustService
     Task<bool> ApprovePairingRequestAsync(string tempToken);
     Task<bool> RejectPairingRequestAsync(string tempToken);
     Task<(string Status, string? RealToken)> CheckPairingStatusAsync(string tempToken);
+    Task TouchDeviceActivityAsync(string token);
 }

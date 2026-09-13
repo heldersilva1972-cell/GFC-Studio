@@ -40,7 +40,7 @@ window.renderChart = (canvasId, chartData, dotNetHelper) => {
                 let val = context.parsed.y !== undefined ? context.parsed.y : context.raw;
                 if (typeof val === 'number') {
                     const lLower = (context.dataset.label || '').toLowerCase();
-                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || context.dataset.yAxisID === 'y1';
+                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || lLower.includes('bottle') || lLower.includes('pull') || lLower.includes('removal') || lLower.includes('inventory') || lLower.includes('entry') || lLower.includes('event') || context.dataset.yAxisID === 'y1' || context.dataset.isCurrency === false;
                     if (isUnit) {
                         label += val.toLocaleString();
                     } else {
@@ -57,7 +57,7 @@ window.renderChart = (canvasId, chartData, dotNetHelper) => {
                 let hasUnits = false;
                 tooltipItems.forEach(function (item) {
                     const lLower = (item.dataset.label || '').toLowerCase();
-                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || item.dataset.yAxisID === 'y1';
+                    const isUnit = lLower.includes('unit') || lLower.includes('count') || lLower.includes('qty') || lLower.includes('sold') || lLower.includes('volume') || lLower.includes('item') || lLower.includes('bottle') || lLower.includes('pull') || lLower.includes('removal') || lLower.includes('inventory') || lLower.includes('entry') || lLower.includes('event') || item.dataset.yAxisID === 'y1' || item.dataset.isCurrency === false;
                     let val = item.parsed.y !== undefined ? item.parsed.y : item.raw;
                     if (typeof val === 'number') {
                         if (isUnit) {

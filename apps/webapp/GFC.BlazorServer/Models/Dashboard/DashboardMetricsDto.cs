@@ -18,6 +18,9 @@ public class DashboardMetricsDto
     public decimal WeeklyBarSales { get; set; }
     public int WeeklyBarTransactionCount { get; set; }
     public double WeeklyBarSalesTrend { get; set; }
+    public decimal MonthlyBarSales { get; set; }
+    public int MonthlyBarTransactionCount { get; set; }
+    public double MonthlyBarSalesTrend { get; set; }
     public int TodaysMemberEntryCount { get; set; }
     public int TodaysBuzzedInCount { get; set; }
     public List<BartenderInfo> TonightBartenders { get; set; } = new();

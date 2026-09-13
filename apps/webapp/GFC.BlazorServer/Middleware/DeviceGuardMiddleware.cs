@@ -113,6 +113,10 @@ namespace GFC.BlazorServer.Middleware
                     !string.IsNullOrEmpty(stationToken))
                 {
                     hasValidDeviceTrust = await deviceTrustService.IsStationTokenAsync(stationToken);
+                    if (hasValidDeviceTrust)
+                    {
+                        _ = deviceTrustService.TouchDeviceActivityAsync(stationToken);
+                    }
                 }
 
                 if (hasValidDeviceTrust)

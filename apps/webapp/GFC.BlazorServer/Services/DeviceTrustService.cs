@@ -689,6 +689,19 @@ public class DeviceTrustService : IDeviceTrustService
             
             // Consume the code — remove it so it can't be reused
             context.TrustedDevices.Remove(record);
+
+            // Update LastUsedUtc on target station to reflect re-trust date/time
+            if (!string.IsNullOrEmpty(token))
+            {
+                var targetStation = await context.TrustedDevices
+                    .OrderBy(d => d.Id)
+                    .FirstOrDefaultAsync(d => d.DeviceToken == token);
+                if (targetStation != null)
+                {
+                    targetStation.LastUsedUtc = DateTime.UtcNow;
+                }
+            }
+
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Setup code {Code} successfully redeemed.", normalized);
@@ -1026,6 +1039,29 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error checking pairing status for temp token {TempToken}", tempToken);
             return ("Rejected", null);
+        }
+    }
+
+    public async Task TouchDeviceActivityAsync(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var device = await context.TrustedDevices
+                .OrderBy(d => d.Id)
+                .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
+
+            if (device != null && device.LastUsedUtc < DateTime.UtcNow.AddMinutes(-5))
+            {
+                device.LastUsedUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Failed to touch device activity timestamp: {Error}", ex.Message);
         }
     }
 }

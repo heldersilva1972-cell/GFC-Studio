@@ -49,6 +49,8 @@ public class DashboardMetricsService : IDashboardMetricsService
         {
             var currentYear = DateTime.Today.Year;
             var today = DateTime.Today;
+            var monthStart = new DateTime(today.Year, today.Month, 1);
+            var prevMonthStart = monthStart.AddMonths(-1);
             var weekStart = today.AddDays(-7);
             var prevWeekStart = today.AddDays(-14);
 
@@ -66,7 +68,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(null, ct);
             var cardCountsTask = GetCardCountsAsync(ct);
             var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
-            var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
+            var barSalesTask = GetBarSalesMetricsAsync(monthStart, prevMonthStart, weekStart, prevWeekStart, ct);
             var staffTask = GetTonightStaffAsync(today, ct);
             var entryCountsTask = GetTodaysEntryCountsAsync(ct);
             var unacknowledgedNotesTask = GetUnacknowledgedNotesAsync(ct);
@@ -102,7 +104,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var alertSummary = alertSummaryTask.Result;
             var openAlerts = alertSummary == null ? 0 : CalculateOpenAlerts(alertSummary);
             (int enabledCards, int disabledCards) = cardCountsTask.Result;
-            (decimal weeklySales, int weeklyTransactions, double trend) = barSalesTask.Result;
+            var barSales = barSalesTask.Result;
             (bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons, int drawTotal) = drawStatusTask.Result;
 
             return new DashboardMetricsDto
@@ -117,9 +119,12 @@ public class DashboardMetricsService : IDashboardMetricsService
                 OpenAlerts = openAlerts,
                 MembershipChangesLast24h = membershipChangesTask.Result,
                 
-                WeeklyBarSales = weeklySales,
-                WeeklyBarTransactionCount = weeklyTransactions,
-                WeeklyBarSalesTrend = trend,
+                MonthlyBarSales = barSales.currentMonthSales,
+                MonthlyBarTransactionCount = barSales.currentMonthTransactions,
+                MonthlyBarSalesTrend = barSales.monthTrend,
+                WeeklyBarSales = barSales.weeklySales,
+                WeeklyBarTransactionCount = barSales.weeklyTransactions,
+                WeeklyBarSalesTrend = barSales.weeklyTrend,
                 TodaysMemberEntryCount = entryCountsTask.Result.memberCount,
                 TodaysBuzzedInCount = entryCountsTask.Result.buzzedInCount,
                 TonightBartenders = staffTask.Result,
@@ -364,37 +369,61 @@ public class DashboardMetricsService : IDashboardMetricsService
     }
 
 
-    private async Task<(decimal sales, int transactions, double trend)> GetBarSalesMetricsAsync(DateTime weekStart, DateTime prevWeekStart, CancellationToken ct)
+    private async Task<(decimal currentMonthSales, int currentMonthTransactions, double monthTrend, decimal weeklySales, int weeklyTransactions, double weeklyTrend)> GetBarSalesMetricsAsync(
+        DateTime monthStart, 
+        DateTime prevMonthStart, 
+        DateTime weekStart, 
+        DateTime prevWeekStart, 
+        CancellationToken ct)
     {
         try
         {
             await using var db = await _contextFactory.CreateDbContextAsync(ct);
             
-            // Optimization: Use SumAsync and CountAsync to avoid downloading all records
-            var currentTotal = await db.BarSaleEntries
-                .Where(e => e.SaleDate >= weekStart)
-                .SumAsync(e => e.TotalSales, ct);
+            // 1. Month-to-Date Calculations
+            var currentMonthSales = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= monthStart && (e.Status == "Submitted" || e.TotalSales > 0))
+                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0;
 
-            var transactions = await db.BarSaleEntries
-                .Where(e => e.SaleDate >= weekStart)
+            var currentMonthTransactions = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= monthStart && (e.Status == "Submitted" || e.TotalSales > 0))
                 .CountAsync(ct);
 
-            var prevTotal = await db.BarSaleEntries
-                .Where(e => e.SaleDate >= prevWeekStart && e.SaleDate < weekStart)
-                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0; // Use nullable to handle empty set
+            var prevMonthSales = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= prevMonthStart && (e.AdjustedSaleDate ?? e.SaleDate) < monthStart && (e.Status == "Submitted" || e.TotalSales > 0))
+                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0;
 
-            double trend = 0;
-            if (prevTotal > 0)
+            double monthTrend = 0;
+            if (prevMonthSales > 0)
             {
-                trend = (double)((currentTotal - prevTotal) / prevTotal * 100);
+                monthTrend = (double)((currentMonthSales - prevMonthSales) / prevMonthSales * 100);
             }
 
-            return (currentTotal, transactions, trend);
+            // 2. Rolling Week Calculations (retained for backward compatibility)
+            var weeklySales = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= weekStart && (e.Status == "Submitted" || e.TotalSales > 0))
+                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0;
+
+            var weeklyTransactions = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= weekStart && (e.Status == "Submitted" || e.TotalSales > 0))
+                .CountAsync(ct);
+
+            var prevWeekSales = await db.BarSaleEntries
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate) >= prevWeekStart && (e.AdjustedSaleDate ?? e.SaleDate) < weekStart && (e.Status == "Submitted" || e.TotalSales > 0))
+                .SumAsync(e => (decimal?)e.TotalSales, ct) ?? 0;
+
+            double weeklyTrend = 0;
+            if (prevWeekSales > 0)
+            {
+                weeklyTrend = (double)((weeklySales - prevWeekSales) / prevWeekSales * 100);
+            }
+
+            return (currentMonthSales, currentMonthTransactions, monthTrend, weeklySales, weeklyTransactions, weeklyTrend);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching bar sales metrics");
-            return (0, 0, 0);
+            return (0, 0, 0, 0, 0, 0);
         }
     }
 
