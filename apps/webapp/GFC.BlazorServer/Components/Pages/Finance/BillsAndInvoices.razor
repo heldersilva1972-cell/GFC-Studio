@@ -1213,7 +1213,7 @@
                                 
                                 <div class="p-3 rounded-4 border mb-2 bg-white shadow-sm" style="border-color: #6366f1; background: linear-gradient(180deg, rgba(99, 102, 241, 0.03) 0%, #ffffff 100%);">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="fw-bold" style="font-size: 0.70rem; color: #4f46e5 !important; letter-spacing: 0.5px;">TOTAL LOTTERY DUE</span>
+                                        <span class="fw-bold" style="font-size: 0.70rem; color: #4f46e5 !important; letter-spacing: 0.5px;">STATE LOTTERY INVOICE DUE</span>
                                         <span class="fw-black" style="font-size: 1.25rem; color: #4f46e5;">@WeeklyDownloadNetDue.ToString("C")</span>
                                     </div>
 
@@ -1226,6 +1226,13 @@
                                                 <span class="text-secondary" title="Sales week ending date">W/E: @WeeklyDownloadWeekEnding.Value.ToString("MM/dd")</span>
                                             }
                                         </div>
+                                        @if (WeeklyDownloadEnvelopeDrop > 0)
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center pt-1 mt-1 border-top extra-small" style="font-size: 0.63rem; color: #475569;">
+                                                <span title="Cash envelope drops recorded for that statement week"><i class="bi bi-cash-stack text-success me-1"></i>Envelopes Collected (That Week):</span>
+                                                <strong class="text-dark">@WeeklyDownloadEnvelopeDrop.ToString("C")</strong>
+                                            </div>
+                                        }
                                     }
                                     else
                                     {
@@ -1239,11 +1246,18 @@
                                 {
                                     <div class="p-3 rounded-4 border shadow-sm" style="border-color: #f59e0b; background: rgba(245, 158, 11, 0.02);">
                                         <div class="d-flex justify-content-between align-items-center mb-1">
-                                            <span class="fw-bold text-success" style="font-size: 0.68rem;">ENVELOPE DROP (ACTIVE WEEK)</span>
-                                            <span class="fw-black text-success" style="font-size: 1.1rem;">@UpcomingLotteryEnvelopeDrop.ToString("C")</span>
+                                            <div>
+                                                <span class="fw-bold text-success d-block" style="font-size: 0.68rem; letter-spacing: 0.3px;">CURRENT WEEK ENVELOPE DROPS</span>
+                                                @if (!string.IsNullOrEmpty(CurrentLotteryWeekRange))
+                                                {
+                                                    <span class="text-muted" style="font-size: 0.60rem;">(Sales Week: @CurrentLotteryWeekRange)</span>
+                                                }
+                                            </div>
+                                            <span class="fw-black text-success" style="font-size: 1.15rem;">@UpcomingLotteryEnvelopeDrop.ToString("C")</span>
                                         </div>
                                         <div class="extra-small text-muted mt-1 border-top pt-1" style="font-size: 0.62rem; line-height: 1.3;">
-                                            <span class="d-block"><i class="bi bi-calendar-event me-1"></i>@(UpcomingLotteryRecordedShifts) @(UpcomingLotteryRecordedShifts == 1 ? "day" : "days") of shift data + vending ticket sales (@UpcomingLotteryDaysRemaining @(UpcomingLotteryDaysRemaining == 1 ? "day" : "days") remaining)</span>
+                                            <span class="d-block"><i class="bi bi-calendar-event me-1"></i>@(UpcomingLotteryRecordedShifts) @(UpcomingLotteryRecordedShifts == 1 ? "day" : "days") recorded + vending sales (@UpcomingLotteryDaysRemaining @(UpcomingLotteryDaysRemaining == 1 ? "day" : "days") remaining)</span>
+                                            <span class="d-block text-secondary fst-italic mt-1" style="font-size: 0.58rem;">* Cash accumulated from current week's operations. Not the invoice due above.</span>
                                         </div>
                                     </div>
                                 }
@@ -2198,7 +2212,9 @@
     private decimal WeeklyDownloadNetDue { get; set; }
     private DateTime? WeeklyDownloadWeekEnding { get; set; }
     private DateTime? WeeklyDownloadDueDate { get; set; }
+    private decimal WeeklyDownloadEnvelopeDrop { get; set; }
     private bool HasWeeklyDownload { get; set; }
+    private string CurrentLotteryWeekRange { get; set; } = "";
     private decimal UpcomingLotterySweepAmount { get; set; }
     private decimal UpcomingLotteryEnvelopeDrop { get; set; }
     private int UpcomingLotteryRecordedShifts { get; set; }
@@ -2697,6 +2713,7 @@
             WeeklyDownloadNetDue = 0;
             WeeklyDownloadWeekEnding = null;
             WeeklyDownloadDueDate = null;
+            WeeklyDownloadEnvelopeDrop = 0;
             if (IsLotteryFinancialsEnabled)
             {
                 try
@@ -2721,6 +2738,22 @@
                         WeeklyDownloadNetDue = statToDisplay.TotalDue;
                         WeeklyDownloadWeekEnding = statToDisplay.WeekEndingDate;
                         WeeklyDownloadDueDate = statToDisplay.WeekEndingDate.AddDays(6); // Following Friday
+
+                        // Calculate the envelope drop collected during that specific statement week
+                        var statWeekEnd = statToDisplay.WeekEndingDate.Date;
+                        var statWeekStart = statWeekEnd.AddDays(-6);
+                        
+                        var statShiftsDrop = await db.LotteryShifts
+                            .AsNoTracking()
+                            .Where(s => s.ShiftDate.Date >= statWeekStart && s.ShiftDate.Date <= statWeekEnd)
+                            .SumAsync(s => (decimal?)s.EnvelopeAmount) ?? 0m;
+
+                        var statVendingDrop = await db.LotteryVendingCollections
+                            .AsNoTracking()
+                            .Where(v => v.CollectionDate.Date >= statWeekStart && v.CollectionDate.Date <= statWeekEnd)
+                            .SumAsync(v => (decimal?)v.AmountCollected) ?? 0m;
+
+                        WeeklyDownloadEnvelopeDrop = statShiftsDrop + statVendingDrop;
                     }
 
                     // 2. Fetch weekly settlement shifts data
@@ -2736,6 +2769,8 @@
                         weekStart = currentWeekSettlement.WeekStartDate.Date;
                         weekEnd = currentWeekSettlement.WeekEndDate.Date;
                     }
+
+                    CurrentLotteryWeekRange = $"{weekStart:MM/dd} - {weekEnd:MM/dd}";
 
                     // 3. Fetch scratch ticket vending collections (ITVM drops) for this weekly time period
                     var vendingDropsAmount = await db.LotteryVendingCollections
