@@ -7415,47 +7415,54 @@
     {
         while (!_disposed)
         {
-            await Task.Delay(TimeSpan.FromSeconds(10));
-            if (_disposed) break;
-
-            // 1. CHEAP: Idle Timeout Check (local timestamp only)
-            if (_idleTimeoutMinutes > 0 && !string.IsNullOrEmpty(CurrentUserName))
+            try
             {
-                if ((DateTime.Now - _lastActivity).TotalMinutes >= _idleTimeoutMinutes)
+                await Task.Delay(TimeSpan.FromSeconds(10));
+                if (_disposed) break;
+
+                // 1. CHEAP: Idle Timeout Check (local timestamp only)
+                if (_idleTimeoutMinutes > 0 && !string.IsNullOrEmpty(CurrentUserName))
                 {
-                    Console.WriteLine($"[POS] IDLE TIMEOUT: No activity for {_idleTimeoutMinutes}m. Locking station.");
-                    LockTerminal();
-                    await InvokeAsync(RequestRender);
+                    if ((DateTime.Now - _lastActivity).TotalMinutes >= _idleTimeoutMinutes)
+                    {
+                        Console.WriteLine($"[POS] IDLE TIMEOUT: No activity for {_idleTimeoutMinutes}m. Locking station.");
+                        LockTerminal();
+                        await InvokeAsync(RequestRender);
+                    }
+                }
+
+                // 2. CHEAP: Security check — local list lookup only, no HTTP
+                if (!string.IsNullOrEmpty(CurrentUserName))
+                {
+                    var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
+                    if (!isStillAuth)
+                    {
+                        Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
+                        LockTerminal();
+                        await InvokeAsync(RequestRender);
+                    }
+                }
+
+                // 3. CHEAP: 3AM Daily Reset Check (local timestamp only)
+                CheckDailyReset();
+
+                // 4. EXPENSIVE: Sync users from server — only every 5 minutes
+                if ((DateTime.Now - _lastUserSync).TotalMinutes >= 5)
+                {
+                    _lastUserSync = DateTime.Now;
+                    await SyncUsers();
+                }
+
+                // 5. EXPENSIVE: Check for POS update — only every 5 minutes
+                if ((DateTime.Now - _lastUpdateCheck).TotalMinutes >= 5)
+                {
+                    _lastUpdateCheck = DateTime.Now;
+                    await CheckForUpdatesAsync();
                 }
             }
-
-            // 2. CHEAP: Security check — local list lookup only, no HTTP
-            if (!string.IsNullOrEmpty(CurrentUserName))
+            catch (Exception ex)
             {
-                var isStillAuth = AuthorizedUsers.Any(u => u.Username.Equals(CurrentUserName, StringComparison.OrdinalIgnoreCase));
-                if (!isStillAuth)
-                {
-                    Console.WriteLine($"[POS] SECURITY: {CurrentUserName} is no longer authorized. Forcing terminal lock.");
-                    LockTerminal();
-                    await InvokeAsync(RequestRender);
-                }
-            }
-
-            // 3. CHEAP: 3AM Daily Reset Check (local timestamp only)
-            CheckDailyReset();
-
-            // 4. EXPENSIVE: Sync users from server — only every 5 minutes
-            if ((DateTime.Now - _lastUserSync).TotalMinutes >= 5)
-            {
-                _lastUserSync = DateTime.Now;
-                await SyncUsers();
-            }
-
-            // 5. EXPENSIVE: Check for POS update — only every 5 minutes
-            if ((DateTime.Now - _lastUpdateCheck).TotalMinutes >= 5)
-            {
-                _lastUpdateCheck = DateTime.Now;
-                await CheckForUpdatesAsync();
+                Console.WriteLine($"[POS] StartAuthPolling tick error: {ex.Message}");
             }
         }
     }
@@ -7470,9 +7477,18 @@
             
             if (isUpdateAvailable)
             {
-                // [LOOP-PROTECTION] Verify if we just tried to update to this specific version
-                var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
                 var activeServerVersion = !string.IsNullOrEmpty(_serverVersionFound) ? _serverVersionFound : UpdateService.ServerVersion;
+
+                // 1. 3:00 AM Maintenance Window: If idle (no operator logged in), automatically install
+                if (DateTime.Now.Hour == 3 && string.IsNullOrEmpty(CurrentUserName))
+                {
+                    Console.WriteLine($"[GFC POS UPDATE] 3:00 AM Maintenance window active and terminal is idle. Forcing auto-update/reload to {activeServerVersion}...");
+                    await InvokeAsync(TriggerNuclearReload);
+                    return;
+                }
+
+                // 2. [LOOP-PROTECTION] Verify if we just tried to update to this specific version during active daytime
+                var lastAttemptVersion = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_last_update_version");
                 
                 if (lastAttemptVersion == activeServerVersion || 
                     (!string.IsNullOrEmpty(lastAttemptVersion) && !string.IsNullOrEmpty(activeServerVersion) && 
@@ -7487,14 +7503,6 @@
                         _showUpdateBanner = true;
                         await InvokeAsync(StateHasChanged);
                     }
-                    return;
-                }
-
-                // If it is 3:00 AM (Hour == 3) and no bartender is logged in, automatically reload to install the update
-                if (DateTime.Now.Hour == 3 && string.IsNullOrEmpty(CurrentUserName))
-                {
-                    Console.WriteLine($"[GFC POS UPDATE] 3:00 AM Maintenance window active and terminal is idle. Forcing auto-update/reload to {activeServerVersion}...");
-                    await InvokeAsync(TriggerNuclearReload);
                     return;
                 }
 
