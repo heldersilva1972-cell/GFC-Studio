@@ -490,8 +490,21 @@ public class PosApiController : ControllerBase
                     .AsNoTracking()
                     .Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted)
                     .ToListAsync();
-                // Null out navigation properties to prevent JSON circular reference during serialization
-                foreach (var ae in activeEvents) ae.Template = null;
+
+                // For each open event, automatically resolve and attach any unconsumed donated pool from donor events/sessions
+                foreach (var ae in activeEvents)
+                {
+                    ae.Template = null;
+                    if (string.IsNullOrEmpty(ae.DonatedItemIdsJson))
+                    {
+                        var (poolJson, enable100) = await ResolveDonatedPoolAsync(db, ae.Id, ae.Name, ae.TemplateId, ae.DonatedItemIdsJson);
+                        if (!string.IsNullOrEmpty(poolJson))
+                        {
+                            ae.DonatedItemIdsJson = poolJson;
+                            ae.Enable100PercentDonatedProceeds = enable100;
+                        }
+                    }
+                }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error querying ActiveEvents table in GetMenu");
             }
@@ -558,19 +571,14 @@ public class PosApiController : ControllerBase
             newEvent.Template = null; // Clear navigation property to prevent EF Core identity insert errors
             newEvent.CreatedAt = DateTime.UtcNow;
 
-            // Carry over remaining donated beer pool from the latest closed session of this event
+            // Carry over remaining donated beer pool from donor events (e.g. Family Picnic) or latest closed session
             if (string.IsNullOrEmpty(newEvent.DonatedItemIdsJson))
             {
-                var cleanName = (newEvent.Name ?? "").Replace(" [Direct]", "").Replace("[Direct]", "").Trim();
-                var prevSession = await db.ActiveEvents
-                    .Where(e => ((newEvent.TemplateId.HasValue && e.TemplateId.HasValue && e.TemplateId.Value > 0 && e.TemplateId == newEvent.TemplateId.Value) || e.Name == cleanName || (e.Name != null && e.Name.StartsWith(cleanName))) && e.Status == GFC.Core.Enums.EventTabStatus.Closed && !e.IsDeleted && !string.IsNullOrEmpty(e.DonatedItemIdsJson))
-                    .OrderByDescending(e => e.Id)
-                    .FirstOrDefaultAsync();
-
-                if (prevSession != null && !string.IsNullOrEmpty(prevSession.DonatedItemIdsJson))
+                var (poolJson, enable100) = await ResolveDonatedPoolAsync(db, null, newEvent.Name, newEvent.TemplateId, newEvent.DonatedItemIdsJson);
+                if (!string.IsNullOrEmpty(poolJson))
                 {
-                    newEvent.DonatedItemIdsJson = prevSession.DonatedItemIdsJson;
-                    newEvent.Enable100PercentDonatedProceeds = true;
+                    newEvent.DonatedItemIdsJson = poolJson;
+                    newEvent.Enable100PercentDonatedProceeds = enable100;
                 }
             }
 
@@ -1637,5 +1645,111 @@ public class PosApiController : ControllerBase
         public int Cans { get; set; }
         public string? ActionType { get; set; }
         public string? RecipientEventName { get; set; }
+    }
+
+    private static async Task<(string? Json, bool Enable100)> ResolveDonatedPoolAsync(GfcDbContext db, int? eventId, string? eventName, int? templateId, string? currentJson)
+    {
+        var cleanName = (eventName ?? "").Replace(" [Direct]", "").Replace("[Direct]", "").Trim();
+        var poolMap = new Dictionary<int, int>();
+        if (!string.IsNullOrEmpty(currentJson))
+        {
+            try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(currentJson) ?? new(); } catch { }
+        }
+
+        var allOtherEvents = await db.ActiveEvents
+            .AsNoTracking()
+            .Where(e => (!eventId.HasValue || e.Id != eventId.Value) && !e.IsDeleted && (!string.IsNullOrEmpty(e.DonatedItemIdsJson) || !string.IsNullOrEmpty(e.DonatedItemTalliesJson) || !string.IsNullOrEmpty(e.BeerTalliesJson)))
+            .OrderByDescending(e => e.Id)
+            .ToListAsync();
+
+        var allDonationRecords = new List<DonatedLogEntry>();
+
+        // 1. Scan donor events that re-donated to this recipient event
+        foreach (var dev in allOtherEvents)
+        {
+            if (!string.IsNullOrEmpty(dev.DonatedItemTalliesJson))
+            {
+                try
+                {
+                    var recs = JsonSerializer.Deserialize<List<DonatedLogEntry>>(dev.DonatedItemTalliesJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (recs != null)
+                    {
+                        var matchRecs = recs.Where(r => r.ActionType == "redonate" && !string.IsNullOrWhiteSpace(r.RecipientEventName) &&
+                            (r.RecipientEventName.Equals(cleanName, StringComparison.OrdinalIgnoreCase) ||
+                             cleanName.Contains(r.RecipientEventName, StringComparison.OrdinalIgnoreCase) ||
+                             r.RecipientEventName.Contains(cleanName, StringComparison.OrdinalIgnoreCase) ||
+                             (cleanName.ToLower().Contains("horseshoe") && r.RecipientEventName.ToLower().Contains("horseshoe"))));
+
+                        allDonationRecords.AddRange(matchRecs);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        var distinctRecords = allDonationRecords
+            .Where(r => !string.IsNullOrEmpty(r.RecordId))
+            .DistinctBy(r => r.RecordId)
+            .ToList();
+        distinctRecords.AddRange(allDonationRecords.Where(r => string.IsNullOrEmpty(r.RecordId)));
+
+        foreach (var group in distinctRecords.GroupBy(r => r.ItemId))
+        {
+            int totalDonatedCans = group.Sum(r => r.Cans);
+            int cur = poolMap.TryGetValue(group.Key, out var c) ? c : 0;
+            poolMap[group.Key] = Math.Max(cur, totalDonatedCans);
+        }
+
+        // 2. If poolMap is still empty, check previous session of this exact event
+        if (!poolMap.Any())
+        {
+            var prevSession = allOtherEvents.FirstOrDefault(e =>
+                (templateId.HasValue && templateId.Value > 0 && e.TemplateId == templateId.Value) ||
+                string.Equals(e.Name, cleanName, StringComparison.OrdinalIgnoreCase) ||
+                (e.Name != null && e.Name.StartsWith(cleanName)) ||
+                (cleanName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe")));
+
+            if (prevSession != null && !string.IsNullOrEmpty(prevSession.DonatedItemIdsJson))
+            {
+                try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(prevSession.DonatedItemIdsJson) ?? new(); } catch { }
+            }
+        }
+
+        // 3. Deduct cans consumed in prior closed sessions of this recipient event
+        if (poolMap.Any())
+        {
+            var priorClosedSessions = allOtherEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Closed &&
+                ((templateId.HasValue && templateId.Value > 0 && e.TemplateId == templateId.Value) ||
+                 string.Equals(e.Name, cleanName, StringComparison.OrdinalIgnoreCase) ||
+                 (e.Name != null && e.Name.StartsWith(cleanName)) ||
+                 (cleanName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe")))).ToList();
+
+            foreach (var itemId in poolMap.Keys.ToList())
+            {
+                int priorConsumed = 0;
+                foreach (var prior in priorClosedSessions)
+                {
+                    if (!string.IsNullOrEmpty(prior.BeerTalliesJson))
+                    {
+                        try
+                        {
+                            var tallies = JsonSerializer.Deserialize<List<TallyEntry>>(prior.BeerTalliesJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            var m = tallies?.FirstOrDefault(t => t.ItemId == itemId);
+                            if (m != null) priorConsumed += Math.Max(0, m.QuantityTaken - m.QuantityReturned);
+                        }
+                        catch { }
+                    }
+                }
+                poolMap[itemId] = Math.Max(0, poolMap[itemId] - priorConsumed);
+            }
+
+            var nonZero = poolMap.Where(kvp => kvp.Value > 0).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            if (nonZero.Any())
+            {
+                return (JsonSerializer.Serialize(nonZero), true);
+            }
+        }
+
+        return (null, false);
     }
 }

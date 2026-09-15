@@ -3072,7 +3072,7 @@
                                                     </button>
                                                 }
                                                 <button class="btn btn-sm btn-danger rounded-pill fw-bold px-3" @onclick="() => CloseBanquet(ev)">
-                                                    <i class="bi bi-stop-circle me-1"></i> Close Event
+                                                    <i class="bi bi-stop-circle me-1"></i> @(ev.EnableBeerTally ? "Settle Event" : (ev.Type == GFC.Core.Enums.EventTabType.RunningTab ? "Settle Tab" : "Close Event"))
                                                 </button>
                                             </div>
                                         </div>
@@ -4341,7 +4341,8 @@
 
                                 @{
                                     var evTmpl = DbEventTemplates?.FirstOrDefault(t => (ev.TemplateId.HasValue && t.Id == ev.TemplateId.Value) || (!string.IsNullOrEmpty(ev.Name) && string.Equals(t.Name, ev.Name, StringComparison.OrdinalIgnoreCase)));
-                                    bool isBeerAllocationEnabled = ev.Enable100PercentDonatedProceeds || (evTmpl?.Enable100PercentDonatedProceeds ?? false);
+                                    bool isDonorTemplate = evTmpl != null && (evTmpl.Enable100PercentDonatedProceeds || !string.IsNullOrWhiteSpace(evTmpl.RecipientEventName) || evTmpl.ClubDonatedCasesCap > 0);
+                                    bool isBeerAllocationEnabled = isDonorTemplate;
                                 }
 
                                 @if (isBeerAllocationEnabled)
@@ -4379,7 +4380,7 @@
                                                background: #ef4444 !important; color: white !important; border: 2px solid #ef4444 !important;
                                                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2) !important;"
                                         @onclick="() => CloseBanquet(ev)">
-                                    <i class="bi bi-x-circle-fill me-1"></i> CLOSE EVENT
+                                    <i class="bi bi-x-circle-fill me-1"></i> @(ev.EnableBeerTally ? "SETTLE & CLOSE EVENT" : (ev.Type == GFC.Core.Enums.EventTabType.RunningTab ? "SETTLE TAB" : "CLOSE EVENT"))
                                 </button>
                             </div>
                         </div>
@@ -5219,28 +5220,47 @@
 {
     var evTmpl = DbEventTemplates?.FirstOrDefault(t => (_closingBanquet.TemplateId.HasValue && t.Id == _closingBanquet.TemplateId.Value) || (!string.IsNullOrEmpty(_closingBanquet.Name) && string.Equals(t.Name, _closingBanquet.Name, StringComparison.OrdinalIgnoreCase)));
     bool shouldPromptPrint = _closingBanquet.PromptPrintSummaryOnClose || (evTmpl?.PromptPrintSummaryOnClose ?? false);
+    decimal amountOwed = _closingBanquet.CurrentBalance < 0 ? Math.Abs(_closingBanquet.CurrentBalance) : 0;
 
     <div class="shift-overlay no-backdrop" style="z-index: 9999;">
-        <div class="notice-modal animate__animated animate__fadeInUp" style="max-width: 450px;">
-            <div class="notice-icon-circle bg-amber" style="background-color: #f59e0b !important;">
-                <i class="bi bi-shield-lock-fill"></i>
-            </div>
-            <h3>Close Event Tab?</h3>
-            <p class="mb-3">Are you sure you want to close <strong>@GetEventDisplayName(_closingBanquet.Name)</strong>? This will finalize all tab transactions.</p>
+        <div class="notice-modal animate__animated animate__fadeInUp" style="max-width: 460px; @(amountOwed > 0 ? "border: 3px solid #ef4444;" : "")">
+            @if (amountOwed > 0)
+            {
+                <div class="notice-icon-circle" style="background-color: #ef4444 !important; color: white;">
+                    <i class="bi bi-cash-stack" style="font-size: 2.2rem;"></i>
+                </div>
+                <h3 class="text-danger fw-black">Collect Tab Balance</h3>
+                <p class="mb-1 text-muted">
+                    Total amount due for <strong>@GetEventDisplayName(_closingBanquet.Name)</strong>:
+                </p>
+                <div class="display-6 fw-black text-dark mb-3">@amountOwed.ToString("C")</div>
+                <div class="alert alert-danger text-start mb-3 py-2.5 px-3 border rounded-3" style="background-color: #fef2f2; border-color: #fecaca; color: #991b1b;">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    <strong>Cash Drawer:</strong> The drawer will kick open. Please collect <strong>@amountOwed.ToString("C")</strong> and place it in the drawer to finalize the tab.
+                </div>
+            }
+            else
+            {
+                <div class="notice-icon-circle bg-amber" style="background-color: #f59e0b !important;">
+                    <i class="bi bi-shield-lock-fill"></i>
+                </div>
+                <h3>Close Event Tab?</h3>
+                <p class="mb-3">Are you sure you want to close <strong>@GetEventDisplayName(_closingBanquet.Name)</strong>? This will finalize all tab transactions.</p>
+            }
             <div class="d-flex flex-column gap-2 mt-4">
                 @if (shouldPromptPrint)
                 {
                     <button class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm" style="background-color: #d97706; border-color: #d97706; color: white;" @onclick="() => ExecuteCloseBanquet(true)">
-                        <i class="bi bi-printer-fill me-1"></i> YES, PRINT SUMMARY & CLOSE
+                        <i class="bi bi-printer-fill me-1"></i> @(amountOwed > 0 ? "COLLECTED, PRINT SUMMARY & CLOSE" : "YES, PRINT SUMMARY & CLOSE")
                     </button>
                     <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => ExecuteCloseBanquet(false)">
-                        <i class="bi bi-check-circle me-1"></i> YES, CLOSE WITHOUT PRINTING
+                        <i class="bi bi-check-circle me-1"></i> @(amountOwed > 0 ? "COLLECTED, CLOSE WITHOUT PRINTING" : "YES, CLOSE WITHOUT PRINTING")
                     </button>
                 }
                 else
                 {
-                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="() => ExecuteCloseBanquet(false)">
-                        <i class="bi bi-check-circle me-1"></i> YES, CLOSE EVENT
+                    <button class="btn btn-success w-100 py-3 rounded-pill fw-black shadow-sm" style="background-color: #10b981; border-color: #10b981; color: white;" @onclick="() => ExecuteCloseBanquet(false)">
+                        <i class="bi bi-check-circle-fill me-1"></i> @(amountOwed > 0 ? $"COLLECTED {amountOwed:C} & CLOSE EVENT" : "YES, CLOSE EVENT")
                     </button>
                 }
                 <button class="btn btn-outline-secondary w-100 py-3 rounded-pill fw-bold mt-2" @onclick="() => { _showBanquetCloseModal = false; _closingBanquet = null; }">
@@ -6019,15 +6039,11 @@
     {
         if (ev == null || t == null) return t?.ClubSubtotal ?? 0m;
         
-        Dictionary<int, int> donatedMap = new();
-        if (ev.Enable100PercentDonatedProceeds && !string.IsNullOrEmpty(ev.DonatedItemIdsJson))
+        var allDonatedStock = GetAllDonatedStockForEvent(ev);
+        var ds = allDonatedStock.FirstOrDefault(d => d.ItemId == t.ItemId);
+        if (ds != null && ds.TotalCans > 0)
         {
-            try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(ev.DonatedItemIdsJson) ?? new(); } catch {}
-        }
-
-        if (donatedMap.TryGetValue(t.ItemId, out var val) && val > 0)
-        {
-            int donatedCansQuota = val;
+            int donatedCansQuota = ds.TotalCans;
             int donatedApplied = Math.Min(t.Consumed, donatedCansQuota);
             int standardConsumed = Math.Max(0, t.Consumed - donatedApplied);
             
@@ -6042,15 +6058,11 @@
     {
         if (ev == null || t == null) return t?.EventSubtotal ?? 0m;
 
-        Dictionary<int, int> donatedMap = new();
-        if (ev.Enable100PercentDonatedProceeds && !string.IsNullOrEmpty(ev.DonatedItemIdsJson))
+        var allDonatedStock = GetAllDonatedStockForEvent(ev);
+        var ds = allDonatedStock.FirstOrDefault(d => d.ItemId == t.ItemId);
+        if (ds != null && ds.TotalCans > 0)
         {
-            try { donatedMap = JsonSerializer.Deserialize<Dictionary<int, int>>(ev.DonatedItemIdsJson) ?? new(); } catch {}
-        }
-
-        if (donatedMap.TryGetValue(t.ItemId, out var val) && val > 0)
-        {
-            int donatedCansQuota = val;
+            int donatedCansQuota = ds.TotalCans;
             int donatedApplied = Math.Min(t.Consumed, donatedCansQuota);
             int standardConsumed = Math.Max(0, t.Consumed - donatedApplied);
 
@@ -6518,6 +6530,14 @@
             if (localEvent != null)
             {
                 localEvent.Status = GFC.Core.Enums.EventTabStatus.Closed;
+                try
+                {
+                    await PrintBanquetMasterSummary(localEvent, isReprint: false);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[POS] Auto-print banquet summary on tally settle error: {ex.Message}");
+                }
                 DbActiveEvents.Remove(localEvent);
             }
 
@@ -10101,6 +10121,8 @@
         var groupedRegular = regularSalesSummary
             .Select(kvp => {
                 var cleanKey = kvp.Key;
+                if (cleanKey.StartsWith("TALLY: ", StringComparison.OrdinalIgnoreCase)) cleanKey = cleanKey.Substring(7).Trim();
+                if (cleanKey.StartsWith("DONATED: ", StringComparison.OrdinalIgnoreCase)) cleanKey = cleanKey.Substring(9).Trim();
                 if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
                 bool isTokenSale = cleanKey.Contains(" (TOKEN SALE)");
                 if (isTokenSale) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
@@ -10309,11 +10331,12 @@
                         ReceiptFormatter.AppendLine(sb, lbl, amt);
                     }
                 }
-                ReceiptFormatter.AppendLeft(sb, "TAB PURCHASES:");
+                ReceiptFormatter.AppendLeft(sb, "TAB PURCHASES / TALLIES:");
                 foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                 {
                     var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                    ReceiptFormatter.AppendLine(sb, $"  {item.Value} x {item.Key}", $"{itemTotal:C}");
+                    var cleanItemName = item.Key.StartsWith("TALLY: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(7).Trim() : (item.Key.StartsWith("DONATED: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(9).Trim() : item.Key);
+                    ReceiptFormatter.AppendLine(sb, $"  {item.Value} x {cleanItemName}", $"{itemTotal:C}");
                 }
                 ReceiptFormatter.AppendDivider(sb, '.');
                 ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
@@ -10321,7 +10344,7 @@
                 if (!isRunningTab)
                     ReceiptFormatter.AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
                 else
-                    ReceiptFormatter.AppendLine(sb, "TOTAL DUE", $"{b.TotalSpent:C}");
+                    ReceiptFormatter.AppendLine(sb, "CLUB PORTION COLLECTED", $"{b.TotalSpent:C}");
             }
         }
 
@@ -10454,13 +10477,13 @@
             }
 
             string? physicalTokensJson = null;
-            if (_captureTokensOnCloseout && _closeoutTokenCounts != null && _closeoutTokenCounts.Any())
+            if (_closeoutTokenCounts != null && _closeoutTokenCounts.Any())
             {
                 physicalTokensJson = JsonSerializer.Serialize(_closeoutTokenCounts);
             }
 
             string? shiftDrinkJson = null;
-            if (_captureShiftDrinkOnCloseout && _closeoutShiftDrinkRecord != null)
+            if (_closeoutShiftDrinkRecord != null)
             {
                 shiftDrinkJson = JsonSerializer.Serialize(_closeoutShiftDrinkRecord);
             }
@@ -10480,74 +10503,8 @@
             };
             await PosService.SaveZReportAsync(z);
 
-            if (print) 
+            if (print)
             {
-                // ─── GENERATE REGULAR SALES (EXCLUDES BANQUETS) ───
-                var groupedRegular = finalAudit.RegularItemSummary
-                    .Select(kvp => {
-                        var product = DbItems.FirstOrDefault(i => i.Name == kvp.Key);
-                        var category = product?.Category;
-                        if (kvp.Key.Contains("(DARTS")) category = "DARTS ROUND";
-                        else if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
-                        else if (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)")) category = "TOKENS";
-                        return new { 
-                            Name = kvp.Key, 
-                            Quantity = kvp.Value, 
-                            Category = category ?? "MISC", 
-                            Total = finalAudit.RegularItemTotals.ContainsKey(kvp.Key) ? finalAudit.RegularItemTotals[kvp.Key] : 0
-                        };
-                    })
-                    .GroupBy(x => x.Category)
-                    .OrderBy(g => g.Key);
-
-                var salesRows = "";
-                foreach(var group in groupedRegular) {
-                    salesRows += $"<div style='font-weight:bold; margin-top:12px; border-bottom:1px solid #000; text-transform:uppercase; font-size:0.9em;'>{group.Key}</div>";
-                    foreach(var item in group.OrderByDescending(x => x.Quantity)) {
-                        salesRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em; padding: 2px 0;'><span>{item.Name} (x{item.Quantity})</span><span>{item.Total:C}</span></div>";
-                    }
-                    var groupTotal = group.Sum(x => x.Total);
-                    salesRows += $"<div style='display:flex; justify-content:space-between; font-weight:bold; font-size:0.85em; border-top:1px dashed #ccc; margin-top:2px;'><span>{group.Key} TOTAL</span><span>{groupTotal:C}</span></div>";
-                }
-
-                var voidedRows = "";
-                foreach(var vs in finalAudit.VoidedSales) {
-                    voidedRows += $"<div style='display:flex; justify-content:space-between; color: #666; font-style: italic;'><span>{vs.Timestamp:h:mm tt} - {vs.AdjustmentReason ?? "Void"}</span><span>({vs.TotalAmount:C})</span></div>";
-                }
-
-                var inventoryRows = "";
-                foreach(var pull in _inventoryPullDraft) {
-                    var prod = DbItems.FirstOrDefault(i => i.Id == pull.Key);
-                    if (prod != null) inventoryRows += $"<div style='display:flex; justify-content:space-between;'><span>{prod.Name}</span><span>{pull.Value}</span></div>";
-                }
-
-                var banquetRows = "";
-                foreach (var b in finalAudit.Banquets)
-                {
-                    banquetRows += $@"
-                        <div style='margin-top:10px; border:1px solid #ccc; padding:8px; border-radius:4px;'>
-                            <div style='font-weight:bold; font-size:1.1em; color:#000; border-bottom:1px solid #eee; margin-bottom:5px;'>EVENT: {b.EventName}</div>
-                            <div style='font-weight:bold; font-size:0.8em; color:#666;'>DEPOSITS:</div>";
-                    
-                    foreach (var dep in b.Deposits)
-                    {
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>- Add Funds</span><span>{dep:C}</span></div>";
-                    }
-                    
-                    banquetRows += $@"<div style='font-weight:bold; font-size:0.8em; color:#666; margin-top:5px;'>TAB PURCHASES:</div>";
-                    foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
-                    {
-                        var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                        banquetRows += $"<div style='display:flex; justify-content:space-between; font-size:0.85em;'><span>{item.Value} x {item.Key}</span><span>{itemTotal:C}</span></div>";
-                    }
-                    
-                    banquetRows += $@"
-                            <div style='display:flex; justify-content:space-between; font-weight:bold; border-top:1px solid #eee; margin-top:5px; padding-top:2px;'>
-                                <span>TAB TOTAL SPENT:</span><span>{b.TotalSpent:C}</span>
-                            </div>
-                        </div>";
-                }
-
                 var html = BuildZReportHtml(z, regularItemTotals: finalAudit.RegularItemTotals);
                 try
                 {
@@ -10555,7 +10512,7 @@
                 }
                 catch {}
                 
-                // Execute print in background
+                // Execute print immediately in background
                 _ = Task.Run(async () =>
                 {
                     try
@@ -10577,11 +10534,10 @@
         _inventoryPullDraft.Clear(); 
         _lastSale = null;
         await PosService.ClearShiftAsync();
-        await UpdateAuditAsync();
         _currentCloseOutStep = CloseOutStep.None;
         showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
         
-        // 5. [NEW] Force reload to reset terminal state (Security Requirement)
+        // 5. Force reload to reset terminal state (Security Requirement)
         Navigation.NavigateTo("/", true);
     }
 
@@ -11475,16 +11431,17 @@
     }
 
 
-    private async Task OpenManageBanquets()
+    private void OpenManageBanquets()
     {
         showOptionsMenu = false;
-        await RefreshData();
-
         showBanquetsModal = true;
         _banquetNumpadValue = "0";
         _isFirstKeyAfterFocus = true;
         _selectedBanquetToAddFunds = null;
         StateHasChanged();
+
+        // Refresh in background if needed without blocking the modal UI
+        _ = RefreshData();
     }
 
     private void OpenAddFunds(ActiveEvent ev)
@@ -12016,6 +11973,8 @@
         var list = new List<EventDonatedStockInfo>();
         if (ae == null) return list;
 
+        var cleanAeName = GetEventDisplayName(ae.Name).Trim();
+
         // 1. Check DonatedItemIdsJson (Active Event Pool Map)
         string? json = ae.DonatedItemIdsJson;
         if (string.IsNullOrEmpty(json))
@@ -12028,7 +11987,7 @@
         if (string.IsNullOrEmpty(json) && ae.IsRecurring)
         {
             var prevClosed = DbActiveEvents?
-                .Where(e => ((ae.TemplateId.HasValue && e.TemplateId == ae.TemplateId.Value) || e.Name == ae.Name || (ae.Name != null && e.Name != null && e.Name.StartsWith(ae.Name))) && !string.IsNullOrEmpty(e.DonatedItemIdsJson) && !e.IsDeleted)
+                .Where(e => ((ae.TemplateId.HasValue && e.TemplateId == ae.TemplateId.Value) || e.Name == ae.Name || (ae.Name != null && e.Name.StartsWith(ae.Name))) && !string.IsNullOrEmpty(e.DonatedItemIdsJson) && !e.IsDeleted)
                 .OrderByDescending(e => e.Id)
                 .FirstOrDefault();
             if (prevClosed != null)
@@ -12068,6 +12027,88 @@
                         Is100PercentProceeds = true
                     });
                 }
+            }
+        }
+
+        // 3. Scan other events (Active and Closed) where donations were designated for this recipient event
+        var allEvents = DbActiveEvents ?? _cachedMenu?.ActiveEvents ?? new();
+        var allMatchingDonations = new List<DonatedLogRecord>();
+
+        foreach (var donorEv in allEvents.Where(e => e.Id != ae.Id && !e.IsDeleted))
+        {
+            var donorRecords = GetSavedDonationRecords(donorEv);
+            var matching = donorRecords.Where(r => r.ActionType == "redonate" && !string.IsNullOrWhiteSpace(r.RecipientEventName) &&
+                (r.RecipientEventName.Equals(cleanAeName, StringComparison.OrdinalIgnoreCase) ||
+                 cleanAeName.Contains(r.RecipientEventName, StringComparison.OrdinalIgnoreCase) ||
+                 r.RecipientEventName.Contains(cleanAeName, StringComparison.OrdinalIgnoreCase) ||
+                 (cleanAeName.ToLower().Contains("horseshoe") && r.RecipientEventName.ToLower().Contains("horseshoe")))).ToList();
+
+            allMatchingDonations.AddRange(matching);
+
+            // Also check donorEv.RecipientEventName + DonatedItemIdsJson
+            bool isDonorMatch = !string.IsNullOrWhiteSpace(donorEv.RecipientEventName) &&
+                (donorEv.RecipientEventName.Equals(cleanAeName, StringComparison.OrdinalIgnoreCase) ||
+                 cleanAeName.Contains(donorEv.RecipientEventName, StringComparison.OrdinalIgnoreCase) ||
+                 donorEv.RecipientEventName.Contains(cleanAeName, StringComparison.OrdinalIgnoreCase) ||
+                 (cleanAeName.ToLower().Contains("horseshoe") && donorEv.RecipientEventName.ToLower().Contains("horseshoe")));
+
+            if (isDonorMatch && !string.IsNullOrEmpty(donorEv.DonatedItemIdsJson))
+            {
+                ParseAndAddDonatedJson(donorEv.DonatedItemIdsJson, $"Donated Pool ({GetEventDisplayName(donorEv.Name)})", true, list, isSecondarySource: true, allowZero: false);
+            }
+        }
+
+        var distinctMatching = allMatchingDonations.Where(r => r.RecordId != Guid.Empty).DistinctBy(r => r.RecordId).ToList();
+        distinctMatching.AddRange(allMatchingDonations.Where(r => r.RecordId == Guid.Empty));
+
+        foreach (var group in distinctMatching.GroupBy(r => r.ItemId))
+        {
+            int totalCans = group.Sum(r => r.Cans);
+            var existing = list.FirstOrDefault(x => x.ItemId == group.Key);
+            if (existing != null)
+            {
+                existing.TotalCans = Math.Max(existing.TotalCans, totalCans);
+                existing.Cases = existing.TotalCans / 24;
+            }
+            else
+            {
+                var firstRec = group.First();
+                var item = DbItems?.FirstOrDefault(i => i.Id == group.Key);
+                list.Add(new EventDonatedStockInfo
+                {
+                    ItemId = group.Key,
+                    BeerName = !string.IsNullOrEmpty(firstRec.BeerName) ? firstRec.BeerName : (item?.Name ?? $"Item #{group.Key}"),
+                    TotalCans = totalCans,
+                    Cases = totalCans / 24,
+                    Price = item?.Price ?? 3.50m,
+                    SourceDescription = "Donated Pool",
+                    Is100PercentProceeds = true
+                });
+            }
+        }
+
+        // 4. Subtract prior consumed bottles across closed sessions of this recipient event (excluding current active session)
+        if (list.Any())
+        {
+            var priorClosedSessions = allEvents.Where(e => e.Id != ae.Id && !e.IsDeleted && e.Status == GFC.Core.Enums.EventTabStatus.Closed &&
+                (string.Equals(e.Name, ae.Name, StringComparison.OrdinalIgnoreCase) ||
+                 (ae.TemplateId.HasValue && e.TemplateId == ae.TemplateId.Value) ||
+                 (cleanAeName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe")))).ToList();
+
+            foreach (var stock in list)
+            {
+                int priorConsumed = 0;
+                foreach (var prior in priorClosedSessions)
+                {
+                    var tallies = GetActiveEventTallies(prior);
+                    var match = tallies.FirstOrDefault(t => t.ItemId == stock.ItemId);
+                    if (match != null)
+                    {
+                        priorConsumed += match.Consumed;
+                    }
+                }
+                stock.TotalCans = Math.Max(0, stock.TotalCans - priorConsumed);
+                stock.Cases = stock.TotalCans / 24;
             }
         }
 
@@ -12767,6 +12808,25 @@
         _closingBanquet = null;
         if (ev == null) return;
 
+        decimal amountOwed = ev.CurrentBalance < 0 ? Math.Abs(ev.CurrentBalance) : 0;
+        if (amountOwed > 0)
+        {
+            try
+            {
+                if (!forceTrainingMode || allowHardwareInTraining)
+                {
+                    await PrinterService.KickDrawerAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] ExecuteCloseBanquet KickDrawerAsync failed: {ex.Message}");
+            }
+
+            ev.CurrentBalance = 0;
+            await LogTabDeposit(ev.Name, amountOwed, ev.Id, isInitial: false);
+        }
+
         // 1. Instant Local Update (Bypass delay)
         DbActiveEvents.RemoveAll(e => e.Id == ev.Id);
         if (_cachedMenu != null)
@@ -13058,15 +13118,34 @@
                 }
             }
 
+            if (!items.Any() && !string.IsNullOrEmpty(ev.BeerTalliesJson))
+            {
+                try
+                {
+                    var tallies = JsonSerializer.Deserialize<List<BeerTallyItem>>(ev.BeerTalliesJson);
+                    if (tallies != null)
+                    {
+                        foreach (var t in tallies.Where(t => t.Consumed > 0))
+                        {
+                            items[t.Name] = t.Consumed;
+                            totals[t.Name] = t.Consumed * t.Price;
+                            totalSpent += totals[t.Name];
+                        }
+                    }
+                }
+                catch {}
+            }
+
             ReceiptFormatter.AppendBlank(sb);
-            ReceiptFormatter.AppendSectionHeader(sb, "TAB ITEM SUMMARY");
+            ReceiptFormatter.AppendSectionHeader(sb, "TAB ITEM / TALLY SUMMARY");
 
             if (items.Any())
             {
                 foreach (var item in items.OrderByDescending(x => x.Value))
                 {
                     var itemTotal = totals.ContainsKey(item.Key) ? totals[item.Key] : 0;
-                    ReceiptFormatter.AppendLine(sb, $"{item.Value} x {item.Key}", $"{itemTotal:C}");
+                    var cleanItemName = item.Key.StartsWith("TALLY: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(7).Trim() : (item.Key.StartsWith("DONATED: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(9).Trim() : item.Key);
+                    ReceiptFormatter.AppendLine(sb, $"{item.Value} x {cleanItemName}", $"{itemTotal:C}");
                 }
             }
             else
@@ -13084,7 +13163,7 @@
             }
             else
             {
-                ReceiptFormatter.AppendLine(sb, "TOTAL DUE", $"{totalSpent:C}");
+                ReceiptFormatter.AppendLine(sb, "CLUB PORTION COLLECTED", $"{totalSpent:C}");
             }
 
             ReceiptFormatter.AppendDivider(sb, '=');

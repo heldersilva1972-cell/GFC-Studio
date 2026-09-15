@@ -208,6 +208,8 @@ namespace GFC.BlazorServer.Services
             var groupedRegular = regularSalesSummary
                 .Select(kvp => {
                     var cleanKey = kvp.Key;
+                    if (cleanKey.StartsWith("TALLY: ", StringComparison.OrdinalIgnoreCase)) cleanKey = cleanKey.Substring(7).Trim();
+                    if (cleanKey.StartsWith("DONATED: ", StringComparison.OrdinalIgnoreCase)) cleanKey = cleanKey.Substring(9).Trim();
                     if (cleanKey.EndsWith(" (CREDITED)")) cleanKey = cleanKey.Replace(" (CREDITED)", "");
                     bool isTokenSale = cleanKey.Contains(" (TOKEN SALE)");
                     if (isTokenSale) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
@@ -395,11 +397,12 @@ namespace GFC.BlazorServer.Services
                             AppendLine(sb, lbl, amt);
                         }
                     }
-                    AppendLeft(sb, "TAB PURCHASES:");
+                    AppendLeft(sb, "TAB PURCHASES / TALLIES:");
                     foreach (var item in b.ItemSummary.OrderByDescending(x => x.Value))
                     {
                         var itemTotal = b.ItemTotals.ContainsKey(item.Key) ? b.ItemTotals[item.Key] : 0;
-                        AppendLine(sb, $"  {item.Value} x {item.Key}", $"{itemTotal:C}");
+                        var cleanItemName = item.Key.StartsWith("TALLY: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(7).Trim() : (item.Key.StartsWith("DONATED: ", StringComparison.OrdinalIgnoreCase) ? item.Key.Substring(9).Trim() : item.Key);
+                        AppendLine(sb, $"  {item.Value} x {cleanItemName}", $"{itemTotal:C}");
                     }
                     AppendDivider(sb, '.');
                     AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
@@ -407,7 +410,7 @@ namespace GFC.BlazorServer.Services
                     if (!isRunningTab)
                         AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
                     else
-                        AppendLine(sb, "TOTAL DUE", $"{b.TotalSpent:C}");
+                        AppendLine(sb, "CLUB PORTION COLLECTED", $"{b.TotalSpent:C}");
                 }
             }
 

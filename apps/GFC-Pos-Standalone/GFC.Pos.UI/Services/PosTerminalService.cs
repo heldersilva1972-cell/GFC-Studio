@@ -187,7 +187,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         audit.TokenCredits += salesItems.Where(i => i.Price < 0).Sum(i => Math.Abs(i.Price * i.Quantity));
                                     }
 
-                                    if (data.PaymentType == "CASH") audit.CashTotal += data.TotalAmount;
+                                    if (data.PaymentType == "CASH" || data.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase)) audit.CashTotal += data.TotalAmount;
                                 }
                             }
 
@@ -262,7 +262,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                                     .Replace("RETURNED FUNDS: ", "");
                                             }
                                         }
-                                        else if (data.PaymentType == "TAB")
+                                        else if (data.PaymentType == "TAB" || data.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase))
                                         {
                                             if (!banquet.ItemSummary.ContainsKey(i.Name)) banquet.ItemSummary[i.Name] = 0;
                                             banquet.ItemSummary[i.Name] += i.Quantity;
