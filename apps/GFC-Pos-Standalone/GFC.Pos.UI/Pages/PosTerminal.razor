@@ -4841,7 +4841,7 @@
 @* Overlays *@
 @if (showSuccessOverlay)
 {
-    <div class="shift-overlay no-backdrop">
+    <div class="shift-overlay no-backdrop" style="cursor: pointer;" @onclick="() => showSuccessOverlay = false">
         <div class="success-splash">
             <div class="icon-circle">
                 <i class="bi bi-check-lg"></i>
@@ -5142,7 +5142,7 @@
               }
   
               <div class="checkout-button-group">
-                  <button class="btn btn-primary btn-complete" @onclick="FinalizeSale">
+                  <button class="btn btn-primary btn-complete" @onclick="FinalizeSale" disabled="@_isFinalizingSale">
                       @(_isCorrectionMode ? "CONFIRM ADJUSTMENT" : "COMPLETE TRANSACTION")
                   </button>
                   <button class="btn btn-outline-secondary btn-add-more" @onclick="() => ShowCheckoutOverlay = false">BACK TO ORDER</button>
@@ -6863,6 +6863,7 @@
     private bool ShowCheckoutOverlay = false;
     private bool showRedeemOverlay = false;
     private bool showSuccessOverlay = false;
+    private bool _isFinalizingSale = false;
     private bool showCloseOutSuccessOverlay = false;
     private bool isDartsModeActive = false;
     private bool _dartsDismissedToday = false;
@@ -8912,198 +8913,213 @@
 
     private async Task FinalizeSale()
     {
-        var wasDarts = isDartsModeActive;
-        var amountToRecord = Subtotal;
-        var payment = _isTabPayment ? "TAB" : ((amountToRecord == 0) ? "TOKEN/COMP" : "CASH");
-        var saleId = _correctingSaleId ?? Guid.NewGuid();
+        if (_isFinalizingSale) return;
+        _isFinalizingSale = true;
 
-        // BUILD THE SALE RECORD FIRST
-        var sale = new PosSaleDto
+        try
         {
-            Id = saleId,
-            Timestamp = DateTime.Now,
-            TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
-            TotalAmount = amountToRecord,
-            BartenderName = CurrentUserName,
-            PaymentType = payment,
-            ActiveEventId = _isTabPayment ? _selectedActiveEvent?.Id : null,
-            ItemsJson = JsonSerializer.Serialize(CartItems),
-            AmountReceived = _isTabPayment ? amountToRecord : CashReceived,
-            ChangeDue = _isTabPayment ? 0 : ((CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : null),
-            OriginalTotal = _isCorrectionMode ? _originalSaleAmount : 0,
-            IsCorrection = _isCorrectionMode
-        };
-        
-        if (_isTabPayment && _selectedActiveEvent != null)
-        {
-            _selectedActiveEvent.CurrentBalance -= amountToRecord;
-            if (!forceTrainingMode && _cachedMenu != null)
+            var wasDarts = isDartsModeActive;
+            var amountToRecord = Subtotal;
+            var payment = _isTabPayment ? "TAB" : ((amountToRecord == 0) ? "TOKEN/COMP" : "CASH");
+            var saleId = _correctingSaleId ?? Guid.NewGuid();
+
+            // BUILD THE SALE RECORD FIRST
+            var sale = new PosSaleDto
             {
-                await PosService.SaveMenuToVaultAsync(_cachedMenu);
-            }
-        }
-        
-        // PERFORMANCE: Capture correction flag BEFORE resetting it below.
-        var wasCorrection = _isCorrectionMode;
-
-        // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
-        if (forceTrainingMode)
-        {
-            if (_isCorrectionMode && _lastSale != null)
-            {
-                // Return the money originally removed from the event (prepaid or running tab)
-                if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
-                {
-                    var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
-                    if (originalEvent != null)
-                    {
-                        originalEvent.CurrentBalance += _lastSale.TotalAmount;
-                        Console.WriteLine($"[POS] [TRAINING] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
-                    }
-                }
-
-                sale.IsCorrection = true;
-                sale.OriginalSaleId = _lastSale.Id;
-                sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
-            }
-        }
-        else
-        {
-            if (_isCorrectionMode && _lastSale != null)
-            {
-                await PosService.VoidSaleAsync(_lastSale.Id, "Correction Replacement");
-                
-                // Return the money originally removed from the event (prepaid or running tab)
-                if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
-                {
-                    var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
-                    if (originalEvent != null)
-                    {
-                        originalEvent.CurrentBalance += _lastSale.TotalAmount;
-                        if (_cachedMenu != null)
-                        {
-                            _cachedMenu.ActiveEvents = DbActiveEvents;
-                            await PosService.SaveMenuToVaultAsync(_cachedMenu);
-                        }
-                        Console.WriteLine($"[POS] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
-                    }
-                }
-
-                sale.IsCorrection = true;
-                sale.OriginalSaleId = _lastSale.Id;
-                sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
-            }
-
-            await PosService.AddSaleToShiftAsync(sale);
-            // PERFORMANCE: Run audit update in the background — do NOT block the UI thread.
-            // The shift totals banner will refresh within 2 seconds.
-            _ = UpdateAuditAsync();
-        }
-
-        _lastSale = sale; // Update last sale tracker
-        _isCorrectionMode = false;
-        _originalSaleAmount = 0;
-
-        if (!forceTrainingMode) 
-        {
-            // Open drawer for CASH sales, or corrections (where cash may need to be returned/collected)
-            if (payment == "CASH" || wasCorrection)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await PrinterService.KickDrawerAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[POS] Checkout KickDrawerAsync failed: {ex.Message}");
-                    }
-                });
-            }
-
-            await PosService.SaveSaleAsync(sale);
+                Id = saleId,
+                Timestamp = DateTime.Now,
+                TerminalName = forceTrainingMode ? $"{TerminalName} (TRAINING)" : TerminalName,
+                TotalAmount = amountToRecord,
+                BartenderName = CurrentUserName,
+                PaymentType = payment,
+                ActiveEventId = _isTabPayment ? _selectedActiveEvent?.Id : null,
+                ItemsJson = JsonSerializer.Serialize(CartItems),
+                AmountReceived = _isTabPayment ? amountToRecord : CashReceived,
+                ChangeDue = _isTabPayment ? 0 : ((CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : null),
+                OriginalTotal = _isCorrectionMode ? _originalSaleAmount : 0,
+                IsCorrection = _isCorrectionMode
+            };
             
-            _correctingSaleId = null;
+            if (_isTabPayment && _selectedActiveEvent != null)
+            {
+                _selectedActiveEvent.CurrentBalance -= amountToRecord;
+                if (!forceTrainingMode && _cachedMenu != null)
+                {
+                    await PosService.SaveMenuToVaultAsync(_cachedMenu);
+                }
+            }
             
-            foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) 
-            {
-                if (!ItemFrequency.ContainsKey(ci.Id)) ItemFrequency[ci.Id] = 0;
-                ItemFrequency[ci.Id] += ci.Quantity;
-            }
-        }
-        
-        if (wasDarts)
-        {
-            isDartsModeActive = false;
-            _currentDartsTeamName = null;
-            try
-            {
-                _todayDartsSales = await PosService.GetDartsRoundsTodayAsync(TerminalName) ?? new();
-                int claimedCount = 0;
-                int totalTeams = _activeDartsTeamCount + _activeDartsAwayTeamCount;
+            // PERFORMANCE: Capture correction flag BEFORE resetting it below.
+            var wasCorrection = _isCorrectionMode;
 
-                // Check Home Teams
-                for (int t = 1; t <= _activeDartsTeamCount; t++)
-                {
-                    var tHome = $"Home Team {t}";
-                    var tLegacy = $"Team {t}";
-                    if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {tHome})") || 
-                                                  s.ItemsJson.Contains($"(DARTS - {tLegacy})") || 
-                                                  (t == 1 && s.ItemsJson.Contains("(DARTS)") && !s.ItemsJson.Contains("(DARTS - Team") && !s.ItemsJson.Contains("(DARTS - Home") && !s.ItemsJson.Contains("(DARTS - Away"))))
-                    {
-                        claimedCount++;
-                    }
-                }
-
-                // Check Away Teams
-                for (int a = 1; a <= _activeDartsAwayTeamCount; a++)
-                {
-                    var aName = $"Away Team {a}";
-                    if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {aName})")))
-                    {
-                        claimedCount++;
-                    }
-                }
-
-                if (claimedCount >= totalTeams)
-                {
-                    _dartsDismissedToday = true;
-                    ShowNotice("All Team Rounds Completed", "All active Home and Away team rounds for today have been claimed. Darts Night tab is now closed.", "success");
-                }
-                else
-                {
-                    ShowNotice("Team Round Completed", $"Team round processed. {totalTeams - claimedCount} team round(s) remaining for today.", "success");
-                }
-            }
-            catch {}
+            // 1. UPDATE SHIFT DATABASE (PROPER ARCHITECTURE)
             if (forceTrainingMode)
             {
-                _ = ResetDartsBannerAfterDelay();
+                if (_isCorrectionMode && _lastSale != null)
+                {
+                    // Return the money originally removed from the event (prepaid or running tab)
+                    if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
+                    {
+                        var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
+                        if (originalEvent != null)
+                        {
+                            originalEvent.CurrentBalance += _lastSale.TotalAmount;
+                            Console.WriteLine($"[POS] [TRAINING] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
+                        }
+                    }
+
+                    sale.IsCorrection = true;
+                    sale.OriginalSaleId = _lastSale.Id;
+                    sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
+                }
             }
+            else
+            {
+                if (_isCorrectionMode && _lastSale != null)
+                {
+                    await PosService.VoidSaleAsync(_lastSale.Id, "Correction Replacement");
+                    
+                    // Return the money originally removed from the event (prepaid or running tab)
+                    if (_lastSale.PaymentType == "TAB" && _lastSale.ActiveEventId != null)
+                    {
+                        var originalEvent = DbActiveEvents?.FirstOrDefault(e => e.Id == _lastSale.ActiveEventId);
+                        if (originalEvent != null)
+                        {
+                            originalEvent.CurrentBalance += _lastSale.TotalAmount;
+                            if (_cachedMenu != null)
+                            {
+                                _cachedMenu.ActiveEvents = DbActiveEvents;
+                                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+                            }
+                            Console.WriteLine($"[POS] Returned {_lastSale.TotalAmount:C} to event '{originalEvent.Name}' due to correction void.");
+                        }
+                    }
+
+                    sale.IsCorrection = true;
+                    sale.OriginalSaleId = _lastSale.Id;
+                    sale.AdjustmentReason = $"Corrected from {_originalSaleAmount:N2}";
+                }
+
+                await PosService.AddSaleToShiftAsync(sale);
+                // PERFORMANCE: Run audit update in the background — do NOT block the UI thread.
+                // The shift totals banner will refresh within 2 seconds.
+                _ = UpdateAuditAsync();
+            }
+
+            _lastSale = sale; // Update last sale tracker
+            _isCorrectionMode = false;
+            _originalSaleAmount = 0;
+
+            if (!forceTrainingMode) 
+            {
+                // Open drawer for CASH sales, or corrections (where cash may need to be returned/collected)
+                if (payment == "CASH" || wasCorrection)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await PrinterService.KickDrawerAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[POS] Checkout KickDrawerAsync failed: {ex.Message}");
+                        }
+                    });
+                }
+
+                await PosService.SaveSaleAsync(sale);
+                
+                _correctingSaleId = null;
+                
+                foreach (var ci in CartItems.Where(i => i.Category != "TOKENS" && i.Category != "FOOD")) 
+                {
+                    if (!ItemFrequency.ContainsKey(ci.Id)) ItemFrequency[ci.Id] = 0;
+                    ItemFrequency[ci.Id] += ci.Quantity;
+                }
+            }
+            
+            if (wasDarts)
+            {
+                isDartsModeActive = false;
+                _currentDartsTeamName = null;
+                try
+                {
+                    _todayDartsSales = await PosService.GetDartsRoundsTodayAsync(TerminalName) ?? new();
+                    int claimedCount = 0;
+                    int totalTeams = _activeDartsTeamCount + _activeDartsAwayTeamCount;
+
+                    // Check Home Teams
+                    for (int t = 1; t <= _activeDartsTeamCount; t++)
+                    {
+                        var tHome = $"Home Team {t}";
+                        var tLegacy = $"Team {t}";
+                        if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {tHome})") || 
+                                                      s.ItemsJson.Contains($"(DARTS - {tLegacy})") || 
+                                                      (t == 1 && s.ItemsJson.Contains("(DARTS)") && !s.ItemsJson.Contains("(DARTS - Team") && !s.ItemsJson.Contains("(DARTS - Home") && !s.ItemsJson.Contains("(DARTS - Away"))))
+                        {
+                            claimedCount++;
+                        }
+                    }
+
+                    // Check Away Teams
+                    for (int a = 1; a <= _activeDartsAwayTeamCount; a++)
+                    {
+                        var aName = $"Away Team {a}";
+                        if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {aName})")))
+                        {
+                            claimedCount++;
+                        }
+                    }
+
+                    if (claimedCount >= totalTeams)
+                    {
+                        _dartsDismissedToday = true;
+                        ShowNotice("All Team Rounds Completed", "All active Home and Away team rounds for today have been claimed. Darts Night tab is now closed.", "success");
+                    }
+                    else
+                    {
+                        ShowNotice("Team Round Completed", $"Team round processed. {totalTeams - claimedCount} team round(s) remaining for today.", "success");
+                    }
+                }
+                catch {}
+                if (forceTrainingMode)
+                {
+                    _ = ResetDartsBannerAfterDelay();
+                }
+            }
+            
+            // PERFORMANCE: Reset all UI state and clear the cart FIRST — this makes the
+            // terminal feel instant. The audit and speed-bar updates happen in the background.
+            var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
+            _selectedActiveEvent = directEvent;
+            InvalidateFilteredItems(); // Recompute product list
+            ClearCart();
+            _correctingSaleId = null;
+            _isTabPayment = false;
+            ShowCheckoutOverlay = false;
+            if (payment == "CASH" && CashReceived.HasValue && CashReceived.Value > amountToRecord)
+            {
+                ShowChangeDueBanner(CashReceived.Value - amountToRecord, CashReceived.Value, amountToRecord);
+            }
+            CashReceived = null;
+            CashInputString = "";
+            showSuccessOverlay = true;
+            RequestRender(); // Show success overlay immediately
+            await Task.Delay(250); // Snappy success delay to keep transaction fast
         }
-        
-        // PERFORMANCE: Reset all UI state and clear the cart FIRST — this makes the
-        // terminal feel instant. The audit and speed-bar updates happen in the background.
-        var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
-        _selectedActiveEvent = directEvent;
-        InvalidateFilteredItems(); // Recompute product list
-        ClearCart();
-        _correctingSaleId = null;
-        _isTabPayment = false;
-        ShowCheckoutOverlay = false;
-        if (payment == "CASH" && CashReceived.HasValue && CashReceived.Value > amountToRecord)
+        catch (Exception ex)
         {
-            ShowChangeDueBanner(CashReceived.Value - amountToRecord, CashReceived.Value, amountToRecord);
+            Console.WriteLine($"[POS] FinalizeSale exception: {ex.Message}");
+            Toast.ShowError($"Error processing transaction: {ex.Message}");
         }
-        CashReceived = null;
-        CashInputString = "";
-        showSuccessOverlay = true;
-        RequestRender(); // Show success overlay immediately
-        await Task.Delay(250); // Snappy success delay to keep transaction fast
-        showSuccessOverlay = false;
-        UpdateSpeedBar();
-        RequestRender();
+        finally
+        {
+            showSuccessOverlay = false;
+            _isFinalizingSale = false;
+            UpdateSpeedBar();
+            RequestRender();
+        }
     }
 
     private async Task ReprintLastZReport()
