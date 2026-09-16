@@ -4148,14 +4148,23 @@
                         <h2 class="fw-black mb-2 text-uppercase">Print Z-Report?</h2>
                         <p class="text-muted fw-bold text-uppercase mb-5">Finalizing shift totals and locking records...</p>
                         <div class="d-grid gap-3">
-                            <button class="settings-footer-btn btn-close-out-print" @onclick="() => ProcessZOut(true)">
-                                <i class="bi bi-check-circle-fill me-2"></i> YES, PRINT & CLOSE SHIFT
+                            <button class="settings-footer-btn btn-close-out-print" disabled="@_isClosingShift" @onclick="() => ProcessZOut(true)">
+                                @if (_isClosingShift)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>FINALIZING & PRINTING...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check-circle-fill me-2"></i>
+                                    <span>YES, PRINT & CLOSE SHIFT</span>
+                                }
                             </button>
                             <div class="d-flex gap-2">
-                                <button class="btn btn-outline-secondary py-3 rounded-pill fw-bold flex-grow-1" @onclick="GoBackCloseOutStep">
+                                <button class="btn btn-outline-secondary py-3 rounded-pill fw-bold flex-grow-1" disabled="@_isClosingShift" @onclick="GoBackCloseOutStep">
                                     <i class="bi bi-arrow-left me-1"></i> BACK
                                 </button>
-                                <button class="btn btn-light py-3 rounded-pill fw-bold text-danger flex-grow-1" @onclick="() => _currentCloseOutStep = CloseOutStep.None">
+                                <button class="btn btn-light py-3 rounded-pill fw-bold text-danger flex-grow-1" disabled="@_isClosingShift" @onclick="() => _currentCloseOutStep = CloseOutStep.None">
                                     CANCEL CLOSE-OUT
                                 </button>
                             </div>
@@ -4847,6 +4856,23 @@
                 <i class="bi bi-check-lg"></i>
             </div>
             <h2 class="fw-black mt-3">TRANSACTION COMPLETE</h2>
+        </div>
+    </div>
+}
+
+@if (_isClosingShift)
+{
+    <div class="shift-overlay" style="z-index: 99999; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);">
+        <div class="success-splash animate__animated animate__zoomIn p-4" style="border-color: #2563eb; background: #ffffff; max-width: 520px; border-radius: 28px; text-align: center;">
+            <div class="icon-circle mb-3" style="background: #2563eb; width: 84px; height: 84px; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 50%;">
+                <i class="bi bi-printer-fill text-white" style="font-size: 2.5rem;"></i>
+            </div>
+            <h3 class="fw-black text-uppercase mt-2 mb-1" style="color: #1e3a8a; letter-spacing: -0.5px;">PRINTING Z-REPORT</h3>
+            <p class="text-dark fw-bold mb-3" style="font-size: 1.1rem;">Finalizing shift totals and locking records...</p>
+            <div class="d-flex align-items-center justify-content-center gap-2 text-primary fw-bold small">
+                <span class="spinner-border spinner-border-sm" role="status"></span>
+                <span>Please wait a moment...</span>
+            </div>
         </div>
     </div>
 }
@@ -6865,6 +6891,7 @@
     private bool showSuccessOverlay = false;
     private bool _isFinalizingSale = false;
     private bool showCloseOutSuccessOverlay = false;
+    private bool _isClosingShift = false;
     private bool isDartsModeActive = false;
     private bool _dartsDismissedToday = false;
     private bool _forceDartsToday = false;
@@ -10487,82 +10514,92 @@
     private void RemoveFromDraft(int id) { if (_inventoryPullDraft.ContainsKey(id) && _inventoryPullDraft[id] > 1) _inventoryPullDraft[id]--; else _inventoryPullDraft.Remove(id); }
     private async Task ProcessZOut(bool print)
     {
-        if (!forceTrainingMode) {
-            // Calculate final audit from Database
-            var finalAudit = await PosService.GetShiftAuditAsync();
-            
-            // Calculate Token Credits directly from computed audit
-            decimal tokenCredits = finalAudit.TokenCredits;
-            
-            decimal? hoursWorked = null;
-            if (_captureHoursOnCloseout && decimal.TryParse(_hoursInputString, out var parsedHours))
-            {
-                hoursWorked = parsedHours;
-            }
+        if (_isClosingShift) return;
+        _isClosingShift = true;
+        StateHasChanged();
 
-            string? physicalTokensJson = null;
-            if (_closeoutTokenCounts != null && _closeoutTokenCounts.Any())
-            {
-                physicalTokensJson = JsonSerializer.Serialize(_closeoutTokenCounts);
-            }
-
-            string? shiftDrinkJson = null;
-            if (_closeoutShiftDrinkRecord != null)
-            {
-                shiftDrinkJson = JsonSerializer.Serialize(_closeoutShiftDrinkRecord);
-            }
-
-            var z = new PosZReportDto { 
-                Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
-                CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
-                InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
-                SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
-                ItemTotalsJson = JsonSerializer.Serialize(finalAudit.RegularItemTotals),
-                BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
-                TokenCredits = tokenCredits,
-                HoursWorked = hoursWorked,
-                RecordSalesToBar = _recordSalesToBar,
-                PhysicalTokensJson = physicalTokensJson,
-                ShiftDrinkJson = shiftDrinkJson
-            };
-            await PosService.SaveZReportAsync(z);
-
-            if (print)
-            {
-                var html = BuildZReportHtml(z, regularItemTotals: finalAudit.RegularItemTotals);
-                try
-                {
-                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
-                }
-                catch {}
+        try
+        {
+            if (!forceTrainingMode) {
+                // Calculate final audit from Database
+                var finalAudit = await PosService.GetShiftAuditAsync();
                 
-                // Execute print immediately in background
-                _ = Task.Run(async () =>
+                // Calculate Token Credits directly from computed audit
+                decimal tokenCredits = finalAudit.TokenCredits;
+                
+                decimal? hoursWorked = null;
+                if (_captureHoursOnCloseout && decimal.TryParse(_hoursInputString, out var parsedHours))
                 {
+                    hoursWorked = parsedHours;
+                }
+
+                string? physicalTokensJson = null;
+                if (_closeoutTokenCounts != null && _closeoutTokenCounts.Any())
+                {
+                    physicalTokensJson = JsonSerializer.Serialize(_closeoutTokenCounts);
+                }
+
+                string? shiftDrinkJson = null;
+                if (_closeoutShiftDrinkRecord != null)
+                {
+                    shiftDrinkJson = JsonSerializer.Serialize(_closeoutShiftDrinkRecord);
+                }
+
+                var z = new PosZReportDto { 
+                    Id = Guid.NewGuid(), Timestamp = DateTime.Now, TerminalName = TerminalName, BartenderName = CurrentUserName, 
+                    CashTotal = finalAudit.CashTotal, TotalGrossSales = finalAudit.GrossTotal, 
+                    InventoryPullsJson = JsonSerializer.Serialize(_inventoryPullDraft),
+                    SalesSummaryJson = JsonSerializer.Serialize(finalAudit.ItemSummary),
+                    ItemTotalsJson = JsonSerializer.Serialize(finalAudit.RegularItemTotals),
+                    BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
+                    TokenCredits = tokenCredits,
+                    HoursWorked = hoursWorked,
+                    RecordSalesToBar = _recordSalesToBar,
+                    PhysicalTokensJson = physicalTokensJson,
+                    ShiftDrinkJson = shiftDrinkJson
+                };
+                await PosService.SaveZReportAsync(z);
+
+                if (print)
+                {
+                    var html = BuildZReportHtml(z, regularItemTotals: finalAudit.RegularItemTotals);
                     try
                     {
-                        if (!forceTrainingMode || allowHardwareInTraining)
-                        {
-                            await PrinterService.KickDrawerAsync();
-                        }
-                        await PrintReceiptAsync(html);
+                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_last_printed_z_html", html);
+                    }
+                    catch {}
+                    
+                    try
+                    {
+                        bool shouldKick = (!forceTrainingMode || allowHardwareInTraining);
+                        await PrintReceiptAsync(html, kickDrawer: shouldKick);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[POS] Z-Report background print failed: {ex.Message}");
+                        Console.WriteLine($"[POS] Z-Report print failed: {ex.Message}");
                     }
-                });
+                }
             }
-        }
 
-        _inventoryPullDraft.Clear(); 
-        _lastSale = null;
-        await PosService.ClearShiftAsync();
-        _currentCloseOutStep = CloseOutStep.None;
-        showCloseOutSuccessOverlay = true; StateHasChanged(); await Task.Delay(1500); showCloseOutSuccessOverlay = false; StateHasChanged();
-        
-        // 5. Force reload to reset terminal state (Security Requirement)
-        Navigation.NavigateTo("/", true);
+            _inventoryPullDraft.Clear(); 
+            _lastSale = null;
+            await PosService.ClearShiftAsync();
+            _currentCloseOutStep = CloseOutStep.None;
+            showCloseOutSuccessOverlay = true; 
+            StateHasChanged(); 
+            await Task.Delay(1500); 
+            showCloseOutSuccessOverlay = false; 
+            StateHasChanged();
+            
+            // 5. Force reload to reset terminal state (Security Requirement)
+            Navigation.NavigateTo("/", true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] ProcessZOut error: {ex.Message}");
+            _isClosingShift = false;
+            StateHasChanged();
+        }
     }
 
     private bool _showLastSaleBar = true;
@@ -13215,7 +13252,7 @@
         }
     }
 
-    private async Task PrintReceiptAsync(string html)
+    private async Task PrintReceiptAsync(string html, bool kickDrawer = false)
     {
         if (string.IsNullOrWhiteSpace(html))
         {
@@ -13261,7 +13298,7 @@
                 html = warningHeader + html + warningFooter;
             }
         }
-        await PrinterService.PrintReceiptAsync(html);
+        await PrinterService.PrintReceiptAsync(html, kickDrawer);
     }
 
     private async Task LogTabDeposit(string eventName, decimal amount, int? eventId, bool isInitial = false, bool isCorrection = false, bool isRefund = false)

@@ -13,7 +13,7 @@ public class WebPrinterService : IPrinterService
         _js = js;
     }
 
-    public async Task<bool> PrintReceiptAsync(string content)
+    public async Task<bool> PrintReceiptAsync(string content, bool kickDrawer = false)
     {
         // For Web/PWA, we create a temporary hidden iframe with the content and print it
         await _js.InvokeVoidAsync("eval", $@"

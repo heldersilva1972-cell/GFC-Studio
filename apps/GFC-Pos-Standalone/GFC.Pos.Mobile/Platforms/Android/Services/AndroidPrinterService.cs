@@ -29,7 +29,7 @@ public class AndroidPrinterService : IPrinterService
     /// Receives pre-formatted 42-char plain-text from the receipt builder.
     /// Wraps it in ESC/POS init + cut commands and sends via USB bulk transfer.
     /// </summary>
-    public async Task<bool> PrintReceiptAsync(string content)
+    public async Task<bool> PrintReceiptAsync(string content, bool kickDrawer = false)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -39,7 +39,7 @@ public class AndroidPrinterService : IPrinterService
 
         try
         {
-            var payload = BuildEscPosPayload(content);
+            var payload = BuildEscPosPayload(content, kickDrawer);
             return await PrintRawDataAsync(payload);
         }
         catch (Exception ex)
@@ -138,7 +138,7 @@ public class AndroidPrinterService : IPrinterService
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private byte[] BuildEscPosPayload(string plainText)
+    private byte[] BuildEscPosPayload(string plainText, bool kickDrawer = false)
     {
         var cp437 = Encoding.GetEncoding(437);
         var bytes = new List<byte>();
@@ -148,6 +148,12 @@ public class AndroidPrinterService : IPrinterService
 
         // GS L nL nH — Set left margin to 0
         bytes.AddRange(new byte[] { 0x1D, 0x4C, 0x00, 0x00 });
+
+        if (kickDrawer)
+        {
+            // ESC p 0 25 250 — Kick cash drawer #1
+            bytes.AddRange(new byte[] { 0x1B, 0x70, 0x00, 0x19, 0xFA });
+        }
 
         // Plain-text body — pre-formatted, line endings are \n
         bytes.AddRange(cp437.GetBytes(plainText));

@@ -32,7 +32,7 @@ public class MauiPrinterService : IPrinterService
         }
     }
 
-    public Task<bool> PrintReceiptAsync(string content) => GetImplementation().PrintReceiptAsync(content);
+    public Task<bool> PrintReceiptAsync(string content, bool kickDrawer = false) => GetImplementation().PrintReceiptAsync(content, kickDrawer);
     public Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default) => GetImplementation().PrintRawDataAsync(data, cancellationToken);
     public Task<bool> PrintTestAsync() => GetImplementation().PrintTestAsync();
     public Task<bool> KickDrawerAsync() => GetImplementation().KickDrawerAsync();

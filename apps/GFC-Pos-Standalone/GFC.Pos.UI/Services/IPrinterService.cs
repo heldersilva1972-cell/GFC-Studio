@@ -2,7 +2,7 @@ namespace GFC.Pos.UI.Services;
 
 public interface IPrinterService
 {
-    Task<bool> PrintReceiptAsync(string content);
+    Task<bool> PrintReceiptAsync(string content, bool kickDrawer = false);
     Task<bool> PrintRawDataAsync(byte[] data, global::System.Threading.CancellationToken cancellationToken = default);
     Task<bool> PrintTestAsync();
     Task<bool> KickDrawerAsync();
