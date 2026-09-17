@@ -1,0 +1,1962 @@
+@page "/hall-rentals"
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Text.RegularExpressions
+@inject IGoogleCalendarService CalendarService
+@inject IUserManagementService UserService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<div class="hall-rentals-container">
+    @if (!_hasPageAccess && !_isAdmin)
+    {
+        <div class="access-denied-panel text-center py-5">
+            <div class="bg-light rounded-circle shadow-sm d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                <i class="bi bi-shield-lock-fill text-danger fs-1"></i>
+            </div>
+            <h3 class="fw-bold text-dark">Access Restricted</h3>
+            <p class="text-muted">You do not have permission to view the Hall Rentals page. Please contact your system administrator.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Page Header -->
+        <div class="dashboard-header d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+            <div>
+                <h1 class="dashboard-title mb-1">
+                    <i class="bi bi-calendar2-week-fill text-gold me-2"></i>
+                    Hall Rentals
+                </h1>
+                <p class="dashboard-subtitle text-muted mb-0">Multi-calendar synchronization, event schedules, and hall rental applications</p>
+            </div>
+            <div class="header-actions d-flex gap-2 flex-wrap">
+                <button class="btn btn-outline-secondary d-flex align-items-center gap-2 shadow-sm" @onclick="ExportCalendarIcs" disabled="@(_events.Count == 0)">
+                    <i class="bi bi-download"></i>
+                    <span>Export (.ics)</span>
+                </button>
+                <button class="btn btn-success d-flex align-items-center gap-2 shadow-sm" @onclick="OpenAddEventModal">
+                    <i class="bi bi-calendar-plus-fill"></i>
+                    <span>Add Booking</span>
+                </button>
+                <button class="btn btn-outline-primary d-flex align-items-center gap-2 shadow-sm" @onclick="() => OpenSettingsModal()">
+                    <i class="bi bi-gear-fill"></i>
+                    <span>Calendar Settings</span>
+                    @if (_settings.Feeds.Count > 1)
+                    {
+                        <span class="badge bg-primary rounded-pill">@_settings.Feeds.Count</span>
+                    }
+                </button>
+                <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm" @onclick="SyncCalendarNow" disabled="@_isSyncing">
+                    @if (_isSyncing)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        <span>Syncing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>Sync Now</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_syncMessage))
+        {
+            <div class="alert @(_syncSuccess ? "alert-success" : "alert-warning") alert-dismissible fade show shadow-sm" role="alert">
+                <i class="bi @(_syncSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2"></i>
+                @_syncMessage
+                <button type="button" class="btn-close" @onclick="() => _syncMessage = null"></button>
+            </div>
+        }
+
+        <!-- Metric Stat Overview -->
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card stat-primary">
+                    <div class="stat-icon">
+                        <i class="bi bi-calendar-event"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-label">Total Synced Events</div>
+                        <div class="stat-value">@_events.Count</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card stat-success">
+                    <div class="stat-icon">
+                        <i class="bi bi-calendar-check"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-label">Upcoming (Next 30 Days)</div>
+                        <div class="stat-value">@GetUpcomingCount()</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card stat-warning">
+                    <div class="stat-icon">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-label">Pending Applications</div>
+                        <div class="stat-value text-warning">@GetPendingCount()</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card stat-info">
+                    <div class="stat-icon">
+                        <i class="bi bi-layers-fill"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-label">Connected Calendars</div>
+                        <div class="stat-value">@(_settings.Feeds.Count(f => f.IsEnabled)) <span class="small text-muted" style="font-size: 0.8rem;">Active</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Controls & Filter Bar -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-3">
+                <div class="row g-3 align-items-center justify-content-between">
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" class="form-control border-start-0" placeholder="Search by name, event type or date..." @bind="_searchTerm" @bind:event="oninput" />
+                            @if (!string.IsNullOrEmpty(_searchTerm))
+                            {
+                                <button class="btn btn-outline-secondary border-start-0" @onclick="() => _searchTerm = string.Empty">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-md-7 d-flex justify-content-md-end gap-2 flex-wrap align-items-center">
+                        <!-- Calendar / Source Filter -->
+                        @if (_settings.Feeds.Count > 1)
+                        {
+                            <select class="form-select form-select-sm" style="width: auto; max-width: 180px;" @bind="_filterFeedSource">
+                                <option value="">All Calendars</option>
+                                @foreach (var feed in _settings.Feeds)
+                                {
+                                    <option value="@feed.Name">@feed.Name</option>
+                                }
+                            </select>
+                        }
+
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn @(_filterCategory == "ALL" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _filterCategory = "ALL"'>All (@_events.Count)</button>
+                            <button class="btn @(_filterCategory == "PENDING" ? "btn-warning" : "btn-outline-secondary")" @onclick='() => _filterCategory = "PENDING"'>Pending (@GetPendingCount())</button>
+                            <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications</button>
+                        </div>
+
+                        <div class="btn-group shadow-sm" role="group">
+                            <button type="button" class="btn @(_activeView == "calendar" ? "btn-primary active" : "btn-outline-secondary")" @onclick='() => _activeView = "calendar"'>
+                                <i class="bi bi-calendar3 me-1"></i> Calendar Grid
+                            </button>
+                            <button type="button" class="btn @(_activeView == "list" ? "btn-primary active" : "btn-outline-secondary")" @onclick='() => _activeView = "list"'>
+                                <i class="bi bi-list-ul me-1"></i> Schedule List
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (_activeView == "calendar")
+        {
+            <!-- CALENDAR GRID VIEW -->
+            <div class="card shadow-sm border-0 mb-4 calendar-wrapper-card">
+                <div class="card-body p-3">
+                    <div class="calendar-nav-bar d-flex justify-content-between align-items-center mb-3">
+                        <button class="btn btn-light rounded-circle shadow-sm" @onclick="() => ChangeMonth(-1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <h4 class="mb-0 fw-bold text-dark">
+                            @_currentMonth.ToString("MMMM yyyy")
+                        </h4>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _currentMonth = DateTime.Today">Today</button>
+                            <button class="btn btn-light rounded-circle shadow-sm" @onclick="() => ChangeMonth(1)">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Weekday Header -->
+                    <div class="calendar-grid-header">
+                        <div class="day-head">Sun</div>
+                        <div class="day-head">Mon</div>
+                        <div class="day-head">Tue</div>
+                        <div class="day-head">Wed</div>
+                        <div class="day-head">Thu</div>
+                        <div class="day-head">Fri</div>
+                        <div class="day-head">Sat</div>
+                    </div>
+
+                    <!-- Month Days -->
+                    <div class="calendar-grid-body">
+                        @{
+                            var firstDayOfMonth = new DateTime(_currentMonth.Year, _currentMonth.Month, 1);
+                            int leadingOffset = (int)firstDayOfMonth.DayOfWeek;
+                            int totalDays = DateTime.DaysInMonth(_currentMonth.Year, _currentMonth.Month);
+                        }
+
+                        @for (int i = 0; i < leadingOffset; i++)
+                        {
+                            <div class="calendar-cell outside-month"></div>
+                        }
+
+                        @for (int day = 1; day <= totalDays; day++)
+                        {
+                            var date = new DateTime(_currentMonth.Year, _currentMonth.Month, day);
+                            var dayEvents = GetEventsForDate(date);
+                            bool isToday = date.Date == DateTime.Today;
+
+                            <div class="calendar-cell @(isToday ? "cell-today" : "")">
+                                <div class="cell-header d-flex justify-content-between align-items-center">
+                                    <span class="cell-day-num @(isToday ? "badge bg-primary rounded-circle" : "")">@day</span>
+                                    @if (dayEvents.Any())
+                                    {
+                                        <span class="badge bg-light text-dark border-0">@dayEvents.Count</span>
+                                    }
+                                </div>
+                                <div class="cell-events">
+                                    @foreach (var evt in dayEvents.Take(3))
+                                    {
+                                        var isPending = evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
+                                        <div class="event-pill @(isPending ? "pill-warning" : "pill-primary")" @onclick="() => ShowEventDetails(evt)" title="@evt.Title">
+                                            <span class="event-time">@(evt.IsAllDay ? "All-day" : evt.Start.ToString("h:mm tt"))</span>
+                                            <span class="event-title-text">@GetCleanTitle(evt)</span>
+                                        </div>
+                                    }
+                                    @if (dayEvents.Count > 3)
+                                    {
+                                        <div class="more-events-badge" @onclick='() => { _searchTerm = date.ToString("yyyy-MM-dd"); _activeView = "list"; }'>
+                                            +@(dayEvents.Count - 3) more
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- LIST / SCHEDULE VIEW -->
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 140px;">Event Date</th>
+                                    <th style="width: 150px;">Time</th>
+                                    <th style="width: 120px;">Status</th>
+                                    <th>Applicant / Event Title</th>
+                                    <th>Event Type</th>
+                                    <th>Calendar Source</th>
+                                    <th>Location</th>
+                                    <th style="width: 90px;" class="text-end">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var filteredEvents = GetFilteredEvents();
+                                }
+                                @if (!filteredEvents.Any())
+                                {
+                                    <tr>
+                                        <td colspan="8" class="text-center py-5 text-muted">
+                                            <i class="bi bi-calendar-x fs-2 d-block mb-2 text-secondary"></i>
+                                            No events found matching your filter criteria.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var evt in filteredEvents)
+                                    {
+                                        var details = ParseApplicationDetails(evt);
+                                        var isPending = evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
+                                        var isApproved = evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
+
+                                        <tr>
+                                            <td class="fw-semibold">
+                                                @if (evt.Start.Year > 2000)
+                                                {
+                                                    <span>@evt.Start.ToString("MMM dd, yyyy")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Unspecified Date</span>
+                                                }
+                                            </td>
+                                            <td class="text-muted small">
+                                                @(evt.IsAllDay ? "All-Day Event" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}")
+                                            </td>
+                                            <td>
+                                                @if (isPending)
+                                                {
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning px-2 py-1 rounded-pill">
+                                                        <i class="bi bi-hourglass-split me-1"></i>Pending
+                                                    </span>
+                                                }
+                                                else if (isApproved)
+                                                {
+                                                    <span class="badge bg-success-subtle text-success border border-success px-2 py-1 rounded-pill">
+                                                        <i class="bi bi-check-circle-fill me-1"></i>Approved
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 rounded-pill">
+                                                        @(evt.Status ?? "CONFIRMED")
+                                                    </span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div class="fw-bold text-dark">@GetCleanTitle(evt)</div>
+                                                @if (!string.IsNullOrEmpty(details.ApplicantName))
+                                                {
+                                                    <div class="text-muted small">
+                                                        <i class="bi bi-person me-1"></i>@details.ApplicantName
+                                                        @if (!string.IsNullOrEmpty(details.Email))
+                                                        {
+                                                            <span class="mx-1">•</span>
+                                                            <a href="mailto:@details.Email" class="text-decoration-none text-muted">@details.Email</a>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(details.EventType))
+                                                {
+                                                    <span class="badge bg-light text-dark border">@details.EventType</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted small">—</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-light text-dark border px-2 py-1">
+                                                    <i class="bi bi-calendar2-range me-1 text-primary"></i>@evt.Source
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="text-muted small">@(string.IsNullOrEmpty(evt.Location) ? "Main Function Hall" : evt.Location)</span>
+                                            </td>
+                                            <td class="text-end">
+                                                <button class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" @onclick="() => ShowEventDetails(evt)">
+                                                    <i class="bi bi-eye me-1"></i>View
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<!-- ========================================================================= -->
+<!-- EVENT DETAILS MODAL (BEAUTIFULLY FORMATTED & EASY TO READ) -->
+<!-- ========================================================================= -->
+@if (_selectedEvent != null)
+{
+    var appDetails = ParseApplicationDetails(_selectedEvent);
+    var isPending = _selectedEvent.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
+    var isApproved = _selectedEvent.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.65);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <!-- Modal Header -->
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="p-2 rounded-3 @(isPending ? "bg-warning bg-opacity-25 text-warning-emphasis" : "bg-primary bg-opacity-10 text-primary")">
+                            <i class="bi @(isPending ? "bi-hourglass-split" : "bi-calendar-event-fill") fs-4"></i>
+                        </div>
+                        <div>
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <h5 class="modal-title fw-bold mb-0 text-dark">@GetCleanTitle(_selectedEvent)</h5>
+                                @if (isPending)
+                                {
+                                    <span class="badge bg-warning text-dark fw-bold">PENDING REVIEW</span>
+                                }
+                                else if (isApproved)
+                                {
+                                    <span class="badge bg-success">APPROVED</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-primary">CONFIRMED</span>
+                                }
+                            </div>
+                            <div class="text-muted small">Calendar Source: <strong>@_selectedEvent.Source</strong></div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _selectedEvent = null"></button>
+                </div>
+
+                <!-- Modal Body -->
+                <div class="modal-body p-4">
+                    <!-- Hero Event Banner -->
+                    <div class="event-hero-banner p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <div>
+                            <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-calendar3 me-1"></i> Scheduled Event Date</div>
+                            <h4 class="fw-bold text-dark mb-0">
+                                @if (_selectedEvent.Start.Year > 2000)
+                                {
+                                    @_selectedEvent.Start.ToString("dddd, MMMM dd, yyyy")
+                                }
+                                else if (!string.IsNullOrEmpty(appDetails.PreferredEventDate))
+                                {
+                                    @appDetails.PreferredEventDate
+                                }
+                                else
+                                {
+                                    <span>Date Pending / Unspecified</span>
+                                }
+                            </h4>
+                        </div>
+                        <div class="text-md-end">
+                            <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-clock me-1"></i> Time Range</div>
+                            <h5 class="fw-bold text-dark mb-0">
+                                @if (!string.IsNullOrEmpty(appDetails.StartTime) && !string.IsNullOrEmpty(appDetails.EndTime))
+                                {
+                                    <span>@appDetails.StartTime - @appDetails.EndTime</span>
+                                }
+                                else if (!_selectedEvent.IsAllDay)
+                                {
+                                    <span>@_selectedEvent.Start.ToString("h:mm tt") - @_selectedEvent.End.ToString("h:mm tt")</span>
+                                }
+                                else
+                                {
+                                    <span>All Day Event</span>
+                                }
+                            </h5>
+                        </div>
+                    </div>
+
+                    <!-- 1. APPLICANT CONTACT CARD -->
+                    <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-person-circle text-primary me-2"></i>Applicant / Organizer</span>
+                            @if (!string.IsNullOrEmpty(appDetails.IsClubMember))
+                            {
+                                <span class="badge @(appDetails.IsClubMember.ToLower().StartsWith("y") ? "bg-success" : "bg-secondary")">
+                                    @(appDetails.IsClubMember.ToLower().StartsWith("y") ? "Club Member" : "Non-Member")
+                                </span>
+                            }
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="text-muted small">Full Name</div>
+                                    <div class="fw-bold fs-6">@(string.IsNullOrEmpty(appDetails.ApplicantName) ? GetCleanTitle(_selectedEvent) : appDetails.ApplicantName)</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="text-muted small">Contact Phone</div>
+                                    <div class="fw-semibold">
+                                        @if (!string.IsNullOrEmpty(appDetails.Phone) && appDetails.Phone != "4")
+                                        {
+                                            <a href="tel:@appDetails.Phone" class="text-decoration-none text-primary">
+                                                <i class="bi bi-telephone me-1"></i>@appDetails.Phone
+                                            </a>
+                                        }
+                                        else if (appDetails.Phone == "4")
+                                        {
+                                            <span>4 (Test Entry)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None provided</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="text-muted small">Email Address</div>
+                                    <div class="fw-semibold">
+                                        @if (!string.IsNullOrEmpty(appDetails.Email))
+                                        {
+                                            <a href="mailto:@appDetails.Email" class="text-decoration-none text-primary">
+                                                <i class="bi bi-envelope me-1"></i>@appDetails.Email
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None provided</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="text-muted small">Mailing Address</div>
+                                    <div class="fw-semibold">
+                                        @if (!string.IsNullOrEmpty(appDetails.StreetAddress) || !string.IsNullOrEmpty(appDetails.City))
+                                        {
+                                            <span>@appDetails.StreetAddress, @appDetails.City, @appDetails.State @appDetails.Zip</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None provided</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. EVENT SPECIFICATIONS & SERVICES -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="card border rounded-3 h-100 shadow-none bg-white">
+                                <div class="card-header bg-light py-2 px-3 fw-bold">
+                                    <i class="bi bi-card-checklist text-primary me-2"></i>Event Specifications
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="text-muted small">Event Type</span>
+                                        <span class="fw-bold">@(appDetails.EventType ?? "General Function")</span>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(appDetails.EventDescription))
+                                    {
+                                        <div class="d-flex justify-content-between py-1 border-bottom">
+                                            <span class="text-muted small">Description / Purpose</span>
+                                            <span class="fw-bold text-dark">@appDetails.EventDescription</span>
+                                        </div>
+                                    }
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="text-muted small">Estimated Guests</span>
+                                        <span class="fw-bold">@(appDetails.GuestCount ?? "Unspecified")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                        <span class="text-muted small">Setup Time Required?</span>
+                                        <span class="fw-bold @(appDetails.SetupTimeRequired?.ToLower().StartsWith("y") == true ? "text-success" : "text-muted")">
+                                            @(appDetails.SetupTimeRequired ?? "No")
+                                        </span>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(appDetails.AlternateDate))
+                                    {
+                                        <div class="d-flex justify-content-between py-1">
+                                            <span class="text-muted small">Alternate Date Choice</span>
+                                            <span class="fw-bold text-info">@appDetails.AlternateDate</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card border rounded-3 h-100 shadow-none bg-white">
+                                <div class="card-header bg-light py-2 px-3 fw-bold">
+                                    <i class="bi bi-cup-straw text-primary me-2"></i>Facilities & Add-Ons
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                        <div>
+                                            <div class="fw-semibold"><i class="bi bi-cup-hot text-danger me-1"></i>Bar Service</div>
+                                            <div class="text-muted small" style="font-size: 0.75rem;">Alcohol & bartender staffing</div>
+                                        </div>
+                                        <span class="badge @(appDetails.BarService?.ToLower().StartsWith("y") == true ? "bg-success" : "bg-light text-muted border") px-3 py-1">
+                                            @(appDetails.BarService?.ToLower().StartsWith("y") == true ? "Requested" : "No")
+                                        </span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center py-2">
+                                        <div>
+                                            <div class="fw-semibold"><i class="bi bi-fire text-warning me-1"></i>Kitchen Access</div>
+                                            <div class="text-muted small" style="font-size: 0.75rem;">Food prep / kitchen usage</div>
+                                        </div>
+                                        <span class="badge @(appDetails.KitchenAccess?.ToLower().StartsWith("y") == true ? "bg-success" : "bg-light text-muted border") px-3 py-1">
+                                            @(appDetails.KitchenAccess?.ToLower().StartsWith("y") == true ? "Requested" : "No")
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. AGREEMENTS & SUBMISSION TIMESTAMP -->
+                    <div class="card border rounded-3 shadow-none bg-white mb-3">
+                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-shield-check text-success me-2"></i>Agreements & Submission Details</span>
+                            @if (!string.IsNullOrEmpty(appDetails.FormattedTimestamp))
+                            {
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                    <i class="bi bi-clock-history me-1"></i>Submitted: @appDetails.FormattedTimestamp
+                                </span>
+                            }
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Terms & Conditions</div>
+                                    <div class="fw-semibold text-success"><i class="bi bi-check2-circle me-1"></i>Agreed</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Cancellation Policy</div>
+                                    <div class="fw-semibold text-success"><i class="bi bi-check2-circle me-1"></i>Agreed</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-muted small">Rental Policies</div>
+                                    <div class="fw-semibold text-success"><i class="bi bi-check2-circle me-1"></i>Agreed</div>
+                                </div>
+                                <div class="col-md-6 mt-3">
+                                    <div class="text-muted small">Applicant Digital Signature</div>
+                                    <div class="fw-bold font-monospace bg-light p-2 rounded border">@(appDetails.ApplicantSignature ?? "Electronic Acceptance")</div>
+                                </div>
+                                <div class="col-md-6 mt-3">
+                                    <div class="text-muted small">Submission Timestamp</div>
+                                    <div class="fw-semibold p-2 bg-light rounded border">
+                                        <i class="bi bi-calendar-check text-primary me-1"></i>
+                                        @(string.IsNullOrEmpty(appDetails.FormattedTimestamp) ? (appDetails.Timestamp ?? "Recorded") : appDetails.FormattedTimestamp)
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Collapsible Raw Notes Section -->
+                    <div class="mt-3">
+                        <button class="btn btn-link btn-sm text-decoration-none p-0 text-muted" type="button" @onclick="() => _showRawNotes = !_showRawNotes">
+                            <i class="bi @(_showRawNotes ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
+                            @(_showRawNotes ? "Hide Raw Notes" : "View Raw Description & Details")
+                        </button>
+
+                        @if (_showRawNotes && !string.IsNullOrEmpty(_selectedEvent.Description))
+                        {
+                            <div class="p-3 bg-light rounded-3 border mt-2">
+                                <pre class="small mb-0 text-dark" style="white-space: pre-wrap; font-family: inherit;">@_selectedEvent.Description</pre>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <div>
+                        @if (_settings.EnableWriteApi && !string.IsNullOrEmpty(_selectedEvent.GoogleEventId))
+                        {
+                            <button type="button" class="btn btn-outline-danger btn-sm" @onclick="() => PromptDeleteGoogleEvent(_selectedEvent)">
+                                <i class="bi bi-trash me-1"></i>Delete from Google Calendar
+                            </button>
+                        }
+                    </div>
+                    <div class="d-flex gap-2">
+                        @if (_settings.EnableWriteApi)
+                        {
+                            <button type="button" class="btn btn-warning px-3 shadow-sm" @onclick="() => OpenEditEventModal(_selectedEvent)">
+                                <i class="bi bi-pencil-square me-1"></i>Edit Booking
+                            </button>
+                        }
+                        <button type="button" class="btn btn-secondary px-4 shadow-sm" @onclick="() => _selectedEvent = null">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MULTI-CALENDAR SETTINGS MODAL -->
+<!-- ========================================================================= -->
+@if (_showSettingsModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.65);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 rounded-circle bg-primary-subtle text-primary">
+                            <i class="bi bi-calendar2-range fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold mb-0">Calendar Feeds & Sync Settings</h5>
+                            <small class="text-muted">Manage multiple Google, Outlook, or Apple iCal feeds</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showSettingsModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Setup instructions -->
+                    <div class="card bg-light border-0 rounded-3 mb-4 p-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-shield-lock-fill text-warning fs-5"></i>
+                            <h6 class="fw-bold mb-0 text-dark">How to Connect Private or Public Google Calendars</h6>
+                        </div>
+                        <div class="small text-muted">
+                            <div class="mb-2">
+                                <strong class="text-dark"><i class="bi bi-key-fill text-warning me-1"></i>For Private Calendars:</strong>
+                                <span>In Google Calendar, click <strong>Settings and sharing &gt; Integrate calendar</strong> and copy the <span class="badge bg-warning text-dark">Secret address in iCal format</span>.</span>
+                            </div>
+                            <div>
+                                <strong class="text-dark"><i class="bi bi-globe me-1 text-primary"></i>For Public Calendars:</strong>
+                                <span>Copy the <strong>Public address in iCal format</strong> from the same section.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configured Calendar Feeds List -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-bold mb-0"><i class="bi bi-layers text-primary me-2"></i>Configured Calendar Feeds (@_settings.Feeds.Count)</h6>
+                        <button class="btn btn-sm btn-outline-primary shadow-sm" type="button" @onclick="AddNewFeed">
+                            <i class="bi bi-plus-lg me-1"></i>Add Another Calendar
+                        </button>
+                    </div>
+
+                    @if (_settings.Feeds.Count == 0)
+                    {
+                        <div class="text-center py-4 bg-light rounded-3 border mb-3">
+                            <i class="bi bi-calendar-plus fs-2 text-muted d-block mb-2"></i>
+                            <p class="text-muted small mb-2">No calendars added yet.</p>
+                            <button class="btn btn-sm btn-primary" @onclick="AddNewFeed">Add Your First Calendar</button>
+                        </div>
+                    }
+                    else
+                    {
+                        @for (int i = 0; i < _settings.Feeds.Count; i++)
+                        {
+                            var index = i;
+                            var feed = _settings.Feeds[index];
+
+                            <div class="card border rounded-3 p-3 mb-3 bg-white shadow-sm">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge rounded-circle p-2" style="background-color: @feed.Color; width: 14px; height: 14px;"> </span>
+                                        <span class="fw-bold">Calendar Feed #@(index + 1)</span>
+                                        @if (!string.IsNullOrEmpty(feed.LastStatus))
+                                        {
+                                            <span class="badge bg-light text-muted border small">@feed.LastStatus</span>
+                                        }
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" role="switch" @bind="feed.IsEnabled" title="Enable/Disable this calendar" />
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-danger rounded-circle p-1" style="width: 28px; height: 28px;" @onclick="() => PromptDeleteFeed(index)" title="Remove this calendar">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-5">
+                                        <label class="form-label small text-muted mb-1">Calendar Name</label>
+                                        <input type="text" class="form-control form-control-sm" placeholder="e.g. Hall Rentals / Club Events" @bind="feed.Name" />
+                                    </div>
+                                    <div class="col-md-7">
+                                        <label class="form-label small text-muted mb-1">iCal (.ics) Feed URL</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" @bind="feed.Url" />
+                                            <button class="btn btn-outline-primary" type="button" @onclick="() => TestSingleFeed(feed)">
+                                                <i class="bi bi-cloud-download me-1"></i>Test
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    @if (!string.IsNullOrEmpty(_testResultFeedback))
+                    {
+                        <div class="alert @(_testResultSuccess ? "alert-success" : "alert-danger") py-2 px-3 mb-3 border-0 rounded-3 small">
+                            <i class="bi @(_testResultSuccess ? "bi-check-circle" : "bi-exclamation-octagon") me-2"></i>
+                            @_testResultFeedback
+                        </div>
+                    }
+
+                    <!-- Sync Options -->
+                    <div class="row g-3 mb-3 pt-2">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Auto-Sync Interval</label>
+                            <select class="form-select form-select-sm" @bind="_settings.SyncIntervalMinutes">
+                                <option value="15">Every 15 Minutes</option>
+                                <option value="30">Every 30 Minutes</option>
+                                <option value="60">Every 1 Hour</option>
+                                <option value="360">Every 6 Hours</option>
+                                <option value="1440">Every 24 Hours</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" role="switch" id="autoSyncToggle" @bind="_settings.AutoSyncEnabled" />
+                                <label class="form-check-label fw-semibold small" for="autoSyncToggle">Enable Background Auto-Sync</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Calendar 2-Way Write API Section -->
+                    <div class="card border rounded-3 p-3 mb-4 bg-light shadow-sm">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-cloud-arrow-up-fill text-primary fs-5"></i>
+                                <h6 class="fw-bold mb-0 text-dark">Google Calendar 2-Way Write & Update API</h6>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="writeApiToggle" @bind="_settings.EnableWriteApi" />
+                                <label class="form-check-label fw-semibold small" for="writeApiToggle">Enable Live Updates</label>
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-3">
+                            Enabling this allows any authorized user to create, update, and delete events directly in Google Calendar using a central Google Service Account.
+                        </p>
+
+                        @if (_settings.EnableWriteApi)
+                        {
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Target Google Calendar ID</label>
+                                    <input type="text" class="form-control form-control-sm" placeholder="e.g. primary or your-hall@gmail.com" @bind="_settings.PrimaryGoogleCalendarId" />
+                                    <small class="text-muted" style="font-size: 0.72rem;">Found under Calendar Settings > Integrate Calendar > Calendar ID.</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Upload Service Account JSON Key</label>
+                                    <InputFile OnChange="HandleServiceAccountKeyUpload" class="form-control form-control-sm" accept=".json" />
+                                    <small class="text-muted" style="font-size: 0.72rem;">Upload the .json file downloaded from Google Cloud Console.</small>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold mb-1">Service Account Client Email</label>
+                                    <input type="text" class="form-control form-control-sm" placeholder="e.g. rental-sync@project.iam.gserviceaccount.com" @bind="_settings.ServiceAccountEmail" />
+                                </div>
+                                <div class="col-12 d-flex justify-content-between align-items-center">
+                                    <div class="small text-muted">
+                                        @if (!string.IsNullOrEmpty(_settings.ServiceAccountEmail))
+                                        {
+                                            <span><i class="bi bi-check-circle-fill text-success me-1"></i>Key Loaded: @_settings.ServiceAccountEmail</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>No JSON key configured yet.</span>
+                                        }
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-primary shadow-sm" type="button" @onclick="TestWriteApiAccess" disabled="@(string.IsNullOrEmpty(_settings.ServiceAccountEmail))">
+                                        <i class="bi bi-shield-check me-1"></i>Test Write Permissions
+                                    </button>
+                                </div>
+                                @if (!string.IsNullOrEmpty(_writeTestFeedback))
+                                {
+                                    <div class="col-12">
+                                        <div class="alert @(_writeTestSuccess ? "alert-success" : "alert-danger") py-2 px-3 mb-0 border-0 rounded-3 small">
+                                            <i class="bi @(_writeTestSuccess ? "bi-check-circle" : "bi-exclamation-octagon") me-2"></i>
+                                            @_writeTestFeedback
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <hr class="my-4" />
+
+                    <!-- File Import / Export Section -->
+                    <h6 class="fw-bold mb-3"><i class="bi bi-file-earmark-arrow-down me-1"></i> Manual File Import & Export</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="p-3 border rounded-3 bg-light text-center h-100 d-flex flex-column justify-content-between">
+                                <div>
+                                    <h6 class="fw-bold mb-1">Import Local .ICS File</h6>
+                                    <p class="text-muted small mb-2">Upload a calendar file directly from your computer.</p>
+                                </div>
+                                <InputFile OnChange="HandleFileUpload" class="form-control form-control-sm" accept=".ics" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-3 border rounded-3 bg-light text-center h-100 d-flex flex-column justify-content-between">
+                                <div>
+                                    <h6 class="fw-bold mb-1">Export Calendar Data</h6>
+                                    <p class="text-muted small mb-2">Download all current events as a standard .ics calendar file.</p>
+                                </div>
+                                <button class="btn btn-outline-secondary btn-sm w-100" @onclick="ExportCalendarIcs" disabled="@(_events.Count == 0)">
+                                    <i class="bi bi-download me-1"></i> Download .ICS File
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4">
+                    <button type="button" class="btn btn-light" @onclick="() => _showSettingsModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4 shadow-sm" @onclick="SaveCalendarSettings">
+                        <i class="bi bi-check2 me-1"></i> Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- DELETE FEED CONFIRMATION MODAL -->
+@if (_showDeleteFeedConfirm && _feedToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-body p-4 text-center">
+                    <div class="p-3 rounded-circle bg-danger-subtle text-danger d-inline-flex mb-3">
+                        <i class="bi bi-trash3-fill fs-3"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2 text-dark">Remove Calendar Feed?</h5>
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to remove <strong class="text-dark">@(_feedToDelete.Name ?? "this calendar")</strong>? 
+                        Events synced from this feed will no longer appear on your calendar dashboard.
+                    </p>
+                    <div class="d-flex justify-content-center gap-2">
+                        <button type="button" class="btn btn-light px-3" @onclick="CancelDeleteFeed">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn btn-danger px-4 shadow-sm" @onclick="ConfirmDeleteFeed">
+                            <i class="bi bi-trash me-1"></i> Yes, Remove
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ADD / EDIT GOOGLE CALENDAR EVENT MODAL -->
+@if (_showEditEventModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.7); z-index: 1055;" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 rounded-circle bg-success-subtle text-success">
+                            <i class="bi @(_isNewEvent ? "bi-calendar-plus" : "bi-pencil-square") fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold mb-0">@(_isNewEvent ? "Add New Rental / Booking" : "Edit Booking in Google Calendar")</h5>
+                            <small class="text-muted">Updates will synchronize directly to Google Calendar</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showEditEventModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Event / Reservation Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" placeholder="e.g. Hall Rental: John Doe Wedding" @bind="_editEventModel.Title" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold small">Start Date & Time <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" @bind="_editEventModel.Start" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold small">End Date & Time <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" @bind="_editEventModel.End" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Location / Facility Room</label>
+                            <input type="text" class="form-control" placeholder="e.g. Main Function Hall, Pavilion, Directors Room" @bind="_editEventModel.Location" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Booking Details & Application Notes</label>
+                            <textarea class="form-control" rows="6" placeholder="Enter rental details, applicant contact info, bar service or kitchen access notes..." @bind="_editEventModel.Description"></textarea>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_editEventError))
+                    {
+                        <div class="alert alert-danger py-2 px-3 mt-3 mb-0 border-0 rounded-3 small">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            @_editEventError
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4">
+                    <button type="button" class="btn btn-light" @onclick="() => _showEditEventModal = false" disabled="@_isSavingEvent">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4 shadow-sm" @onclick="SaveGoogleEvent" disabled="@_isSavingEvent">
+                        @if (_isSavingEvent)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Saving to Google Calendar...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-cloud-check me-1"></i>
+                            <span>@(_isNewEvent ? "Create Booking" : "Update in Google Calendar")</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- DELETE GOOGLE EVENT CONFIRMATION MODAL -->
+@if (_showDeleteGoogleEventConfirm && _googleEventToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1065;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-body p-4 text-center">
+                    <div class="p-3 rounded-circle bg-danger-subtle text-danger d-inline-flex mb-3">
+                        <i class="bi bi-calendar-x-fill fs-3"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2 text-dark">Delete from Google Calendar?</h5>
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to permanently delete <strong class="text-dark">@_googleEventToDelete.Title</strong> from Google Calendar? This action cannot be undone.
+                    </p>
+                    <div class="d-flex justify-content-center gap-2">
+                        <button type="button" class="btn btn-light px-3" @onclick="CancelDeleteGoogleEvent" disabled="@_isDeletingGoogleEvent">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn btn-danger px-4 shadow-sm" @onclick="ConfirmDeleteGoogleEvent" disabled="@_isDeletingGoogleEvent">
+                            @if (_isDeletingGoogleEvent)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>Deleting...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-trash me-1"></i>
+                                <span>Yes, Delete from Google</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.hall-rentals-container {
+    padding: 1.5rem;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.text-gold {
+    color: #d4af37;
+}
+
+.event-hero-banner {
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.08) 0%, rgba(212, 175, 55, 0.12) 100%);
+    border: 1px solid rgba(13, 110, 253, 0.15);
+}
+
+.stat-card {
+    background: #ffffff;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    border: 1px solid rgba(0,0,0,0.05);
+    transition: transform 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.stat-primary .stat-icon { background: rgba(13, 110, 253, 0.1); color: #0d6efd; }
+.stat-success .stat-icon { background: rgba(25, 135, 84, 0.1); color: #198754; }
+.stat-warning .stat-icon { background: rgba(255, 193, 7, 0.15); color: #b45309; }
+.stat-info .stat-icon { background: rgba(13, 202, 240, 0.15); color: #0891b2; }
+
+.stat-label {
+    font-size: 0.85rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.stat-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.stat-value.small-text {
+    font-size: 0.95rem;
+}
+
+.calendar-grid-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    background: #f8fafc;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.day-head {
+    text-align: center;
+    padding: 0.6rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #475569;
+}
+
+.calendar-grid-body {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: #e2e8f0;
+    border: 1px solid #e2e8f0;
+    border-radius: 0 0 8px 8px;
+}
+
+.calendar-cell {
+    background: #ffffff;
+    min-height: 115px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.calendar-cell.outside-month {
+    background: #f8fafc;
+    opacity: 0.45;
+}
+
+.calendar-cell.cell-today {
+    background: #f0f7ff;
+}
+
+.cell-day-num {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #334155;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.event-pill {
+    border-radius: 4px;
+    padding: 3px 6px;
+    margin-top: 3px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: transform 0.15s ease;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.event-pill:hover {
+    transform: scale(1.02);
+}
+
+.pill-primary {
+    background: rgba(13, 110, 253, 0.1);
+    border-left: 3px solid #0d6efd;
+    color: #1e40af;
+}
+
+.pill-warning {
+    background: rgba(255, 193, 7, 0.2);
+    border-left: 3px solid #f59e0b;
+    color: #92400e;
+    font-weight: 600;
+}
+
+.more-events-badge {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 2px;
+}
+</style>
+
+@code {
+    private GoogleCalendarSettings _settings = new();
+    private List<CalendarEventItem> _events = new();
+    private CalendarEventItem? _selectedEvent;
+    private DateTime _currentMonth = DateTime.Today;
+    private string _activeView = "list";
+    private string _searchTerm = "";
+    private string _filterCategory = "ALL";
+    private string _filterFeedSource = "";
+    private bool _showRawNotes = false;
+    
+    private bool _hasPageAccess = true;
+    private bool _isAdmin = false;
+    private bool _isSyncing = false;
+    private bool _showSettingsModal = false;
+    private string? _testResultFeedback;
+    private bool _testResultSuccess = false;
+    private string? _syncMessage;
+    private bool _syncSuccess = false;
+
+    // Write API / Event Editing State
+    private bool _showEditEventModal = false;
+    private bool _isNewEvent = false;
+    private bool _isSavingEvent = false;
+    private string? _editEventError;
+    private CalendarEventItem _editEventModel = new();
+    
+    private bool _showDeleteGoogleEventConfirm = false;
+    private CalendarEventItem? _googleEventToDelete;
+    private bool _isDeletingGoogleEvent = false;
+
+    private string? _writeTestFeedback;
+    private bool _writeTestSuccess = false;
+
+    public class ParsedApplicationData
+    {
+        public bool HasStructuredData { get; set; }
+        public string? ApplicantName { get; set; }
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? StreetAddress { get; set; }
+        public string? City { get; set; }
+        public string? State { get; set; }
+        public string? Zip { get; set; }
+        public string? IsClubMember { get; set; }
+        public string? EventType { get; set; }
+        public string? EventDescription { get; set; }
+        public string? PreferredEventDate { get; set; }
+        public string? AlternateDate { get; set; }
+        public string? StartTime { get; set; }
+        public string? EndTime { get; set; }
+        public string? GuestCount { get; set; }
+        public string? SetupTimeRequired { get; set; }
+        public string? KitchenAccess { get; set; }
+        public string? BarService { get; set; }
+        public string? ApplicantSignature { get; set; }
+        public string? Timestamp { get; set; }
+        public string? FormattedTimestamp { get; set; }
+        public Dictionary<string, string> ExtraFields { get; set; } = new();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPermissions();
+        await LoadSettingsAndEvents();
+    }
+
+    private async Task CheckPermissions()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            _isAdmin = user.IsInRole("Admin") || user.Identity?.Name?.ToLower() == "admin";
+
+            if (_isAdmin)
+            {
+                _hasPageAccess = true;
+                return;
+            }
+
+            var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+            {
+                var permissions = UserService.GetUserPagePermissions(userId);
+                var allPages = UserService.GetAllPages();
+                var hallRentalsPage = allPages.FirstOrDefault(p => p.PageRoute.TrimStart('/').ToLower() == "hall-rentals");
+                if (hallRentalsPage != null)
+                {
+                    _hasPageAccess = permissions.Any(p => p.PageId == hallRentalsPage.PageId);
+                }
+            }
+        }
+        catch
+        {
+            _hasPageAccess = false;
+        }
+    }
+
+    private async Task LoadSettingsAndEvents()
+    {
+        try
+        {
+            _settings = await CalendarService.GetSettingsAsync();
+
+            // Ensure at least 1 feed entry exists if Feeds list is empty
+            if (_settings.Feeds.Count == 0 && !string.IsNullOrWhiteSpace(_settings.PublicCalendarUrl))
+            {
+                _settings.Feeds.Add(new CalendarFeedConfig
+                {
+                    Name = string.IsNullOrWhiteSpace(_settings.CalendarName) ? "Primary Calendar" : _settings.CalendarName,
+                    Url = _settings.PublicCalendarUrl,
+                    Color = "#0d6efd",
+                    IsEnabled = true
+                });
+            }
+
+            if (_settings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+            {
+                _events = await CalendarService.FetchAllFeedsAsync(_settings);
+            }
+            else
+            {
+                _events = GenerateSampleEvents();
+            }
+        }
+        catch (Exception ex)
+        {
+            _events = GenerateSampleEvents();
+            _syncMessage = $"Notice: Displaying offline event cache. {ex.Message}";
+            _syncSuccess = false;
+        }
+    }
+
+    private async Task SyncCalendarNow()
+    {
+        _isSyncing = true;
+        _syncMessage = null;
+        try
+        {
+            if (!_settings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+            {
+                _syncMessage = "Please configure at least one active Calendar URL in settings.";
+                _syncSuccess = false;
+                _showSettingsModal = true;
+                return;
+            }
+
+            _events = await CalendarService.FetchAllFeedsAsync(_settings);
+            _settings.LastSyncedAt = DateTime.Now;
+            _settings.LastSyncSuccess = true;
+            _settings.LastSyncStatus = $"Synced {_events.Count} events across {_settings.Feeds.Count(f => f.IsEnabled)} calendar(s).";
+            _settings.TotalEventsCount = _events.Count;
+            await CalendarService.SaveSettingsAsync(_settings);
+
+            _syncMessage = $"Successfully synced {_events.Count} events across {_settings.Feeds.Count(f => f.IsEnabled)} calendar(s)!";
+            _syncSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            _syncMessage = $"Sync failed: {ex.Message}";
+            _syncSuccess = false;
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    private void OpenSettingsModal()
+    {
+        _testResultFeedback = null;
+        if (_settings.Feeds.Count == 0)
+        {
+            AddNewFeed();
+        }
+        _showSettingsModal = true;
+    }
+
+    private void AddNewFeed()
+    {
+        string[] defaultColors = { "#0d6efd", "#198754", "#d4af37", "#6f42c1", "#0dcaf0", "#fd7e14" };
+        var nextColor = defaultColors[_settings.Feeds.Count % defaultColors.Length];
+
+        _settings.Feeds.Add(new CalendarFeedConfig
+        {
+            Name = $"Calendar #{_settings.Feeds.Count + 1}",
+            Color = nextColor,
+            IsEnabled = true
+        });
+    }
+
+    private CalendarFeedConfig? _feedToDelete;
+    private int _feedDeleteIndex = -1;
+    private bool _showDeleteFeedConfirm = false;
+
+    private void PromptDeleteFeed(int index)
+    {
+        if (index >= 0 && index < _settings.Feeds.Count)
+        {
+            _feedDeleteIndex = index;
+            _feedToDelete = _settings.Feeds[index];
+            _showDeleteFeedConfirm = true;
+        }
+    }
+
+    private void CancelDeleteFeed()
+    {
+        _showDeleteFeedConfirm = false;
+        _feedToDelete = null;
+        _feedDeleteIndex = -1;
+    }
+
+    private void ConfirmDeleteFeed()
+    {
+        if (_feedDeleteIndex >= 0 && _feedDeleteIndex < _settings.Feeds.Count)
+        {
+            _settings.Feeds.RemoveAt(_feedDeleteIndex);
+        }
+        CancelDeleteFeed();
+    }
+
+    private async Task TestSingleFeed(CalendarFeedConfig feed)
+    {
+        _testResultFeedback = null;
+        try
+        {
+            var result = await CalendarService.TestConnectionAsync(feed.Url);
+            _testResultSuccess = result.Success;
+            _testResultFeedback = $"[{feed.Name}] {result.Message}";
+            feed.LastStatus = result.Success ? $"OK ({result.EventCount} events)" : "Failed";
+        }
+        catch (Exception ex)
+        {
+            _testResultSuccess = false;
+            _testResultFeedback = $"[{feed.Name}] Error: {ex.Message}";
+            feed.LastStatus = "Error";
+        }
+    }
+
+    private async Task SaveCalendarSettings()
+    {
+        try
+        {
+            // Sync primary url for backwards compatibility
+            var firstEnabled = _settings.Feeds.FirstOrDefault(f => f.IsEnabled);
+            if (firstEnabled != null)
+            {
+                _settings.PublicCalendarUrl = firstEnabled.Url;
+                _settings.CalendarName = firstEnabled.Name;
+            }
+
+            await CalendarService.SaveSettingsAsync(_settings);
+            _showSettingsModal = false;
+            _syncMessage = "Settings saved successfully.";
+            _syncSuccess = true;
+            await LoadSettingsAndEvents();
+        }
+        catch (Exception ex)
+        {
+            _testResultSuccess = false;
+            _testResultFeedback = $"Failed to save settings: {ex.Message}";
+        }
+    }
+
+    private async Task HandleServiceAccountKeyUpload(InputFileChangeEventArgs e)
+    {
+        _writeTestFeedback = null;
+        try
+        {
+            var file = e.File;
+            if (file != null)
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+                using var reader = new System.IO.StreamReader(stream);
+                var content = await reader.ReadToEndAsync();
+                var success = CalendarService.ParseServiceAccountJson(content, _settings);
+                if (success)
+                {
+                    _writeTestSuccess = true;
+                    _writeTestFeedback = $"Service Account key parsed successfully! (Email: {_settings.ServiceAccountEmail})";
+                }
+                else
+                {
+                    _writeTestSuccess = false;
+                    _writeTestFeedback = "Failed to extract client_email and private_key from JSON file.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _writeTestSuccess = false;
+            _writeTestFeedback = $"Error loading key: {ex.Message}";
+        }
+    }
+
+    private async Task TestWriteApiAccess()
+    {
+        _writeTestFeedback = null;
+        try
+        {
+            var result = await CalendarService.TestWriteAccessAsync(_settings);
+            _writeTestSuccess = result.Success;
+            _writeTestFeedback = result.Message;
+        }
+        catch (Exception ex)
+        {
+            _writeTestSuccess = false;
+            _writeTestFeedback = $"Write test failed: {ex.Message}";
+        }
+    }
+
+    private void OpenAddEventModal()
+    {
+        _isNewEvent = true;
+        _editEventError = null;
+        _editEventModel = new CalendarEventItem
+        {
+            Title = "Hall Rental: ",
+            Start = DateTime.Today.AddDays(7).AddHours(14),
+            End = DateTime.Today.AddDays(7).AddHours(22),
+            Location = "Main Function Hall",
+            Description = "Full Name (Applicant) : \nContact Phone Number : \nEmail Address : \nType of Event : \nEstimated Number of Guests : \nBar Service (alcohol & bartender - additional cost)? : No\nKitchen Access Requested? : Yes"
+        };
+        _showEditEventModal = true;
+    }
+
+    private void OpenEditEventModal(CalendarEventItem evt)
+    {
+        _isNewEvent = false;
+        _editEventError = null;
+        _editEventModel = new CalendarEventItem
+        {
+            Uid = evt.Uid,
+            GoogleEventId = evt.GoogleEventId,
+            Title = evt.Title,
+            Start = evt.Start,
+            End = evt.End,
+            Location = evt.Location,
+            Description = evt.Description,
+            Source = evt.Source,
+            Status = evt.Status
+        };
+        _showEditEventModal = true;
+    }
+
+    private async Task SaveGoogleEvent()
+    {
+        if (string.IsNullOrWhiteSpace(_editEventModel.Title))
+        {
+            _editEventError = "Please enter an event title.";
+            return;
+        }
+
+        if (_editEventModel.End <= _editEventModel.Start)
+        {
+            _editEventError = "End date & time must be after the start date & time.";
+            return;
+        }
+
+        _isSavingEvent = true;
+        _editEventError = null;
+
+        try
+        {
+            if (_settings.EnableWriteApi && !string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail))
+            {
+                if (_isNewEvent)
+                {
+                    var result = await CalendarService.CreateGoogleEventAsync(_editEventModel, _settings);
+                    if (!result.Success)
+                    {
+                        _editEventError = result.Message;
+                        return;
+                    }
+                    _syncMessage = "Event created successfully in Google Calendar!";
+                }
+                else
+                {
+                    var eventId = _editEventModel.GoogleEventId ?? _editEventModel.Uid;
+                    var result = await CalendarService.UpdateGoogleEventAsync(eventId, _editEventModel, _settings);
+                    if (!result.Success)
+                    {
+                        _editEventError = result.Message;
+                        return;
+                    }
+                    _syncMessage = "Event updated successfully in Google Calendar!";
+                }
+                _syncSuccess = true;
+            }
+            else
+            {
+                // Local / mock mode when write API is not configured yet
+                if (_isNewEvent)
+                {
+                    _events.Insert(0, _editEventModel);
+                    _syncMessage = "Event added to local view (Note: Enable Google 2-Way Write API in settings to synchronize directly with Google Calendar).";
+                }
+                else
+                {
+                    var existing = _events.FirstOrDefault(e => e.Uid == _editEventModel.Uid);
+                    if (existing != null)
+                    {
+                        existing.Title = _editEventModel.Title;
+                        existing.Start = _editEventModel.Start;
+                        existing.End = _editEventModel.End;
+                        existing.Location = _editEventModel.Location;
+                        existing.Description = _editEventModel.Description;
+                    }
+                    _syncMessage = "Event updated in local view.";
+                }
+                _syncSuccess = true;
+            }
+
+            _showEditEventModal = false;
+            _selectedEvent = null;
+            if (_settings.EnableWriteApi && !string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail))
+            {
+                await SyncCalendarNow();
+            }
+        }
+        catch (Exception ex)
+        {
+            _editEventError = $"Failed to save event: {ex.Message}";
+        }
+        finally
+        {
+            _isSavingEvent = false;
+        }
+    }
+
+    private void PromptDeleteGoogleEvent(CalendarEventItem evt)
+    {
+        _googleEventToDelete = evt;
+        _showDeleteGoogleEventConfirm = true;
+    }
+
+    private void CancelDeleteGoogleEvent()
+    {
+        _showDeleteGoogleEventConfirm = false;
+        _googleEventToDelete = null;
+    }
+
+    private async Task ConfirmDeleteGoogleEvent()
+    {
+        if (_googleEventToDelete == null) return;
+
+        _isDeletingGoogleEvent = true;
+        try
+        {
+            var eventId = _googleEventToDelete.GoogleEventId ?? _googleEventToDelete.Uid;
+            var result = await CalendarService.DeleteGoogleEventAsync(eventId, _settings);
+            if (result.Success)
+            {
+                _events.RemoveAll(e => e.Uid == _googleEventToDelete.Uid || e.GoogleEventId == eventId);
+                _syncMessage = "Event deleted successfully from Google Calendar.";
+                _syncSuccess = true;
+                _showDeleteGoogleEventConfirm = false;
+                _selectedEvent = null;
+                _googleEventToDelete = null;
+            }
+            else
+            {
+                _syncMessage = $"Delete failed: {result.Message}";
+                _syncSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _syncMessage = $"Delete error: {ex.Message}";
+            _syncSuccess = false;
+        }
+        finally
+        {
+            _isDeletingGoogleEvent = false;
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file != null)
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+                using var reader = new System.IO.StreamReader(stream);
+                var content = await reader.ReadToEndAsync();
+                var imported = CalendarService.ParseIcsContent(content, "Imported File");
+                if (imported.Any())
+                {
+                    _events = imported;
+                    _testResultSuccess = true;
+                    _testResultFeedback = $"Successfully imported {imported.Count} events from file!";
+                }
+                else
+                {
+                    _testResultSuccess = false;
+                    _testResultFeedback = "No events found in the uploaded .ics file.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _testResultSuccess = false;
+            _testResultFeedback = $"Import failed: {ex.Message}";
+        }
+    }
+
+    private async Task ExportCalendarIcs()
+    {
+        try
+        {
+            var icsContent = CalendarService.ExportToIcs(_events, _settings.CalendarName);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(icsContent);
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"Hall_Rentals_Calendar_{DateTime.Today:yyyyMMdd}.ics";
+            await JSRuntime.InvokeVoidAsync("eval", $"let a = document.createElement('a'); a.href = 'data:text/calendar;charset=utf-8;base64,{base64}'; a.download = '{fileName}'; document.body.appendChild(a); a.click(); document.body.removeChild(a);");
+        }
+        catch (Exception ex)
+        {
+            _syncMessage = $"Export failed: {ex.Message}";
+            _syncSuccess = false;
+        }
+    }
+
+    private void ChangeMonth(int offset)
+    {
+        _currentMonth = _currentMonth.AddMonths(offset);
+    }
+
+    private void ShowEventDetails(CalendarEventItem evt)
+    {
+        _selectedEvent = evt;
+        _showRawNotes = false;
+    }
+
+    private string GetCleanTitle(CalendarEventItem evt)
+    {
+        var title = evt.Title ?? string.Empty;
+        if (title.StartsWith("PENDING -", StringComparison.OrdinalIgnoreCase))
+        {
+            title = title.Substring(9).Trim();
+        }
+        else if (title.StartsWith("APPROVED -", StringComparison.OrdinalIgnoreCase))
+        {
+            title = title.Substring(10).Trim();
+        }
+        return string.IsNullOrWhiteSpace(title) ? "Hall Rental Event" : title;
+    }
+
+    private List<CalendarEventItem> GetEventsForDate(DateTime date)
+    {
+        var list = _events.Where(e => e.Start.Date == date.Date);
+        if (!string.IsNullOrEmpty(_filterFeedSource))
+        {
+            list = list.Where(e => e.Source == _filterFeedSource);
+        }
+        return list.OrderBy(e => e.Start).ToList();
+    }
+
+    private int GetUpcomingCount()
+    {
+        var today = DateTime.Today;
+        return _events.Count(e => e.Start >= today && e.Start <= today.AddDays(30));
+    }
+
+    private int GetPendingCount()
+    {
+        return _events.Count(e => e.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<CalendarEventItem> GetFilteredEvents()
+    {
+        var list = _events.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(_filterFeedSource))
+        {
+            list = list.Where(e => e.Source == _filterFeedSource);
+        }
+
+        if (_filterCategory == "PENDING")
+        {
+            list = list.Where(e => e.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase));
+        }
+        else if (_filterCategory == "APPLICATIONS")
+        {
+            list = list.Where(e => !string.IsNullOrEmpty(e.Description) && 
+                                  (e.Description.Contains("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
+                                   e.Description.Contains("Preferred Event Date", StringComparison.OrdinalIgnoreCase) ||
+                                   e.Description.Contains("Applicant", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            var q = _searchTerm.ToLowerInvariant();
+            list = list.Where(e => e.Title.ToLower().Contains(q) ||
+                                  (e.Description ?? "").ToLower().Contains(q) ||
+                                  (e.Location ?? "").ToLower().Contains(q) ||
+                                  e.Start.ToString("yyyy-MM-dd").Contains(q));
+        }
+
+        return list.OrderByDescending(e => e.Start.Year > 2000)
+                   .ThenByDescending(e => e.Start)
+                   .ToList();
+    }
+
+    private ParsedApplicationData ParseApplicationDetails(CalendarEventItem evt)
+    {
+        var data = new ParsedApplicationData();
+        var desc = evt.Description;
+
+        // Default name from title if available (e.g. "Daniel Fialho (Bar)" -> "Daniel Fialho")
+        var cleanTitle = GetCleanTitle(evt);
+        if (!string.IsNullOrEmpty(cleanTitle))
+        {
+            var parenIndex = cleanTitle.IndexOf('(');
+            data.ApplicantName = parenIndex > 0 ? cleanTitle.Substring(0, parenIndex).Trim() : cleanTitle;
+            if (cleanTitle.Contains("(Bar)", StringComparison.OrdinalIgnoreCase))
+            {
+                data.BarService = "Yes";
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(desc)) return data;
+
+        // 1. Unify all HTML line breaks into real newlines
+        var clean = Regex.Replace(desc, @"<br\s*/?>|</?p>", "\n", RegexOptions.IgnoreCase);
+        clean = clean.Replace("&nbsp;", " ")
+                     .Replace("&amp;", "&")
+                     .Replace("&#39;", "'")
+                     .Replace("&quot;", "\"")
+                     .Replace("&lt;", "<")
+                     .Replace("&gt;", ">");
+
+        var lines = clean.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0) continue;
+
+            var key = line.Substring(0, colonIndex).Trim();
+            var val = line.Substring(colonIndex + 1).Trim();
+
+            if (string.IsNullOrEmpty(val)) continue;
+
+            data.HasStructuredData = true;
+
+            switch (key.ToLowerInvariant())
+            {
+                case "full name (applicant)":
+                case "applicant name":
+                case "applicant":
+                    data.ApplicantName = val;
+                    break;
+                case "contact phone number":
+                case "phone number":
+                case "phone":
+                    data.Phone = val;
+                    break;
+                case "email address":
+                case "email":
+                    data.Email = val;
+                    break;
+                case "street address":
+                case "address":
+                    data.StreetAddress = val;
+                    break;
+                case "city":
+                    data.City = val;
+                    break;
+                case "state":
+                    data.State = val;
+                    break;
+                case "zip":
+                    data.Zip = val;
+                    break;
+                case "are you a club member?":
+                case "club member":
+                    data.IsClubMember = val;
+                    break;
+                case "type of event":
+                case "event type":
+                    data.EventType = val;
+                    break;
+                case "event description":
+                case "description":
+                case "event details":
+                    data.EventDescription = val;
+                    break;
+                case "preferred event date":
+                case "event date":
+                    data.PreferredEventDate = val;
+                    break;
+                case "alternate date (if first choice is unavailable)":
+                case "alternate date":
+                    data.AlternateDate = val;
+                    break;
+                case "event start time":
+                case "start time":
+                    data.StartTime = val;
+                    break;
+                case "event end time":
+                case "end time":
+                    data.EndTime = val;
+                    break;
+                case "estimated number of guests":
+                case "guest count":
+                case "number of guests":
+                    data.GuestCount = val;
+                    break;
+                case "do you require setup time prior to the start time above?":
+                case "setup time":
+                    data.SetupTimeRequired = val;
+                    break;
+                case "kitchen access requested?":
+                case "kitchen access":
+                    data.KitchenAccess = val;
+                    break;
+                case "bar service (alcohol & bartender - additional cost)?":
+                case "bar service":
+                    data.BarService = val;
+                    break;
+                case "applicant signature":
+                case "signature":
+                    data.ApplicantSignature = val;
+                    break;
+                case "timestamp":
+                    data.Timestamp = val;
+                    if (DateTime.TryParse(val, out var parsedTs))
+                    {
+                        data.FormattedTimestamp = parsedTs.ToString("MMMM dd, yyyy 'at' h:mm tt");
+                    }
+                    else
+                    {
+                        data.FormattedTimestamp = val;
+                    }
+                    break;
+                default:
+                    if (!key.Equals("Hall Rental Application Details", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data.ExtraFields[key] = val;
+                    }
+                    break;
+            }
+        }
+
+        return data;
+    }
+
+    private List<CalendarEventItem> GenerateSampleEvents()
+    {
+        var today = DateTime.Today;
+        return new List<CalendarEventItem>
+        {
+            new() { Title = "Hall Rental: Wedding Reception", Start = today.AddDays(3).AddHours(14), End = today.AddDays(3).AddHours(22), Location = "Main Function Hall", Source = "Hall Booking", Description = "Full Name (Applicant) : John Doe\nType of Event : Wedding\nContact Phone Number : (978) 555-0199\nEmail Address : john@example.com\nPreferred Event Date : " + today.AddDays(3).ToString("MM/dd/yyyy") + "\nEvent Start Time: 2:00pm\nEvent End Time: 10:00pm\nEstimated Number of Guests : 120\nBar Service (alcohol & bartender - additional cost)? : Yes\nKitchen Access Requested? : Yes\nAre you a Club Member?: Yes\nTimestamp: " + DateTime.Now.AddDays(-2).ToString("g") },
+            new() { Title = "GFC Board of Directors Meeting", Start = today.AddDays(7).AddHours(18), End = today.AddDays(7).AddHours(20), Location = "Directors Room", Source = "Google Calendar", Description = "Monthly board review." },
+            new() { Title = "Portuguese Heritage Social", Start = today.AddDays(14).AddHours(12), End = today.AddDays(14).AddHours(18), Location = "Club Pavilion", Source = "Google Calendar", Description = "Community social gathering." },
+            new() { Title = "Private Birthday Celebration", Start = today.AddDays(21).AddHours(16), End = today.AddDays(21).AddHours(21), Location = "Main Hall", Source = "Hall Booking", Description = "Full Name (Applicant) : Maria Silva\nType of Event : Birthday\nContact Phone Number : (978) 555-0144\nEmail Address : maria@example.com\nPreferred Event Date : " + today.AddDays(21).ToString("MM/dd/yyyy") + "\nEvent Start Time: 4:00pm\nEvent End Time: 9:00pm\nEstimated Number of Guests : 45\nBar Service (alcohol & bartender - additional cost)? : No\nKitchen Access Requested? : Yes\nAre you a Club Member?: No\nTimestamp: " + DateTime.Now.AddDays(-5).ToString("g") }
+        };
+    }
+}
