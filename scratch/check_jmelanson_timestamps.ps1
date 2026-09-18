@@ -3,10 +3,10 @@ $conn = New-Object System.Data.SqlClient.SqlConnection($connectionString)
 $conn.Open()
 
 $cmd = $conn.CreateCommand()
-$cmd.CommandText = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME"
+$cmd.CommandText = "SELECT Id, Timestamp, BartenderName, PaymentType, TotalAmount FROM PosSales WHERE BartenderName = 'JMelanson' ORDER BY Timestamp"
 $reader = $cmd.ExecuteReader()
 while ($reader.Read()) {
-    Write-Host $reader['TABLE_NAME']
+    Write-Host "$($reader['Timestamp']) | $($reader['BartenderName']) | $($reader['PaymentType']) | $($reader['TotalAmount'])"
 }
 $reader.Close()
 $conn.Close()
