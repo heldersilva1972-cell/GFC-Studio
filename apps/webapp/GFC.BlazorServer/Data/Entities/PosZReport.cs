@@ -43,6 +43,7 @@ namespace GFC.BlazorServer.Data.Entities
         public string? PhysicalTokensJson { get; set; }
 
         public string? ShiftDrinkJson { get; set; }
+        public int? QuarterRollsCount { get; set; }
 
         public bool IsSynced { get; set; } = false;
     }

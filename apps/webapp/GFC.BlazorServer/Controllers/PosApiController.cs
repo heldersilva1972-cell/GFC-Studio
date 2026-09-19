@@ -966,6 +966,7 @@ public class PosApiController : ControllerBase
                 RecordSalesToBar = reportDto.RecordSalesToBar,
                 PhysicalTokensJson = reportDto.PhysicalTokensJson,
                 ShiftDrinkJson = reportDto.ShiftDrinkJson,
+                QuarterRollsCount = reportDto.QuarterRollsCount,
                 IsSynced = true
             };
 
@@ -1185,7 +1186,10 @@ public class PosApiController : ControllerBase
                 TokenCredits = r.TokenCredits ?? 0,
                 HoursWorked = r.HoursWorked,
                 ShiftType = r.ShiftType,
-                RecordSalesToBar = r.RecordSalesToBar
+                RecordSalesToBar = r.RecordSalesToBar,
+                PhysicalTokensJson = r.PhysicalTokensJson,
+                ShiftDrinkJson = r.ShiftDrinkJson,
+                QuarterRollsCount = r.QuarterRollsCount
             })
             .ToListAsync();
         return Ok(reports);
@@ -1212,7 +1216,10 @@ public class PosApiController : ControllerBase
             TokenCredits = r.TokenCredits ?? 0,
             HoursWorked = r.HoursWorked,
             ShiftType = r.ShiftType,
-            RecordSalesToBar = r.RecordSalesToBar
+            RecordSalesToBar = r.RecordSalesToBar,
+            PhysicalTokensJson = r.PhysicalTokensJson,
+            ShiftDrinkJson = r.ShiftDrinkJson,
+            QuarterRollsCount = r.QuarterRollsCount
         });
     }
 

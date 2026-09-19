@@ -1637,6 +1637,22 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($"Error executing PromptPrintSummaryOnClose column repair: {ex.Message}");
                 }
+
+                // [AUTO-FIX 13] Add QuarterRollsCount to PosZReports
+                try
+                {
+                    var quarterRollsFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[PosZReports]') AND name = 'QuarterRollsCount')
+                        BEGIN
+                            ALTER TABLE [dbo].[PosZReports] ADD [QuarterRollsCount] INT NULL;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(quarterRollsFixSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing QuarterRollsCount column repair: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {

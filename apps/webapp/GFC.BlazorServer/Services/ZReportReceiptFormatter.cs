@@ -121,7 +121,8 @@ namespace GFC.BlazorServer.Services
             bool isReprint = false,
             string? itemTotalsJson = null,
             string? physicalTokensJson = null,
-            string? shiftDrinkJson = null)
+            string? shiftDrinkJson = null,
+            int? quarterRollsCount = null)
         {
             var sb = new StringBuilder();
 
@@ -492,6 +493,22 @@ namespace GFC.BlazorServer.Services
                     }
                 }
                 catch { }
+            }
+
+            // Quarter Rolls Exchange
+            if (quarterRollsCount.HasValue)
+            {
+                AppendSectionHeader(sb, "QUARTER ROLLS EXCHANGED");
+                if (quarterRollsCount.Value > 0)
+                {
+                    AppendLine(sb, "ROLLS PULLED", $"{quarterRollsCount.Value} ({quarterRollsCount.Value * 10:C})");
+                    AppendLine(sb, "CASH IN BAG", "CONFIRMED");
+                }
+                else
+                {
+                    AppendLine(sb, "ROLLS PULLED", "0 ($0.00)");
+                    AppendLine(sb, "STATUS", "NO ROLLS PULLED");
+                }
             }
 
             // Total Sales footer
