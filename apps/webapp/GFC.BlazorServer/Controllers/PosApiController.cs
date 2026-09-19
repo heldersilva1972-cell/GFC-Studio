@@ -544,6 +544,8 @@ public class PosApiController : ControllerBase
                 ModifierCategories = modifierCategories,
                 Modifiers = flatModifiers,
                 PayoutCategories = payoutCategories,
+                DartPizzaPayoutAmount = settings?.DartPizzaPayoutAmount ?? 45.00m,
+                EnableDartPizzaPayout = settings?.EnableDartPizzaPayout ?? true,
                 ProfileName = profileName
             });
 

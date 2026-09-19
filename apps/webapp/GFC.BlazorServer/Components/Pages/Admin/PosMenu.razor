@@ -446,6 +446,31 @@
                             </div>
                         </div>
 
+                        <!-- Dart Night Pizza Quick-Payout Setting -->
+                        <div class="card border-0 rounded-4 p-3 mb-3 shadow-sm bg-white border">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <h6 class="fw-bold mb-0 text-dark">
+                                        <i class="bi bi-bullseye me-2 text-danger"></i>Dart Night Pizza Quick-Payout
+                                    </h6>
+                                    <p class="text-muted small mb-0">Configures the 1-tap quick payout button displayed on POS terminals during Darts Mode.</p>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="enableDartPizzaPayout" id="toggleDartPizza" />
+                                    <label class="form-check-label fw-bold small text-muted ms-1" for="toggleDartPizza">@(enableDartPizzaPayout ? "ENABLED" : "DISABLED")</label>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-3 align-items-center">
+                                <div class="input-group input-group-sm" style="max-width: 260px;">
+                                    <span class="input-group-text bg-light fw-bold">$</span>
+                                    <input type="number" step="0.01" class="form-control form-control-sm rounded-end-3" @bind="dartPizzaPayoutAmount" placeholder="45.00" />
+                                </div>
+                                <button class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-bold shadow-sm" @onclick="SaveDartPizzaSettings">
+                                    <i class="bi bi-check-lg me-1"></i> Save Pizza Amount
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="card border-0 rounded-4 p-3 mb-3 shadow-sm" style="background-color: #fff7ed;">
                             <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-plus-circle-fill me-2" style="color: #ea580c;"></i>Create Category</h6>
                             <div class="d-flex gap-3 align-items-center">
@@ -2533,6 +2558,8 @@
     private bool showPayoutTab = false;
     private List<string> payoutCategories = new();
     private string newPayoutCategory = "";
+    private decimal dartPizzaPayoutAmount = 45.00m;
+    private bool enableDartPizzaPayout = true;
 
     private LiquorItem? editingItem;
     private bool showFullInventoryDetails = false;
@@ -2676,16 +2703,45 @@
     {
         using var db = await DbFactory.CreateDbContextAsync();
         var settings = await db.SystemSettings.FirstOrDefaultAsync();
-        if (settings != null && !string.IsNullOrEmpty(settings.PayoutCategories))
+        if (settings != null)
         {
-            payoutCategories = settings.PayoutCategories
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(c => c.Trim().ToUpper())
-                .ToList();
+            dartPizzaPayoutAmount = settings.DartPizzaPayoutAmount;
+            enableDartPizzaPayout = settings.EnableDartPizzaPayout;
+            if (!string.IsNullOrEmpty(settings.PayoutCategories))
+            {
+                payoutCategories = settings.PayoutCategories
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(c => c.Trim().ToUpper())
+                    .ToList();
+            }
+            else
+            {
+                payoutCategories = new List<string> { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+            }
         }
         else
         {
             payoutCategories = new List<string> { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
+        }
+    }
+
+    private async Task SaveDartPizzaSettings()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
+            if (settings != null)
+            {
+                settings.DartPizzaPayoutAmount = dartPizzaPayoutAmount;
+                settings.EnableDartPizzaPayout = enableDartPizzaPayout;
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess("Dart Pizza quick-payout settings updated successfully.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save pizza settings: {ex.Message}");
         }
     }
 

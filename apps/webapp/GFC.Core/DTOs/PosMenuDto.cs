@@ -12,6 +12,8 @@ public class PosMenuDto
     public List<string> ModifierCategories { get; set; } = new();
     public List<PosModifierDto> Modifiers { get; set; } = new();
     public List<string> PayoutCategories { get; set; } = new();
+    public decimal DartPizzaPayoutAmount { get; set; } = 45.00m;
+    public bool EnableDartPizzaPayout { get; set; } = true;
     public string ProfileName { get; set; } = "Default Retail (No Profile)";
 }
 

@@ -125,6 +125,8 @@ public class SystemSettings
     public int BingoPayoutRoundingMode { get; set; } = 0; // 0: None, 1: Round Up, 2: Round Down
 
     public string? PayoutCategories { get; set; } = "FOOD,SUPPLIES,MAINTENANCE,REBATE/REFUND,OTHER";
+    public decimal DartPizzaPayoutAmount { get; set; } = 45.00m;
+    public bool EnableDartPizzaPayout { get; set; } = true;
 
     // --- LOTTERY BILLING INTEGRATION ---
     public bool LotteryBillCreationEnabled { get; set; } = false;
