@@ -1,0 +1,13 @@
+$connectionString = "Server=.\SQLEXPRESS;Database=ClubMembership;Integrated Security=True;TrustServerCertificate=True;Encrypt=False;"
+$conn = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+$conn.Open()
+
+# Let's inspect the exact JSON with PAYOUT:FOOD added
+$salesSummary = '{"Beer (High Noon Iced Tea) (TOKEN SALE)":1,"Soda (DARTS - Away Team 1)":1,"White Claw Black Cherry":1,"Miller Lite":16,"Soda (DARTS - Home Team 1)":1,"Suncruiser Iced Tea (Mixed Drink) (TOKEN REDEEMED)":1,"Corona Light":2,"Corona Light (DARTS - Home Team 1)":1,"Miller Lite (DARTS - Home Team 1)":1,"Bud Light (DARTS - Home Team 1)":1,"TwistedTea (DARTS - Away Team 1)":2,"McGillicuddy''s Rootbeer":6,"Tangueray (Mixed Drink) (TOKEN REDEEMED)":1,"Captain Morgan":5,"White Claw Black Cherry (DARTS - Away Team 1)":1,"Soda":2,"Budweiser":8,"Captain Morgan (Mixed Drink) (TOKEN REDEEMED)":1,"Red Wine (Glass)":2,"Smirnoff Vodka":1,"McGillicuddy''s Mentholmint":8,"Crown Royal Canadian":2,"High Noon Iced Tea (DARTS - Home Team 1)":1,"High Noon Iced Tea (Mixed Drink) (TOKEN REDEEMED)":2,"TwistedTea":8,"Pabst":4,"Corona Extra":2,"Miller Lite (Beer) (TOKEN REDEEMED)":1,"Crown Royal Canadian (DARTS - Away Team 1)":1,"NO SALE (Drawer Open)":23,"Coors Light":2,"Pabst (DARTS - Home Team 1)":1,"Coors Light (DARTS - Away Team 1)":1,"High Noon Iced Tea":1,"Bud Light":6,"PAYOUT:FOOD":1}'
+
+$itemTotals = '{"Beer (High Noon Iced Tea) (TOKEN SALE)":5.75,"Soda (DARTS - Away Team 1)":0.00,"White Claw Black Cherry":4.50,"Miller Lite":56.00,"Soda (DARTS - Home Team 1)":0.00,"Suncruiser Iced Tea (Mixed Drink) (TOKEN REDEEMED)":0.00,"Corona Light":9.00,"Corona Light (DARTS - Home Team 1)":0.00,"Miller Lite (DARTS - Home Team 1)":0.00,"Bud Light (DARTS - Home Team 1)":0.00,"TwistedTea (DARTS - Away Team 1)":0.00,"McGillicuddy''s Rootbeer":27.00,"Tangueray (Mixed Drink) (TOKEN REDEEMED)":0.00,"Captain Morgan":23.75,"White Claw Black Cherry (DARTS - Away Team 1)":0.00,"Soda":3.00,"Budweiser":28.00,"Captain Morgan (Mixed Drink) (TOKEN REDEEMED)":0.00,"Red Wine (Glass)":8.00,"Smirnoff Vodka":4.50,"McGillicuddy''s Mentholmint":36.00,"Crown Royal Canadian":11.50,"High Noon Iced Tea (DARTS - Home Team 1)":0.00,"High Noon Iced Tea (Mixed Drink) (TOKEN REDEEMED)":0.00,"TwistedTea":36.00,"Pabst":14.00,"Corona Extra":9.00,"Miller Lite (Beer) (TOKEN REDEEMED)":0.00,"Crown Royal Canadian (DARTS - Away Team 1)":0.00,"NO SALE (Drawer Open)":0.00,"Coors Light":7.00,"Pabst (DARTS - Home Team 1)":0.00,"Coors Light (DARTS - Away Team 1)":0.00,"High Noon Iced Tea":5.75,"Bud Light":21.00,"PAYOUT:FOOD":70.00}'
+
+Write-Host "Sales Summary has $($salesSummary.Length) chars"
+Write-Host "Item Totals has $($itemTotals.Length) chars"
+
+$conn.Close()

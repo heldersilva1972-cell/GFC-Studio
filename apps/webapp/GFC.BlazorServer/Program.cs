@@ -1318,6 +1318,32 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> Error executing direct bills-to-loans schema fix: {ex.Message}");
                 }
 
+                // [AUTO-FIX 21] Dart Pizza Quick-Payout Settings Schema Migration (Direct SQL)
+                try
+                {
+                    var dartPizzaSettingsSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.SystemSettings') AND name = 'DartPizzaPayoutAmount')
+                            BEGIN
+                                ALTER TABLE dbo.SystemSettings ADD DartPizzaPayoutAmount DECIMAL(18,2) NOT NULL CONSTRAINT DF_SystemSettings_DartPizzaPayoutAmount DEFAULT 45.00;
+                                PRINT 'Added DartPizzaPayoutAmount column to SystemSettings';
+                            END
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.SystemSettings') AND name = 'EnableDartPizzaPayout')
+                            BEGIN
+                                ALTER TABLE dbo.SystemSettings ADD EnableDartPizzaPayout BIT NOT NULL CONSTRAINT DF_SystemSettings_EnableDartPizzaPayout DEFAULT 1;
+                                PRINT 'Added EnableDartPizzaPayout column to SystemSettings';
+                            END
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(dartPizzaSettingsSql);
+                    Console.WriteLine(">>> Dart Pizza Quick-Payout Schema Migration applied/verified.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error executing direct dart pizza settings schema fix: {ex.Message}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }

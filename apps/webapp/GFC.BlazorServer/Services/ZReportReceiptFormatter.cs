@@ -331,19 +331,7 @@ namespace GFC.BlazorServer.Services
                 AppendLine(sb, "NO SALE COUNT", noSaleCount.ToString());
             AppendBlank(sb);
 
-            if (payoutTotal > 0)
-            {
-                AppendLine(sb, "CASH SALES", $"{cashTotal:C}");
-                AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
-                AppendLine(sb, "EXPECTED CASH IN DRAWER", $"{(cashTotal - payoutTotal):C}");
-                AppendBlank(sb);
-                foreach (var wl in WrapText("* Expected cash in drawer = Cash Sales minus Payouts.", 0))
-                    sb.Append(wl).Append('\n');
-            }
-            else
-            {
-                AppendLine(sb, "CASH IN DRAWER", $"{cashTotal:C}");
-            }
+            AppendLine(sb, "CASH IN DRAWER", $"{(cashTotal - payoutTotal):C}");
 
             // Category Summaries
             decimal foodSnackTotal = 0;
@@ -491,13 +479,11 @@ namespace GFC.BlazorServer.Services
                         {
                             AppendLine(sb, "DRINK TYPE", "POURED TONIGHT");
                             AppendLine(sb, "DRINK", shiftDrink.ItemName);
-                            AppendLine(sb, "VALUE", $"{shiftDrink.Price:C}");
                         }
                         else if (shiftDrink.Type == "TOKEN")
                         {
                             AppendLine(sb, "DRINK TYPE", "TOKEN ISSUED");
                             AppendLine(sb, "TOKEN FOR", shiftDrink.ItemName);
-                            AppendLine(sb, "VALUE", $"{shiftDrink.Price:C}");
                         }
                         else
                         {

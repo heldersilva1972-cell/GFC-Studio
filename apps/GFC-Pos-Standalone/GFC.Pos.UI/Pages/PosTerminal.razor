@@ -2059,26 +2059,45 @@
                 @if (!_isEditingPizzaAmount)
                 {
                     <div class="text-center py-3">
-                        <div class="text-muted fw-bold small text-uppercase mb-1 tracking-wider">STANDARD PAYOUT AMOUNT</div>
+                        <div class="text-muted fw-bold small text-uppercase mb-1 tracking-wider">
+                            @(_existingPizzaPayoutSale != null ? "CURRENT RECORDED PAYOUT" : "STANDARD PAYOUT AMOUNT")
+                        </div>
                         <div class="display-4 fw-black text-dark mb-2" style="letter-spacing: -1px;">
-                            $@_dartPizzaPayoutAmount.ToString("F2")
+                            $@((_existingPizzaPayoutSale != null ? _existingPizzaPayoutSale.TotalAmount : _dartPizzaPayoutAmount).ToString("F2"))
                         </div>
                         <p class="text-muted small mb-4 px-2">
-                            Confirming will deduct <strong>$@_dartPizzaPayoutAmount.ToString("F2")</strong> from the drawer, kick the register, and print a payout voucher.
+                            @if (_existingPizzaPayoutSale != null)
+                            {
+                                <span>Recorded at <strong>@_existingPizzaPayoutSale.Timestamp.ToString("t")</strong> by <strong>@_existingPizzaPayoutSale.BartenderName</strong>. You can modify the amount or cancel this payout if made in error.</span>
+                            }
+                            else
+                            {
+                                <span>Confirming will deduct <strong>$@_dartPizzaPayoutAmount.ToString("F2")</strong> from the drawer, kick the register, and print a payout voucher.</span>
+                            }
                         </p>
 
                         <div class="d-flex flex-column gap-2">
-                            <button class="btn btn-warning w-100 py-3 rounded-pill fw-black fs-5 shadow-sm text-dark border-warning"
-                                    @onclick="() => SubmitPizzaPayout(_dartPizzaPayoutAmount)">
-                                <i class="bi bi-check-circle-fill me-2"></i> CONFIRM PAYOUT ($@_dartPizzaPayoutAmount.ToString("F2"))
-                            </button>
-                            <button class="btn btn-light w-100 py-2.5 rounded-pill fw-bold text-muted border"
+                            @if (_existingPizzaPayoutSale == null)
+                            {
+                                <button class="btn btn-warning w-100 py-3 rounded-pill fw-black fs-5 shadow-sm text-dark border-warning"
+                                        @onclick="() => SubmitPizzaPayout(_dartPizzaPayoutAmount)">
+                                    <i class="bi bi-check-circle-fill me-2"></i> CONFIRM PAYOUT ($@_dartPizzaPayoutAmount.ToString("F2"))
+                                </button>
+                            }
+                            <button class="btn @(_existingPizzaPayoutSale != null ? "btn-warning py-3 fs-5 fw-black text-dark border-warning" : "btn-light py-2.5 fw-bold text-muted border") w-100 rounded-pill"
                                     @onclick="StartEditPizzaAmount">
-                                <i class="bi bi-pencil-fill me-1"></i> Edit Amount (Receipt Differs)
+                                <i class="bi bi-pencil-fill me-1"></i> @(_existingPizzaPayoutSale != null ? "Change Payout Amount" : "Edit Amount (Receipt Differs)")
                             </button>
+                            @if (_existingPizzaPayoutSale != null)
+                            {
+                                <button class="btn btn-outline-danger w-100 py-2.5 rounded-pill fw-bold border-2 mt-1"
+                                        @onclick="VoidExistingPizzaPayout">
+                                    <i class="bi bi-trash3-fill me-1"></i> Cancel / Void Pizza Payout
+                                </button>
+                            }
                             <button class="btn btn-outline-secondary w-100 py-2 rounded-pill fw-bold border-0 mt-1"
                                     @onclick="() => showPizzaPayoutModal = false">
-                                Cancel
+                                Close
                             </button>
                         </div>
                     </div>
@@ -2605,6 +2624,43 @@
 
                     <div class="modal-body p-4 pt-3">
                         <div class="row g-2 mb-4">
+                            @if (_enableDartPizzaPayout)
+                            {
+                                var claimedPizzaSale = _todayDartsSales.FirstOrDefault(s => s.PaymentType == "PAYOUT" && s.ItemsJson.Contains("DART PIZZA"));
+                                if (claimedPizzaSale != null)
+                                {
+                                    <div class="col">
+                                        <button type="button" 
+                                                class="btn w-100 p-3 rounded-3 text-start border border-secondary shadow-sm transition-all" 
+                                                style="background: rgba(255,255,255,0.08); color: #cbd5e1;"
+                                                @onclick="() => PromptEditClaimedPizzaPayout(claimedPizzaSale)">
+                                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                                <span class="badge bg-secondary rounded-pill px-2.5 py-0.5 fw-bold" style="font-size: 0.68rem;">
+                                                    <i class="bi bi-check-circle-fill me-1"></i> PAID OUT $@claimedPizzaSale.TotalAmount.ToString("F2")
+                                                </span>
+                                                <i class="bi bi-pencil-square text-warning fs-5"></i>
+                                            </div>
+                                            <div class="fw-black text-white" style="font-size: 0.95rem;">🍕 PIZZA PAYOUT</div>
+                                            <p class="small mb-0 text-secondary" style="font-size: 0.72rem;">Click to Edit or Cancel Payout</p>
+                                        </button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="col">
+                                        <button type="button" 
+                                                class="btn w-100 p-3 rounded-3 fw-black text-dark shadow-sm d-flex align-items-center justify-content-center gap-2.5 transition-all border-0" 
+                                                style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff !important; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4) !important; font-size: 0.95rem; letter-spacing: 0.3px;" 
+                                                @onclick="() => { _showDartsTeamModal = false; OpenPizzaPayoutModal(); }">
+                                            <span class="fs-4">🍕</span>
+                                            <div class="text-start">
+                                                <div class="lh-1 text-white">PIZZA PAYOUT</div>
+                                                <div class="small fw-bold text-white opacity-85 mt-1" style="font-size: 0.72rem;">$@_dartPizzaPayoutAmount.ToString("F2") Drawer Payout</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                }
+                            }
                             @if (!_todayDartsSales.Any())
                             {
                                 <div class="col">
@@ -2623,12 +2679,12 @@
                             <div class="col">
                                 <button type="button" 
                                         class="btn w-100 p-3 rounded-3 fw-black shadow-sm d-flex align-items-center justify-content-center gap-2.5 transition-all border-0" 
-                                        style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #451a03 !important; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4) !important; font-size: 0.95rem; letter-spacing: 0.3px;" 
+                                        style="background: linear-gradient(135deg, #64748b 0%, #475569 100%); color: #ffffff !important; box-shadow: 0 4px 14px rgba(71, 85, 105, 0.4) !important; font-size: 0.95rem; letter-spacing: 0.3px;" 
                                         @onclick="CompleteDartsNightEarly">
-                                    <i class="bi bi-check-circle-fill fs-5" style="color: #451a03;"></i>
+                                    <i class="bi bi-check-circle-fill fs-5 text-white"></i>
                                     <div class="text-start">
-                                        <div class="lh-1" style="color: #451a03;">DONE FOR TONIGHT</div>
-                                        <div class="small fw-bold opacity-75 mt-1" style="font-size: 0.72rem; color: #451a03;">Close Darts Session</div>
+                                        <div class="lh-1 text-white">DONE FOR TONIGHT</div>
+                                        <div class="small fw-bold text-white opacity-75 mt-1" style="font-size: 0.72rem;">Close Darts Session</div>
                                     </div>
                                 </button>
                             </div>
@@ -4384,7 +4440,7 @@
                     </div>
                     
                     <div class="d-flex align-items-center gap-2">
-                        @if (_enableDartPizzaPayout)
+                        @if (_enableDartPizzaPayout && !_todayDartsSales.Any(s => s.PaymentType == "PAYOUT" && s.ItemsJson.Contains("DART PIZZA")))
                         {
                             <button class="btn fw-black rounded-pill px-4 py-3 shadow-sm border-0 animate__animated animate__pulse animate__infinite animate__slow" 
                                     style="font-size: 1.05rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.35) !important;"
@@ -7097,9 +7153,11 @@
     private bool _isEditingPizzaAmount = false;
     private string _customPizzaAmountString = "";
     private decimal _customPizzaAmount = 0;
+    private PosSaleDto? _existingPizzaPayoutSale = null;
 
     private void OpenPizzaPayoutModal()
     {
+        _existingPizzaPayoutSale = _todayDartsSales.FirstOrDefault(s => s.PaymentType == "PAYOUT" && s.ItemsJson.Contains("DART PIZZA"));
         _isEditingPizzaAmount = false;
         _customPizzaAmountString = "";
         _customPizzaAmount = 0;
@@ -7107,11 +7165,23 @@
         StateHasChanged();
     }
 
+    private void PromptEditClaimedPizzaPayout(PosSaleDto sale)
+    {
+        _existingPizzaPayoutSale = sale;
+        _isEditingPizzaAmount = false;
+        _customPizzaAmountString = sale.TotalAmount.ToString("0.00");
+        _customPizzaAmount = sale.TotalAmount;
+        _showDartsTeamModal = false;
+        showPizzaPayoutModal = true;
+        StateHasChanged();
+    }
+
     private void StartEditPizzaAmount()
     {
         _isEditingPizzaAmount = true;
-        _customPizzaAmountString = _dartPizzaPayoutAmount.ToString("0.00");
-        _customPizzaAmount = _dartPizzaPayoutAmount;
+        var baseAmt = _existingPizzaPayoutSale != null ? _existingPizzaPayoutSale.TotalAmount : _dartPizzaPayoutAmount;
+        _customPizzaAmountString = baseAmt.ToString("0.00");
+        _customPizzaAmount = baseAmt;
         StateHasChanged();
     }
 
@@ -10248,6 +10318,13 @@
 
         try
         {
+            // If editing an existing payout, void the old one first
+            if (_existingPizzaPayoutSale != null)
+            {
+                await PosService.VoidSaleAsync(_existingPizzaPayoutSale.Id, "Corrected Pizza Payout Amount");
+                _todayDartsSales.RemoveAll(s => s.Id == _existingPizzaPayoutSale.Id);
+            }
+
             var payoutSale = new PosSaleDto
             {
                 Id = Guid.NewGuid(),
@@ -10270,9 +10347,11 @@
 
             await PosService.AddSaleToShiftAsync(payoutSale);
             await PosService.SaveSaleAsync(payoutSale);
+            _todayDartsSales.Add(payoutSale);
 
             showPizzaPayoutModal = false;
             _isEditingPizzaAmount = false;
+            _existingPizzaPayoutSale = null;
             Toast.ShowSuccess($"Dart Pizza payout of {amount:C} recorded successfully.");
             StateHasChanged();
 
@@ -10303,6 +10382,31 @@
         catch (Exception ex)
         {
             Toast.ShowError($"Failed to record pizza payout: {ex.Message}");
+        }
+    }
+
+    private async Task VoidExistingPizzaPayout()
+    {
+        if (_existingPizzaPayoutSale == null) return;
+
+        try
+        {
+            await PosService.VoidSaleAsync(_existingPizzaPayoutSale.Id, "Cancelled by Bartender");
+            _todayDartsSales.RemoveAll(s => s.Id == _existingPizzaPayoutSale.Id);
+            
+            showPizzaPayoutModal = false;
+            _isEditingPizzaAmount = false;
+            var voidedAmount = _existingPizzaPayoutSale.TotalAmount;
+            _existingPizzaPayoutSale = null;
+            
+            Toast.ShowSuccess($"Pizza payout of {voidedAmount:C} has been cancelled/voided.");
+            StateHasChanged();
+            
+            _ = UpdateAuditAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to void payout: {ex.Message}");
         }
     }
 
@@ -10545,19 +10649,7 @@
             ReceiptFormatter.AppendLine(sb, "NO SALE COUNT", noSaleCount.ToString());
         ReceiptFormatter.AppendBlank(sb);
         
-        if (payoutTotal > 0)
-        {
-            ReceiptFormatter.AppendLine(sb, "CASH SALES", $"{z.CashTotal:C}");
-            ReceiptFormatter.AppendLine(sb, "TOTAL PAYOUTS", $"-{payoutTotal:C}");
-            ReceiptFormatter.AppendLine(sb, "EXPECTED CASH IN DRAWER", $"{(z.CashTotal - payoutTotal):C}");
-            ReceiptFormatter.AppendBlank(sb);
-            foreach (var wl in ReceiptFormatter.WrapText("* Expected cash in drawer = Cash Sales minus Payouts.", 0))
-                sb.Append(wl).Append('\n');
-        }
-        else
-        {
-            ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{z.CashTotal:C}");
-        }
+        ReceiptFormatter.AppendLine(sb, "CASH IN DRAWER", $"{(z.CashTotal - payoutTotal):C}");
 
         // Compute category summaries (Food & Snacks, Liquor & Beverages)
         decimal foodSnackTotal = 0;
@@ -10696,7 +10788,6 @@
                     ReceiptFormatter.AppendSectionHeader(sb, "BARTENDER SHIFT DRINK");
                     ReceiptFormatter.AppendLine(sb, "DRINK TYPE", drinkRec.Type == "POUR_NOW" ? "POURED TONIGHT" : "TOKEN FOR LATER");
                     ReceiptFormatter.AppendLine(sb, "ITEM", drinkRec.ItemName.ToUpper());
-                    ReceiptFormatter.AppendLine(sb, "VALUE", $"{drinkRec.Price:C}");
                     ReceiptFormatter.AppendLine(sb, "BARTENDER", drinkRec.Bartender);
                 }
             }

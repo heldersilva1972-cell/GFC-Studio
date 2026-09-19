@@ -814,15 +814,20 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             if (vaultItems.ValueKind == JsonValueKind.Array)
             {
                 var today = DateTime.Today;
+                var foundIds = new HashSet<Guid>();
                 foreach (var item in vaultItems.EnumerateArray())
                 {
                     var key = item.GetProperty("key").GetString();
-                    if (key != null && key.StartsWith(VaultPrefixSales))
+                    if (key != null && (key.StartsWith(ShiftLogPrefix) || key.StartsWith(VaultPrefixSales)))
                     {
                         var sale = JsonSerializer.Deserialize<PosSaleDto>(item.GetProperty("data").GetRawText(), _jsonOptions);
-                        if (sale != null && sale.Timestamp.Date == today && sale.ItemsJson.Contains("(DARTS"))
+                        if (sale != null && !sale.IsVoided && sale.Timestamp.Date == today && !foundIds.Contains(sale.Id))
                         {
-                            list.Add(sale);
+                            if (sale.ItemsJson.Contains("(DARTS") || sale.ItemsJson.Contains("DART PIZZA"))
+                            {
+                                foundIds.Add(sale.Id);
+                                list.Add(sale);
+                            }
                         }
                     }
                 }
