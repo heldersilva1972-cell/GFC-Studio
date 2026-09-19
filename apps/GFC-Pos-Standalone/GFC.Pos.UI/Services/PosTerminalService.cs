@@ -166,6 +166,10 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         if (!audit.ItemSummary.ContainsKey(summaryKey))
                                             audit.ItemSummary[summaryKey] = 0;
                                         audit.ItemSummary[summaryKey]++;
+
+                                        if (!audit.RegularItemTotals.ContainsKey(summaryKey))
+                                            audit.RegularItemTotals[summaryKey] = 0;
+                                        audit.RegularItemTotals[summaryKey] += data.TotalAmount;
                                     }
                                     continue;
                                 }
@@ -180,9 +184,9 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                     // TRACK TOTALS
                                     if (!isDeposit)
                                     {
-                                        // Gross Total is the sum of all FULL PRICE items (Price > 0) + their modifiers
-                                        audit.GrossTotal += salesItems.Where(i => i.Price > 0).Sum(i => i.Price * i.Quantity);
-                                        audit.GrossTotal += salesItems.Sum(i => i.Modifiers?.Where(m => m.Price > 0).Sum(m => m.Price * m.Quantity) ?? 0);
+                                        // Gross Total is the sum of all FULL PRICE items (Price > 0) + their modifiers, excluding Darts comp rounds
+                                        audit.GrossTotal += salesItems.Where(i => i.Price > 0 && !i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) && !string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Price * i.Quantity);
+                                        audit.GrossTotal += salesItems.Where(i => !i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) && !string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Modifiers?.Where(m => m.Price > 0).Sum(m => m.Price * m.Quantity) ?? 0);
                                         
                                         audit.TokenCredits += salesItems.Where(i => i.Price < 0).Sum(i => Math.Abs(i.Price * i.Quantity));
                                     }
@@ -291,11 +295,12 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
                                 foreach (var i in flatList)
                                 {
+                                    decimal effectivePrice = (i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) || string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)) ? 0m : i.Price;
                                     if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
                                     if (!audit.ItemTotals.ContainsKey(i.Name)) audit.ItemTotals[i.Name] = 0;
                                     
                                     audit.ItemSummary[i.Name] += i.Quantity;
-                                    audit.ItemTotals[i.Name] += (i.Price * i.Quantity);
+                                    audit.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
 
                                     // [SEPARATION] Track regular sales vs banquet sales
                                     if (data.ActiveEventId.HasValue)
@@ -304,7 +309,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         if (b != null)
                                         {
                                             if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
-                                            b.ItemTotals[i.Name] += (i.Price * i.Quantity);
+                                            b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
                                         }
                                     }
                                     else
@@ -313,7 +318,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                         if (!audit.RegularItemTotals.ContainsKey(i.Name)) audit.RegularItemTotals[i.Name] = 0;
                                         
                                         audit.RegularItemSummary[i.Name] += i.Quantity;
-                                        audit.RegularItemTotals[i.Name] += (i.Price * i.Quantity);
+                                        audit.RegularItemTotals[i.Name] += (effectivePrice * i.Quantity);
                                     }
                                 }
                             }

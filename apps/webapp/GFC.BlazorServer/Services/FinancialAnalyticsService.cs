@@ -474,6 +474,7 @@ namespace GFC.BlazorServer.Services
                 foreach (var s in posSales)
                 {
                     if (s.TerminalName != null && s.TerminalName.Contains("(TRAINING)")) continue;
+                    if (s.PaymentType == "PAYOUT" || (s.ItemsJson != null && s.ItemsJson.Contains("\"PAYOUT"))) continue;
 
                     var localTime = s.Timestamp;
                     var localHour = localTime.Hour;

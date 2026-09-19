@@ -167,14 +167,43 @@ namespace GFC.BlazorServer.Services
 
             foreach (var kvp in salesSummary)
             {
-                if (kvp.Key.StartsWith("PAYOUT:"))
+                if (kvp.Key.StartsWith("PAYOUT:", StringComparison.OrdinalIgnoreCase) || kvp.Key.Equals("PAYOUT", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = kvp.Key.Split(':');
-                    if (parts.Length >= 4 && int.TryParse(parts[3], out var amountCents))
+                    decimal amt = 0;
+                    string cat = "EXPENSE";
+                    string desc = "";
+
+                    if (itemTotals.TryGetValue(kvp.Key, out var exactAmt) && exactAmt > 0)
                     {
-                        var cat = parts[1];
-                        var desc = parts[2];
-                        var amt = amountCents / 100m;
+                        amt = exactAmt;
+                    }
+
+                    var parts = kvp.Key.Split(':');
+                    if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                    {
+                        cat = parts[1].Trim();
+                    }
+                    if (parts.Length > 2 && !string.IsNullOrWhiteSpace(parts[2]))
+                    {
+                        desc = parts[2].Trim();
+                    }
+                    if (amt == 0 && parts.Length >= 4 && int.TryParse(parts[3], out var amountCents) && amountCents > 0)
+                    {
+                        amt = amountCents / 100m;
+                    }
+                    else if (amt == 0 && parts.Length >= 3 && decimal.TryParse(parts[2], out var parsedAmt) && parsedAmt > 0)
+                    {
+                        amt = parsedAmt;
+                        desc = "";
+                    }
+                    else if (amt == 0 && parts.Length >= 2 && decimal.TryParse(parts[1], out var directAmt) && directAmt > 0)
+                    {
+                        amt = directAmt;
+                        cat = "EXPENSE";
+                    }
+
+                    if (amt > 0)
+                    {
                         payoutTotal += amt;
                         var payLabel = string.IsNullOrEmpty(desc) ? $"  - {cat}" : $"  - {cat} ({desc})";
                         payoutLines.Add((payLabel, $"-{amt:C}"));
@@ -215,6 +244,7 @@ namespace GFC.BlazorServer.Services
                     if (isTokenSale) cleanKey = cleanKey.Replace(" (TOKEN SALE)", "");
                     bool isTokenRedeemed = cleanKey.Contains(" (TOKEN REDEEMED)");
                     if (isTokenRedeemed) cleanKey = cleanKey.Replace(" (TOKEN REDEEMED)", "");
+                    bool isDartsRound = cleanKey.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) || kvp.Key.Contains("(DARTS", StringComparison.OrdinalIgnoreCase);
 
                     var product = itemList.FirstOrDefault(i => i.Name != null && i.Name.Equals(cleanKey, StringComparison.OrdinalIgnoreCase));
                     if (product == null && cleanKey.Contains(" (") && cleanKey.EndsWith(")"))
@@ -229,13 +259,17 @@ namespace GFC.BlazorServer.Services
                         }
                     }
                     var category = product?.Category;
-                    if (kvp.Key.Contains("(DARTS")) category = "DARTS ROUND";
+                    if (isDartsRound) category = "DARTS ROUND";
                     else if (kvp.Key.StartsWith("TAB DEPOSIT:")) category = "DEPOSITS";
                     else if (category == null && (kvp.Key.Contains("TOKEN CREDIT") || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN"))) category = "TOKENS";
                     else if (isTokenRedeemed || kvp.Key.Contains("(TOKEN REDEEMED)") || kvp.Key.Contains("TOKEN REDEEMED")) category = "TOKENS";
 
                     decimal lineTotal = 0;
-                    if (itemTotals.TryGetValue(kvp.Key, out var exactTotal))
+                    if (isDartsRound)
+                    {
+                        lineTotal = 0m;
+                    }
+                    else if (itemTotals.TryGetValue(kvp.Key, out var exactTotal))
                     {
                         lineTotal = exactTotal;
                     }
@@ -275,7 +309,7 @@ namespace GFC.BlazorServer.Services
                         }
                         lineTotal = price * kvp.Value;
                     }
-                    return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = lineTotal, ZReportGroup = product?.ZReportGroup ?? 0 };
+                    return new { Name = kvp.Key, Quantity = kvp.Value, Category = category ?? "MISC", Total = lineTotal, ZReportGroup = isDartsRound ? 3 : (product?.ZReportGroup ?? 0) };
                 })
                 .GroupBy(x => x.Category)
                 .OrderBy(g => g.Key)

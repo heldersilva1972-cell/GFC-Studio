@@ -156,7 +156,35 @@
                         </thead>
                         <tbody>
                             @{
-                                var sales = ParseSummary(_selectedReport.SalesSummaryJson);
+                                var rawSales = ParseSummary(_selectedReport.SalesSummaryJson);
+                                var itemTotals = ParseItemTotals(_selectedReport.ItemTotalsJson);
+                                var payoutsList = new List<(string Name, decimal Amount)>();
+                                var sales = new Dictionary<string, int>();
+
+                                foreach (var kvp in rawSales)
+                                {
+                                    if (kvp.Key.StartsWith("PAYOUT:", StringComparison.OrdinalIgnoreCase) || kvp.Key.Equals("PAYOUT", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        decimal amt = 0;
+                                        string cat = "Expense";
+                                        string desc = "";
+                                        if (itemTotals.TryGetValue(kvp.Key, out var exactAmt) && exactAmt > 0) amt = exactAmt;
+                                        var parts = kvp.Key.Split(':');
+                                        if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1])) cat = parts[1].Trim();
+                                        if (parts.Length > 2 && !string.IsNullOrWhiteSpace(parts[2])) desc = parts[2].Trim();
+                                        if (amt == 0 && parts.Length >= 4 && int.TryParse(parts[3], out var cents) && cents > 0) amt = cents / 100m;
+                                        else if (amt == 0 && parts.Length >= 3 && decimal.TryParse(parts[2], out var pAmt) && pAmt > 0) amt = pAmt;
+                                        else if (amt == 0 && parts.Length >= 2 && decimal.TryParse(parts[1], out var dAmt) && dAmt > 0) amt = dAmt;
+                                        
+                                        var label = string.IsNullOrEmpty(desc) ? cat : $"{cat} ({desc})";
+                                        payoutsList.Add((label, amt));
+                                    }
+                                    else
+                                    {
+                                        sales[kvp.Key] = kvp.Value;
+                                    }
+                                }
+
                                 if (!sales.Any())
                                 {
                                     <tr><td colspan="3" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
@@ -165,13 +193,21 @@
                                 {
                                     var groupedHistory = sales
                                         .Select(kvp => {
+                                            bool isDarts = kvp.Key.Contains("(DARTS", StringComparison.OrdinalIgnoreCase);
                                             var product = _menuItems.FirstOrDefault(i => i.Name == kvp.Key);
+                                            var category = isDarts ? "DARTS ROUND" : (product?.Category ?? "MISC");
+                                            decimal price = isDarts ? 0m : (product?.Price ?? 0m);
+                                            decimal lineTotal = 0m;
+                                            if (isDarts) lineTotal = 0m;
+                                            else if (itemTotals.TryGetValue(kvp.Key, out var exactT)) lineTotal = exactT;
+                                            else lineTotal = kvp.Value * price;
+
                                             return new { 
                                                 Name = kvp.Key, 
                                                 Quantity = kvp.Value, 
-                                                Category = product?.Category ?? "MISC",
-                                                Price = product?.Price ?? 0,
-                                                Total = kvp.Value * (product?.Price ?? 0)
+                                                Category = category,
+                                                Price = price,
+                                                Total = lineTotal
                                             };
                                         })
                                         .GroupBy(x => x.Category)
@@ -200,6 +236,37 @@
                         </tbody>
                     </table>
                 </div>
+
+                @if (payoutsList.Any())
+                {
+                    <!-- DRAWER PAYOUTS -->
+                    <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                        <i class="bi bi-wallet2 me-2 text-warning"></i> Drawer Payouts Log
+                    </h6>
+                    <div class="border rounded-4 overflow-hidden mb-5 bg-white shadow-sm">
+                        <table class="table mb-0 table-sm">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-3 py-2 border-0 small">Category / Description</th>
+                                    <th class="text-end pe-3 py-2 border-0 small">Paid Out</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pay in payoutsList)
+                                {
+                                    <tr>
+                                        <td class="ps-3 py-2 fw-bold text-dark small">@pay.Name.ToUpper()</td>
+                                        <td class="text-end pe-3 py-2 fw-black text-danger small">-$@pay.Amount.ToString("N2")</td>
+                                    </tr>
+                                }
+                                <tr class="table-group-divider bg-light">
+                                    <td class="ps-3 py-2 text-muted small fw-black text-uppercase">Total Payouts</td>
+                                    <td class="text-end pe-3 py-2 small fw-black text-danger">-$@payoutsList.Sum(p => p.Amount).ToString("N2")</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
 
                 <!-- EVENT LOG -->
                 <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
@@ -336,6 +403,13 @@
     private Dictionary<string, int> ParseSummary(string json)
     {
         try { return JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private Dictionary<string, decimal> ParseItemTotals(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return JsonSerializer.Deserialize<Dictionary<string, decimal>>(json) ?? new(); }
         catch { return new(); }
     }
 
