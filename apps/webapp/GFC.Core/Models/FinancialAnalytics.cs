@@ -89,6 +89,33 @@ namespace GFC.Core.Models
         public decimal ComparisonTotalIncome => ComparisonBarSales + ComparisonLotteryCommissions + ComparisonMembershipDues;
         public decimal GrowthPercentage => ComparisonTotalIncome > 0 ? ((CombinedTotalIncome - ComparisonTotalIncome) / ComparisonTotalIncome) * 100m : 0m;
         
+        // Full Annual (Year-over-Year / YTD Like-for-Like) comparison
+        public int CurrentYear { get; set; }
+        public int PriorYear { get; set; }
+        public bool IsYtdComparison => CurrentYear == DateTime.Now.Year;
+        public string YtdComparisonCutoffDate { get; set; } = "";
+        public decimal CurrentYearBarSales { get; set; }
+        public decimal CurrentYearLotteryCommissions { get; set; }
+        public decimal CurrentYearMembershipDues { get; set; }
+        public decimal CurrentYearTotalIncome => CurrentYearBarSales + CurrentYearLotteryCommissions + CurrentYearMembershipDues;
+
+        public decimal PriorYearBarSales { get; set; }
+        public decimal PriorYearLotteryCommissions { get; set; }
+        public decimal PriorYearMembershipDues { get; set; }
+        public decimal PriorYearTotalIncome => PriorYearBarSales + PriorYearLotteryCommissions + PriorYearMembershipDues;
+
+        public decimal AnnualIncomeDiff => CurrentYearTotalIncome - PriorYearTotalIncome;
+        public decimal AnnualIncomeGrowth => PriorYearTotalIncome > 0 ? ((CurrentYearTotalIncome - PriorYearTotalIncome) / PriorYearTotalIncome) * 100m : 0m;
+
+        public decimal AnnualBarSalesDiff => CurrentYearBarSales - PriorYearBarSales;
+        public decimal AnnualBarSalesGrowth => PriorYearBarSales > 0 ? ((CurrentYearBarSales - PriorYearBarSales) / PriorYearBarSales) * 100m : 0m;
+
+        public decimal AnnualLotteryDiff => CurrentYearLotteryCommissions - PriorYearLotteryCommissions;
+        public decimal AnnualLotteryGrowth => PriorYearLotteryCommissions > 0 ? ((CurrentYearLotteryCommissions - PriorYearLotteryCommissions) / PriorYearLotteryCommissions) * 100m : 0m;
+
+        public decimal AnnualDuesDiff => CurrentYearMembershipDues - PriorYearMembershipDues;
+        public decimal AnnualDuesGrowth => PriorYearMembershipDues > 0 ? ((CurrentYearMembershipDues - PriorYearMembershipDues) / PriorYearMembershipDues) * 100m : 0m;
+
         // Month-over-Month (MoM MTD Like-for-Like) comparison
         public int PrevMonthDaysCompared { get; set; }
         public decimal CurrentMtdBarSales { get; set; }

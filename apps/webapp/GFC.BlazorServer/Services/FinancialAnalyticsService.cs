@@ -1824,6 +1824,77 @@ namespace GFC.BlazorServer.Services
                 }
             }
 
+            // 6. Annual (YTD Like-for-Like or Full Year vs Prior Year) Totals Calculation
+            try
+            {
+                int curYear = start.Year;
+                int priorYear = curYear - 1;
+                summary.CurrentYear = curYear;
+                summary.PriorYear = priorYear;
+
+                DateTime curStart = new DateTime(curYear, 1, 1).Date;
+                DateTime curEnd;
+                DateTime priorStart = new DateTime(priorYear, 1, 1).Date;
+                DateTime priorEnd;
+
+                if (curYear == DateTime.Now.Year)
+                {
+                    // For current in-progress year, perform a true like-for-like Year-To-Date (YTD) comparison up to the current date
+                    curEnd = DateTime.Now.Date.AddDays(1).AddTicks(-1);
+                    priorEnd = DateTime.Now.AddYears(-1).Date.AddDays(1).AddTicks(-1);
+                    summary.YtdComparisonCutoffDate = DateTime.Now.ToString("MMM dd");
+                }
+                else
+                {
+                    // For completed historical years, compare full 12 months
+                    curEnd = new DateTime(curYear, 12, 31).Date.AddDays(1).AddTicks(-1);
+                    priorEnd = new DateTime(priorYear, 12, 31).Date.AddDays(1).AddTicks(-1);
+                    summary.YtdComparisonCutoffDate = "Dec 31";
+                }
+
+                // Current Year Totals
+                summary.CurrentYearBarSales = await db.BarSaleEntries.AsNoTracking()
+                    .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= curStart && (b.AdjustedSaleDate ?? b.SaleDate) <= curEnd)
+                    .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
+
+                var curWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                    .Where(w => w.WeekEndingDate >= curStart && w.WeekEndingDate <= curEnd)
+                    .ToListAsync();
+
+                summary.CurrentYearLotteryCommissions = curWeeklyStats.Sum(w =>
+                    (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                     Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                     Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                    (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
+
+                summary.CurrentYearMembershipDues = await db.DuesPayments.AsNoTracking()
+                    .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= curStart && dp.PaidDate.Value <= curEnd && dp.Amount.HasValue)
+                    .SumAsync(dp => dp.Amount) ?? 0m;
+
+                // Prior Year Totals (matching like-for-like timeframe)
+                summary.PriorYearBarSales = await db.BarSaleEntries.AsNoTracking()
+                    .Where(b => (b.Status == "Submitted" || b.TotalSales > 0) && (b.AdjustedSaleDate ?? b.SaleDate) >= priorStart && (b.AdjustedSaleDate ?? b.SaleDate) <= priorEnd)
+                    .SumAsync(b => (decimal?)b.TotalSales) ?? 0m;
+
+                var priorWeeklyStats = await db.LotteryWeeklyStats.AsNoTracking()
+                    .Where(w => w.WeekEndingDate >= priorStart && w.WeekEndingDate <= priorEnd)
+                    .ToListAsync();
+
+                summary.PriorYearLotteryCommissions = priorWeeklyStats.Sum(w =>
+                    (Math.Abs(w.OnlineCommission) + Math.Abs(w.InstantCommission) +
+                     Math.Abs(w.OnlineCashBonus) + Math.Abs(w.InstantCashBonus) +
+                     Math.Abs(w.OnlineClaimsBonus) + Math.Abs(w.InstantClaimsBonus)) -
+                    (Math.Abs(w.OnlineServiceFee) + Math.Abs(w.OnlineBondingFee)));
+
+                summary.PriorYearMembershipDues = await db.DuesPayments.AsNoTracking()
+                    .Where(dp => dp.PaidDate.HasValue && dp.PaidDate.Value >= priorStart && dp.PaidDate.Value <= priorEnd && dp.Amount.HasValue)
+                    .SumAsync(dp => dp.Amount) ?? 0m;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FinancialService] Error calculating annual totals: {ex.Message}");
+            }
+
             return summary;
         }
 
