@@ -55,7 +55,7 @@ public class MemberService
             throw new ArgumentException("Status cannot be empty.", nameof(newStatus));
 
         // Validate status value
-        var validStatuses = new[] { "REGULAR", "GUEST", "LIFE", "LIFE MEMBER", "INACTIVE", "DECEASED", "REJECTED" };
+        var validStatuses = new[] { "REGULAR", "GUEST", "LIFE", "LIFE MEMBER", "HONORARY LIFE", "INACTIVE", "DECEASED", "REJECTED" };
         if (!validStatuses.Contains(newStatus.ToUpper()))
             throw new ArgumentException($"Invalid status: {newStatus}. Must be one of: {string.Join(", ", validStatuses)}", nameof(newStatus));
 
@@ -193,7 +193,7 @@ public class MemberService
         if (string.IsNullOrWhiteSpace(member.Status))
             errors.Add("Status is required.");
 
-        var validStatuses = new[] { "REGULAR", "GUEST", "LIFE", "LIFE MEMBER", "INACTIVE", "DECEASED", "REJECTED" };
+        var validStatuses = new[] { "REGULAR", "GUEST", "LIFE", "LIFE MEMBER", "HONORARY LIFE", "INACTIVE", "DECEASED", "REJECTED" };
         if (!string.IsNullOrWhiteSpace(member.Status) && 
             !validStatuses.Contains(member.Status.ToUpper()))
         {
@@ -273,7 +273,9 @@ public class MemberService
         var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
 
         if (oldNormalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase) ||
-            newNormalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase))
+            newNormalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase) ||
+            oldNormalized.Equals("HONORARY LIFE", StringComparison.OrdinalIgnoreCase) ||
+            newNormalized.Equals("HONORARY LIFE", StringComparison.OrdinalIgnoreCase))
         {
             var details = $"[{memberName}] Status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"}";
             _auditLogger.Log(

@@ -350,6 +350,20 @@ else if (_memberForm != null)
                                 @if (_wasLifeMember)
                                 {
                                     <option value="LIFE">Life</option>
+                                    <option value="HONORARY LIFE">Honorary Life</option>
+                                    <option value="DECEASED">Deceased</option>
+                                }
+                                else if (_wasHonoraryLifeMember)
+                                {
+                                    <option value="HONORARY LIFE">Honorary Life</option>
+                                    <option value="REGULAR">Regular</option>
+                                    <option value="REGULAR-NP">Regular (NP)</option>
+                                    @if (CanTransitionToLife())
+                                    {
+                                        <option value="LIFE">Life</option>
+                                    }
+                                    <option value="GUEST">Guest</option>
+                                    <option value="INACTIVE">Inactive</option>
                                     <option value="DECEASED">Deceased</option>
                                 }
                                 else
@@ -361,11 +375,21 @@ else if (_memberForm != null)
                                     {
                                         <option value="LIFE">Life</option>
                                     }
+                                    <option value="HONORARY LIFE">Honorary Life</option>
                                     <option value="INACTIVE">Inactive</option>
                                     <option value="DECEASED">Deceased</option>
                                     <option value="REJECTED">Rejected</option>
                                 }
                             </InputSelect>
+                            @if (_memberForm.Status == "HONORARY LIFE")
+                            {
+                                <div class="alert alert-purple mt-2 py-2 px-3 small border-0 d-flex align-items-center gap-2" style="background: rgba(124, 58, 237, 0.1); color: #6d28d9; border-radius: 8px;">
+                                    <i class="bi bi-award-fill fs-5"></i>
+                                    <div>
+                                        <strong>Honorary Life Member:</strong> Confers all Life Member privileges, including lifetime dues exemption and perpetual key card access.
+                                    </div>
+                                </div>
+                            }
                             <ValidationMessage For="@(() => _memberForm.Status)" />
                         </div>
                         
@@ -595,6 +619,59 @@ else if (_memberForm != null)
     </EditForm>
 }
 
+@if (_showHonoraryConfirmModal)
+{
+    <div class="modal-backdrop fade show" style="background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 1050;"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-0 bg-light py-3 px-4 d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; border-radius: 10px; background: rgba(124, 58, 237, 0.12); color: #7c3aed;">
+                            <i class="bi bi-award-fill fs-5"></i>
+                        </div>
+                        <h5 class="modal-title fw-bold mb-0" style="color: #1e293b;">Confirm Honorary Life Status</h5>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CancelHonoraryConfirmation" disabled="@_saving"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <p class="mb-3 text-secondary">
+                        You are changing <strong>@_memberName</strong> to <strong>Honorary Life Member</strong>.
+                    </p>
+                    <div class="p-3 mb-3" style="background: rgba(124, 58, 237, 0.06); border-left: 4px solid #7c3aed; border-radius: 8px;">
+                        <h6 class="fw-semibold text-dark mb-1"><i class="bi bi-check-circle-fill text-success me-1"></i> Lifetime Benefits Granted:</h6>
+                        <ul class="mb-0 small text-muted ps-3">
+                            <li><strong>Dues:</strong> Permanently waived (never past due or billed).</li>
+                            <li><strong>Door Access:</strong> Lifetime active key card eligibility.</li>
+                            <li><strong>Board Eligibility:</strong> Fully eligible to serve on the board.</li>
+                        </ul>
+                    </div>
+                    <p class="small text-muted mb-0">
+                        <i class="bi bi-info-circle me-1"></i> Note: If needed in the future, administrators can still adjust or correct this status from the Edit Member screen.
+                    </p>
+                </div>
+                <div class="modal-footer border-0 bg-light px-4 py-3 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary px-3" @onclick="CancelHonoraryConfirmation" disabled="@_saving">
+                        Go Back & Edit
+                    </button>
+                    <button type="button" class="btn text-white px-4 fw-semibold" style="background: #7c3aed;" @onclick="ConfirmAndSaveHonoraryLife" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle me-1"></i>
+                            <span>Confirm & Save</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public int MemberId { get; set; }
     [SupplyParameterFromQuery] public string? action { get; set; }
@@ -614,6 +691,9 @@ else if (_memberForm != null)
     private List<string> _postalCodes = new();
     private bool _isReactivating = false;
     private bool _wasLifeMember = false;
+    private bool _wasHonoraryLifeMember = false;
+    private bool _showHonoraryConfirmModal = false;
+    private bool _honoraryConfirmed = false;
 
     // Date picker backing fields
     private int _dobMonth = 0;
@@ -767,8 +847,10 @@ else if (_memberForm != null)
                 ShowOnWebsite = _member.ShowOnWebsite
             };
 
-            // Capture if they were already a Life Member to restrict future changes
-            _wasLifeMember = _memberForm.Status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
+            // Capture if they were already a Life or Honorary Life Member
+            var normalizedLoadedStatus = MemberStatusHelper.NormalizeStatus(_memberForm.Status);
+            _wasLifeMember = normalizedLoadedStatus.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
+            _wasHonoraryLifeMember = normalizedLoadedStatus.Equals("HONORARY LIFE", StringComparison.OrdinalIgnoreCase);
 
             // Initialize date components
             if (_memberForm.DateOfBirth.HasValue)
@@ -943,6 +1025,15 @@ else if (_memberForm != null)
             string newStatus = _memberForm.Status;
             bool statusChanged = !string.Equals(oldStatus, newStatus, StringComparison.OrdinalIgnoreCase);
 
+            // Require explicit confirmation modal if changing to Honorary Life
+            if (statusChanged && string.Equals(MemberStatusHelper.NormalizeStatus(newStatus), "HONORARY LIFE", StringComparison.OrdinalIgnoreCase) && !_honoraryConfirmed)
+            {
+                _saving = false;
+                _showHonoraryConfirmModal = true;
+                StateHasChanged();
+                return;
+            }
+
             _member.Status = newStatus;
 
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -1053,7 +1144,16 @@ else if (_memberForm != null)
             // Log Audit
             if (statusChanged)
             {
-                AuditLogger.Log(AuditLogActions.MemberStatusChanged, _currentUser?.UserId, null, $"Changed status for {_memberName} (ID: #{MemberId}) from '{oldStatus}' to '{newStatus}'", targetMemberId: MemberId);
+                var oldNorm = MemberStatusHelper.NormalizeStatus(oldStatus);
+                var newNorm = MemberStatusHelper.NormalizeStatus(newStatus);
+                if (MemberStatusHelper.IsLifeStatus(oldNorm) || MemberStatusHelper.IsLifeStatus(newNorm))
+                {
+                    AuditLogger.Log(AuditLogActions.LifeStatusChanged, _currentUser?.UserId, null, $"Changed status for {_memberName} (ID: #{MemberId}) from '{oldStatus}' to '{newStatus}'", targetMemberId: MemberId);
+                }
+                else
+                {
+                    AuditLogger.Log(AuditLogActions.MemberStatusChanged, _currentUser?.UserId, null, $"Changed status for {_memberName} (ID: #{MemberId}) from '{oldStatus}' to '{newStatus}'", targetMemberId: MemberId);
+                }
             }
             else
             {
@@ -1149,6 +1249,20 @@ else if (_memberForm != null)
     private void GoToRecordDues()
     {
         NavManager.NavigateTo($"/dues?action=pay&memberId={MemberId}");
+    }
+
+    private async Task ConfirmAndSaveHonoraryLife()
+    {
+        _honoraryConfirmed = true;
+        _showHonoraryConfirmModal = false;
+        await SaveMember();
+        _honoraryConfirmed = false;
+    }
+
+    private void CancelHonoraryConfirmation()
+    {
+        _showHonoraryConfirmModal = false;
+        _saving = false;
     }
 
     private bool CanTransitionToLife()

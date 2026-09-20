@@ -669,7 +669,7 @@ namespace GFC.BlazorServer.Services
             foreach (var member in members.OrderBy(m => m.MemberID))
             {
                 var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
-                bool isPaid = normalizedStatus is "LIFE" or "BOARD" || paidMemberIds.Contains(member.MemberID);
+                bool isPaid = GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(normalizedStatus) || normalizedStatus is "BOARD" || paidMemberIds.Contains(member.MemberID);
 
                 // Filter: Only include members that are "paid"
                 if (!isPaid) continue;

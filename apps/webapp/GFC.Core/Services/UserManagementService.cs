@@ -1,3 +1,4 @@
+using GFC.Core.BusinessRules;
 using GFC.Core.DTOs;
 using GFC.Core.Helpers;
 using GFC.Core.Interfaces;
@@ -276,7 +277,7 @@ public class UserManagementService : IUserManagementService
 
     private static bool IsActiveForDues(Member member)
     {
-        return (member.Status is "REGULAR" or "REGULAR-NP" or "LIFE" or "GUEST")
+        return (member.Status is "REGULAR" or "REGULAR-NP" or "LIFE" or "HONORARY LIFE" or "GUEST")
             && member.Status != "INACTIVE" 
             && member.Status != "DECEASED" 
             && member.Status != "REJECTED";
@@ -292,8 +293,8 @@ public class UserManagementService : IUserManagementService
 
     private bool HasPaidOrWaivedDuesOptimized(Member member, Dictionary<int, DuesPayment> duesLookup, int year, HashSet<int> directors)
     {
-        // Life members are always waived
-        if (member.Status == "LIFE") return true;
+        // Life members (including Honorary Life) are always waived
+        if (MemberStatusHelper.IsLifeStatus(member.Status)) return true;
         
         // Board members are waived - check optimized hashset
         if (directors.Contains(member.MemberID)) return true;

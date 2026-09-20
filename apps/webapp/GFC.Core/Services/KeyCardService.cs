@@ -61,7 +61,7 @@ public class KeyCardService
         bool currentYearSatisfied, 
         bool previousYearSatisfied)
     {
-        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
+        var isLifeMember = MemberStatusHelper.IsLifeStatus(member.Status);
         var statusAllowed = IsStatusEligible(member.Status);
         
         var currentSatisfied = isLifeMember || currentYearSatisfied || MemberStatusHelper.IsNewlyAccepted(member, year);
@@ -84,7 +84,7 @@ public class KeyCardService
         
         // Check if member is a board member (director) for this year
         var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, evaluationYear);
-        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
+        var isLifeMember = MemberStatusHelper.IsLifeStatus(member.Status);
         
         var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(evaluationYear)?.GraceEndDate?.Date;
 
@@ -100,7 +100,7 @@ public class KeyCardService
     public KeyCardEligibilityResult EvaluateEligibilityForRow(KeyCardMemberRow row, int year, DateTime? graceEndDate)
     {
         var statusAllowed = IsStatusEligible(row.MemberStatus);
-        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(row.MemberStatus), "LIFE", StringComparison.OrdinalIgnoreCase);
+        var isLifeMember = MemberStatusHelper.IsLifeStatus(row.MemberStatus);
         
         var currentYearSatisfied = row.IsDirectorCurrent || isLifeMember || IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
         var previousYearSatisfied = row.IsDirectorPrevious || isLifeMember || IsDuesSatisfied(row.PreviousYearPaymentType, row.PreviousYearPaidDate);

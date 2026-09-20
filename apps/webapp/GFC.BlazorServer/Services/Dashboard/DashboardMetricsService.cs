@@ -527,7 +527,7 @@ public class DashboardMetricsService : IDashboardMetricsService
     }
 
     private static bool IsActiveStatus(string normalizedStatus)
-        => normalizedStatus is "REGULAR" or "REGULAR-NP" or "LIFE" or "BOARD";
+        => normalizedStatus is "REGULAR" or "REGULAR-NP" or "LIFE" or "HONORARY LIFE" or "BOARD";
 
     private static int CalculateOpenAlerts(AlertSummaryDto alert)
     {
@@ -591,7 +591,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var totalCount = await db.Members
                 .AsNoTracking()
                 .Where(m => m.Status != "INACTIVE" && m.Status != "DECEASED" && m.Status != "REJECTED")
-                .CountAsync(m => m.Status == "LIFE" || m.Status == "LIFE MEMBER" || 
+                .CountAsync(m => m.Status == "LIFE" || m.Status == "LIFE MEMBER" || m.Status == "HONORARY LIFE" || 
                            db.BoardAssignments.Any(ba => ba.MemberID == m.MemberID && ba.TermYear == currentYear) ||
                            db.DuesPayments.Any(dp => dp.MemberId == m.MemberID && dp.Year == currentYear && dp.PaidDate != null) ||
                            (isGracePeriodActive && db.DuesPayments.Any(dp => dp.MemberId == m.MemberID && dp.Year == currentYear - 1 && dp.PaidDate != null)), ct);

@@ -1447,12 +1447,12 @@ public class PosApiController : ControllerBase
 
             foreach (var m in members)
             {
-                var isActive = (m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE" || m.Status == "GUEST")
+                var isActive = (m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE" || m.Status == "HONORARY LIFE" || m.Status == "GUEST")
                     && m.Status != "INACTIVE"
                     && m.Status != "DECEASED"
                     && m.Status != "REJECTED";
 
-                var isLife = m.Status == "LIFE";
+                var isLife = GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(m.Status);
                 var isBoard = boardMemberSet.Contains(m.MemberID);
                 var isAutoWaived = isLife || isBoard;
                 var isDuesPaid = duesPaidSet.Contains(m.MemberID);
@@ -1507,19 +1507,19 @@ public class PosApiController : ControllerBase
             var currentYear = DateTime.Now.Year;
 
             // 1. Is the member active?
-            var isActive = (member.Status == "REGULAR" || member.Status == "REGULAR-NP" || member.Status == "LIFE" || member.Status == "GUEST")
+            var isActive = (member.Status == "REGULAR" || member.Status == "REGULAR-NP" || member.Status == "LIFE" || member.Status == "HONORARY LIFE" || member.Status == "GUEST")
                 && member.Status != "INACTIVE"
                 && member.Status != "DECEASED"
                 && member.Status != "REJECTED";
 
             // 2. Is the member waived automatically (LIFE or Board Director)?
-            var isLife = member.Status == "LIFE";
+            var isLife = GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(member.Status);
             var isBoardMember = await db.BoardAssignments
                 .AsNoTracking()
                 .AnyAsync(ba => ba.MemberID == member.MemberID && ba.TermYear == currentYear);
 
             var isAutoWaived = isLife || isBoardMember;
-            var waiverReason = isLife ? "Life Member Waiver" : (isBoardMember ? "Board Director Waiver" : "");
+            var waiverReason = isLife ? (member.Status.Contains("HONORARY", StringComparison.OrdinalIgnoreCase) ? "Honorary Life Member Waiver" : "Life Member Waiver") : (isBoardMember ? "Board Director Waiver" : "");
 
             // 3. Does the member have direct dues paid/waived record for this year?
             var dues = await db.DuesPayments

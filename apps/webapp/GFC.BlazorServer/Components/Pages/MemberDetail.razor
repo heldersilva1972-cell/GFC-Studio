@@ -640,6 +640,7 @@ else if (_member is not null)
         { "Guest", "#6b7280" },
         { "Regular", "#14b8a6" },
         { "Life", "#d6b33d" },
+        { "Honorary Life", "#7c3aed" },
         { "Non-Portuguese", "#2563eb" },
         { "NP Queue", "#2563eb" }, // Kept for backward compat if needed
         { "Past Due", "#f97316" },
@@ -803,6 +804,7 @@ else if (_member is not null)
             "REGULAR" or "REGULAR-NP" => "Regular",
             "GUEST" => "Guest",
             "LIFE" => "Life",
+            "HONORARY LIFE" => "Honorary Life",
             "INACTIVE" or "DECEASED" => "Inactive",
             _ => "Unknown"
         };
@@ -980,7 +982,7 @@ else if (_member is not null)
         }
 
         var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
-        if (normalized == "LIFE")
+        if (normalized is "LIFE" or "HONORARY LIFE")
         {
             return _member.StatusChangeDate ?? _member.LifeEligibleDate;
         }
@@ -1041,6 +1043,23 @@ else if (_member is not null)
                 }
                 break;
 
+            case "HONORARY LIFE":
+                // For Honorary Life members, show years as Regular before becoming Honorary Life
+                startDate = _member.RegularSince ?? _member.AcceptedDate;
+                statusLabel = "Regular (before Honorary Life)";
+                
+                // Also calculate Guest tenure if applicable
+                if (_member.RegularSince.HasValue && _member.AcceptedDate.HasValue)
+                {
+                    if (_member.RegularSince.Value.Date > _member.AcceptedDate.Value.Date)
+                    {
+                        var guestYears = MemberStatusHelper.CalculateAge(_member.AcceptedDate.Value, _member.RegularSince.Value);
+                        var guestYearsText = guestYears == 1 ? "year" : "years";
+                        guestTenure = $"{guestYears} {guestYearsText} as Guest";
+                    }
+                }
+                break;
+
             default:
                 return null;
         }
@@ -1082,6 +1101,7 @@ else if (_member is not null)
             "REGULAR" or "REGULAR-NP" => "Regular",
             "GUEST" => "Guest",
             "LIFE" => "Life",
+            "HONORARY LIFE" => "Honorary Life",
             "DECEASED" => "Deceased",
             "INACTIVE" => "Inactive",
             _ => "Unknown"
@@ -1176,7 +1196,7 @@ else if (_member is not null)
     }
 
     private bool IsLifeMember()
-        => string.Equals(_member?.Status, "LIFE", StringComparison.OrdinalIgnoreCase);
+        => MemberStatusHelper.IsLifeStatus(_member?.Status);
 
     private bool IsLifeEligible()
         => _member?.GetType().GetProperty("IsLifeEligible") is not null

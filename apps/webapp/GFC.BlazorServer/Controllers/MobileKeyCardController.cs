@@ -66,7 +66,7 @@ public class MobileKeyCardController : ControllerBase
                 var eligibility = _cardService.EvaluateEligibilityForRow(row, year, graceDate);
 
                 var isDirector = row.IsDirectorCurrent;
-                var isLifeMember = string.Equals(row.MemberStatus, "LIFE", StringComparison.OrdinalIgnoreCase);
+                var isLifeMember = GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(row.MemberStatus);
                 var isPaid = isDirector || isLifeMember || KeyCardService.IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
 
                 result.Add(new MobileKeyCardDashboardRow

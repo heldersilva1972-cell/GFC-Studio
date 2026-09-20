@@ -10,6 +10,7 @@ public enum MemberStatus
     Regular,
     RegularNonPortuguese,
     Life,
+    HonoraryLife,
     Inactive,
     Deceased,
     Rejected,

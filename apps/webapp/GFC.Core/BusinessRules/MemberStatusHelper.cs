@@ -55,12 +55,14 @@ public static class MemberStatusHelper
             case "GUEST":
                 AddOption("GUEST");
                 AddOption("REGULAR");
+                AddOption("HONORARY LIFE");
                 AddOption("INACTIVE");
                 AddOption("REJECTED");
                 break;
 
             case "REGULAR":
                 AddOption("REGULAR");
+                AddOption("HONORARY LIFE");
                 AddOption("INACTIVE");
                 if (IsLifeEligible(member))
                 {
@@ -70,12 +72,22 @@ public static class MemberStatusHelper
 
             case "LIFE":
                 AddOption("LIFE");
+                AddOption("HONORARY LIFE");
                 AddOption("INACTIVE");
+                break;
+
+            case "HONORARY LIFE":
+                AddOption("HONORARY LIFE");
+                AddOption("REGULAR");
+                AddOption("LIFE");
+                AddOption("INACTIVE");
+                AddOption("DECEASED");
                 break;
 
             case "INACTIVE":
                 AddOption("INACTIVE");
                 AddOption("REGULAR");
+                AddOption("HONORARY LIFE");
                 break;
 
             case "DECEASED":
@@ -91,6 +103,7 @@ public static class MemberStatusHelper
                 AddOption(normalizedCurrent);
                 AddOption("GUEST");
                 AddOption("REGULAR");
+                AddOption("HONORARY LIFE");
                 AddOption("INACTIVE");
                 break;
         }
@@ -117,15 +130,18 @@ public static class MemberStatusHelper
     }
 
     /// <summary>
-    /// Returns true if the provided status value represents any LIFE variant.
+    /// Returns true if the provided status value represents any LIFE variant (including HONORARY LIFE).
     /// </summary>
     public static bool IsLifeStatus(string? status)
     {
-        return NormalizeStatus(status).Equals("LIFE", StringComparison.OrdinalIgnoreCase);
+        var normalized = NormalizeStatus(status);
+        return normalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("HONORARY LIFE", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// Normalizes a status string for comparisons while keeping "LIFE MEMBER" compatible with "LIFE".
+    /// Normalizes a status string for comparisons while keeping "LIFE MEMBER" compatible with "LIFE",
+    /// and normalizing honorary variants to "HONORARY LIFE".
     /// </summary>
     public static string NormalizeStatus(string? status)
     {
@@ -140,10 +156,24 @@ public static class MemberStatusHelper
             return "LIFE";
         }
 
+        if (trimmed.Equals("HONORARY LIFE MEMBER", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("HONORARY LIFE", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("HONORARY", StringComparison.OrdinalIgnoreCase))
+        {
+            return "HONORARY LIFE";
+        }
+
         var lettersOnly = new string(trimmed
             .Where(char.IsLetterOrDigit)
             .ToArray())
             .ToUpperInvariant();
+
+        if (lettersOnly.Equals("HONORARYLIFE", StringComparison.OrdinalIgnoreCase) ||
+            lettersOnly.Equals("HONORARYLIFEMEMBER", StringComparison.OrdinalIgnoreCase) ||
+            lettersOnly.Equals("HONORARY", StringComparison.OrdinalIgnoreCase))
+        {
+            return "HONORARY LIFE";
+        }
 
         if (lettersOnly.Equals("REGULARNP", StringComparison.OrdinalIgnoreCase) ||
             lettersOnly.StartsWith("REGULARNP", StringComparison.OrdinalIgnoreCase) ||
@@ -194,14 +224,14 @@ public static class MemberStatusHelper
 
     /// <summary>
     /// Determines if a member is eligible to serve on the board of directors.
-    /// Must be an accepted Regular or Life member.
+    /// Must be an accepted Regular or Life/Honorary Life member.
     /// </summary>
     public static bool IsEligibleForBoard(Member? member)
     {
         if (member == null || IsPending(member)) return false;
 
         var normalized = NormalizeStatus(member.Status);
-        return normalized is "REGULAR" or "REGULAR-NP" or "LIFE";
+        return normalized is "REGULAR" or "REGULAR-NP" or "LIFE" or "HONORARY LIFE";
     }
 
     public static bool TryCalculateLifeEligibility(

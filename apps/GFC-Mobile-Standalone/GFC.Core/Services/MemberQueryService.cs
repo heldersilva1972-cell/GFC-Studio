@@ -70,7 +70,7 @@ public class MemberQueryService : IMemberQueryService
             RegularMembers: SafeGet("REGULAR"),
             Guests: SafeGet("GUEST"),
             RegularNonPortuguese: _memberRepository.GetNonPortugueseRegularCount(),
-            LifeMembers: SafeGet("LIFE") + SafeGet("LIFE MEMBER"),
+            LifeMembers: SafeGet("LIFE") + SafeGet("LIFE MEMBER") + SafeGet("HONORARY LIFE"),
             InactiveMembers: SafeGet("INACTIVE"));
     }
 
@@ -94,6 +94,10 @@ public class MemberQueryService : IMemberQueryService
                 query = query.Where(m =>
                     MemberStatusHelper.NormalizeStatus(m.Status) == "REGULAR-NP" ||
                     (MemberStatusHelper.NormalizeStatus(m.Status) == "REGULAR" && m.IsNonPortugueseOrigin));
+            }
+            else if (string.Equals(normalized, "LIFE", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(m => MemberStatusHelper.IsLifeStatus(m.Status));
             }
             else
             {
@@ -132,6 +136,7 @@ public class MemberQueryService : IMemberQueryService
             "REGULAR-NP" => MemberStatus.RegularNonPortuguese,
             "GUEST" => MemberStatus.Guest,
             "LIFE" => MemberStatus.Life,
+            "HONORARY LIFE" => MemberStatus.HonoraryLife,
             "INACTIVE" => MemberStatus.Inactive,
             "DECEASED" => MemberStatus.Deceased,
             "REJECTED" => MemberStatus.Rejected,

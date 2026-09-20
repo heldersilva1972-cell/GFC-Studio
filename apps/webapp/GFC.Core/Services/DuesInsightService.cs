@@ -109,7 +109,7 @@ public class DuesInsightService : IDuesInsightService
             var record = duesLookup[member.MemberID].FirstOrDefault();
             var status = MapStatus(member);
             var isBoard = context.BoardAssignmentsByMember.TryGetValue(member.MemberID, out var boardYears) && boardYears.Contains(year);
-            var isLife = status == MemberStatus.Life;
+            var isLife = status == MemberStatus.Life || status == MemberStatus.HonoraryLife;
             
             var isWaived = isLife || isBoard || waiverLookup.Contains(member.MemberID);
             var isPaid = record != null && (record.PaidDate.HasValue || string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase));
@@ -141,7 +141,7 @@ public class DuesInsightService : IDuesInsightService
             string? waiverReason = null;
             if (isWaived)
             {
-                if (isLife) waiverReason = "Life Member";
+                if (isLife) waiverReason = status == MemberStatus.HonoraryLife ? "Honorary Life Member" : "Life Member";
                 else if (isBoard) waiverReason = "Board Member";
                 else waiverReason = waiverLookup[member.MemberID].FirstOrDefault()?.Reason ?? "Waived";
             }
@@ -244,6 +244,7 @@ public class DuesInsightService : IDuesInsightService
             "REGULAR-NP" => MemberStatus.RegularNonPortuguese,
             "GUEST" => MemberStatus.Guest,
             "LIFE" => MemberStatus.Life,
+            "HONORARY LIFE" => MemberStatus.HonoraryLife,
             "INACTIVE" => MemberStatus.Inactive,
             _ => MemberStatus.Unknown
         };

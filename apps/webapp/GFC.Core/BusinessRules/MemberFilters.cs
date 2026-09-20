@@ -20,7 +20,7 @@ public static class MemberFilters
         return status.Equals("GUEST", StringComparison.OrdinalIgnoreCase)
             || status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase)
             || status.Equals("REGULAR-NP", StringComparison.OrdinalIgnoreCase)
-            || status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
+            || MemberStatusHelper.IsLifeStatus(status);
     }
 
     /// <summary>

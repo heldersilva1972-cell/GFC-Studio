@@ -70,7 +70,7 @@ public class MaintenanceService : IMaintenanceService
         {
             var allMembers = await Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
             var members = allMembers.Count;
-            var activeMembers = allMembers.Count(m => m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE");
+            var activeMembers = allMembers.Count(m => m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE" || m.Status == "HONORARY LIFE");
             
             var cards = await Task.Run(() =>
             {

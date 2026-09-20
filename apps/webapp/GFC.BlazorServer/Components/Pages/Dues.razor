@@ -140,6 +140,7 @@
                                 case MemberStatus.Regular: <span>@(member.IsNonPortugueseOrigin ? "Regular Non-Portuguese" : "Regular Member")</span> break;
                                 case MemberStatus.RegularNonPortuguese: <span>Regular Non-Portuguese</span> break;
                                 case MemberStatus.Life: <span>Life Member</span> break;
+                                case MemberStatus.HonoraryLife: <span>Honorary Life Member</span> break;
                                 default: <span>@member.Status</span> break;
                             }
                         </td>
@@ -400,6 +401,10 @@
                                     {
                                         <span class="badge-life-orange" title="Life Member">L</span>
                                     }
+                                    else if (item.Status == MemberStatus.HonoraryLife)
+                                    {
+                                        <span class="badge-life-orange" style="background: #7c3aed; color: white;" title="Honorary Life Member">HL</span>
+                                    }
                                     @if (item.IsNonPortugueseOrigin && (item.Status == MemberStatus.Regular || item.Status == MemberStatus.RegularNonPortuguese))
                                     {
                                         <span class="badge-np-blue" title="Non-Portuguese Origin">NP</span>
@@ -528,7 +533,7 @@
 
                         <!-- Tile Footer: Actions -->
                         <div class="tile-actions">
-                            @if (item.Status == MemberStatus.Life || item.IsBoardMember)
+                            @if (item.Status is MemberStatus.Life or MemberStatus.HonoraryLife || item.IsBoardMember)
                             {
                                 <button class="btn btn-light border text-muted pe-none w-100" disabled>
                                     <i class="bi bi-shield-lock"></i> Auto-Waived
@@ -1130,7 +1135,7 @@
     private bool _showAllResults = false;
     
     private IEnumerable<DuesListItemDto> EligibleVoters => _allItems
-        .Where(i => i.Satisfied && (i.Status == MemberStatus.Regular || i.Status == MemberStatus.RegularNonPortuguese || i.Status == MemberStatus.Life))
+        .Where(i => i.Satisfied && (i.Status == MemberStatus.Regular || i.Status == MemberStatus.RegularNonPortuguese || i.Status == MemberStatus.Life || i.Status == MemberStatus.HonoraryLife))
         .OrderBy(i => i.FullName);
 
     private async Task PrintVoterList()
@@ -1212,7 +1217,7 @@
 
     private async Task OpenWaiverModal(DuesListItemDto item)
     {
-        if (item.Status == MemberStatus.Life || item.IsBoardMember) return;
+        if (item.Status is MemberStatus.Life or MemberStatus.HonoraryLife || item.IsBoardMember) return;
         
         _operationInProgress = true;
         try 
@@ -1746,7 +1751,7 @@
         var existingPaymentsCount = selectedYears.Count(y => DuesRepository.GetDuesForMemberYear(_paymentTarget.MemberId, y) != null);
         
         // Check if member is waived (Life, Board, or Manual waiver) for any of the years
-        bool isLifeMember = _paymentTarget.Status == MemberStatus.Life;
+        bool isLifeMember = _paymentTarget.Status is MemberStatus.Life or MemberStatus.HonoraryLife;
         bool isBoardMember = _paymentTarget.IsBoardMember;
         var memberWaivers = DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId);
         bool hasManualWaiver = memberWaivers.Any(w => selectedYears.Any(y => y >= w.StartYear && y <= w.EndYear));
@@ -2304,7 +2309,7 @@
     }
 
     private bool IsExempt(DuesListItemDto item) =>
-        item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
+        item.Status is MemberStatus.Life or MemberStatus.HonoraryLife || item.IsBoardMember || item.IsWaived;
 
     private bool IsPaid(DuesListItemDto item) => item.Satisfied;
 
@@ -2376,13 +2381,18 @@
     private static string GetStatusBadge(MemberStatus status) => status switch {
         MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "bg-success-subtle text-success",
         MemberStatus.Life => "bg-gold-subtle text-gold",
+        MemberStatus.HonoraryLife => "bg-purple-subtle text-purple",
         MemberStatus.Guest => "bg-warning-subtle text-warning",
         MemberStatus.Inactive => "bg-danger-subtle text-danger",
         MemberStatus.Pending => "bg-purple-subtle text-purple",
         _ => "bg-light text-muted"
     };
 
-    private static string GetStatusLabel(MemberStatus status) => status.ToString();
+    private static string GetStatusLabel(MemberStatus status) => status switch {
+        MemberStatus.HonoraryLife => "Honorary Life",
+        MemberStatus.RegularNonPortuguese => "Regular (NP)",
+        _ => status.ToString()
+    };
     
     private static string GetInitials(string name) {
         if (string.IsNullOrEmpty(name)) return "?";
