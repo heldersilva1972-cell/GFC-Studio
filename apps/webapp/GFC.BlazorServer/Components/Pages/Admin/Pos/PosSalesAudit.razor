@@ -16,6 +16,7 @@
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject PosSyncLogService SyncLog
 @inject PosTelemetryStateService TelemetryService
+@inject GFC.Core.Interfaces.ILiquorService LiquorService
 @attribute [Authorize]
 
 <PageTitle>POS Sales Audit</PageTitle>
@@ -2172,6 +2173,12 @@
                                             <i class="bi bi-clipboard me-1"></i> COPY TEXT
                                         </button>
                                     }
+                                    <button class="btn btn-sm btn-outline-primary fw-bold rounded-pill px-3 shadow-sm" style="font-size: 0.75rem;" @onclick="() => OpenEditZReportModal(SelectedZReport)" title="Edit Z-Report details & metadata">
+                                        <i class="bi bi-pencil-square me-1"></i> EDIT CLOSEOUT
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3 shadow-sm" style="font-size: 0.75rem;" @onclick="() => OpenVoidZReportModal(SelectedZReport)" title="Void Z-Report & Reopen Live Shift">
+                                        <i class="bi bi-trash3-fill me-1"></i> VOID &amp; REOPEN SHIFT
+                                    </button>
                                 </div>
                             </div>
 
@@ -8543,6 +8550,452 @@
                         </button>
                     </div>
                     <button type="button" class="btn btn-secondary rounded-pill px-4 btn-sm fw-bold" @onclick="() => _showTerminalDiagnosticsModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showVoidZModalStep1 && _voidTargetZReport != null)
+{
+    <!-- VOID Z-REPORT MODAL: STEP 1 OF 2 (IMPACT REVIEW & OPTIONS) -->
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.8); z-index: 10600; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex !important; align-items: center; justify-content: center; overflow-y: auto; backdrop-filter: blur(4px);">
+        <div class="modal-dialog modal-dialog-centered modal-lg" style="max-width: 750px; width: 90%;">
+            <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+                <div class="modal-header bg-danger text-white px-4 py-3 border-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill fs-4 text-warning"></i>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">VOID &amp; REOPEN SHIFT — STEP 1 OF 2</h5>
+                            <small class="opacity-75">Review Shift Impact &amp; Cascading Options</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseVoidZModals"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <!-- Explain what happens -->
+                    <div class="alert alert-warning border-warning-subtle rounded-3 p-3 mb-4 shadow-sm">
+                        <div class="d-flex gap-2">
+                            <i class="bi bi-info-circle-fill text-warning fs-5 flex-shrink-0"></i>
+                            <div>
+                                <strong class="d-block text-dark">What this will do:</strong>
+                                <span class="small text-dark">
+                                    Voiding this Z-Report removes the closeout checkpoint from the system. 
+                                    <strong>All actual POS sales and transactions will NOT be deleted</strong> — they will immediately reopen and merge into the live active shift.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Target Z-Report Details -->
+                    <div class="card border-0 rounded-3 shadow-xs p-3 mb-4 bg-white">
+                        <div class="text-muted fw-bold small text-uppercase mb-2" style="font-size: 0.68rem; letter-spacing: 0.5px;">TARGET CLOSEOUT DETAILS</div>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <span class="text-muted small d-block">Terminal:</span>
+                                <strong class="text-dark fs-6">@_voidTargetZReport.TerminalName</strong>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted small d-block">Bartender:</span>
+                                <strong class="text-dark fs-6">@_voidTargetZReport.BartenderName</strong>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted small d-block">Closeout Time:</span>
+                                <strong class="text-dark">@_voidTargetZReport.Timestamp.ToString("ddd, MMM dd, yyyy h:mm tt")</strong>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted small d-block">Total Shift Gross Sales:</span>
+                                <strong class="text-success fs-5">@_voidTargetZReport.TotalGrossSales.ToString("C2")</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Automatic Cleanup Breakdown -->
+                    <div class="card border-0 rounded-3 shadow-xs p-3 mb-2 bg-white">
+                        <div class="text-muted fw-bold small text-uppercase mb-3" style="font-size: 0.68rem; letter-spacing: 0.5px;">AUTOMATIC CASCADING ACTIONS (ALL-INCLUSIVE)</div>
+                        
+                        <div class="list-group list-group-flush border rounded-3 overflow-hidden">
+                            <!-- 1. Z-Report Record -->
+                            <div class="list-group-item d-flex align-items-start gap-3 p-3">
+                                <div class="bg-danger-subtle text-danger rounded-circle p-2 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 36px; height: 36px;">
+                                    <i class="bi bi-trash-fill fs-6"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <strong class="d-block text-dark small">Closeout Checkpoint Deletion</strong>
+                                    <span class="text-muted small">
+                                        Permanently removes the <code>PosZReports</code> record (including physical token counts, shift drinks, quarter rolls &amp; drawer snapshot).
+                                    </span>
+                                </div>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle align-self-center">Will Delete</span>
+                            </div>
+
+                            <!-- 2. Companion Bar Sale Entry -->
+                            <div class="list-group-item d-flex align-items-start gap-3 p-3">
+                                <div class="bg-danger-subtle text-danger rounded-circle p-2 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 36px; height: 36px;">
+                                    <i class="bi bi-journal-x fs-6"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <strong class="d-block text-dark small">Back-Office Bar Book (`BarSaleEntries`)</strong>
+                                    <span class="text-muted small">
+                                        @if (_voidAssociatedBarEntry != null)
+                                        {
+                                            <span>Deletes companion entry <strong>#@_voidAssociatedBarEntry.Id</strong> (@_voidAssociatedBarEntry.Shift Shift - @_voidAssociatedBarEntry.TotalSales.ToString("C2")).</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fst-italic text-muted">No companion BarSaleEntry row recorded for this closeout timestamp.</span>
+                                        }
+                                    </span>
+                                </div>
+                                <span class="badge @(_voidAssociatedBarEntry != null ? "bg-danger-subtle text-danger border border-danger-subtle" : "bg-light text-muted border") align-self-center">
+                                    @(_voidAssociatedBarEntry != null ? "Will Delete" : "None Found")
+                                </span>
+                            </div>
+
+                            <!-- 3. Liquor Inventory Restoral -->
+                            <div class="list-group-item d-flex align-items-start gap-3 p-3">
+                                <div class="bg-success-subtle text-success rounded-circle p-2 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 36px; height: 36px;">
+                                    <i class="bi bi-arrow-counterclockwise fs-6"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <strong class="d-block text-dark small">Liquor Bottle Pulls &amp; Stock Inventory</strong>
+                                    <span class="text-muted small">
+                                        @if (_voidAssociatedPulls != null && _voidAssociatedPulls.Any())
+                                        {
+                                            <span>Reverses <strong>@_voidAssociatedPulls.Sum(p => p.Value) bottle checkout(s)</strong> and returns stock to Inventory with an audit log.</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fst-italic text-muted">No bottle checkouts registered on this closeout.</span>
+                                        }
+                                    </span>
+                                </div>
+                                <span class="badge @(_voidAssociatedPulls != null && _voidAssociatedPulls.Any() ? "bg-success-subtle text-success border border-success-subtle" : "bg-light text-muted border") align-self-center">
+                                    @(_voidAssociatedPulls != null && _voidAssociatedPulls.Any() ? "Will Restore Stock" : "None")
+                                </span>
+                            </div>
+
+                            <!-- 4. Sales Transactions Preservation -->
+                            <div class="list-group-item d-flex align-items-start gap-3 p-3 bg-success-subtle bg-opacity-25">
+                                <div class="bg-success text-white rounded-circle p-2 d-flex align-items-center justify-content-center flex-shrink-0" style="width: 36px; height: 36px;">
+                                    <i class="bi bi-shield-lock-fill fs-6"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <strong class="d-block text-dark small">POS Sales Transactions (`PosSales`)</strong>
+                                    <span class="text-dark small">
+                                        <strong>100% Preserved.</strong> All customer tickets, items, receipts, and tender records will instantly rejoin the active shift.
+                                    </span>
+                                </div>
+                                <span class="badge bg-success text-white align-self-center">Protected</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white border-top px-4 py-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="CloseVoidZModals">Cancel</button>
+                    <button type="button" class="btn btn-danger rounded-pill px-4 fw-black shadow-sm" @onclick="ProceedToVoidZStep2">
+                        <i class="bi bi-arrow-right-circle-fill me-1"></i> Proceed to Final Confirmation
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showVoidZModalStep2 && _voidTargetZReport != null)
+{
+    <!-- VOID Z-REPORT MODAL: STEP 2 OF 2 (FINAL CONFIRMATION GUARD) -->
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.88); z-index: 10700; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex !important; align-items: center; justify-content: center; overflow-y: auto; backdrop-filter: blur(6px);">
+        <div class="modal-dialog modal-dialog-centered modal-lg" style="max-width: 750px; width: 90%;">
+            <div class="modal-content rounded-4 border-0 shadow-2xl overflow-hidden border border-danger border-2">
+                <div class="modal-header bg-dark text-white px-4 py-3 border-bottom border-danger">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-fill-exclamation fs-3 text-danger animate-pulse"></i>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0 text-danger">🛑 FINAL CONFIRMATION — STEP 2 OF 2</h5>
+                            <small class="text-muted">Explicit Authorization Required</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseVoidZModals"></button>
+                </div>
+                <div class="modal-body p-4 bg-white text-dark">
+                    <div class="text-center py-3">
+                        <div class="display-6 fw-black text-danger mb-2">ARE YOU ABSOLUTELY SURE?</div>
+                        <p class="text-muted fw-bold fs-6 mb-4">
+                            You are about to permanently void the Z-Report for <strong>@_voidTargetZReport.TerminalName</strong> closed by <strong>@_voidTargetZReport.BartenderName</strong> at <strong>@_voidTargetZReport.Timestamp.ToString("g")</strong>.
+                        </p>
+                    </div>
+
+                    <div class="card bg-light border-0 rounded-3 p-3 mb-4">
+                        <div class="fw-black text-dark small text-uppercase mb-2">SUMMARY OF ACTIONS TO BE EXECUTED:</div>
+                        <ul class="list-unstyled mb-0 small">
+                            <li class="mb-2 d-flex align-items-start gap-2">
+                                <i class="bi bi-trash-fill text-danger mt-1"></i>
+                                <span><strong>[dbo].[PosZReports]:</strong> Closeout record <code>@_voidTargetZReport.Id</code> (tokens, shift drinks, quarter rolls &amp; drawer totals) will be <strong>permanently deleted</strong>.</span>
+                            </li>
+                            <li class="mb-2 d-flex align-items-start gap-2">
+                                <i class="bi @(_voidAssociatedBarEntry != null ? "bi-trash-fill text-danger" : "bi-dash-circle text-muted") mt-1"></i>
+                                <span><strong>[dbo].[BarSaleEntries]:</strong> @(_voidAssociatedBarEntry != null ? $"Companion Entry ID {_voidAssociatedBarEntry.Id} ({_voidAssociatedBarEntry.TotalSales:C2}) will be automatically deleted." : "No companion Bar Book entry to delete.")</span>
+                            </li>
+                            <li class="mb-2 d-flex align-items-start gap-2">
+                                <i class="bi @(_voidAssociatedPulls != null && _voidAssociatedPulls.Any() ? "bi-arrow-counterclockwise text-success" : "bi-dash-circle text-muted") mt-1"></i>
+                                <span><strong>Liquor Inventory Stock:</strong> @(_voidAssociatedPulls != null && _voidAssociatedPulls.Any() ? $"{_voidAssociatedPulls.Sum(p => p.Value)} bottle(s) will be automatically returned to inventory stock." : "No bottle pulls recorded.")</span>
+                            </li>
+                            <li class="mb-0 d-flex align-items-start gap-2">
+                                <i class="bi bi-shield-check text-success mt-1"></i>
+                                <span><strong>[dbo].[PosSales]:</strong> All individual transaction sales records are <strong>100% safe &amp; preserved</strong> in the live shift.</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="alert alert-danger py-2 px-3 small fw-bold text-center rounded-pill mb-0">
+                        <i class="bi bi-exclamation-octagon-fill me-1"></i> This operation will take effect immediately upon confirmation.
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-bold" @onclick="() => { _showVoidZModalStep2 = false; _showVoidZModalStep1 = true; }">
+                        <i class="bi bi-arrow-left me-1"></i> Back to Review
+                    </button>
+                    <button type="button" class="btn btn-danger rounded-pill px-4 fw-black shadow-lg" @onclick="ExecuteVoidZReport" disabled="@_isExecutingVoidZ">
+                        @if (_isExecutingVoidZ)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>VOIDING &amp; REOPENING...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-trash-fill me-1"></i>
+                            <span>YES, PERMANENTLY VOID &amp; REOPEN SHIFT</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEditZModalStep1 && _editTargetZReport != null)
+{
+    <!-- EDIT Z-REPORT MODAL: STEP 1 OF 2 (EDIT FORM) -->
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.8); z-index: 10600; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex !important; align-items: center; justify-content: center; overflow-y: auto; backdrop-filter: blur(4px);">
+        <div class="modal-dialog modal-dialog-centered modal-lg" style="max-width: 750px; width: 90%;">
+            <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+                <div class="modal-header bg-primary text-white px-4 py-3 border-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-pencil-square fs-4"></i>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">EDIT Z-REPORT CLOSEOUT — STEP 1 OF 2</h5>
+                            <small class="opacity-75">Adjust Shift Metadata, Hours &amp; Token Audit</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseEditZModals"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <!-- Form Fields Card -->
+                    <div class="card border-0 rounded-3 shadow-xs p-4 mb-3 bg-white">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Bartender / Employee Name</label>
+                                <input type="text" class="form-control fw-bold" @bind="_editBartenderName" placeholder="e.g. CAlves, MStanger" />
+                                <small class="text-muted">Assigned staff name for this shift closeout.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Hours Worked</label>
+                                <input type="number" step="0.25" min="0" max="24" class="form-control fw-bold" @bind="_editHoursWorked" placeholder="0.00" />
+                                <small class="text-muted">Total recorded labor hours for payroll/accounting.</small>
+                            </div>
+
+                            <div class="col-12"><hr class="my-2 opacity-25" /></div>
+
+                            <div class="col-12">
+                                <label class="form-label small fw-black text-primary text-uppercase mb-2" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                    <i class="bi bi-coin me-1"></i>Physical Drawer Token Counts (Closeout Audit)
+                                </label>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Beer Tokens in Drawer</label>
+                                <input type="number" min="0" class="form-control fw-bold" @bind="_editBeerTokens" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Mixed Drink Tokens in Drawer</label>
+                                <input type="number" min="0" class="form-control fw-bold" @bind="_editMixedTokens" />
+                            </div>
+
+                            <div class="col-12"><hr class="my-2 opacity-25" /></div>
+
+                            <div class="col-12">
+                                <label class="form-label small fw-black text-primary text-uppercase mb-2" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                    <i class="bi bi-cup-straw me-1"></i>Bartender Shift Drink Record
+                                </label>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-bold text-dark mb-1">Drink Option</label>
+                                <select class="form-select fw-bold" @bind="_editShiftDrinkType">
+                                    <option value="DECLINED">Declined</option>
+                                    <option value="POUR_NOW">Poured (Claimed)</option>
+                                    <option value="VOUCHER">Voucher Token</option>
+                                </select>
+                            </div>
+                            @if (_editShiftDrinkType != "DECLINED")
+                            {
+                                <div class="col-md-5">
+                                    <label class="form-label small fw-bold text-dark mb-1">Drink Name</label>
+                                    <input type="text" class="form-control fw-bold" @bind="_editShiftDrinkItem" placeholder="e.g. Bud Light, Tito's &amp; Soda" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Retail Value ($)</label>
+                                    <input type="number" step="0.25" min="0" class="form-control fw-bold" @bind="_editShiftDrinkPrice" />
+                                </div>
+                            }
+
+                            <div class="col-12"><hr class="my-2 opacity-25" /></div>
+
+                            <div class="col-12">
+                                <div class="p-3 bg-light rounded-3 border extra-small text-muted d-flex align-items-center gap-2">
+                                    <i class="bi bi-info-circle-fill text-primary fs-5"></i>
+                                    <span>
+                                        <strong>Automatic System Sync:</strong> Saving these corrections will automatically update the Z-Report and keep the Daily Bar Book / Payroll sheet (<code>BarSaleEntries</code>) fully in sync.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white border-top px-4 py-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="CloseEditZModals">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-black shadow-sm" @onclick="ProceedToEditZStep2">
+                        <i class="bi bi-arrow-right-circle-fill me-1"></i> Review Proposed Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEditZModalStep2 && _editTargetZReport != null)
+{
+    <!-- EDIT Z-REPORT MODAL: STEP 2 OF 2 (IMPACT PREVIEW & FINAL CONFIRMATION) -->
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.88); z-index: 10700; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex !important; align-items: center; justify-content: center; overflow-y: auto; backdrop-filter: blur(6px);">
+        <div class="modal-dialog modal-dialog-centered modal-lg" style="max-width: 750px; width: 90%;">
+            <div class="modal-content rounded-4 border-0 shadow-2xl overflow-hidden border border-primary border-2">
+                <div class="modal-header bg-primary text-white px-4 py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-clipboard-check-fill fs-3 text-warning"></i>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">🔍 REVIEW IMPACT &amp; CONFIRM — STEP 2 OF 2</h5>
+                            <small class="opacity-75">Verify all before and after modifications</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseEditZModals"></button>
+                </div>
+                <div class="modal-body p-4 bg-white text-dark">
+                    <!-- Before vs After Comparison Table -->
+                    <div class="card border-0 rounded-3 shadow-xs overflow-hidden mb-4 bg-light">
+                        <div class="card-header bg-dark text-white fw-bold small text-uppercase py-2 px-3">
+                            <i class="bi bi-arrow-left-right me-1 text-primary"></i> BEFORE VS. AFTER COMPARISON TABLE
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm mb-0 align-middle">
+                                <thead class="table-secondary small fw-bold">
+                                    <tr>
+                                        <th class="ps-3" style="width: 30%;">Field / Property</th>
+                                        <th style="width: 35%;">Current Value (Before)</th>
+                                        <th style="width: 35%;" class="text-primary">New Value (After)</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="small">
+                                    <tr>
+                                        <td class="ps-3 fw-bold text-muted">Bartender Name</td>
+                                        <td><span class="badge bg-light text-dark border">@(_editTargetZReport.BartenderName ?? "None")</span></td>
+                                        <td>
+                                            @if (_editTargetZReport.BartenderName != _editBartenderName)
+                                            {
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold">@_editBartenderName</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">No change</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ps-3 fw-bold text-muted">Hours Worked</td>
+                                        <td><span class="badge bg-light text-dark border">@(_editTargetZReport.HoursWorked?.ToString("F2") ?? "0.00") hrs</span></td>
+                                        <td>
+                                            @if (_editTargetZReport.HoursWorked != _editHoursWorked)
+                                            {
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold">@(_editHoursWorked?.ToString("F2") ?? "0.00") hrs</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">No change</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ps-3 fw-bold text-muted">Physical Token Counts</td>
+                                        <td><span class="text-muted small">@(_editTargetZReport.PhysicalTokensJson ?? "None")</span></td>
+                                        <td>
+                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle fw-bold">
+                                                Beer: @_editBeerTokens, Mixed: @_editMixedTokens
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ps-3 fw-bold text-muted">Shift Drink Status</td>
+                                        <td><span class="text-muted small">@(_editTargetZReport.ShiftDrinkJson ?? "None")</span></td>
+                                        <td>
+                                            <span class="badge @(_editShiftDrinkType == "DECLINED" ? "bg-secondary-subtle text-secondary" : "bg-success-subtle text-success") border fw-bold">
+                                                @_editShiftDrinkType @(!string.IsNullOrWhiteSpace(_editShiftDrinkItem) ? $"({_editShiftDrinkItem} - {_editShiftDrinkPrice:C2})" : "")
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Linked Back-Office Impact -->
+                    <div class="card bg-light border-0 rounded-3 p-3 mb-4">
+                        <div class="fw-black text-dark small text-uppercase mb-2">AUTOMATIC SYSTEM IMPACT:</div>
+                        <ul class="list-unstyled mb-0 small">
+                            <li class="mb-2 d-flex align-items-start gap-2">
+                                <i class="bi bi-journal-text text-primary mt-1"></i>
+                                <span>
+                                    <strong>Daily Bar Book / Payroll (`BarSaleEntries`):</strong> 
+                                    @if (_editAssociatedBarEntry != null)
+                                    {
+                                        <span>Automatically updating Entry ID <code>@_editAssociatedBarEntry.Id</code> with Employee: <strong>@_editBartenderName</strong>, Hours: <strong>@(_editHoursWorked?.ToString("F2") ?? "0.00")</strong>.</span>
+                                    }
+                                    else
+                                    {
+                                        <span>No matching standalone BarSaleEntry row found for this timestamp.</span>
+                                    }
+                                </span>
+                            </li>
+                            <li class="mb-0 d-flex align-items-start gap-2">
+                                <i class="bi bi-shield-check text-success mt-1"></i>
+                                <span><strong>Transactions:</strong> All individual <code>PosSales</code> rows remain 100% safe and intact.</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-bold" @onclick="() => { _showEditZModalStep2 = false; _showEditZModalStep1 = true; }">
+                        <i class="bi bi-arrow-left me-1"></i> Back to Edit
+                    </button>
+                    <button type="button" class="btn btn-success rounded-pill px-4 fw-black shadow-lg" @onclick="ExecuteEditZReport" disabled="@_isExecutingEditZ">
+                        @if (_isExecutingEditZ)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>SAVING CHANGES...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle-fill me-1"></i>
+                            <span>CONFIRM &amp; SAVE CHANGES</span>
+                        }
+                    </button>
                 </div>
             </div>
         </div>
@@ -16737,6 +17190,343 @@
         }
 
         return list.OrderByDescending(x => x.Timestamp).ToList();
+    }
+
+    // ==========================================
+    // Z-REPORT VOID & REOPEN / EDIT STATE & METHODS
+    // ==========================================
+
+    private bool _showVoidZModalStep1 = false;
+    private bool _showVoidZModalStep2 = false;
+    private PosZReport? _voidTargetZReport;
+    private BarSaleEntry? _voidAssociatedBarEntry;
+    private Dictionary<int, int>? _voidAssociatedPulls;
+    private bool _isExecutingVoidZ = false;
+
+    private bool _showEditZModalStep1 = false;
+    private bool _showEditZModalStep2 = false;
+    private PosZReport? _editTargetZReport;
+    private string _editBartenderName = "";
+    private decimal? _editHoursWorked = null;
+    private int _editBeerTokens = 0;
+    private int _editMixedTokens = 0;
+    private string _editShiftDrinkType = "DECLINED";
+    private string _editShiftDrinkItem = "";
+    private decimal _editShiftDrinkPrice = 0;
+    private bool _editSyncBarEntry = true;
+    private BarSaleEntry? _editAssociatedBarEntry;
+    private bool _isExecutingEditZ = false;
+
+    private async Task OpenVoidZReportModal(PosZReport? z)
+    {
+        var target = z ?? SelectedZReport;
+        if (target == null) return;
+        _voidTargetZReport = target;
+        _voidAssociatedBarEntry = null;
+        _voidAssociatedPulls = null;
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var localTime = target.Timestamp;
+            var localHour = localTime.Hour;
+            DateTime targetDate = localTime.Date;
+            string targetShift = "Day";
+
+            if (localHour >= 0 && localHour < 5)
+            {
+                targetDate = targetDate.AddDays(-1);
+                targetShift = "Night";
+            }
+            else if (localHour >= 5 && localHour < 19)
+            {
+                targetShift = "Day";
+            }
+            else
+            {
+                targetShift = "Night";
+            }
+
+            var minDate = targetDate.Date;
+            var maxDate = targetDate.Date.AddDays(1);
+            _voidAssociatedBarEntry = await db.BarSaleEntries
+                .FirstOrDefaultAsync(e => ((e.AdjustedSaleDate != null && e.AdjustedSaleDate >= minDate && e.AdjustedSaleDate < maxDate) ||
+                                           (e.AdjustedSaleDate == null && e.SaleDate >= minDate && e.SaleDate < maxDate)) && 
+                                          e.Shift == targetShift && !e.IsRentalHall);
+
+            if (!string.IsNullOrEmpty(target.InventoryPullsJson))
+            {
+                _voidAssociatedPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(target.InventoryPullsJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS Audit] Error loading associated bar entry for void: {ex.Message}");
+        }
+
+        _showVoidZModalStep1 = true;
+        _showVoidZModalStep2 = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ProceedToVoidZStep2()
+    {
+        _showVoidZModalStep1 = false;
+        _showVoidZModalStep2 = true;
+        StateHasChanged();
+    }
+
+    private void CloseVoidZModals()
+    {
+        _showVoidZModalStep1 = false;
+        _showVoidZModalStep2 = false;
+        _voidTargetZReport = null;
+        StateHasChanged();
+    }
+
+    private async Task ExecuteVoidZReport()
+    {
+        if (_voidTargetZReport == null || _isExecutingVoidZ) return;
+        _isExecutingVoidZ = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var targetZ = await db.PosZReports.FirstOrDefaultAsync(r => r.Id == _voidTargetZReport.Id);
+            if (targetZ == null)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Z-Report not found or was already removed.");
+                CloseVoidZModals();
+                return;
+            }
+
+            // 1. Unconditionally delete companion BarSaleEntry if it exists
+            if (_voidAssociatedBarEntry != null)
+            {
+                var barEntry = await db.BarSaleEntries.FirstOrDefaultAsync(b => b.Id == _voidAssociatedBarEntry.Id);
+                if (barEntry != null)
+                {
+                    db.BarSaleEntries.Remove(barEntry);
+                }
+            }
+
+            // 2. Unconditionally rollback inventory bottle pulls if any were checked out
+            if (_voidAssociatedPulls != null && _voidAssociatedPulls.Any())
+            {
+                int userId = 1;
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == authState.User.Identity!.Name);
+                if (userObj != null) userId = userObj.UserId;
+
+                foreach (var pull in _voidAssociatedPulls)
+                {
+                    try
+                    {
+                        await LiquorService.AdjustStockAsync(pull.Key, userId, pull.Value, $"[{targetZ.TerminalName}] Rollback POS End-of-Shift Removal");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[POS Audit] Stock rollback warning for item {pull.Key}: {ex.Message}");
+                    }
+                }
+            }
+
+            // 3. Remove PosZReport row
+            db.PosZReports.Remove(targetZ);
+            await db.SaveChangesAsync();
+
+            SyncLog.RecordError(targetZ.TerminalName ?? "POS Station", "Z-REPORT VOIDED", $"Z-Report {targetZ.Id} ({targetZ.TotalGrossSales:C2}) voided by admin and shift reopened.");
+
+            await JSRuntime.InvokeVoidAsync("alert", $"Z-Report for {targetZ.TerminalName} has been successfully voided! The shift has been reopened into active live sales.");
+
+            CloseVoidZModals();
+            SelectedZReport = null;
+            FilterShiftValue = "CURRENT";
+            await LoadSales();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS Audit] Error voiding Z-Report: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Error voiding Z-Report: {ex.Message}");
+        }
+        finally
+        {
+            _isExecutingVoidZ = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenEditZReportModal(PosZReport? z)
+    {
+        var target = z ?? SelectedZReport;
+        if (target == null) return;
+        _editTargetZReport = target;
+        _editBartenderName = target.BartenderName ?? "";
+        _editHoursWorked = target.HoursWorked;
+        _editBeerTokens = 0;
+        _editMixedTokens = 0;
+        _editShiftDrinkType = "DECLINED";
+        _editShiftDrinkItem = "";
+        _editShiftDrinkPrice = 0;
+        _editSyncBarEntry = true;
+        _editAssociatedBarEntry = null;
+
+        // Parse PhysicalTokensJson
+        if (!string.IsNullOrEmpty(target.PhysicalTokensJson))
+        {
+            try
+            {
+                var doc = JsonDocument.Parse(target.PhysicalTokensJson);
+                if (doc.RootElement.TryGetProperty("Beer", out var bVal)) _editBeerTokens = bVal.GetInt32();
+                if (doc.RootElement.TryGetProperty("Mixed Drink", out var mVal)) _editMixedTokens = mVal.GetInt32();
+            }
+            catch {}
+        }
+
+        // Parse ShiftDrinkJson
+        if (!string.IsNullOrEmpty(target.ShiftDrinkJson))
+        {
+            try
+            {
+                var doc = JsonDocument.Parse(target.ShiftDrinkJson);
+                if (doc.RootElement.TryGetProperty("Type", out var tVal)) _editShiftDrinkType = tVal.GetString() ?? "DECLINED";
+                if (doc.RootElement.TryGetProperty("ItemName", out var iVal)) _editShiftDrinkItem = iVal.GetString() ?? "";
+                if (doc.RootElement.TryGetProperty("Price", out var pVal)) _editShiftDrinkPrice = pVal.GetDecimal();
+            }
+            catch {}
+        }
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var localTime = target.Timestamp;
+            var localHour = localTime.Hour;
+            DateTime targetDate = localTime.Date;
+            string targetShift = "Day";
+
+            if (localHour >= 0 && localHour < 5)
+            {
+                targetDate = targetDate.AddDays(-1);
+                targetShift = "Night";
+            }
+            else if (localHour >= 5 && localHour < 19)
+            {
+                targetShift = "Day";
+            }
+            else
+            {
+                targetShift = "Night";
+            }
+
+            var minDate = targetDate.Date;
+            var maxDate = targetDate.Date.AddDays(1);
+            _editAssociatedBarEntry = await db.BarSaleEntries
+                .FirstOrDefaultAsync(e => ((e.AdjustedSaleDate != null && e.AdjustedSaleDate >= minDate && e.AdjustedSaleDate < maxDate) ||
+                                           (e.AdjustedSaleDate == null && e.SaleDate >= minDate && e.SaleDate < maxDate)) && 
+                                          e.Shift == targetShift && !e.IsRentalHall);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS Audit] Error loading associated bar entry for edit: {ex.Message}");
+        }
+
+        _showEditZModalStep1 = true;
+        _showEditZModalStep2 = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ProceedToEditZStep2()
+    {
+        _showEditZModalStep1 = false;
+        _showEditZModalStep2 = true;
+        StateHasChanged();
+    }
+
+    private void CloseEditZModals()
+    {
+        _showEditZModalStep1 = false;
+        _showEditZModalStep2 = false;
+        _editTargetZReport = null;
+        StateHasChanged();
+    }
+
+    private async Task ExecuteEditZReport()
+    {
+        if (_editTargetZReport == null || _isExecutingEditZ) return;
+        _isExecutingEditZ = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var targetZ = await db.PosZReports.FirstOrDefaultAsync(r => r.Id == _editTargetZReport.Id);
+            if (targetZ == null)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Z-Report not found or was deleted.");
+                CloseEditZModals();
+                return;
+            }
+
+            // 1. Update PosZReport fields
+            targetZ.BartenderName = _editBartenderName?.Trim() ?? "";
+            targetZ.HoursWorked = _editHoursWorked;
+
+            var tokensDict = new Dictionary<string, int>
+            {
+                { "Beer", _editBeerTokens },
+                { "Mixed Drink", _editMixedTokens }
+            };
+            targetZ.PhysicalTokensJson = JsonSerializer.Serialize(tokensDict);
+
+            var drinkRecord = new
+            {
+                Type = _editShiftDrinkType,
+                ItemName = _editShiftDrinkType != "DECLINED" ? _editShiftDrinkItem?.Trim() : null,
+                Price = _editShiftDrinkType != "DECLINED" ? _editShiftDrinkPrice : 0m,
+                Timestamp = targetZ.Timestamp
+            };
+            targetZ.ShiftDrinkJson = JsonSerializer.Serialize(drinkRecord);
+
+            // 2. Synchronize BarSaleEntry automatically
+            if (_editAssociatedBarEntry != null)
+            {
+                var barEntry = await db.BarSaleEntries.FirstOrDefaultAsync(b => b.Id == _editAssociatedBarEntry.Id);
+                if (barEntry != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(_editBartenderName))
+                    {
+                        barEntry.EmployeeUsername = _editBartenderName.Trim();
+                    }
+                    if (_editHoursWorked.HasValue)
+                    {
+                        barEntry.TotalHours = _editHoursWorked.Value;
+                    }
+                    barEntry.ModifiedAt = DateTime.UtcNow;
+                    barEntry.ModifiedBy = "Admin (POS Audit Edit)";
+                }
+            }
+
+            await db.SaveChangesAsync();
+
+            SyncLog.RecordError(targetZ.TerminalName ?? "POS Station", "Z-REPORT EDITED", $"Z-Report {targetZ.Id} updated by admin (Bartender: {targetZ.BartenderName}, Hours: {targetZ.HoursWorked}).");
+
+            await JSRuntime.InvokeVoidAsync("alert", $"Z-Report for {targetZ.TerminalName} updated successfully!");
+
+            CloseEditZModals();
+            await LoadSales();
+            SelectedZReport = ZReports.FirstOrDefault(z => z.Id == targetZ.Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS Audit] Error updating Z-Report: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Error updating Z-Report: {ex.Message}");
+        }
+        finally
+        {
+            _isExecutingEditZ = false;
+            StateHasChanged();
+        }
     }
 }
 
