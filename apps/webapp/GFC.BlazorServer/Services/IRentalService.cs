@@ -32,6 +32,15 @@ namespace GFC.BlazorServer.Services
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);
         Task<HallRentalInquiry> GetInquiryAsync(string resumeToken);
         Task<string> CleanupDuplicateEventsAsync();
+
+        // Payment & Deposit Management
+        Task<IEnumerable<HallRentalPayment>> GetPaymentsForRequestAsync(int requestId);
+        Task<HallRentalPayment> RecordPaymentAsync(HallRentalPayment payment);
+        Task<bool> DeletePaymentAsync(int paymentId);
+
+        // Simulation & Test Record Management
+        Task<int> CleanupTestRecordsAsync();
+        Task<HallRentalRequest> SubmitPublicRentalRequestAsync(HallRentalRequest request, bool isTest = false);
     }
 }
 

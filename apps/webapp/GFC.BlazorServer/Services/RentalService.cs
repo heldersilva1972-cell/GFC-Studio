@@ -17,12 +17,24 @@ namespace GFC.BlazorServer.Services
         private readonly IDbContextFactory<GfcDbContext> _contextFactory;
         private readonly INotificationService _notificationService;
         private readonly INotificationRoutingService _routingService;
+        private readonly IWebsiteSettingsService _websiteSettingsService;
+        private readonly IRentalEmailDispatcher _emailDispatcher;
+        private readonly IGoogleCalendarService _googleCalendarService;
 
-        public RentalService(IDbContextFactory<GfcDbContext> contextFactory, INotificationService notificationService, INotificationRoutingService routingService)
+        public RentalService(
+            IDbContextFactory<GfcDbContext> contextFactory,
+            INotificationService notificationService,
+            INotificationRoutingService routingService,
+            IWebsiteSettingsService websiteSettingsService,
+            IRentalEmailDispatcher emailDispatcher,
+            IGoogleCalendarService googleCalendarService)
         {
             _contextFactory = contextFactory;
             _notificationService = notificationService;
             _routingService = routingService;
+            _websiteSettingsService = websiteSettingsService;
+            _emailDispatcher = emailDispatcher;
+            _googleCalendarService = googleCalendarService;
         }
 
         public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
@@ -429,6 +441,392 @@ namespace GFC.BlazorServer.Services
             
             await context.SaveChangesAsync();
             return $"Cleanup Complete: Auto-denied {deniedCount} pending requests due to conflicts.";
+        }
+
+        public async Task<IEnumerable<HallRentalPayment>> GetPaymentsForRequestAsync(int requestId)
+        {
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.HallRentalPayments
+                    .Where(p => p.HallRentalRequestId == requestId)
+                    .OrderByDescending(p => p.PaymentDate)
+                    .ToListAsync();
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208)
+            {
+                return Enumerable.Empty<HallRentalPayment>();
+            }
+        }
+
+        public async Task<HallRentalPayment> RecordPaymentAsync(HallRentalPayment payment)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            context.HallRentalPayments.Add(payment);
+
+            var req = await context.HallRentalRequests.FindAsync(payment.HallRentalRequestId);
+            if (req != null)
+            {
+                // Calculate total paid across non-refund payments
+                var existingPayments = await context.HallRentalPayments
+                    .Where(p => p.HallRentalRequestId == payment.HallRentalRequestId)
+                    .ToListAsync();
+
+                decimal total = existingPayments.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount) + 
+                                (payment.PaymentType == "Refund" ? -payment.Amount : payment.Amount);
+
+                req.AmountPaid = Math.Max(0, total);
+                req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                req.PaymentDate = payment.PaymentDate;
+                req.PaymentMethod = payment.PaymentMethod;
+
+                if (payment.PaymentType == "Security Deposit")
+                {
+                    req.SecurityDepositPaid = true;
+                    req.SecurityDepositAmount = payment.Amount;
+                }
+
+                context.Entry(req).State = EntityState.Modified;
+            }
+
+            await context.SaveChangesAsync();
+            return payment;
+        }
+
+        public async Task<bool> DeletePaymentAsync(int paymentId)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var payment = await context.HallRentalPayments.FindAsync(paymentId);
+            if (payment == null) return false;
+
+            int reqId = payment.HallRentalRequestId;
+            context.HallRentalPayments.Remove(payment);
+            await context.SaveChangesAsync();
+
+            // Recalculate request balance
+            var req = await context.HallRentalRequests.FindAsync(reqId);
+            if (req != null)
+            {
+                var remaining = await context.HallRentalPayments
+                    .Where(p => p.HallRentalRequestId == reqId)
+                    .ToListAsync();
+
+                decimal total = remaining.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+                req.AmountPaid = Math.Max(0, total);
+                req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                context.Entry(req).State = EntityState.Modified;
+                await context.SaveChangesAsync();
+            }
+
+            return true;
+        }
+
+        public async Task<int> CleanupTestRecordsAsync()
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var testRequests = await context.HallRentalRequests
+                .Where(r => r.IsTestRecord)
+                .ToListAsync();
+
+            int count = testRequests.Count;
+            if (count > 0)
+            {
+                var reqIds = testRequests.Select(r => r.Id).ToList();
+                var testPayments = await context.HallRentalPayments
+                    .Where(p => reqIds.Contains(p.HallRentalRequestId) || p.IsTestPayment)
+                    .ToListAsync();
+
+                context.HallRentalPayments.RemoveRange(testPayments);
+                context.HallRentalRequests.RemoveRange(testRequests);
+                await context.SaveChangesAsync();
+            }
+
+            return count;
+        }
+
+        private async Task HealDatabaseAsync()
+        {
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                var sql = @"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterAddress')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterAddress] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterCity')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterCity] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterState')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterState] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterZip')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterZip] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'ApplicantSignature')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [ApplicantSignature] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'AlternateEventDate')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [AlternateEventDate] DATETIME2 NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RoomSelected')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RoomSelected] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'EventDescription')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [EventDescription] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'TermsAgreed')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [TermsAgreed] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'CancellationPolicyAgreed')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [CancellationPolicyAgreed] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'KitchenPolicyAgreed')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [KitchenPolicyAgreed] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'BartenderRequested')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [BartenderRequested] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequiresSetupTime')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequiresSetupTime] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'AmountPaid')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [AmountPaid] DECIMAL(18,2) NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'SecurityDepositAmount')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [SecurityDepositAmount] DECIMAL(18,2) NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'IsTestRecord')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [IsTestRecord] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'AgreedPoliciesJson')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [AgreedPoliciesJson] NVARCHAR(MAX) NULL;
+                ";
+                await context.Database.ExecuteSqlRawAsync(sql);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] HealDatabaseAsync warning: {ex.Message}");
+            }
+        }
+
+        public async Task<HallRentalRequest> SubmitPublicRentalRequestAsync(HallRentalRequest request, bool isTest = false)
+        {
+            await HealDatabaseAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            request.IsTestRecord = isTest;
+            request.CreatedDate = DateTime.UtcNow;
+            request.RequestedDate = request.EventDate;
+            request.Status = RentalStatus.Pending;
+
+            context.HallRentalRequests.Add(request);
+            await context.SaveChangesAsync();
+
+            // Auto-schedule pending calendar entry in local database and Google Calendar
+            try
+            {
+                string titlePrefix = isTest ? "[TEST] PENDING: " : "PENDING: ";
+                string room = string.IsNullOrEmpty(request.RoomSelected) ? "Function Hall" : request.RoomSelected;
+                string desc = $"Applicant: {request.ApplicantName}\nPhone: {request.RequesterPhone}\nEmail: {request.RequesterEmail}\nRoom: {room}\nGuests: {request.GuestCount}\nTotal: ${request.TotalPrice}";
+
+                await UpdateCalendarAvailabilityAsync(
+                    request.EventDate,
+                    $"{titlePrefix}{request.ApplicantName} ({request.EventType ?? "Rental"})",
+                    desc,
+                    request.StartTime ?? "12:00 PM",
+                    request.EndTime ?? "5:00 PM"
+                );
+
+                // Push to Google Calendar directly if Service Account / Write API is configured
+                var calSettings = await _googleCalendarService.GetSettingsAsync();
+                var webSettings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+
+                string? targetCalId = isTest
+                    ? (!string.IsNullOrWhiteSpace(webSettings?.SandboxGoogleCalendarId) ? webSettings.SandboxGoogleCalendarId.Trim() : calSettings?.PrimaryGoogleCalendarId?.Trim())
+                    : calSettings?.PrimaryGoogleCalendarId?.Trim();
+
+                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings?.PublicCalendarUrl))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success)
+                    {
+                        targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(targetCalId) &&
+                    calSettings != null &&
+                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) &&
+                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey))
+                {
+                    var activeCalSettings = new GoogleCalendarSettings
+                    {
+                        PrimaryGoogleCalendarId = targetCalId,
+                        ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                        ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                        ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                        EnableWriteApi = true,
+                        GoogleEventVisibility = calSettings.GoogleEventVisibility,
+                        PushApplicantNameToTitle = calSettings.PushApplicantNameToTitle,
+                        PushApplicantNameToDescription = calSettings.PushApplicantNameToDescription,
+                        PushApplicantPhoneToDescription = calSettings.PushApplicantPhoneToDescription,
+                        PushApplicantEmailToDescription = calSettings.PushApplicantEmailToDescription,
+                        PushPricingQuoteToDescription = calSettings.PushPricingQuoteToDescription,
+                        PushGuestCountToDescription = calSettings.PushGuestCountToDescription,
+                        PushServicesToDescription = calSettings.PushServicesToDescription,
+                        PushAddressToDescription = calSettings.PushAddressToDescription,
+                        PushNotesToDescription = calSettings.PushNotesToDescription
+                    };
+
+                    DateTime start = request.EventDate.Date.AddHours(14);
+                    DateTime end = request.EventDate.Date.AddHours(20);
+                    if (DateTime.TryParse(request.StartTime, out var ps)) start = request.EventDate.Date.Add(ps.TimeOfDay);
+                    if (DateTime.TryParse(request.EndTime, out var pe)) end = request.EventDate.Date.Add(pe.TimeOfDay);
+
+                    string eventType = string.IsNullOrWhiteSpace(request.EventType) ? "Hall Rental" : request.EventType;
+                    string eventTitle = $"{titlePrefix}{request.ApplicantName} - {eventType}";
+                    if (!calSettings.PushApplicantNameToTitle)
+                    {
+                        eventTitle = $"{titlePrefix}{eventType}";
+                    }
+
+                    var lines = new List<string>();
+                    if (calSettings.PushApplicantNameToDescription && !string.IsNullOrWhiteSpace(request.ApplicantName))
+                        lines.Add($"Applicant: {request.ApplicantName}");
+                    if (calSettings.PushApplicantPhoneToDescription && !string.IsNullOrWhiteSpace(request.RequesterPhone))
+                        lines.Add($"Phone: {request.RequesterPhone}");
+                    if (calSettings.PushApplicantEmailToDescription && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                        lines.Add($"Email: {request.RequesterEmail}");
+                    if (calSettings.PushGuestCountToDescription && request.GuestCount > 0)
+                        lines.Add($"Guest Count: {request.GuestCount}");
+                    if (calSettings.PushPricingQuoteToDescription)
+                        lines.Add($"Total Quote: ${request.TotalPrice:N2}");
+                    if (!string.IsNullOrWhiteSpace(request.RoomSelected))
+                        lines.Add($"Space: {request.RoomSelected}");
+
+                    var services = new List<string>();
+                    if (request.BartenderRequested) services.Add("Bar / Bartender");
+                    if (request.KitchenUsage) services.Add("Kitchen Usage");
+                    if (request.AvEquipmentUsage) services.Add("A/V Equipment");
+                    if (request.RequiresSetupTime) services.Add("Setup Time Requested");
+                    if (calSettings.PushServicesToDescription && services.Any())
+                        lines.Add($"Services: {string.Join(", ", services)}");
+
+                    if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
+                        lines.Add($"Applicant Notes: {request.InternalNotes}");
+
+                    var googleEvt = new CalendarEventItem
+                    {
+                        Title = eventTitle,
+                        Start = start,
+                        End = end,
+                        Location = request.RoomSelected ?? "Function Hall",
+                        Description = lines.Any() ? string.Join("\n", lines) : $"{titlePrefix}{eventType}"
+                    };
+
+                    await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Calendar sync warning: {ex.Message}");
+            }
+
+            // Dispatch Outgoing Applicant Auto-Responder & Staff Alerts via Website Domain Mailer
+            try
+            {
+                var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                if (settings != null && !settings.MasterEmailKillSwitch)
+                {
+                    // 1. Send Applicant Confirmation Email (if enabled and applicant provided email)
+                    if (settings.SendApplicantConfirmation && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                    {
+                        string targetEmail = (isTest && !string.IsNullOrWhiteSpace(settings.SandboxTestEmail))
+                            ? settings.SandboxTestEmail
+                            : request.RequesterEmail;
+
+                        decimal effectiveDeposit = request.SecurityDepositAmount > 0 
+                            ? request.SecurityDepositAmount 
+                            : (settings.SecurityDepositAmount ?? 200m);
+
+                        string subject = settings.ApplicantConfirmationEmailSubject ?? "Your Hall Rental Application Confirmation - {ClubName}";
+                        subject = subject
+                            .Replace("{ApplicantName}", request.ApplicantName ?? "")
+                            .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
+                            .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
+                            .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
+                            .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
+                            .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
+                            .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                        if (isTest) subject = "[TEST] " + subject;
+
+                        string depositNote = (effectiveDeposit > 0 && settings.RequireSecurityDeposit)
+                            ? $"- Security Deposit: ${effectiveDeposit:N2}"
+                            : "";
+
+                        string body = settings.ApplicantConfirmationEmailBody ?? "";
+                        if (string.IsNullOrWhiteSpace(body))
+                        {
+                            body = "Dear {ApplicantName},\n\nThank you for submitting your Hall Rental Application for {ClubName}.\n\nEvent Date: {EventDate}\nRoom: {RoomSelected}\nTotal Quote: ${TotalPrice}\n\nOur rental committee will review your application and reach out shortly.\nGloucester Fraternity Club | {ClubPhone}";
+                        }
+
+                        body = body
+                            .Replace("{ApplicantName}", request.ApplicantName ?? "")
+                            .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
+                            .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
+                            .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
+                            .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
+                            .Replace("{DepositDetails}", depositNote)
+                            .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
+                            .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                        await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, body, settings.RentalEmailCc);
+                    }
+
+                    // 2. Send Staff Notification Alert (if enabled)
+                    if (settings.NotifyOnNewSubmission)
+                    {
+                        var recipients = settings.GetRecipientsList();
+                        if (recipients.Any())
+                        {
+                            string staffSubject = $"{(isTest ? "[TEST] " : "")}New Hall Rental Request: {request.ApplicantName} ({request.EventDate:MM/dd/yyyy})";
+                            string staffBody = $@"
+                                <h3>New Hall Rental Application Submitted</h3>
+                                <p>A new rental application has been submitted online:</p>
+                                <ul>
+                                    <li><strong>Applicant / Organization:</strong> {request.ApplicantName}</li>
+                                    <li><strong>Contact Phone:</strong> {request.RequesterPhone}</li>
+                                    <li><strong>Contact Email:</strong> {request.RequesterEmail}</li>
+                                    <li><strong>Event Date:</strong> {request.EventDate:dddd, MMMM dd, yyyy}</li>
+                                    <li><strong>Time Window:</strong> {request.StartTime} - {request.EndTime}</li>
+                                    <li><strong>Space:</strong> {request.RoomSelected}</li>
+                                    <li><strong>Guest Count:</strong> {request.GuestCount}</li>
+                                    <li><strong>Total Quote:</strong> ${request.TotalPrice:N2}</li>
+                                    <li><strong>Bartender Requested:</strong> {(request.BartenderRequested ? "Yes" : "No")}</li>
+                                    <li><strong>Kitchen Access:</strong> {(request.KitchenUsage ? "Yes" : "No")}</li>
+                                    <li><strong>Extra Setup Time Requested:</strong> {(request.RequiresSetupTime ? "Yes" : "No")}</li>
+                                </ul>
+                                <p>View and manage this booking in <a href='/hall-rentals'>GFC Studio Hall Rentals</a>.</p>";
+
+                            foreach (var recipient in recipients)
+                            {
+                                string targetStaffEmail = (isTest && !string.IsNullOrWhiteSpace(settings.SandboxTestEmail))
+                                    ? settings.SandboxTestEmail
+                                    : recipient;
+
+                                await _emailDispatcher.SendRentalEmailAsync(settings, targetStaffEmail, staffSubject, staffBody);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Rental email delivery error: {ex.Message}");
+            }
+
+            return request;
         }
     }
 }

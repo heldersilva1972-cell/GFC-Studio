@@ -139,6 +139,94 @@ namespace GFC.BlazorServer.Services
             return ParseIcsContent(icsContent, sourceName, color);
         }
 
+        public async Task<List<CalendarEventItem>> FetchEventsFromApiAsync(string calendarId, GoogleCalendarSettings settings, string sourceName = "Google Calendar", string color = "#0d6efd")
+        {
+            var list = new List<CalendarEventItem>();
+            if (string.IsNullOrWhiteSpace(calendarId)) return list;
+
+            try
+            {
+                var token = await GetServiceAccountAccessTokenAsync(settings);
+                if (string.IsNullOrEmpty(token))
+                {
+                    _logger.LogWarning("FetchEventsFromApiAsync: No access token could be obtained.");
+                    return list;
+                }
+
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                var url = $"https://www.googleapis.com/calendar/v3/calendars/{Uri.EscapeDataString(calendarId.Trim())}/events?maxResults=2500&singleEvents=true&orderBy=startTime";
+                var response = await client.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errBody = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("FetchEventsFromApiAsync failed with status {Status}: {Body}", response.StatusCode, errBody);
+                    return list;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        var evt = new CalendarEventItem
+                        {
+                            Source = sourceName,
+                            ColorCategory = "badge-primary"
+                        };
+
+                        if (item.TryGetProperty("id", out var idProp)) evt.GoogleEventId = idProp.GetString();
+                        if (item.TryGetProperty("summary", out var sumProp)) evt.Title = sumProp.GetString() ?? "(No Title)";
+                        if (item.TryGetProperty("description", out var descProp)) evt.Description = descProp.GetString();
+                        if (item.TryGetProperty("location", out var locProp)) evt.Location = locProp.GetString();
+                        if (item.TryGetProperty("status", out var statProp)) evt.Status = statProp.GetString()?.ToUpperInvariant() ?? "CONFIRMED";
+
+                        // Parse Start
+                        if (item.TryGetProperty("start", out var startProp))
+                        {
+                            if (startProp.TryGetProperty("dateTime", out var dtStart) && DateTime.TryParse(dtStart.GetString(), out var sDt))
+                            {
+                                evt.Start = sDt.ToLocalTime();
+                                evt.IsAllDay = false;
+                            }
+                            else if (startProp.TryGetProperty("date", out var dStart) && DateTime.TryParse(dStart.GetString(), out var sd))
+                            {
+                                evt.Start = sd;
+                                evt.IsAllDay = true;
+                            }
+                        }
+
+                        // Parse End
+                        if (item.TryGetProperty("end", out var endProp))
+                        {
+                            if (endProp.TryGetProperty("dateTime", out var dtEnd) && DateTime.TryParse(dtEnd.GetString(), out var eDt))
+                            {
+                                evt.End = eDt.ToLocalTime();
+                            }
+                            else if (endProp.TryGetProperty("date", out var dEnd) && DateTime.TryParse(dEnd.GetString(), out var ed))
+                            {
+                                evt.End = ed;
+                            }
+                        }
+
+                        NormalizeEventData(evt);
+                        if (!string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(evt.Title))
+                        {
+                            list.Add(evt);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching events via Google REST API for calendar '{CalendarId}'", calendarId);
+            }
+
+            return list;
+        }
+
         public async Task<(bool Success, string Message, int EventCount)> TestConnectionAsync(string icalUrl)
         {
             try
@@ -396,17 +484,23 @@ namespace GFC.BlazorServer.Services
             }
 
             // 3. Status classification
-            if (current.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase))
+            string cleanTitle = current.Title;
+            if (cleanTitle.StartsWith("[TEST]", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanTitle = cleanTitle.Substring(6).Trim();
+            }
+
+            if (cleanTitle.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase))
             {
                 current.Status = "PENDING";
                 current.ColorCategory = "badge-warning";
             }
-            else if (current.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
+            else if (cleanTitle.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
             {
                 current.Status = "APPROVED";
                 current.ColorCategory = "badge-success";
             }
-            else if (current.Title.StartsWith("DENIED", StringComparison.OrdinalIgnoreCase) || current.Title.StartsWith("CANCEL", StringComparison.OrdinalIgnoreCase))
+            else if (cleanTitle.StartsWith("DENIED", StringComparison.OrdinalIgnoreCase) || cleanTitle.StartsWith("CANCEL", StringComparison.OrdinalIgnoreCase))
             {
                 current.Status = "DENIED";
                 current.ColorCategory = "badge-danger";
@@ -501,7 +595,7 @@ namespace GFC.BlazorServer.Services
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-                var payload = BuildGoogleEventJson(eventItem);
+                var payload = BuildGoogleEventJson(eventItem, settings);
                 var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
                 var url = $"https://www.googleapis.com/calendar/v3/calendars/{Uri.EscapeDataString(calId)}/events";
@@ -540,7 +634,7 @@ namespace GFC.BlazorServer.Services
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-                var payload = BuildGoogleEventJson(eventItem);
+                var payload = BuildGoogleEventJson(eventItem, settings);
                 var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
                 var url = $"https://www.googleapis.com/calendar/v3/calendars/{Uri.EscapeDataString(calId)}/events/{Uri.EscapeDataString(eventId)}";
@@ -676,15 +770,59 @@ namespace GFC.BlazorServer.Services
                 .Replace('/', '_');
         }
 
-        private static string BuildGoogleEventJson(CalendarEventItem ev)
+        private static string BuildGoogleEventJson(CalendarEventItem ev, GoogleCalendarSettings? settings = null)
         {
-            var startDict = ev.IsAllDay 
-                ? new Dictionary<string, object> { { "date", ev.Start.ToString("yyyy-MM-dd") } }
-                : new Dictionary<string, object> { { "dateTime", ev.Start.ToString("yyyy-MM-ddTHH:mm:ssK") } };
+            var tzId = "America/New_York";
+            try
+            {
+                var localId = TimeZoneInfo.Local.Id;
+                if (TimeZoneInfo.TryConvertWindowsIdToIanaId(localId, out var ianaId) && !string.IsNullOrWhiteSpace(ianaId))
+                {
+                    tzId = ianaId;
+                }
+                else if (!string.IsNullOrWhiteSpace(localId) && localId.Contains('/'))
+                {
+                    tzId = localId;
+                }
+            }
+            catch { }
 
-            var endDict = ev.IsAllDay 
-                ? new Dictionary<string, object> { { "date", ev.End.ToString("yyyy-MM-dd") } }
-                : new Dictionary<string, object> { { "dateTime", ev.End.ToString("yyyy-MM-ddTHH:mm:ssK") } };
+            Dictionary<string, object> startDict;
+            Dictionary<string, object> endDict;
+
+            if (ev.IsAllDay)
+            {
+                startDict = new Dictionary<string, object> { { "date", ev.Start.ToString("yyyy-MM-dd") } };
+                endDict = new Dictionary<string, object> { { "date", ev.End.ToString("yyyy-MM-dd") } };
+            }
+            else
+            {
+                DateTimeOffset startOffset = ev.Start.Kind switch
+                {
+                    DateTimeKind.Utc => new DateTimeOffset(ev.Start, TimeSpan.Zero),
+                    DateTimeKind.Local => new DateTimeOffset(ev.Start),
+                    _ => new DateTimeOffset(ev.Start, TimeZoneInfo.Local.GetUtcOffset(ev.Start))
+                };
+
+                DateTimeOffset endOffset = ev.End.Kind switch
+                {
+                    DateTimeKind.Utc => new DateTimeOffset(ev.End, TimeSpan.Zero),
+                    DateTimeKind.Local => new DateTimeOffset(ev.End),
+                    _ => new DateTimeOffset(ev.End, TimeZoneInfo.Local.GetUtcOffset(ev.End))
+                };
+
+                startDict = new Dictionary<string, object>
+                {
+                    { "dateTime", startOffset.ToString("yyyy-MM-ddTHH:mm:sszzz") },
+                    { "timeZone", tzId }
+                };
+
+                endDict = new Dictionary<string, object>
+                {
+                    { "dateTime", endOffset.ToString("yyyy-MM-ddTHH:mm:sszzz") },
+                    { "timeZone", tzId }
+                };
+            }
 
             var root = new Dictionary<string, object?>
             {
@@ -694,6 +832,11 @@ namespace GFC.BlazorServer.Services
                 { "start", startDict },
                 { "end", endDict }
             };
+
+            if (settings != null && !string.IsNullOrWhiteSpace(settings.GoogleEventVisibility) && settings.GoogleEventVisibility != "default")
+            {
+                root["visibility"] = settings.GoogleEventVisibility;
+            }
 
             return JsonSerializer.Serialize(root);
         }

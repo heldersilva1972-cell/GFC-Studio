@@ -34,5 +34,17 @@ namespace GFC.Core.Models
         public string ServiceAccountPrivateKey { get; set; } = string.Empty;
         public string PrimaryGoogleCalendarId { get; set; } = string.Empty;
         public string ServiceAccountProjectNumber { get; set; } = string.Empty;
+
+        // Privacy & Field Visibility Options for Google Calendar Events
+        public bool PushApplicantNameToTitle { get; set; } = true;
+        public bool PushApplicantNameToDescription { get; set; } = true;
+        public bool PushApplicantPhoneToDescription { get; set; } = false;
+        public bool PushApplicantEmailToDescription { get; set; } = false;
+        public bool PushPricingQuoteToDescription { get; set; } = false;
+        public bool PushGuestCountToDescription { get; set; } = true;
+        public bool PushServicesToDescription { get; set; } = true;
+        public bool PushAddressToDescription { get; set; } = false;
+        public bool PushNotesToDescription { get; set; } = true;
+        public string GoogleEventVisibility { get; set; } = "default"; // "default", "private", "public"
     }
 }

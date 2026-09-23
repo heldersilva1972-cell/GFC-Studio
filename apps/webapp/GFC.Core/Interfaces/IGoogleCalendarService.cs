@@ -11,6 +11,7 @@ namespace GFC.Core.Interfaces
         Task SaveSettingsAsync(GoogleCalendarSettings settings);
         Task<List<CalendarEventItem>> FetchAllFeedsAsync(GoogleCalendarSettings settings);
         Task<List<CalendarEventItem>> FetchEventsFromUrlAsync(string icalUrl, string sourceName = "Public Calendar", string color = "#0d6efd");
+        Task<List<CalendarEventItem>> FetchEventsFromApiAsync(string calendarId, GoogleCalendarSettings settings, string sourceName = "Google Calendar", string color = "#0d6efd");
         List<CalendarEventItem> ParseIcsContent(string icsText, string sourceName = "Public Calendar", string color = "#0d6efd");
         string ExportToIcs(IEnumerable<CalendarEventItem> events, string calendarName = "GFC Calendar Export");
         Task<(bool Success, string Message, int EventCount)> TestConnectionAsync(string icalUrl);

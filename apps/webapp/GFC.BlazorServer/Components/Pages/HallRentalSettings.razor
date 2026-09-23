@@ -1,0 +1,2934 @@
+@page "/hall-rentals/settings"
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IGoogleCalendarService CalendarService
+@inject IUserManagementService UserService
+@inject IRentalService RentalService
+@inject GFC.Core.Interfaces.IWebsiteSettingsService WebsiteSettingsService
+@inject IRentalEmailDispatcher RentalEmailDispatcher
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<div class="rental-settings-page-wrapper">
+    @if (!_hasPageAccess && !_isAdmin)
+    {
+        <div class="access-denied-panel text-center py-5 bg-white rounded-4 border shadow-sm my-4">
+            <div class="bg-light rounded-circle shadow-sm d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                <i class="bi bi-shield-lock-fill text-danger fs-1"></i>
+            </div>
+            <h3 class="fw-bold text-dark">Access Restricted</h3>
+            <p class="text-muted">You do not have permission to view Hall Rental Settings. Please contact your system administrator.</p>
+            <a href="/hall-rentals" class="btn btn-outline-primary mt-2">
+                <i class="bi bi-arrow-left me-1"></i>Back to Hall Rentals
+            </a>
+        </div>
+    }
+    else if (_isLoading)
+    {
+        <div class="text-center py-5 bg-white rounded-4 border shadow-sm my-4">
+            <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+            <h5 class="fw-bold text-dark">Loading Rental Settings...</h5>
+            <p class="text-muted small">Retrieving rooms, pricing tiers, Google Calendar connections, and sandbox state.</p>
+        </div>
+    }
+    else
+    {
+        <!-- TOP PAGE HEADER (FIXED) -->
+        <div class="page-header-card bg-white rounded-4 border p-3 px-4 shadow-sm mb-3 flex-shrink-0">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="p-3 rounded-3 bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10">
+                        <i class="bi bi-sliders2-vertical fs-3"></i>
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <h2 class="fw-bold mb-0 text-dark">Hall Rental &amp; Calendar Settings</h2>
+                            @if (_webSettings?.EnableSandboxMode == true)
+                            {
+                                <span class="badge bg-warning text-dark border border-warning px-2 py-1 small fw-bold">
+                                    <i class="bi bi-shield-fill-check me-1"></i>SANDBOX MODE
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success border px-2 py-1 small">
+                                    <i class="bi bi-broadcast me-1"></i>LIVE PRODUCTION
+                                </span>
+                            }
+                        </div>
+                        <p class="text-muted small mb-0 mt-1">Configure event spaces, pricing rules, Google Calendar integration, public booking forms, and testing simulations.</p>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-secondary d-flex align-items-center gap-2 shadow-sm" @onclick="GoBackToHallRentals">
+                        <i class="bi bi-arrow-left"></i>
+                        <span>Back to Rentals</span>
+                    </button>
+                    <button type="button" class="btn btn-primary d-flex align-items-center gap-2 px-4 shadow-sm fw-semibold" @onclick="SaveAllSettings" disabled="@_isSaving">
+                        @if (_isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle fs-5"></i>
+                            <span>Save All Settings</span>
+                        }
+                    </button>
+                </div>
+            </div>
+
+            <!-- FEEDBACK ALERT -->
+            @if (!string.IsNullOrEmpty(_feedbackMessage))
+            {
+                <div class="alert @(_feedbackSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show mt-3 mb-0 d-flex align-items-center gap-2 shadow-sm" role="alert">
+                    <i class="bi @(_feedbackSuccess ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-danger") fs-5"></i>
+                    <div>@_feedbackMessage</div>
+                    <button type="button" class="btn-close" @onclick="() => _feedbackMessage = null"></button>
+                </div>
+            }
+        </div>
+
+        <!-- NAVIGATION TABS (FIXED) -->
+        <div class="tabs-nav-card bg-white rounded-4 border p-2 shadow-sm mb-3 flex-shrink-0">
+            <ul class="nav nav-pills gap-2 flex-nowrap overflow-x-auto p-1">
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "pricing", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("pricing")'>
+                        <i class="bi bi-building"></i>
+                        <span>Rooms &amp; Pricing</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "schedule_slots", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("schedule_slots")'>
+                        <i class="bi bi-calendar2-range"></i>
+                        <span>📅 Day Schedules &amp; Time Slots</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "calendar", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("calendar")'>
+                        <i class="bi bi-google text-danger"></i>
+                        <span>Google Calendar Sync</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "form_intake", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("form_intake")'>
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span>Public Form &amp; Rules</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "policies", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("policies")'>
+                        <i class="bi bi-shield-check"></i>
+                        <span>📜 Policies &amp; Agreements</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "emails", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("emails")'>
+                        <i class="bi bi-envelope-gear-fill"></i>
+                        <span>Email Logic &amp; Automation</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "simulator", StringComparison.OrdinalIgnoreCase) ? "active bg-warning text-dark shadow-sm fw-bold border border-warning" : "text-dark")" @onclick='() => SelectTab("simulator")'>
+                        <i class="bi bi-shield-check text-warning"></i>
+                        <span>🧪 Sandbox &amp; Testing</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "preview", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("preview")'>
+                        <i class="bi bi-display"></i>
+                        <span>Live Form Preview</span>
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- ACTIVE TAB CONTENT PANES (COMPLETELY ISOLATED) -->
+        <div class="tab-content-container">
+            
+            @* ========================================================================= *@
+            @* TAB 1: ROOMS, SPACES & PRICING *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "pricing", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <!-- Base Timing & Deposit Rules -->
+                    <div class="card border rounded-4 p-4 mb-4 bg-white shadow-sm">
+                        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-clock-history text-primary me-2"></i>Base Rental Duration &amp; Overtime Rules</h5>
+                        <div class="row g-4">
+                            <div class="col-md-3">
+                                <label class="form-label fw-semibold text-dark small mb-1">Standard Function Duration</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control fw-bold" @bind="_webSettings.BaseFunctionHours" min="1" max="24" />
+                                    <span class="input-group-text bg-light text-muted">Hours</span>
+                                </div>
+                                <small class="text-muted">Standard event time included in base room rate.</small>
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label fw-semibold text-dark small mb-1">Allow Extra / Overtime Hours?</label>
+                                <div class="btn-group btn-group-sm w-100 mb-1" role="group">
+                                    <button type="button" class="btn @(_webSettings.AllowAdditionalHours ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.AllowAdditionalHours = true">Enabled</button>
+                                    <button type="button" class="btn @(!_webSettings.AllowAdditionalHours ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.AllowAdditionalHours = false">Disabled (Max 5 hrs)</button>
+                                </div>
+                                <small class="text-muted">@(_webSettings.AllowAdditionalHours ? "Applicants can book additional hours." : $"Strictly limited to {_webSettings.BaseFunctionHours ?? 5} hours max.")</small>
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label fw-semibold text-dark small mb-1">Additional Hour Rate</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light text-muted">$</span>
+                                    <input type="number" class="form-control fw-bold" @bind="_webSettings.AdditionalHourRate" disabled="@(!_webSettings.AllowAdditionalHours)" />
+                                    <span class="input-group-text bg-light text-muted">/ hr</span>
+                                </div>
+                                <small class="text-muted">Rate charged per extra hour over standard.</small>
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label fw-semibold text-dark small mb-1">Maximum Total Duration</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control fw-bold" @bind="_webSettings.MaxHallRentalDurationHours" min="1" max="24" disabled="@(!_webSettings.AllowAdditionalHours)" />
+                                    <span class="input-group-text bg-light text-muted">Hours</span>
+                                </div>
+                                <small class="text-muted">Hard cap limit for rental applications.</small>
+                            </div>
+
+                            <div class="col-12 mt-2 pt-2 border-top">
+                                <div class="row align-items-center">
+                                    <div class="col-md-6 col-lg-4">
+                                        <label class="form-label fw-semibold text-dark small mb-1">Refundable Security Deposit</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light text-muted">$</span>
+                                            <input type="number" class="form-control fw-bold" @bind="_webSettings.SecurityDepositAmount" />
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6 col-lg-8">
+                                        <div class="form-check mt-3">
+                                            <input class="form-check-input" type="checkbox" id="depToggle" @bind="_webSettings.RequireSecurityDeposit" />
+                                            <label class="form-check-label fw-semibold text-dark small" for="depToggle">Require security deposit on public booking applications</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rooms & Spaces Grid -->
+                    <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+                        <div>
+                            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-door-open-fill text-primary me-2"></i>Configured Rental Rooms &amp; Rates</h5>
+                            <small class="text-muted">Set room titles, capacity limits, and pricing tiers for members and non-members</small>
+                        </div>
+                        <button type="button" class="btn btn-primary px-3 shadow-sm d-flex align-items-center gap-2" @onclick="AddNewRoom">
+                            <i class="bi bi-plus-circle-fill"></i>
+                            <span>Add New Room / Category</span>
+                        </button>
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        @foreach (var room in _editableRooms)
+                        {
+                            <div class="col-lg-6">
+                                <div class="card border rounded-4 p-3 h-100 shadow-sm bg-white position-relative">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="flex-grow-1 me-2">
+                                            <input type="text" class="form-control form-control-lg fw-bold text-dark border-0 bg-light mb-1" placeholder="Room Name (e.g. Function Hall)" @bind="room.Name" />
+                                            <input type="text" class="form-control form-control-sm border-0 text-muted" placeholder="Description / subtitle (e.g. Accommodates large banquets)" @bind="room.Description" />
+                                        </div>
+                                        <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-2" title="Remove Room" @onclick="() => RemoveRoom(room)" disabled="@(_editableRooms.Count <= 1)">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </div>
+
+                                    <div class="row g-2 mt-2 pt-2 border-top">
+                                        <div class="col-4">
+                                            <label class="form-label small text-muted mb-1"><i class="bi bi-people me-1"></i>Capacity</label>
+                                            <input type="number" class="form-control form-control-sm text-center fw-bold" @bind="room.Capacity" />
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label small text-success fw-semibold mb-1"><i class="bi bi-tag-fill me-1"></i>Non-Member</label>
+                                            <div class="input-group input-group-sm">
+                                                <span class="input-group-text bg-success bg-opacity-10 text-success fw-bold">$</span>
+                                                <input type="number" class="form-control text-center fw-bold" @bind="room.NonMemberRate" />
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label small text-primary fw-semibold mb-1"><i class="bi bi-star-fill me-1"></i>Member Rate</label>
+                                            <div class="input-group input-group-sm">
+                                                <span class="input-group-text bg-primary bg-opacity-10 text-primary fw-bold">$</span>
+                                                <input type="number" class="form-control text-center fw-bold" @bind="room.MemberRate" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                                        @if (room.IsDefault)
+                                        {
+                                            <span class="badge bg-primary text-white py-1 px-3 rounded-pill small">
+                                                <i class="bi bi-star-fill text-warning me-1"></i>Default Selected Room on Form
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-sm btn-link text-decoration-none text-muted p-0 small" @onclick="() => SetDefaultRoom(room)">
+                                                <i class="bi bi-star me-1 text-secondary"></i>Set as Default Form Selection
+                                            </button>
+                                        }
+                                        <small class="text-muted">ID: @room.Id</small>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Add-on Services Management -->
+                    <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+                        <div>
+                            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-patch-plus-fill text-primary me-2"></i>Add-on Services &amp; Amenities</h5>
+                            <small class="text-muted">Optional services applicants can request during booking</small>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm px-3 shadow-sm d-flex align-items-center gap-1" @onclick="AddNewAddon">
+                            <i class="bi bi-plus-lg"></i>
+                            <span>Add New Amenity</span>
+                        </button>
+                    </div>
+
+                    <div class="row g-3">
+                        @foreach (var addon in _editableAddons)
+                        {
+                            var isBarService = addon.Id == "addon_bar" || addon.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase);
+                            <div class="col-lg-4 col-md-6">
+                                <div class="card border rounded-4 p-3 h-100 shadow-sm bg-white d-flex flex-column">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="flex-grow-1 me-2">
+                                            <div class="d-flex align-items-center gap-1 mb-1">
+                                                @if (isBarService)
+                                                {
+                                                    <span class="badge bg-warning text-dark border border-warning px-2 py-0 small" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-cup-straw me-1"></i>BAR / ALCOHOL
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-light text-secondary border px-2 py-0 small" style="font-size: 0.65rem;">
+                                                        ADD-ON
+                                                    </span>
+                                                }
+                                            </div>
+                                            <input type="text" class="form-control fw-bold border-0 bg-light" placeholder="Service Name (e.g. Bar Service)" @bind="addon.Name" />
+                                        </div>
+                                        <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-1" title="Remove Amenity" @onclick="() => RemoveAddon(addon)">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    <div class="mb-2 flex-grow-1">
+                                        <label class="form-label small text-muted mb-1" style="font-size: 0.72rem;">Description &amp; Policy Notice:</label>
+                                        <textarea class="form-control form-control-sm border-0 bg-light text-secondary" rows="4" placeholder="Description or rules presented to applicants..." @bind="addon.Description" style="font-size: 0.8rem; line-height: 1.4;"></textarea>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center pt-2 border-top mt-auto">
+                                        <small class="text-muted" style="font-size: 0.7rem;">ID: @addon.Id</small>
+                                        <div class="input-group input-group-sm" style="max-width: 140px;">
+                                            <span class="input-group-text bg-light fw-semibold">$ Fee</span>
+                                            <input type="number" class="form-control fw-bold text-end" @bind="addon.Fee" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 2: DAY SCHEDULES & TIME SLOTS *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "schedule_slots", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <div class="card border rounded-4 p-4 mb-4 bg-white shadow-sm">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div>
+                                <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-calendar-week text-primary me-2"></i>Day-of-Week Schedule &amp; Dynamic Time Slot Periods</h5>
+                                <p class="text-muted small mb-0 mt-1">Configure rental availability, allowed rooms, and multi-period time slots (e.g. Morning 8am-12pm &amp; Evening 2pm-8pm) for each day of the week.</p>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary shadow-sm" @onclick="ResetDaySchedulesToDefault">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Standard Week
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-column gap-3">
+                            @foreach (var day in _editableDaySchedules)
+                            {
+                                var warningMsg = GetSlotValidationWarning(day);
+                                <div class="card border rounded-4 p-3 shadow-sm @(day.IsAvailable ? "bg-white border-primary-subtle" : "bg-light opacity-75")">
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pb-2 border-bottom">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="@($"day_toggle_{day.DayOfWeek}")" @bind="day.IsAvailable" />
+                                            </div>
+                                            <div>
+                                                <h6 class="fw-bold mb-0 text-dark @(!day.IsAvailable ? "text-decoration-line-through text-muted" : "")">
+                                                    @day.DayOfWeek
+                                                </h6>
+                                                <small class="text-muted">@(day.IsAvailable ? "Available for Public Bookings" : "Closed / Unavailable for Rentals")</small>
+                                            </div>
+                                        </div>
+
+                                        @if (day.IsAvailable)
+                                        {
+                                            <div class="d-flex align-items-center gap-2">
+                                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddSlotToDay(day)">
+                                                    <i class="bi bi-plus-circle me-1"></i>Add Time Slot
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    @if (day.IsAvailable)
+                                    {
+                                        <!-- Allowed Rooms Selection for this day -->
+                                        <div class="pt-2 pb-3 border-bottom">
+                                            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="small fw-bold text-dark"><i class="bi bi-door-open-fill text-primary me-1"></i>Allowed Rooms on @day.DayOfWeek:</span>
+                                                    <span class="badge bg-secondary bg-opacity-10 text-dark border small px-2">Click badge to toggle</span>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <button type="button" class="btn btn-link btn-sm text-primary p-0 text-decoration-none small" style="font-size: 0.75rem;" @onclick="() => EnableAllRoomsForDay(day)">
+                                                        <i class="bi bi-check-all me-1"></i>Enable All
+                                                    </button>
+                                                    <span class="text-muted small">|</span>
+                                                    <button type="button" class="btn btn-link btn-sm text-secondary p-0 text-decoration-none small" style="font-size: 0.75rem;" @onclick="() => DisableAllRoomsForDay(day)">
+                                                        <i class="bi bi-slash-circle me-1"></i>Disable All
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                @foreach (var room in _editableRooms)
+                                                {
+                                                    var isRoomActive = IsRoomAllowedForDay(day, room.Name);
+                                                    <button type="button" 
+                                                            class="btn btn-sm d-inline-flex align-items-center gap-2 px-3 py-1 rounded-pill @(isRoomActive ? "btn-success shadow-sm border-success text-white fw-bold" : "btn-light border border-secondary-subtle text-muted")"
+                                                            style="cursor: pointer; transition: all 0.15s ease-in-out;"
+                                                            title="@(isRoomActive ? $"Click to disable {room.Name} on {day.DayOfWeek}" : $"Click to allow {room.Name} on {day.DayOfWeek}")"
+                                                            @onclick="() => ToggleRoomForDay(day, room.Name)">
+                                                        @if (isRoomActive)
+                                                        {
+                                                            <i class="bi bi-check-circle-fill text-white fs-6"></i>
+                                                            <span>@room.Name</span>
+                                                            <span class="badge bg-white text-success rounded-pill px-2 py-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">ALLOWED</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-x-circle text-danger fs-6"></i>
+                                                            <span class="text-muted text-decoration-line-through">@room.Name</span>
+                                                            <span class="badge bg-secondary text-white rounded-pill px-2 py-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">DISABLED</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            </div>
+                                        </div>
+
+                                        <div class="pt-3">
+                                            <div class="row g-2 align-items-center">
+                                                @if (day.Slots.Count == 0)
+                                                {
+                                                    <div class="col-12">
+                                                        <div class="p-2 bg-light rounded text-muted small d-flex justify-content-between align-items-center">
+                                                            <span><i class="bi bi-clock me-1"></i>Open Booking: Applicant selects any valid start &amp; end time up to max duration limit.</span>
+                                                            <button type="button" class="btn btn-sm btn-link text-primary p-0" @onclick="() => AddSlotToDay(day)">+ Define Specific Time Slots (e.g. 8am-12pm, 2pm-8pm)</button>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    @for (int sIdx = 0; sIdx < day.Slots.Count; sIdx++)
+                                                    {
+                                                        var slot = day.Slots[sIdx];
+                                                        var currentSlotIdx = sIdx;
+                                                        <div class="col-lg-6">
+                                                            <div class="p-2 bg-light rounded-3 border d-flex align-items-center justify-content-between gap-2">
+                                                                <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                                                    <span class="badge bg-primary rounded-pill text-nowrap">Slot #@(currentSlotIdx + 1)</span>
+                                                                    <input type="text" class="form-control form-control-sm fw-bold" placeholder="Slot Label" style="min-width: 140px; flex: 1 1 auto;" @bind="slot.Label" />
+                                                                    <select class="form-select form-select-sm fw-semibold" style="width: 130px; flex-shrink: 0;" @bind="slot.StartTime">
+                                                                        @foreach (var t in _timeOptions)
+                                                                        {
+                                                                            <option value="@t">@t</option>
+                                                                        }
+                                                                    </select>
+                                                                    <span class="text-muted small px-1">to</span>
+                                                                    <select class="form-select form-select-sm fw-semibold" style="width: 130px; flex-shrink: 0;" @bind="slot.EndTime">
+                                                                        @foreach (var t in _timeOptions)
+                                                                        {
+                                                                            <option value="@t">@t</option>
+                                                                        }
+                                                                    </select>
+                                                                </div>
+                                                                <button type="button" class="btn btn-outline-danger btn-sm p-1 rounded-circle" title="Remove Time Slot" @onclick="() => RemoveSlotFromDay(day, currentSlotIdx)">
+                                                                    <i class="bi bi-trash3"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                }
+                                            </div>
+
+                                            @if (!string.IsNullOrEmpty(warningMsg))
+                                            {
+                                                <div class="alert alert-danger py-2 px-3 mt-2 mb-0 small d-flex align-items-center gap-2 rounded-3 border-danger shadow-sm">
+                                                    <i class="bi bi-exclamation-triangle-fill text-danger fs-6"></i>
+                                                    <span class="fw-semibold">@warningMsg</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 3: GOOGLE CALENDAR INTEGRATION & WRITE API *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "calendar", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <div class="row g-4">
+                        <!-- Left Column: Primary iCal Feeds -->
+                        <div class="col-lg-7">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-calendar-range-fill text-primary me-2"></i>Active Calendar Feeds</h5>
+                                        <small class="text-muted">Connect your Google Calendar via Secret or Public iCal URL</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary shadow-sm" type="button" @onclick="AddNewFeed">
+                                        <i class="bi bi-plus-lg me-1"></i>Add Calendar
+                                    </button>
+                                </div>
+
+                                @if (_settings.Feeds.Count == 0)
+                                {
+                                    <div class="text-center py-5 bg-light rounded-4 border">
+                                        <i class="bi bi-calendar-plus fs-1 text-muted d-block mb-2"></i>
+                                        <p class="text-muted small mb-3">No calendar feeds added yet.</p>
+                                        <button class="btn btn-sm btn-primary" @onclick="AddNewFeed">Add Your First Calendar</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @for (int i = 0; i < _settings.Feeds.Count; i++)
+                                    {
+                                        var index = i;
+                                        var feed = _settings.Feeds[index];
+
+                                        <div class="card border rounded-3 p-3 mb-3 bg-light shadow-sm">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge rounded-circle p-2" style="background-color: @feed.Color; width: 14px; height: 14px;"> </span>
+                                                    <strong class="text-dark">Calendar #@(index + 1)</strong>
+                                                    @if (!string.IsNullOrEmpty(feed.LastStatus))
+                                                    {
+                                                        <span class="badge bg-white text-muted border small">@feed.LastStatus</span>
+                                                    }
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <div class="form-check form-switch mb-0">
+                                                        <input class="form-check-input" type="checkbox" role="switch" @bind="feed.IsEnabled" title="Enable/Disable this calendar" />
+                                                    </div>
+                                                    <button class="btn btn-sm btn-outline-danger rounded-circle p-1" style="width: 28px; height: 28px;" @onclick="() => PromptDeleteFeed(index)" title="Remove this calendar">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="row g-2">
+                                                <div class="col-md-5">
+                                                    <label class="form-label small text-muted mb-1">Calendar Name</label>
+                                                    <input type="text" class="form-control form-control-sm" placeholder="e.g. Hall Rentals / Club Events" @bind="feed.Name" />
+                                                </div>
+                                                <div class="col-md-7">
+                                                    <label class="form-label small text-muted mb-1">iCal (.ics) Feed URL</label>
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" class="form-control font-monospace" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" @bind="feed.Url" />
+                                                        <button class="btn btn-outline-primary" type="button" @onclick="() => TestSingleFeed(feed)">
+                                                            <i class="bi bi-arrow-repeat me-1"></i>Test
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+
+                                <!-- Auto Sync Options -->
+                                <div class="p-3 bg-light rounded-3 border mt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <div>
+                                        <strong class="text-dark d-block small">Background Auto-Sync</strong>
+                                        <span class="text-muted" style="font-size: 0.8rem;">Keep local calendar cache fresh automatically.</span>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <select class="form-select form-select-sm" style="width: 160px;" @bind="_settings.SyncIntervalMinutes">
+                                            <option value="15">Every 15 Minutes</option>
+                                            <option value="30">Every 30 Minutes</option>
+                                            <option value="60">Every 1 Hour</option>
+                                            <option value="360">Every 6 Hours</option>
+                                        </select>
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="syncSw" @bind="_settings.AutoSyncEnabled" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: 2-Way Google Service Account Write API (Live Production) -->
+                        <div class="col-lg-5">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-broadcast text-success fs-4"></i>
+                                        <h5 class="fw-bold mb-0 text-dark">Live Production Google Write API</h5>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(_settings.ServiceAccountEmail))
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success px-2 py-1"><i class="bi bi-check-circle-fill me-1"></i>Key Configured</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary-subtle text-secondary border px-2 py-1">Optional</span>
+                                    }
+                                </div>
+                                <p class="small text-muted mb-3">
+                                    Pushes confirmed live customer rental bookings directly to your <strong>Live Production Google Calendar</strong> when Sandbox Mode is OFF.
+                                </p>
+
+                                <div class="p-3 bg-light rounded-3 border mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Live Primary Google Calendar ID</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="e.g. your-live-calendar@@group.calendar.google.com" @bind="_settings.PrimaryGoogleCalendarId" />
+                                    <small class="text-muted d-block mt-1" style="font-size: 0.78rem;">Your live official club calendar ID where production bookings will appear.</small>
+                                </div>
+
+                                <div class="p-3 bg-light rounded-3 border mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Upload Service Account JSON Key (.json)</label>
+                                    <InputFile OnChange="HandleServiceAccountKeyUpload" class="form-control form-control-sm" accept=".json" />
+                                    
+                                    @if (!string.IsNullOrEmpty(_settings.ServiceAccountEmail))
+                                    {
+                                        <div class="p-2 bg-white rounded border mt-2 small">
+                                            <strong class="text-success"><i class="bi bi-shield-check me-1"></i>Service Account Email:</strong>
+                                            <div class="font-monospace text-dark text-truncate" style="font-size: 0.8rem;">@_settings.ServiceAccountEmail</div>
+                                            <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                                                <strong>Important:</strong> Share your Google Calendar with this email and set permission to <strong>"Make changes to events"</strong>.
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                <button class="btn btn-outline-primary w-100 py-2 shadow-sm d-flex align-items-center justify-content-center gap-2" type="button" @onclick="TestWriteApiAccess" disabled="@(string.IsNullOrEmpty(_settings.ServiceAccountEmail) || _isTestingWrite)">
+                                    @if (_isTestingWrite)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Testing Connection...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                        <span>Test Google Calendar Connection</span>
+                                    }
+                                </button>
+
+                                @if (!string.IsNullOrEmpty(_writeTestFeedback))
+                                {
+                                    <div class="alert @(_writeTestSuccess ? "alert-success" : "alert-danger") d-flex align-items-start gap-2 mt-3 mb-0 py-2 small shadow-sm">
+                                        <i class="bi @(_writeTestSuccess ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-danger") fs-5 flex-shrink-0"></i>
+                                        <div>
+                                            <strong>@(_writeTestSuccess ? "Connection Verified!" : "Connection Issue:")</strong>
+                                            <div>@_writeTestFeedback</div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Full Width Row: Google Calendar Privacy & Field Visibility Controls -->
+                        <div class="col-12">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white">
+                                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="p-2 rounded-3 bg-primary bg-opacity-10 text-primary">
+                                            <i class="bi bi-shield-lock-fill fs-5"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="fw-bold mb-0 text-dark">Google Calendar Privacy &amp; Display Control</h5>
+                                            <small class="text-muted">Choose exactly what information from rental applications appears on your Google Calendar event</small>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-outline-primary" @onclick='() => SetCalendarPrivacyPreset("all")'>All Details</button>
+                                            <button type="button" class="btn btn-outline-success" @onclick='() => SetCalendarPrivacyPreset("standard")'>Standard Management</button>
+                                            <button type="button" class="btn btn-outline-secondary" @onclick='() => SetCalendarPrivacyPreset("privacy")'>Privacy Safe / Public</button>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2 ms-2">
+                                            <label class="form-label small fw-bold text-dark mb-0 text-nowrap"><i class="bi bi-eye-slash me-1"></i>Privacy Mode:</label>
+                                            <select class="form-select form-select-sm fw-semibold" style="width: 170px;" @bind="_settings.GoogleEventVisibility">
+                                                <option value="default">Default (Inherited)</option>
+                                                <option value="private">🔒 Private (Internal Only)</option>
+                                                <option value="public">🌐 Public (Visible)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-info py-2 px-3 small rounded-3 mb-4 d-flex align-items-center gap-2">
+                                    <i class="bi bi-info-circle-fill flex-shrink-0 fs-5"></i>
+                                    <div>
+                                        <strong>Privacy Control:</strong> Select what form data should sync to Google Calendar. Unchecked items will be kept internal to GFC Studio only.
+                                    </div>
+                                </div>
+
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushNameTitle" @bind="_settings.PushApplicantNameToTitle" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushNameTitle">Applicant Name in Title</label>
+                                            </div>
+                                            <small class="text-muted d-block">e.g. "PENDING: John Doe (Wedding)" vs "PENDING: Wedding"</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushNameDesc" @bind="_settings.PushApplicantNameToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushNameDesc">Applicant Name in Description</label>
+                                            </div>
+                                            <small class="text-muted d-block">Display the applicant / organization name in event notes.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushPhone" @bind="_settings.PushApplicantPhoneToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushPhone">Phone Number</label>
+                                            </div>
+                                            <small class="text-muted d-block">Keep private or show contact phone on the calendar.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushEmail" @bind="_settings.PushApplicantEmailToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushEmail">Email Address</label>
+                                            </div>
+                                            <small class="text-muted d-block">Keep private or show applicant email on the calendar.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushQuote" @bind="_settings.PushPricingQuoteToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushQuote">Financial Quote &amp; Price</label>
+                                            </div>
+                                            <small class="text-muted d-block">Display total calculated price ($) in event description.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushGuests" @bind="_settings.PushGuestCountToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushGuests">Guest Attendance Count</label>
+                                            </div>
+                                            <small class="text-muted d-block">Include estimated guest count in event notes.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushServices" @bind="_settings.PushServicesToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushServices">Requested Services</label>
+                                            </div>
+                                            <small class="text-muted d-block">Include bartender, kitchen, and A/V equipment requests.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushAddress" @bind="_settings.PushAddressToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushAddress">Applicant Mailing Address</label>
+                                            </div>
+                                            <small class="text-muted d-block">Include street address in calendar event notes.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="form-check form-switch mb-1">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="pushNotes" @bind="_settings.PushNotesToDescription" />
+                                                <label class="form-check-label fw-bold text-dark small" for="pushNotes">Applicant Notes &amp; Requests</label>
+                                            </div>
+                                            <small class="text-muted d-block">Include special instructions submitted on the form.</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 4: PUBLIC FORM & RULES *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "form_intake", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <div class="row g-4">
+                        <div class="col-lg-8">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                                <h5 class="fw-bold text-dark mb-3"><i class="bi bi-pencil-square text-primary me-2"></i>Public Application Form Content</h5>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Page / Form Title</label>
+                                    <input type="text" class="form-control" @bind="_webSettings.RentalFormTitle" />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Subtitle / Organization Header</label>
+                                    <input type="text" class="form-control" @bind="_webSettings.RentalFormSubtitle" />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Contact &amp; Location Header Bar</label>
+                                    <input type="text" class="form-control" @bind="_webSettings.RentalFormIntroText" />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Terms &amp; Rental Rules Agreement Text</label>
+                                    <textarea class="form-control" rows="4" @bind="_webSettings.RentalFormRulesText"></textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">Submission Success Message</label>
+                                    <textarea class="form-control" rows="3" @bind="_webSettings.RentalFormSuccessMessage"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-4">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                                <h5 class="fw-bold text-dark mb-1"><i class="bi bi-ui-checks-grid text-primary me-2"></i>Form Fields &amp; Requirements</h5>
+                                <p class="small text-muted mb-3">Choose whether each field is <strong>Required</strong> or <strong>Optional</strong> for applicants before submitting.</p>
+                                
+                                <div class="list-group list-group-flush rounded-3 border overflow-hidden">
+                                    <!-- Full Name -->
+                                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center bg-white">
+                                        <div>
+                                            <div class="fw-bold text-dark small">Applicant Full Name</div>
+                                            <small class="text-muted" style="font-size: 0.75rem;">Identity or Organization</small>
+                                        </div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm @(_webSettings.RequireApplicantName ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireApplicantName = true">Required</button>
+                                            <button type="button" class="btn btn-sm @(!_webSettings.RequireApplicantName ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireApplicantName = false">Optional</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Email -->
+                                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center bg-white">
+                                        <div>
+                                            <div class="fw-bold text-dark small">Email Address</div>
+                                            <small class="text-muted" style="font-size: 0.75rem;">For confirmation &amp; receipt</small>
+                                        </div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm @(_webSettings.RequireEmail ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireEmail = true">Required</button>
+                                            <button type="button" class="btn btn-sm @(!_webSettings.RequireEmail ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireEmail = false">Optional</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Phone -->
+                                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center bg-white">
+                                        <div>
+                                            <div class="fw-bold text-dark small">Phone Number</div>
+                                            <small class="text-muted" style="font-size: 0.75rem;">Direct contact number</small>
+                                        </div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm @(_webSettings.RequirePhone ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequirePhone = true">Required</button>
+                                            <button type="button" class="btn btn-sm @(!_webSettings.RequirePhone ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequirePhone = false">Optional</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Event Type -->
+                                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center bg-white">
+                                        <div>
+                                            <div class="fw-bold text-dark small">Event Type / Occasion</div>
+                                            <small class="text-muted" style="font-size: 0.75rem;">Birthday, Wedding, etc.</small>
+                                        </div>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-sm @(_webSettings.RequireEventType ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireEventType = true">Required</button>
+                                            <button type="button" class="btn btn-sm @(!_webSettings.RequireEventType ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireEventType = false">Optional</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Mailing Address -->
+                                    <div class="list-group-item p-3 bg-white">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div>
+                                                <div class="fw-bold text-dark small">Mailing Address</div>
+                                                <small class="text-muted" style="font-size: 0.75rem;">Street, City, State, Zip</small>
+                                            </div>
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="fShowAddress" @bind="_webSettings.ShowAddressField" />
+                                                <label class="form-check-label small text-muted ms-1" for="fShowAddress">@(_webSettings.ShowAddressField ? "Shown" : "Hidden")</label>
+                                            </div>
+                                        </div>
+                                        @if (_webSettings.ShowAddressField)
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                                                <span class="small text-secondary fw-semibold">Requirement:</span>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-sm @(_webSettings.RequireAddress ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireAddress = true">Required</button>
+                                                    <button type="button" class="btn btn-sm @(!_webSettings.RequireAddress ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireAddress = false">Optional</button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Guest Count -->
+                                    <div class="list-group-item p-3 bg-white">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div>
+                                                <div class="fw-bold text-dark small">Guest Count</div>
+                                                <small class="text-muted" style="font-size: 0.75rem;">Estimated attendance</small>
+                                            </div>
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="fShowGuests" @bind="_webSettings.ShowGuestCountField" />
+                                                <label class="form-check-label small text-muted ms-1" for="fShowGuests">@(_webSettings.ShowGuestCountField ? "Shown" : "Hidden")</label>
+                                            </div>
+                                        </div>
+                                        @if (_webSettings.ShowGuestCountField)
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                                                <span class="small text-secondary fw-semibold">Requirement:</span>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-sm @(_webSettings.RequireGuestCount ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireGuestCount = true">Required</button>
+                                                    <button type="button" class="btn btn-sm @(!_webSettings.RequireGuestCount ? "btn-secondary fw-bold" : "btn-outline-secondary")" @onclick="() => _webSettings.RequireGuestCount = false">Optional</button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Embed Widget Box -->
+                            <div class="card border rounded-4 p-4 shadow-sm bg-light">
+                                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                                    <h6 class="fw-bold text-dark mb-0"><i class="bi bi-wordpress text-primary me-2"></i>WordPress &amp; Website Embed</h6>
+                                    <button type="button" class="btn btn-sm btn-link text-primary text-decoration-none p-0 fw-bold small" @onclick="() => _showEmbedInstructions = !_showEmbedInstructions">
+                                        <i class="bi bi-question-circle me-1"></i>@(_showEmbedInstructions ? "Hide Guide" : "Step-by-Step Guide")
+                                    </button>
+                                </div>
+                                <p class="small text-muted mb-3">
+                                    Embed your booking form into your website once. Any future changes you make in GFC Studio update <strong>automatically</strong> without needing to re-embed.
+                                </p>
+                                <button type="button" class="btn btn-primary w-100 py-2 shadow-sm d-flex align-items-center justify-content-center gap-2 mb-2" @onclick="CopyEmbedCode">
+                                    <i class="bi bi-clipboard-check"></i>
+                                    <span>Copy Embed Code (iframe)</span>
+                                </button>
+
+                                @if (_showEmbedInstructions)
+                                {
+                                    <div class="mt-3 p-3 bg-white rounded-3 border small animate-fade-in">
+                                        <h6 class="fw-bold text-dark mb-2"><i class="bi bi-journal-text text-primary me-1"></i>How to add to WordPress:</h6>
+                                        <ol class="ps-3 mb-2 text-secondary" style="line-height: 1.5;">
+                                            <li>Click <strong>"Copy Embed Code"</strong> above.</li>
+                                            <li>Log in to your <strong>WordPress Admin Dashboard</strong>.</li>
+                                            <li>Go to <strong>Pages &gt; Add New</strong> (or edit your existing <em>Hall Rentals</em> page).</li>
+                                            <li>In the block editor, click the <strong>(+) Add Block</strong> button.</li>
+                                            <li>Search for and select the <strong>Custom HTML</strong> block.</li>
+                                            <li><strong>Paste</strong> the embed code into the block.</li>
+                                            <li>Click <strong>Publish</strong> or <strong>Update</strong>.</li>
+                                        </ol>
+                                        <div class="p-2 bg-success bg-opacity-10 text-success rounded border border-success border-opacity-25" style="font-size: 0.76rem;">
+                                            <i class="bi bi-check-circle-fill me-1"></i><strong>That's it!</strong> You only need to do this once. All pricing, rooms, rules, and schedules stay synced in real time.
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 5: POLICIES & AGREEMENTS *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "policies", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <div class="row g-4">
+                        <div class="col-lg-8">
+                            <!-- Policy List Header -->
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h5 class="fw-bold mb-0 text-dark">
+                                        <i class="bi bi-shield-fill-check text-primary me-2"></i>Dynamic Rental Policies &amp; Agreements
+                                    </h5>
+                                    <small class="text-muted">Configure standalone policies (e.g. Terms &amp; Conditions) or attach policies directly to specific add-on services.</small>
+                                </div>
+                                <button type="button" class="btn btn-primary px-3 shadow-sm d-flex align-items-center gap-2" @onclick="AddNewPolicy">
+                                    <i class="bi bi-plus-circle-fill"></i>
+                                    <span>Add New Policy</span>
+                                </button>
+                            </div>
+
+                            @if (_editablePolicies.Count == 0)
+                            {
+                                <div class="card border rounded-4 p-5 text-center bg-white shadow-sm mb-4">
+                                    <i class="bi bi-shield-slash fs-1 text-muted mb-2"></i>
+                                    <h6 class="fw-bold text-dark">No Policies Configured</h6>
+                                    <p class="text-muted small mb-3">Add a policy or reset to default policies.</p>
+                                    <div>
+                                        <button type="button" class="btn btn-sm btn-primary" @onclick="AddNewPolicy">
+                                            <i class="bi bi-plus-lg me-1"></i>Add Policy
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                @foreach (var policy in _editablePolicies)
+                                {
+                                    <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4 position-relative">
+                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                                            <div class="flex-grow-1">
+                                                <div class="row g-2 align-items-center">
+                                                    <div class="col-md-7">
+                                                        <label class="form-label small fw-bold text-dark mb-1">Policy Title / Header</label>
+                                                        <input type="text" class="form-control fw-bold" placeholder="e.g. Terms and Conditions Agreement" @bind="policy.Title" />
+                                                    </div>
+                                                    <div class="col-md-5">
+                                                        <label class="form-label small fw-bold text-dark mb-1">Display &amp; Visibility Rule</label>
+                                                        <select class="form-select form-select-sm fw-semibold" @bind="policy.DisplayMode">
+                                                            <option value="Always">🌐 Always Display on Booking Form</option>
+                                                            <option value="QuestionTriggered">❓ Display Only when Yes to Question</option>
+                                                            <option value="AddonTriggered">⚡ Only Display when Add-on is Selected</option>
+                                                            <option value="Hidden">🚫 Hidden / Disabled (Do Not Display)</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-2 mt-4" title="Remove Policy" @onclick="() => RemovePolicy(policy)" disabled="@(_editablePolicies.Count <= 1)">
+                                                <i class="bi bi-trash3"></i>
+                                            </button>
+                                        </div>
+
+                                        @if (string.Equals(policy.DisplayMode, "QuestionTriggered", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <div class="alert alert-warning py-2 px-3 small rounded-3 mb-3 border-warning d-flex flex-column gap-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <i class="bi bi-question-circle-fill text-warning fs-5"></i>
+                                                    <span><strong>Yes/No Question Prompt:</strong> If applicant selects <strong>"No"</strong>, this policy is hidden and not required. If <strong>"Yes"</strong>, the policy and agreement checkbox appear.</span>
+                                                </div>
+                                                <div>
+                                                    <input type="text" class="form-control form-control-sm fw-bold" placeholder="e.g. Do you require setup time prior to your event start time listed above?" @bind="policy.PromptQuestion" />
+                                                </div>
+                                            </div>
+                                        }
+                                        else if (string.Equals(policy.DisplayMode, "AddonTriggered", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <div class="alert alert-info py-2 px-3 small rounded-3 mb-3 border-info d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <i class="bi bi-link-45deg fs-5 text-primary"></i>
+                                                    <span><strong>Trigger Condition:</strong> Display this policy ONLY when applicant selects this add-on:</span>
+                                                </div>
+                                                <div style="min-width: 200px;">
+                                                    <select class="form-select form-select-sm fw-bold" @bind="policy.AssociatedAddonId">
+                                                        <option value="">-- Select Associated Add-on --</option>
+                                                        @foreach (var addon in _editableAddons)
+                                                        {
+                                                            <option value="@addon.Id">@addon.Name (@($"${addon.Fee:N2}"))</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        }
+
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-bold text-dark mb-1">Policy Contract Body / Terms</label>
+                                            <textarea class="form-control font-monospace small" rows="5" style="font-size: 0.85rem; line-height: 1.5;" placeholder="Enter legal terms or conditions..." @bind="policy.Content"></textarea>
+                                        </div>
+
+                                        <div class="row g-2 align-items-center pt-2 border-top">
+                                            <div class="col-md-9">
+                                                <label class="form-label small fw-bold text-dark mb-1">Acknowledgment Checkbox Label</label>
+                                                <input type="text" class="form-control form-control-sm" placeholder="e.g. I Agree to the Terms and Conditions above" @bind="policy.CheckboxLabel" />
+                                            </div>
+                                            <div class="col-md-3 text-md-end">
+                                                <div class="form-check form-switch mt-3 d-inline-block">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="@($"req_{policy.Id}")" @bind="policy.IsRequired" />
+                                                    <label class="form-check-label small fw-bold text-dark" for="@($"req_{policy.Id}")">Required (*)</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+
+                        <div class="col-lg-4">
+                            <!-- Policy URL & General Acknowledgment -->
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                                <h5 class="fw-bold text-dark mb-2">
+                                    <i class="bi bi-link-45deg text-primary me-2"></i>Official Policy Web Link
+                                </h5>
+                                <p class="small text-muted mb-3">
+                                    URL to the comprehensive policy page on your main website.
+                                </p>
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-dark mb-1">External Policy URL</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="bi bi-globe2 text-secondary"></i></span>
+                                        <input type="url" class="form-control" placeholder="https://gloucesterfraternityclub.com/hall-rentals/hall-rental-policy/" @bind="_webSettings.RentalPolicyUrl" />
+                                    </div>
+                                </div>
+
+                                <div class="mb-0">
+                                    <label class="form-label small fw-bold text-dark mb-1">General Agreement Checkbox Text</label>
+                                    <textarea class="form-control" rows="3" @bind="_webSettings.RentalFormRulesText"></textarea>
+                                    <small class="text-muted" style="font-size: 0.75rem;">Label on the final policy checkbox.</small>
+                                </div>
+                            </div>
+
+                            <!-- Electronic Signature & Payment Window Notice -->
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                                <h5 class="fw-bold text-dark mb-2">
+                                    <i class="bi bi-pen-fill text-primary me-2"></i>Electronic Signature &amp; Payment Window
+                                </h5>
+                                <p class="small text-muted mb-3">
+                                    Notice shown directly under the applicant electronic signature field informing them of their payment deadline once approved.
+                                </p>
+                                <div class="mb-0">
+                                    <label class="form-label small fw-bold text-dark mb-1">Payment Window Notice Text</label>
+                                    <textarea class="form-control" rows="4" @bind="_webSettings.RentalPaymentWindowNotice"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Real-time Sync Callout -->
+                            <div class="card border border-success border-opacity-25 rounded-4 p-4 shadow-sm bg-success bg-opacity-10">
+                                <div class="d-flex align-items-start gap-2">
+                                    <i class="bi bi-lightning-charge-fill text-success fs-4 flex-shrink-0"></i>
+                                    <div>
+                                        <h6 class="fw-bold text-success mb-1">Live Synchronization</h6>
+                                        <p class="small text-dark mb-0" style="font-size: 0.82rem; line-height: 1.4;">
+                                            Any edits made in this tab update immediately on your public application form and all embedded WordPress widgets upon clicking <strong>"Save All Settings"</strong>.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 6: EMAIL LOGIC & AUTOMATION *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "emails", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <!-- TOP BANNER & INSTRUCTIONS ACCORDION -->
+                    <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-primary bg-opacity-10 p-3 rounded-4 text-primary">
+                                    <i class="bi bi-envelope-gear-fill fs-3"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-bold mb-0 text-dark">Hall Rental Email Logic &amp; Automation</h5>
+                                    <p class="text-muted small mb-0 mt-1">Configure your website domain mailer (SMTP or Resend API), staff alerts, and automated applicant confirmation responses.</p>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-info rounded-pill px-3 fw-bold" @onclick="() => _showEmailInstructions = !_showEmailInstructions">
+                                <i class="bi bi-info-circle me-1"></i>@(_showEmailInstructions ? "Hide Setup Instructions" : "View Setup Instructions & Guide")
+                            </button>
+                        </div>
+
+                        @if (_showEmailInstructions)
+                        {
+                            <div class="alert alert-info border-0 rounded-4 p-4 mb-0 animate-fade-in">
+                                <h6 class="fw-bold text-dark mb-2"><i class="bi bi-mortarboard-fill me-2 text-primary"></i>How to Setup Website Domain Email for Hall Rentals:</h6>
+                                <div class="row g-3 small text-dark">
+                                    <div class="col-md-6">
+                                        <div class="p-3 bg-white rounded-3 border h-100">
+                                            <strong class="d-block text-primary mb-1"><i class="bi bi-server me-1"></i>Option 1: Custom SMTP (Standard Mail Server)</strong>
+                                            <ul class="mb-0 ps-3">
+                                                <li><strong>SMTP Host:</strong> Your mail server (e.g. <code>mail.gloucesterfraternityclub.com</code>, <code>smtp.office365.com</code>, or <code>smtp.gmail.com</code>).</li>
+                                                <li><strong>Port:</strong> Use <strong>587</strong> with TLS/SSL enabled (recommended) or <strong>465</strong> for SSL.</li>
+                                                <li><strong>Username &amp; Password:</strong> Your full mailbox email and account / app password.</li>
+                                                <li><strong>Sender Email:</strong> Must match or be authorized by your mail server (e.g. <code>rentals@gloucesterfraternityclub.com</code>).</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="p-3 bg-white rounded-3 border h-100">
+                                            <strong class="d-block text-primary mb-1"><i class="bi bi-lightning-charge me-1"></i>Option 2: Resend API (High Reliability Cloud)</strong>
+                                            <ul class="mb-0 ps-3">
+                                                <li><strong>API Key:</strong> Generate a key from <a href="https://resend.com" target="_blank" class="fw-bold text-decoration-none">Resend.com</a> starting with <code>re_...</code>.</li>
+                                                <li><strong>Domain Verification:</strong> Add DKIM and SPF DNS records in your domain registrar for optimal deliverability.</li>
+                                                <li><strong>Sender Email:</strong> Set to any verified domain address (e.g. <code>rentals@gloucesterfraternityclub.com</code>).</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="row g-4 mb-4">
+                        <!-- Left Column: Delivery Engine & Sender Profile -->
+                        <div class="col-lg-6">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold text-dark text-uppercase small tracking-wider mb-0">
+                                        <i class="bi bi-cpu text-primary me-2"></i>1. Outgoing Delivery Engine
+                                    </h6>
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10">Website Mailer</span>
+                                </div>
+
+                                <!-- Engine Mode Selector Pills -->
+                                <div class="d-flex gap-2 p-1 bg-light rounded-pill border mb-3">
+                                    <button type="button" class="btn btn-sm rounded-pill flex-grow-1 @(_webSettings.RentalEmailProvider == "SMTP" ? "btn-dark shadow-sm fw-bold" : "btn-link text-muted text-decoration-none")" 
+                                            @onclick='() => _webSettings.RentalEmailProvider = "SMTP"'>
+                                        <i class="bi bi-hdd-network me-1"></i>SMTP Server
+                                    </button>
+                                    <button type="button" class="btn btn-sm rounded-pill flex-grow-1 @(_webSettings.RentalEmailProvider == "Resend" ? "btn-primary shadow-sm fw-bold" : "btn-link text-muted text-decoration-none")" 
+                                            @onclick='() => _webSettings.RentalEmailProvider = "Resend"'>
+                                        <i class="bi bi-cloud-arrow-up me-1"></i>Resend API
+                                    </button>
+                                </div>
+
+                                @if (_webSettings.RentalEmailProvider == "Resend")
+                                {
+                                    <div class="animate-fade-in p-3 bg-light rounded-3 border mb-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">Resend API Key</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="@(_showRentalResendKey ? "text" : "password")" class="form-control font-monospace fw-bold" placeholder="re_xxxxxxxxxxxxxx" @bind="_webSettings.RentalResendApiKey" />
+                                            <button type="button" class="btn btn-outline-secondary" @onclick="() => _showRentalResendKey = !_showRentalResendKey">
+                                                <i class="bi @(_showRentalResendKey ? "bi-eye-slash" : "bi-eye")"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted d-block mt-1">Get your API key from your Resend Dashboard with sending permissions.</small>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="animate-fade-in p-3 bg-light rounded-3 border mb-3">
+                                        <div class="row g-2 mb-2">
+                                            <div class="col-8">
+                                                <label class="form-label small text-muted mb-1">SMTP Host / Server</label>
+                                                <input type="text" class="form-control form-control-sm fw-bold" placeholder="mail.gloucesterfraternityclub.com" @bind="_webSettings.RentalSmtpHost" />
+                                            </div>
+                                            <div class="col-4">
+                                                <label class="form-label small text-muted mb-1">Port</label>
+                                                <input type="number" class="form-control form-control-sm text-center fw-bold" placeholder="587" @bind="_webSettings.RentalSmtpPort" />
+                                            </div>
+                                        </div>
+                                        <div class="row g-2 mb-2">
+                                            <div class="col-6">
+                                                <label class="form-label small text-muted mb-1">SMTP Username / Mailbox</label>
+                                                <input type="text" class="form-control form-control-sm fw-bold" placeholder="rentals@gloucesterfraternityclub.com" @bind="_webSettings.RentalSmtpUsername" />
+                                            </div>
+                                            <div class="col-6">
+                                                <label class="form-label small text-muted mb-1">SMTP Password</label>
+                                                <input type="password" class="form-control form-control-sm fw-bold" placeholder="••••••••••••" @bind="_webSettings.RentalSmtpPassword" />
+                                            </div>
+                                        </div>
+                                        <div class="form-check form-switch mt-2 mb-0">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="smtpSslSw" @bind="_webSettings.RentalSmtpEnableSsl" />
+                                            <label class="form-check-label small fw-bold text-dark" for="smtpSslSw">Enable TLS / SSL Encryption (Recommended on Port 587)</label>
+                                        </div>
+                                    </div>
+                                }
+
+                                <!-- Sender Profile Configuration -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">Sender Email Address (From)</label>
+                                        <input type="email" class="form-control form-control-sm fw-bold" placeholder="rentals@gloucesterfraternityclub.com" @bind="_webSettings.RentalSenderEmail" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">Sender Display Name</label>
+                                        <input type="text" class="form-control form-control-sm fw-bold" placeholder="Gloucester Fraternity Club - Hall Rentals" @bind="_webSettings.RentalSenderName" />
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small fw-bold text-dark mb-1">Optional CC Copy Address</label>
+                                        <input type="email" class="form-control form-control-sm" placeholder="e.g. records@gloucesterfraternityclub.com" @bind="_webSettings.RentalEmailCc" />
+                                        <small class="text-muted">Receive a carbon copy of all outgoing applicant confirmations.</small>
+                                    </div>
+                                </div>
+
+                                <!-- Live Connection / Email Tester Tool -->
+                                <div class="p-3 bg-light rounded-3 border mt-auto">
+                                    <label class="form-label small fw-bold text-dark mb-1"><i class="bi bi-send-check text-primary me-1"></i>Test Connection &amp; Send Test Email</label>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="email" class="form-control" placeholder="Enter recipient email (e.g. your email)" @bind="_rentalEmailTestAddress" />
+                                        <button type="button" class="btn btn-primary fw-bold" @onclick="TestRentalEmailConnectionAsync" disabled="@_isTestingRentalEmail">
+                                            @if (_isTestingRentalEmail)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                                <span>Sending...</span>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-send me-1"></i>
+                                                <span>Test Send</span>
+                                            }
+                                        </button>
+                                    </div>
+
+                                    @if (!string.IsNullOrEmpty(_rentalEmailTestMessage))
+                                    {
+                                        <div class="alert @(_rentalEmailTestSuccess ? "alert-success" : "alert-danger") py-2 px-3 small rounded-3 mb-0 d-flex align-items-center gap-2">
+                                            <i class="bi @(_rentalEmailTestSuccess ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-danger")"></i>
+                                            <div>@_rentalEmailTestMessage</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Staff Recipients & Notification Triggers -->
+                        <div class="col-lg-6">
+                            <div class="card border rounded-4 p-4 shadow-sm bg-white h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <h6 class="fw-bold text-dark text-uppercase small tracking-wider mb-0">
+                                            <i class="bi bi-people-fill text-primary me-2"></i>2. Staff &amp; Management Recipients
+                                        </h6>
+                                        <small class="text-muted">Individual email boxes that receive rental booking alerts</small>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary shadow-sm" @onclick="AddNewRecipient">
+                                        <i class="bi bi-plus-lg me-1"></i>Add Recipient
+                                    </button>
+                                </div>
+
+                                @if (_editableRecipients.Count == 0)
+                                {
+                                    <div class="text-center py-4 bg-light rounded-4 border mb-3">
+                                        <i class="bi bi-envelope-plus fs-2 text-muted d-block mb-2"></i>
+                                        <p class="text-muted small mb-3">No staff recipients added yet.</p>
+                                        <button type="button" class="btn btn-sm btn-primary" @onclick="AddNewRecipient">+ Add First Email</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-column gap-2 mb-3">
+                                        @for (int rIdx = 0; rIdx < _editableRecipients.Count; rIdx++)
+                                        {
+                                            var currentIndex = rIdx;
+                                            <div class="d-flex align-items-center gap-2 p-2 bg-light rounded-3 border">
+                                                <span class="badge bg-primary rounded-circle">@(currentIndex + 1)</span>
+                                                <input type="email" class="form-control form-control-sm" placeholder="e.g. manager@gloucesterfraternityclub.com" 
+                                                       value="@_editableRecipients[currentIndex]" 
+                                                       @onchange="(e) => UpdateRecipient(currentIndex, e.Value?.ToString())" />
+                                                <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-1" title="Remove Recipient" @onclick="() => RemoveRecipient(currentIndex)" disabled="@(_editableRecipients.Count <= 1)">
+                                                    <i class="bi bi-trash3"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                <div class="p-3 bg-light rounded-3 border mt-auto">
+                                    <h6 class="fw-bold text-dark mb-2"><i class="bi bi-bell-fill text-warning me-2"></i>Notification Triggers</h6>
+                                    <div class="d-flex flex-column gap-2">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="tNotifyNew" @bind="_webSettings.NotifyOnNewSubmission" />
+                                            <label class="form-check-label fw-bold text-dark small" for="tNotifyNew">New Public Rental Submissions</label>
+                                        </div>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="tNotifyPay" @bind="_webSettings.NotifyOnPaymentRecorded" />
+                                            <label class="form-check-label fw-bold text-dark small" for="tNotifyPay">Payment &amp; Deposit Recorded Alerts</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FULL-WIDTH SECTION: APPLICANT AUTO-RESPONDER TEMPLATE -->
+                    <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div>
+                                <h5 class="fw-bold text-dark mb-0"><i class="bi bi-reply-fill text-primary me-2"></i>3. Outgoing Applicant Auto-Responder</h5>
+                                <small class="text-muted">Automated confirmation receipt sent to applicant immediately upon form submission from your website email</small>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="tSendConf" @bind="_webSettings.SendApplicantConfirmation" />
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded-3 mb-3 @(_webSettings.SendApplicantConfirmation ? "bg-success bg-opacity-10 border border-success" : "bg-light border text-muted")">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi @(_webSettings.SendApplicantConfirmation ? "bi-check-circle-fill text-success" : "bi-x-circle text-secondary") fs-5"></i>
+                                <span class="fw-bold small text-dark">
+                                    @(_webSettings.SendApplicantConfirmation ? "Auto-Responder is ACTIVE & ENABLED" : "Auto-Responder is DISABLED")
+                                </span>
+                            </div>
+                            <small class="text-muted d-block mt-1">When active, the applicant will receive this customized email confirmation from <strong>@(_webSettings.RentalSenderEmail)</strong>.</small>
+                        </div>
+
+                        @if (_webSettings.SendApplicantConfirmation)
+                        {
+                            <div class="row g-4">
+                                <div class="col-lg-6">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">Email Subject Line</label>
+                                        <input type="text" class="form-control fw-bold" placeholder="Your Gloucester Fraternity Club Hall Rental Request" @bind="_webSettings.ApplicantConfirmationEmailSubject" />
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <label class="form-label small fw-bold text-dark mb-0">Email Message Body</label>
+                                            <span class="badge bg-light text-muted border">Dynamic Tags Available</span>
+                                        </div>
+                                        <div class="d-flex gap-1 flex-wrap mb-2">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{ApplicantName}")'>+ {ApplicantName}</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{EventDate}")'>+ {EventDate}</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{RoomSelected}")'>+ {RoomSelected}</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{TotalPrice}")'>+ {TotalPrice}</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{DepositAmount}")'>+ {DepositAmount}</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 small" @onclick='() => InsertTag("{ClubPhone}")'>+ {ClubPhone}</button>
+                                        </div>
+                                        <textarea class="form-control font-monospace small" rows="8" placeholder="Dear {ApplicantName}, thank you for your rental request for {RoomSelected} on {EventDate}..." @bind="_webSettings.ApplicantConfirmationEmailBody"></textarea>
+                                    </div>
+                                </div>
+
+                                <div class="col-lg-6">
+                                    <!-- Live Sample Email Preview -->
+                                    <div class="p-3 bg-light rounded-4 border h-100 d-flex flex-column">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <strong class="text-dark small"><i class="bi bi-eye me-1"></i>Sample Email Output Preview:</strong>
+                                            <span class="badge bg-primary">Live Output</span>
+                                        </div>
+                                        <div class="p-3 bg-white rounded-3 border small text-dark flex-grow-1" style="white-space: pre-wrap; font-size: 0.85rem;">@GetSampleAutoResponderOutput()</div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 6: 🧪 SANDBOX & TESTING HUB *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "simulator", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <!-- HERO MASTER SAFETY SWITCH -->
+                    <div class="card rounded-4 p-4 mb-4 shadow-sm @(_webSettings.EnableSandboxMode ? "border-warning border-2 bg-warning bg-opacity-10" : "border bg-white")">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                            <div class="flex-grow-1">
+                                <div class="d-flex align-items-center gap-3">
+                                    <i class="bi @(_webSettings.EnableSandboxMode ? "bi-shield-fill-check text-warning fs-1" : "bi-shield-x text-secondary fs-1")"></i>
+                                    <div>
+                                        <h4 class="fw-bold mb-0 text-dark">Sandbox &amp; Test Mode Master Switch</h4>
+                                        @if (_webSettings.EnableSandboxMode)
+                                        {
+                                            <span class="badge bg-warning text-dark px-3 py-1 fs-6 shadow-sm mt-1 fw-bold"><i class="bi bi-shield-lock-fill me-1"></i>SANDBOX ACTIVE &mdash; SAFETY SHIELD ON</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary px-3 py-1 fs-6 mt-1"><i class="bi bi-broadcast me-1"></i>LIVE PRODUCTION MODE</span>
+                                        }
+                                    </div>
+                                </div>
+                                <p class="small text-muted mb-0 mt-3">
+                                    @if (_webSettings.EnableSandboxMode)
+                                    {
+                                        <span class="text-dark"><strong>Safety Shield Engaged:</strong> All test rental requests (from manual tests, presets, or public forms) are isolated. Real customers are not contacted, and events are pushed only to your designated <strong>Test Google Calendar</strong>.</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Toggle this switch <strong>ON</strong> to safely test submissions, quotes, email routing, and Google Calendar pushes in a secure sandbox without affecting real customers.</span>
+                                    }
+                                </p>
+                            </div>
+                            <div class="form-check form-switch form-switch-lg text-end ps-0" style="min-width: 120px;">
+                                <div class="d-flex flex-column align-items-end">
+                                    <input class="form-check-input ms-0" type="checkbox" role="switch" id="sandboxMasterToggle" style="width: 4rem; height: 2.2rem; cursor: pointer;" @bind="_webSettings.EnableSandboxMode" />
+                                    <label class="small fw-bold text-dark mt-2 text-nowrap" for="sandboxMasterToggle">@(_webSettings.EnableSandboxMode ? "Sandbox ON" : "Sandbox OFF")</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TEST CALENDAR SETTINGS -->
+                    <div class="card border rounded-4 p-4 mb-4 bg-white shadow-sm">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-google text-danger fs-4"></i>
+                                <h5 class="fw-bold mb-0 text-dark">Sandbox / Test Google Calendar Configuration</h5>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_settings.ServiceAccountEmail))
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success px-2 py-1">
+                                    <i class="bi bi-shield-check me-1"></i>Service Account Active
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning-subtle text-dark border border-warning px-2 py-1">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Service Account JSON Needed
+                                </span>
+                            }
+                        </div>
+                        
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Test Google Calendar ID (For REST API Writes &amp; Direct Sync)</label>
+                                <input type="text" class="form-control font-monospace form-control-sm" placeholder="e.g. 7f6dc846...@@group.calendar.google.com" @bind="_webSettings.SandboxGoogleCalendarId" />
+                                <small class="text-muted d-block mt-1">Calendar ID of your dedicated test calendar in Google Calendar.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Test Calendar iCal Feed URL (For Public/Secret .ics Feed)</label>
+                                <input type="text" class="form-control font-monospace form-control-sm" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" @bind="_webSettings.SandboxCalendarFeedUrl" />
+                                <small class="text-muted d-block mt-1">Paste your Test Google Calendar iCal (.ics) URL here.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Test Recipient Email Override</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="your-email@domain.com" @bind="_webSettings.SandboxTestEmail" />
+                                <small class="text-muted d-block mt-1">During tests, customer emails &amp; staff notifications are safely rerouted here.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Google Service Account in Use</label>
+                                <input type="text" class="form-control form-control-sm font-monospace bg-light" readonly value="@(!string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail) ? _settings.ServiceAccountEmail : "No service account JSON loaded")" />
+                                <small class="text-muted d-block mt-1">Share your test calendar with this address with <strong>"Make changes to events"</strong> permission.</small>
+                            </div>
+                        </div>
+
+                        <!-- Sandbox Direct Connection Test Button -->
+                        <div class="pt-2 border-top d-flex flex-column gap-2">
+                            <button class="btn btn-outline-primary w-100 py-2 shadow-sm d-flex align-items-center justify-content-center gap-2 fw-bold" type="button" @onclick="TestSandboxCalendarConnectionAsync" disabled="@(string.IsNullOrEmpty(_settings.ServiceAccountEmail) || _isTestingSandboxCal)">
+                                @if (_isTestingSandboxCal)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Testing Sandbox Google Calendar Connection...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-cloud-check-fill text-primary"></i>
+                                    <span>Test Sandbox Google Calendar Connection</span>
+                                }
+                            </button>
+
+                            @if (!string.IsNullOrEmpty(_sandboxTestFeedback))
+                            {
+                                <div class="alert @(_sandboxTestSuccess ? "alert-success" : "alert-danger") d-flex align-items-start gap-2 mt-2 mb-0 py-2 small shadow-sm animate-fade-in">
+                                    <i class="bi @(_sandboxTestSuccess ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-danger") fs-5 flex-shrink-0"></i>
+                                    <div>
+                                        <strong>@(_sandboxTestSuccess ? "Sandbox Connection Verified!" : "Sandbox Connection Issue:")</strong>
+                                        <div class="mt-1">@_sandboxTestFeedback</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- ONE-CLICK PRESET SIMULATIONS -->
+                    <div class="card border rounded-4 p-4 mb-4 bg-white shadow-sm">
+                        <h5 class="fw-bold mb-2 text-dark"><i class="bi bi-play-circle-fill text-primary me-2"></i>One-Click Simulation Presets</h5>
+                        <p class="small text-muted mb-3">Instantly simulate end-to-end booking submissions and verify real-time Google Calendar pushes:</p>
+                        
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-primary w-100 p-3 text-start rounded-4 h-100 shadow-sm" @onclick='() => RunModalSimulation("wedding")'>
+                                    <div class="fw-bold fs-6"><i class="bi bi-heart-fill text-danger me-2"></i>Wedding Reception</div>
+                                    <div class="small text-muted mt-1">Function Hall + Bar + Kitchen + A/V ($600)</div>
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-success w-100 p-3 text-start rounded-4 h-100 shadow-sm" @onclick='() => RunModalSimulation("birthday")'>
+                                    <div class="fw-bold fs-6"><i class="bi bi-balloon-fill text-warning me-2"></i>Birthday Party</div>
+                                    <div class="small text-muted mt-1">Coalition Room + Kitchen ($300)</div>
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-info w-100 p-3 text-start rounded-4 h-100 shadow-sm" @onclick='() => RunModalSimulation("youth")'>
+                                    <div class="fw-bold fs-6"><i class="bi bi-trophy-fill text-primary me-2"></i>Youth Sports Banquet</div>
+                                    <div class="small text-muted mt-1">Youth Org Rate + A/V ($200)</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- CUSTOM TEST INTAKE -->
+                        <div class="p-4 bg-light rounded-4 border">
+                            <h6 class="fw-bold text-dark mb-3"><i class="bi bi-sliders me-2 text-secondary"></i>Custom Test Application:</h6>
+                            
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold mb-1">Applicant Name</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_manualTestModel.ApplicantName" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold mb-1">Event Type</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_manualTestModel.EventType" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold mb-1">Room Selection</label>
+                                    <select class="form-select form-select-sm" @bind="_manualTestModel.RoomSelected" @bind:after="RecalculateManualTestQuote">
+                                        @foreach (var r in (_editableRooms.Any() ? _editableRooms : (_webSettings?.GetRoomsList() ?? new List<RentalRoomOption>())))
+                                        {
+                                            <option value="@r.Name">@r.Name (Capacity: @r.Capacity)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold mb-1">Event Date</label>
+                                    <input type="date" class="form-control form-control-sm" @bind="_manualTestModel.EventDate" />
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-3 border-top">
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="small text-muted">Calculated Quote:</span>
+                                    <span class="fs-4 fw-bold text-success">$@_manualTestModel.TotalPrice.ToString("F2")</span>
+                                </div>
+                                <button type="button" class="btn btn-warning fw-bold px-4 py-2 shadow-sm text-dark" @onclick="SubmitManualTestSimulation" disabled="@_isSubmittingManualTest">
+                                    @if (_isSubmittingManualTest)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        <span>Processing...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-send-check-fill me-1"></i>
+                                        <span>Submit Custom Test &amp; Push to Google Calendar</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- REAL-TIME DIAGNOSTIC EXECUTION LOG -->
+                    @if (_modalSimulationLogs.Any())
+                    {
+                        <div class="card border rounded-4 p-4 mb-4 shadow-sm bg-white">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                                <h6 class="fw-bold text-dark mb-0"><i class="bi bi-terminal-fill text-primary me-2"></i>Real-Time Simulation Diagnostics Log</h6>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-1 px-3" style="font-size: 0.8rem;" @onclick="() => _modalSimulationLogs.Clear()">Clear Log</button>
+                            </div>
+                            <div style="max-height: 240px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; line-height: 1.7;">
+                                @foreach (var log in _modalSimulationLogs)
+                                {
+                                    <div class="py-1 text-dark" style="font-size: 0.88rem; border-bottom: 1px dashed #e2e8f0;">@log</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <!-- DATA CLEANUP UTILITY -->
+                    <div class="d-flex justify-content-between align-items-center p-4 bg-white rounded-4 border shadow-sm">
+                        <div>
+                            <h6 class="fw-bold small text-dark mb-1"><i class="bi bi-trash3-fill text-danger me-2"></i>Reset Sandbox Test Submissions</h6>
+                            <span class="small text-muted">Safely remove all simulated applications and purge test calendar entries.</span>
+                        </div>
+                        <button type="button" class="btn btn-outline-danger btn-sm px-4 py-2 shadow-sm fw-semibold" @onclick="CleanUpTestRecords">
+                            <i class="bi bi-trash3 me-1"></i> Clean Up All Test Submissions
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @* ========================================================================= *@
+            @* TAB 6: LIVE PREVIEW *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "preview", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in bg-white rounded-4 border p-4 shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="text-start">
+                            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-globe me-2 text-primary"></i>Live Public Application Form Preview</h5>
+                            <small class="text-muted">Exact render of what applicants see when visiting your website</small>
+                        </div>
+                        <div class="btn-group shadow-sm" role="group">
+                            <button type="button" class="btn btn-sm @(_previewDevice == "desktop" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => _previewDevice = "desktop"'>
+                                <i class="bi bi-display me-1"></i> Desktop View
+                            </button>
+                            <button type="button" class="btn btn-sm @(_previewDevice == "mobile" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => _previewDevice = "mobile"'>
+                                <i class="bi bi-phone me-1"></i> Mobile View
+                            </button>
+                            <a href="/rentals/apply" target="_blank" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-box-arrow-up-right me-1"></i> Open Full Page
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="preview-viewport-container mx-auto" style="@(_previewDevice == "mobile" ? "max-width: 400px; border: 8px solid #cbd5e1; border-radius: 36px; padding: 4px; background: #f8fafc; box-shadow: 0 16px 40px rgba(0,0,0,0.15);" : "max-width: 1000px; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.06); overflow: hidden;")">
+                        @if (_previewDevice == "desktop")
+                        {
+                            <div class="bg-light px-3 py-2 border-bottom d-flex align-items-center gap-2 text-muted small">
+                                <div class="d-flex gap-1">
+                                    <span class="rounded-circle bg-danger d-inline-block" style="width: 10px; height: 10px;"></span>
+                                    <span class="rounded-circle bg-warning d-inline-block" style="width: 10px; height: 10px;"></span>
+                                    <span class="rounded-circle bg-success d-inline-block" style="width: 10px; height: 10px;"></span>
+                                </div>
+                                <div class="bg-white rounded px-3 py-1 border text-truncate flex-grow-1 text-center font-monospace" style="font-size: 0.8rem;">
+                                    https://gloucesterfraternityclub.com/rentals/apply
+                                </div>
+                            </div>
+                        }
+                        <div style="height: 680px; overflow-y: auto; background: #ffffff; border-radius: @(_previewDevice == "mobile" ? "24px" : "0");">
+                            <iframe src="/rentals/apply?embed=true" style="width: 100%; height: 100%; border: none;"></iframe>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- BOTTOM SAVE ACTION BAR (FIXED) -->
+        <div class="bottom-action-bar bg-white rounded-4 border p-3 shadow-sm mt-3 flex-shrink-0 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-2 text-muted small">
+                <i class="bi bi-info-circle-fill text-primary"></i>
+                <span>All modifications across all tabs will be saved simultaneously.</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-secondary px-3" @onclick="GoBackToHallRentals">
+                    Cancel &amp; Return
+                </button>
+                <button type="button" class="btn btn-primary btn-lg px-4 shadow-sm fw-bold d-flex align-items-center gap-2" @onclick="SaveAllSettings" disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span>Saving Changes...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check2-circle fs-5"></i>
+                        <span>Save All Settings</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- DELETE FEED CONFIRMATION MODAL -->
+@if (_showDeleteFeedConfirm && _feedToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.45); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-body p-4 text-center">
+                    <div class="p-3 rounded-circle bg-danger-subtle text-danger d-inline-flex mb-3">
+                        <i class="bi bi-trash3-fill fs-3"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2 text-dark">Remove Calendar Feed?</h5>
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to remove <strong class="text-dark">@_feedToDelete.Name</strong>? Events from this calendar feed will no longer sync.
+                    </p>
+                    <div class="d-flex justify-content-center gap-2">
+                        <button type="button" class="btn btn-light px-3" @onclick="CancelDeleteFeed">Cancel</button>
+                        <button type="button" class="btn btn-danger px-4 shadow-sm" @onclick="ConfirmDeleteFeed">Yes, Remove</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.rental-settings-page-wrapper {
+    height: calc(100vh - 5rem);
+    display: flex;
+    flex-direction: column;
+    max-width: 1550px;
+    margin: 0 auto;
+    padding: 0.75rem 1.5rem;
+    overflow: hidden;
+}
+
+.tab-content-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    padding-bottom: 0.5rem;
+}
+
+/* Custom Clean Scrollbar for Tab Options */
+.tab-content-container::-webkit-scrollbar {
+    width: 7px;
+}
+.tab-content-container::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+.tab-content-container::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+.tab-content-container::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+@@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.tab-pane-card {
+    padding-bottom: 1rem;
+}
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? UrlTab { get; set; }
+
+    private bool _hasPageAccess = true;
+    private bool _isAdmin = false;
+    private bool _isLoading = true;
+    private bool _isSaving = false;
+
+    private string _activeTab = "pricing";
+    private string _previewDevice = "desktop";
+    private string? _feedbackMessage;
+    private bool _feedbackSuccess = true;
+
+    private void SelectTab(string tab)
+    {
+        _activeTab = tab;
+        StateHasChanged();
+    }
+
+    private GoogleCalendarSettings _settings = new();
+    private WebsiteSettings? _webSettings;
+    private List<RentalRoomOption> _editableRooms = new();
+    private List<RentalAddonOption> _editableAddons = new();
+    private List<DayOfWeekScheduleConfig> _editableDaySchedules = new();
+    private List<RentalPolicyItem> _editablePolicies = new();
+    private List<string> _editableRecipients = new();
+
+    // Email Logic & Automation State
+    private bool _showEmailInstructions = true;
+    private bool _showRentalResendKey = false;
+    private bool _isTestingRentalEmail = false;
+    private string _rentalEmailTestAddress = "";
+    private string? _rentalEmailTestMessage;
+    private bool _rentalEmailTestSuccess = false;
+
+    // Testing & Diagnostics
+    private List<string> _modalSimulationLogs = new();
+    private bool _isSubmittingManualTest = false;
+    private bool _isTestingWrite = false;
+    private string? _writeTestFeedback;
+    private bool _writeTestSuccess = false;
+
+    private bool _isTestingSandboxCal = false;
+    private string? _sandboxTestFeedback;
+    private bool _sandboxTestSuccess = false;
+
+    private HallRentalRequest _manualTestModel = new()
+    {
+        ApplicantName = "Test Applicant",
+        RequesterEmail = "test-applicant@example.com",
+        RequesterPhone = "(978) 555-0199",
+        EventDate = DateTime.Today.AddDays(14),
+        RoomSelected = "Function Hall",
+        EventType = "Private Gathering",
+        GuestCount = 75,
+        MemberStatus = false,
+        BartenderRequested = true,
+        KitchenUsage = true,
+        AvEquipmentUsage = false,
+        SecurityDepositAmount = 200,
+        TotalPrice = 550,
+        IsTestRecord = true
+    };
+
+    // Feed Deletion State
+    private CalendarFeedConfig? _feedToDelete;
+    private int _feedDeleteIndex = -1;
+    private bool _showDeleteFeedConfirm = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(UrlTab))
+        {
+            _activeTab = UrlTab.ToLowerInvariant();
+        }
+
+        await CheckPermissions();
+        if (_hasPageAccess || _isAdmin)
+        {
+            await LoadSettings();
+        }
+        _isLoading = false;
+    }
+
+    private async Task CheckPermissions()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            _isAdmin = user.IsInRole("Admin") || user.Identity?.Name?.ToLower() == "admin";
+
+            if (_isAdmin)
+            {
+                _hasPageAccess = true;
+                return;
+            }
+
+            var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+            {
+                var permissions = UserService.GetUserPagePermissions(userId);
+                var allPages = UserService.GetAllPages();
+                
+                // Allow access if user has direct permission to /hall-rentals/settings OR /hall-rentals
+                var settingsPage = allPages.FirstOrDefault(p => p.PageRoute.TrimStart('/').ToLower() == "hall-rentals/settings");
+                var hallRentalsPage = allPages.FirstOrDefault(p => p.PageRoute.TrimStart('/').ToLower() == "hall-rentals");
+
+                _hasPageAccess = (settingsPage != null && permissions.Any(p => p.PageId == settingsPage.PageId)) ||
+                                 (hallRentalsPage != null && permissions.Any(p => p.PageId == hallRentalsPage.PageId));
+            }
+        }
+        catch
+        {
+            _hasPageAccess = false;
+        }
+    }
+
+    private async Task LoadSettings()
+    {
+        try
+        {
+            try
+            {
+                _settings = await CalendarService.GetSettingsAsync();
+            }
+            catch (Exception cEx)
+            {
+                _settings = new GoogleCalendarSettings();
+                System.Diagnostics.Debug.WriteLine($"Warning: CalendarService.GetSettingsAsync failed: {cEx.Message}");
+            }
+
+            try
+            {
+                _webSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+            }
+            catch (Exception wEx)
+            {
+                _webSettings = new WebsiteSettings();
+                System.Diagnostics.Debug.WriteLine($"Warning: WebsiteSettingsService.GetWebsiteSettingsAsync failed: {wEx.Message}");
+            }
+
+            if (_settings.Feeds.Count == 0 && !string.IsNullOrWhiteSpace(_settings.PublicCalendarUrl))
+            {
+                _settings.Feeds.Add(new CalendarFeedConfig
+                {
+                    Name = string.IsNullOrWhiteSpace(_settings.CalendarName) ? "Primary Calendar" : _settings.CalendarName,
+                    Url = _settings.PublicCalendarUrl,
+                    Color = "#0d6efd",
+                    IsEnabled = true
+                });
+            }
+
+            if (_webSettings != null)
+            {
+                _editableRooms = _webSettings.GetRoomsList();
+                _editableAddons = _webSettings.GetAddonsList();
+                _editableDaySchedules = _webSettings.GetDaySchedulesList();
+                _editablePolicies = _webSettings.GetPoliciesList();
+                _editableRecipients = _webSettings.GetRecipientsList();
+                if (_editableRecipients.Count == 0)
+                {
+                    _editableRecipients.Add("manager@gloucesterfraternityclub.com");
+                }
+            }
+
+            RecalculateManualTestQuote();
+        }
+        catch (Exception ex)
+        {
+            _feedbackMessage = $"Error loading settings: {ex.Message}";
+            _feedbackSuccess = false;
+        }
+    }
+
+    private void AddNewPolicy()
+    {
+        _editablePolicies.Add(new RentalPolicyItem
+        {
+            Id = "policy_" + Guid.NewGuid().ToString("N")[..8],
+            Title = $"Policy #{_editablePolicies.Count + 1}",
+            Content = "Please specify the policy terms, rules, and conditions here...",
+            CheckboxLabel = "I have read and agree to this policy *",
+            DisplayMode = "Always",
+            IsRequired = true
+        });
+    }
+
+    private void RemovePolicy(RentalPolicyItem policy)
+    {
+        if (_editablePolicies.Count > 1)
+        {
+            _editablePolicies.Remove(policy);
+        }
+    }
+
+    private void AddNewRoom()
+    {
+        _editableRooms.Add(new RentalRoomOption
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = $"New Space #{_editableRooms.Count + 1}",
+            Description = "Event and gathering space",
+            NonMemberRate = 350,
+            MemberRate = 250,
+            Capacity = 50,
+            IsActive = true
+        });
+    }
+
+    private void RemoveRoom(RentalRoomOption room)
+    {
+        if (_editableRooms.Count > 1)
+        {
+            _editableRooms.Remove(room);
+        }
+    }
+
+    private void SetDefaultRoom(RentalRoomOption selectedRoom)
+    {
+        foreach (var r in _editableRooms)
+        {
+            r.IsDefault = (r.Id == selectedRoom.Id);
+        }
+        ToastService.ShowInfo($"'{selectedRoom.Name}' set as default selection for public booking form.");
+    }
+
+    private void AddNewAddon()
+    {
+        _editableAddons.Add(new RentalAddonOption
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "New Service",
+            Description = "Optional amenity service",
+            Fee = 50,
+            IsActive = true
+        });
+    }
+
+    private void RemoveAddon(RentalAddonOption addon)
+    {
+        _editableAddons.Remove(addon);
+    }
+
+    private void AddNewRecipient()
+    {
+        _editableRecipients.Add("");
+    }
+
+    private void UpdateRecipient(int index, string? value)
+    {
+        if (index >= 0 && index < _editableRecipients.Count)
+        {
+            _editableRecipients[index] = value ?? "";
+        }
+    }
+
+    private void RemoveRecipient(int index)
+    {
+        if (index >= 0 && index < _editableRecipients.Count && _editableRecipients.Count > 1)
+        {
+            _editableRecipients.RemoveAt(index);
+        }
+    }
+
+    private void ResetDaySchedulesToDefault()
+    {
+        if (_webSettings != null)
+        {
+            _webSettings.DaySchedulesJson = null;
+            _editableDaySchedules = _webSettings.GetDaySchedulesList();
+            ToastService.ShowInfo("Day schedules reset to standard template.");
+        }
+    }
+
+    private void AddSlotToDay(DayOfWeekScheduleConfig day)
+    {
+        int nextNum = day.Slots.Count + 1;
+        day.Slots.Add(new DayScheduleSlotConfig
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Label = $"Slot #{nextNum}",
+            StartTime = "8:00 AM",
+            EndTime = "12:00 PM"
+        });
+    }
+
+    private void RemoveSlotFromDay(DayOfWeekScheduleConfig day, int slotIndex)
+    {
+        if (slotIndex >= 0 && slotIndex < day.Slots.Count)
+        {
+            day.Slots.RemoveAt(slotIndex);
+        }
+    }
+
+    private readonly List<string> _timeOptions = new()
+    {
+        "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM",
+        "8:00 AM", "8:30 AM", "9:00 AM", "9:30 AM",
+        "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+        "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM",
+        "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
+        "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
+        "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM",
+        "8:00 PM", "8:30 PM", "9:00 PM", "9:30 PM",
+        "10:00 PM", "10:30 PM", "11:00 PM", "11:30 PM",
+        "12:00 Midnight"
+    };
+
+    private bool IsRoomAllowedForDay(DayOfWeekScheduleConfig day, string roomName)
+    {
+        if (day.AllowedRoomNames == null || day.AllowedRoomNames.Count == 0) return true;
+        if (day.AllowedRoomNames.Contains("__NONE__")) return false;
+        return day.AllowedRoomNames.Contains(roomName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void EnableAllRoomsForDay(DayOfWeekScheduleConfig day)
+    {
+        day.AllowedRoomNames.Clear();
+    }
+
+    private void DisableAllRoomsForDay(DayOfWeekScheduleConfig day)
+    {
+        day.AllowedRoomNames = new List<string> { "__NONE__" };
+    }
+
+    private void ToggleRoomForDay(DayOfWeekScheduleConfig day, string roomName)
+    {
+        if (day.AllowedRoomNames == null || day.AllowedRoomNames.Count == 0)
+        {
+            day.AllowedRoomNames = _editableRooms.Select(r => r.Name).ToList();
+            day.AllowedRoomNames.RemoveAll(n => string.Equals(n, roomName, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (day.AllowedRoomNames.Contains("__NONE__"))
+        {
+            day.AllowedRoomNames.Clear();
+            day.AllowedRoomNames.Add(roomName);
+        }
+        else
+        {
+            if (day.AllowedRoomNames.Contains(roomName, StringComparer.OrdinalIgnoreCase))
+            {
+                day.AllowedRoomNames.RemoveAll(n => string.Equals(n, roomName, StringComparison.OrdinalIgnoreCase));
+                if (day.AllowedRoomNames.Count == 0)
+                {
+                    day.AllowedRoomNames.Add("__NONE__");
+                }
+            }
+            else
+            {
+                day.AllowedRoomNames.Add(roomName);
+                if (day.AllowedRoomNames.Count >= _editableRooms.Count)
+                {
+                    day.AllowedRoomNames.Clear();
+                }
+            }
+        }
+    }
+
+    private static int ParseTimeStrToMinutes(string? timeStr)
+    {
+        if (string.IsNullOrWhiteSpace(timeStr)) return 0;
+        var trimmed = timeStr.Trim();
+        if (trimmed.Equals("12:00 Midnight", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Midnight", StringComparison.OrdinalIgnoreCase))
+        {
+            return 24 * 60;
+        }
+        if (DateTime.TryParse(trimmed, out var dt))
+        {
+            int min = dt.Hour * 60 + dt.Minute;
+            if (min == 0 && (trimmed.Contains("12", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Midnight", StringComparison.OrdinalIgnoreCase)))
+            {
+                return 24 * 60;
+            }
+            return min;
+        }
+        return 0;
+    }
+
+    private string? GetSlotValidationWarning(DayOfWeekScheduleConfig day)
+    {
+        if (day.Slots == null || day.Slots.Count == 0) return null;
+
+        for (int i = 0; i < day.Slots.Count; i++)
+        {
+            var slot = day.Slots[i];
+            int startMin = ParseTimeStrToMinutes(slot.StartTime);
+            int endMin = ParseTimeStrToMinutes(slot.EndTime);
+
+            if (endMin <= startMin)
+            {
+                return $"Slot '{slot.Label}': End time ({slot.EndTime}) must be after start time ({slot.StartTime}).";
+            }
+        }
+
+        if (day.Slots.Count > 1)
+        {
+            for (int i = 0; i < day.Slots.Count; i++)
+            {
+                var s1 = day.Slots[i];
+                int start1 = ParseTimeStrToMinutes(s1.StartTime);
+                int end1 = ParseTimeStrToMinutes(s1.EndTime);
+
+                for (int j = i + 1; j < day.Slots.Count; j++)
+                {
+                    var s2 = day.Slots[j];
+                    int start2 = ParseTimeStrToMinutes(s2.StartTime);
+                    int end2 = ParseTimeStrToMinutes(s2.EndTime);
+
+                    if (Math.Max(start1, start2) < Math.Min(end1, end2))
+                    {
+                        return $"Time conflict: '{s1.Label}' ({s1.StartTime} - {s1.EndTime}) overlaps with '{s2.Label}' ({s2.StartTime} - {s2.EndTime}).";
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void SetCalendarPrivacyPreset(string preset)
+    {
+        switch (preset.ToLowerInvariant())
+        {
+            case "all":
+                _settings.PushApplicantNameToTitle = true;
+                _settings.PushApplicantNameToDescription = true;
+                _settings.PushApplicantPhoneToDescription = true;
+                _settings.PushApplicantEmailToDescription = true;
+                _settings.PushPricingQuoteToDescription = true;
+                _settings.PushGuestCountToDescription = true;
+                _settings.PushServicesToDescription = true;
+                _settings.PushAddressToDescription = true;
+                _settings.PushNotesToDescription = true;
+                ToastService.ShowInfo("Preset applied: All details will sync to calendar.");
+                break;
+            case "standard":
+                _settings.PushApplicantNameToTitle = true;
+                _settings.PushApplicantNameToDescription = true;
+                _settings.PushApplicantPhoneToDescription = true;
+                _settings.PushApplicantEmailToDescription = true;
+                _settings.PushPricingQuoteToDescription = false;
+                _settings.PushGuestCountToDescription = true;
+                _settings.PushServicesToDescription = true;
+                _settings.PushAddressToDescription = false;
+                _settings.PushNotesToDescription = true;
+                ToastService.ShowInfo("Preset applied: Standard management view.");
+                break;
+            case "privacy":
+                _settings.PushApplicantNameToTitle = false;
+                _settings.PushApplicantNameToDescription = false;
+                _settings.PushApplicantPhoneToDescription = false;
+                _settings.PushApplicantEmailToDescription = false;
+                _settings.PushPricingQuoteToDescription = false;
+                _settings.PushGuestCountToDescription = true;
+                _settings.PushServicesToDescription = true;
+                _settings.PushAddressToDescription = false;
+                _settings.PushNotesToDescription = false;
+                ToastService.ShowInfo("Preset applied: Privacy Safe mode.");
+                break;
+        }
+    }
+
+    private async Task TestRentalEmailConnectionAsync()
+    {
+        if (_webSettings == null) return;
+        if (string.IsNullOrWhiteSpace(_rentalEmailTestAddress))
+        {
+            _rentalEmailTestMessage = "Please enter an email address to receive the test message.";
+            _rentalEmailTestSuccess = false;
+            return;
+        }
+
+        _isTestingRentalEmail = true;
+        _rentalEmailTestMessage = null;
+        try
+        {
+            var result = await RentalEmailDispatcher.TestRentalEmailConnectionAsync(_webSettings, _rentalEmailTestAddress.Trim());
+            _rentalEmailTestSuccess = result.Success;
+            _rentalEmailTestMessage = result.Message;
+            if (result.Success)
+            {
+                ToastService.ShowSuccess($"Test email sent successfully to {_rentalEmailTestAddress}!");
+            }
+            else
+            {
+                ToastService.ShowError($"Test email failed: {result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _rentalEmailTestSuccess = false;
+            _rentalEmailTestMessage = $"Test failed with exception: {ex.Message}";
+            ToastService.ShowError($"Test failed: {ex.Message}");
+        }
+        finally
+        {
+            _isTestingRentalEmail = false;
+        }
+    }
+
+    private void InsertTag(string tag)
+    {
+        if (_webSettings != null)
+        {
+            _webSettings.ApplicantConfirmationEmailBody = (_webSettings.ApplicantConfirmationEmailBody ?? "") + " " + tag;
+        }
+    }
+
+    private string GetSampleAutoResponderOutput()
+    {
+        var rawBody = _webSettings?.ApplicantConfirmationEmailBody;
+        if (string.IsNullOrWhiteSpace(rawBody))
+        {
+            rawBody = "Dear {ApplicantName},\n\nThank you for submitting your rental request for the {RoomSelected} on {EventDate}.\n\nEstimated Quote: ${TotalPrice}\nRefundable Security Deposit: ${DepositAmount}\n\nOur hall rental committee will review your request and reach out shortly.\nGloucester Fraternity Club | {ClubPhone}";
+        }
+
+        return rawBody
+            .Replace("{ApplicantName}", "John Doe")
+            .Replace("{EventDate}", DateTime.Today.AddDays(30).ToString("MMMM dd, yyyy"))
+            .Replace("{RoomSelected}", "Main Function Hall")
+            .Replace("{TotalPrice}", "450.00")
+            .Replace("{DepositAmount}", "200.00")
+            .Replace("{ClubPhone}", "(978) 283-2889")
+            .Replace("{ClubName}", "Gloucester Fraternity Club");
+    }
+
+    private void AddNewFeed()
+    {
+        string[] defaultColors = { "#0d6efd", "#198754", "#d4af37", "#6f42c1", "#0dcaf0", "#fd7e14" };
+        var nextColor = defaultColors[_settings.Feeds.Count % defaultColors.Length];
+
+        _settings.Feeds.Add(new CalendarFeedConfig
+        {
+            Name = $"Calendar #{_settings.Feeds.Count + 1}",
+            Color = nextColor,
+            IsEnabled = true
+        });
+    }
+
+    private void PromptDeleteFeed(int index)
+    {
+        if (index >= 0 && index < _settings.Feeds.Count)
+        {
+            _feedDeleteIndex = index;
+            _feedToDelete = _settings.Feeds[index];
+            _showDeleteFeedConfirm = true;
+        }
+    }
+
+    private void CancelDeleteFeed()
+    {
+        _showDeleteFeedConfirm = false;
+        _feedToDelete = null;
+        _feedDeleteIndex = -1;
+    }
+
+    private void ConfirmDeleteFeed()
+    {
+        if (_feedDeleteIndex >= 0 && _feedDeleteIndex < _settings.Feeds.Count)
+        {
+            _settings.Feeds.RemoveAt(_feedDeleteIndex);
+        }
+        CancelDeleteFeed();
+    }
+
+    private async Task TestSingleFeed(CalendarFeedConfig feed)
+    {
+        _feedbackMessage = null;
+        try
+        {
+            var result = await CalendarService.TestConnectionAsync(feed.Url);
+            _feedbackSuccess = result.Success;
+            _feedbackMessage = $"[{feed.Name}] {result.Message}";
+            feed.LastStatus = result.Success ? $"OK ({result.EventCount} events)" : "Failed";
+        }
+        catch (Exception ex)
+        {
+            _feedbackSuccess = false;
+            _feedbackMessage = $"[{feed.Name}] Error: {ex.Message}";
+            feed.LastStatus = "Error";
+        }
+    }
+
+    private async Task HandleServiceAccountKeyUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 500);
+            using var reader = new System.IO.StreamReader(stream);
+            var jsonContent = await reader.ReadToEndAsync();
+
+            using var doc = System.Text.Json.JsonDocument.Parse(jsonContent);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("client_email", out var emailElem))
+            {
+                _settings.ServiceAccountEmail = emailElem.GetString() ?? "";
+            }
+            if (root.TryGetProperty("private_key", out var keyElem))
+            {
+                _settings.ServiceAccountPrivateKey = keyElem.GetString() ?? "";
+            }
+
+            _settings.EnableWriteApi = true;
+            _feedbackMessage = $"Key file uploaded successfully! Service Account: {_settings.ServiceAccountEmail}";
+            _feedbackSuccess = true;
+            ToastService.ShowSuccess("Google Service Account Key imported successfully!");
+        }
+        catch (Exception ex)
+        {
+            _feedbackMessage = $"Failed to parse Service Account JSON: {ex.Message}";
+            _feedbackSuccess = false;
+            ToastService.ShowError($"Key upload error: {ex.Message}");
+        }
+    }
+
+    private async Task TestWriteApiAccess()
+    {
+        _isTestingWrite = true;
+        _writeTestFeedback = null;
+        try
+        {
+            var result = await CalendarService.TestWriteAccessAsync(_settings);
+            _writeTestSuccess = result.Success;
+            _writeTestFeedback = result.Message;
+        }
+        catch (Exception ex)
+        {
+            _writeTestSuccess = false;
+            _writeTestFeedback = $"Write test exception: {ex.Message}";
+        }
+        finally
+        {
+            _isTestingWrite = false;
+        }
+    }
+
+    private async Task TestSandboxCalendarConnectionAsync()
+    {
+        _isTestingSandboxCal = true;
+        _sandboxTestFeedback = null;
+        try
+        {
+            var targetCalId = _webSettings?.SandboxGoogleCalendarId?.Trim();
+            if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(_webSettings?.SandboxCalendarFeedUrl))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(_webSettings.SandboxCalendarFeedUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success)
+                {
+                    targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(targetCalId))
+            {
+                _sandboxTestSuccess = false;
+                _sandboxTestFeedback = "Please provide a Test Google Calendar ID or a valid Test iCal Feed URL.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail) || string.IsNullOrWhiteSpace(_settings.ServiceAccountPrivateKey))
+            {
+                _sandboxTestSuccess = false;
+                _sandboxTestFeedback = "Google Service Account Key is missing. Please ensure your Service Account JSON key is uploaded.";
+                return;
+            }
+
+            var sandboxCalSettings = new GoogleCalendarSettings
+            {
+                PrimaryGoogleCalendarId = targetCalId,
+                ServiceAccountEmail = _settings.ServiceAccountEmail,
+                ServiceAccountPrivateKey = _settings.ServiceAccountPrivateKey,
+                ServiceAccountProjectNumber = _settings.ServiceAccountProjectNumber,
+                EnableWriteApi = true
+            };
+
+            var result = await CalendarService.TestWriteAccessAsync(sandboxCalSettings);
+            _sandboxTestSuccess = result.Success;
+            _sandboxTestFeedback = result.Message;
+            if (result.Success)
+            {
+                ToastService.ShowSuccess("Sandbox Google Calendar connection verified successfully!");
+            }
+            else
+            {
+                ToastService.ShowError("Sandbox connection test failed. Check calendar sharing permissions.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _sandboxTestSuccess = false;
+            _sandboxTestFeedback = $"Sandbox test exception: {ex.Message}";
+        }
+        finally
+        {
+            _isTestingSandboxCal = false;
+        }
+    }
+
+    private async Task SaveAllSettings()
+    {
+        _isSaving = true;
+        _feedbackMessage = null;
+        try
+        {
+            // Validate schedule overlaps on available days
+            foreach (var day in _editableDaySchedules.Where(d => d.IsAvailable))
+            {
+                var warning = GetSlotValidationWarning(day);
+                if (!string.IsNullOrEmpty(warning))
+                {
+                    _feedbackSuccess = false;
+                    _feedbackMessage = $"Cannot save: {day.DayOfWeek} has schedule conflicts: {warning}";
+                    ToastService.ShowError($"Please fix schedule overlap on {day.DayOfWeek} before saving.");
+                    _isSaving = false;
+                    return;
+                }
+            }
+
+            if (_webSettings != null)
+            {
+                _webSettings.RoomsJson = System.Text.Json.JsonSerializer.Serialize(_editableRooms);
+                _webSettings.AddonsJson = System.Text.Json.JsonSerializer.Serialize(_editableAddons);
+                _webSettings.DaySchedulesJson = System.Text.Json.JsonSerializer.Serialize(_editableDaySchedules);
+                _webSettings.PoliciesJson = System.Text.Json.JsonSerializer.Serialize(_editablePolicies);
+                _webSettings.SetRecipientsList(_editableRecipients);
+                await WebsiteSettingsService.UpdateWebsiteSettingsAsync(_webSettings);
+            }
+
+            var firstEnabled = _settings.Feeds.FirstOrDefault(f => f.IsEnabled);
+            if (firstEnabled != null && string.IsNullOrWhiteSpace(_settings.PublicCalendarUrl))
+            {
+                _settings.PublicCalendarUrl = firstEnabled.Url;
+                _settings.CalendarName = firstEnabled.Name;
+            }
+
+            await CalendarService.SaveSettingsAsync(_settings);
+
+            _feedbackMessage = "Hall rental, room pricing, day schedules, email triggers, and calendar sync settings saved successfully.";
+            _feedbackSuccess = true;
+            ToastService.ShowSuccess("All settings updated successfully.");
+        }
+        catch (Exception ex)
+        {
+            _feedbackSuccess = false;
+            var fullDetails = ex.InnerException != null ? $"{ex.Message} --> Inner: {ex.InnerException.Message}" : ex.Message;
+            _feedbackMessage = $"Failed to save settings: {fullDetails}";
+            ToastService.ShowError($"Error saving settings: {fullDetails}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private bool _showEmbedInstructions = false;
+
+    private async Task CopyEmbedCode()
+    {
+        try
+        {
+            var baseUrl = Navigation.BaseUri.TrimEnd('/');
+            var code = $"<iframe src=\"{baseUrl}/rentals/apply?embed=true\" width=\"100%\" height=\"1250\" frameborder=\"0\" style=\"border:none; width:100%; min-height:950px;\"></iframe>";
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", code);
+            ToastService.ShowSuccess("WordPress embed code copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo("Embed code ready to copy.");
+        }
+    }
+
+    private void RecalculateManualTestQuote()
+    {
+        decimal basePrice = 0;
+        bool isMember = _manualTestModel.MemberStatus;
+
+        var rooms = _editableRooms.Any() ? _editableRooms : (_webSettings?.GetRoomsList() ?? new List<RentalRoomOption>());
+        var selectedRoom = rooms.FirstOrDefault(r => r.Name.Equals(_manualTestModel.RoomSelected, StringComparison.OrdinalIgnoreCase)) ?? rooms.FirstOrDefault();
+
+        if (selectedRoom != null)
+        {
+            basePrice = isMember ? selectedRoom.MemberRate : selectedRoom.NonMemberRate;
+        }
+        else
+        {
+            basePrice = isMember ? (_webSettings?.FunctionHallMemberRate ?? 300) : (_webSettings?.FunctionHallNonMemberRate ?? 400);
+        }
+
+        decimal addOns = 0;
+        if (_manualTestModel.BartenderRequested) addOns += (_webSettings?.BartenderServiceFee ?? 100);
+        if (_manualTestModel.KitchenUsage) addOns += (_webSettings?.KitchenFee ?? 50);
+        if (_manualTestModel.AvEquipmentUsage) addOns += (_webSettings?.AvEquipmentFee ?? 25);
+
+        _manualTestModel.TotalPrice = basePrice + addOns;
+
+        if (_webSettings?.RequireSecurityDeposit == false)
+        {
+            _manualTestModel.SecurityDepositAmount = 0;
+        }
+        else
+        {
+            _manualTestModel.SecurityDepositAmount = _webSettings?.SecurityDepositAmount ?? 200;
+        }
+    }
+
+    private (string Title, string Description) FormatGoogleEventDetails(HallRentalRequest request, bool isTest)
+    {
+        string prefix = isTest ? "[TEST] PENDING: " : "PENDING: ";
+        string eventType = string.IsNullOrWhiteSpace(request.EventType) ? "Rental" : request.EventType;
+        string title;
+
+        if (_settings.PushApplicantNameToTitle && !string.IsNullOrWhiteSpace(request.ApplicantName))
+        {
+            title = $"{prefix}{request.ApplicantName} ({eventType})";
+        }
+        else
+        {
+            title = $"{prefix}{eventType}";
+        }
+
+        var lines = new List<string>();
+
+        if (_settings.PushApplicantNameToDescription && !string.IsNullOrWhiteSpace(request.ApplicantName))
+        {
+            lines.Add($"Applicant / Organization: {request.ApplicantName}");
+        }
+
+        if (_settings.PushApplicantPhoneToDescription && !string.IsNullOrWhiteSpace(request.RequesterPhone))
+        {
+            lines.Add($"Contact Phone: {request.RequesterPhone}");
+        }
+
+        if (_settings.PushApplicantEmailToDescription && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+        {
+            lines.Add($"Email: {request.RequesterEmail}");
+        }
+
+        if (_settings.PushAddressToDescription && !string.IsNullOrWhiteSpace(request.RequesterAddress))
+        {
+            lines.Add($"Address: {request.RequesterAddress}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.EventType))
+        {
+            lines.Add($"Event Type: {request.EventType}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RoomSelected))
+        {
+            lines.Add($"Room / Facility: {request.RoomSelected}");
+        }
+
+        if (_settings.PushGuestCountToDescription && request.GuestCount > 0)
+        {
+            lines.Add($"Estimated Attendance: {request.GuestCount} guests");
+        }
+
+        if (_settings.PushServicesToDescription)
+        {
+            var services = new List<string>();
+            if (request.BartenderRequested) services.Add("Bar / Bartender Service");
+            if (request.KitchenUsage) services.Add("Kitchen Access");
+            if (request.AvEquipmentUsage) services.Add("A/V Equipment");
+
+            if (services.Any())
+            {
+                lines.Add($"Requested Services: {string.Join(", ", services)}");
+            }
+        }
+
+        if (_settings.PushPricingQuoteToDescription && request.TotalPrice > 0)
+        {
+            lines.Add($"Quoted Price: ${request.TotalPrice:N2}");
+        }
+
+        if (_settings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
+        {
+            lines.Add($"Applicant Notes: {request.InternalNotes}");
+        }
+
+        if (!lines.Any())
+        {
+            lines.Add($"GFC Hall Rental: {eventType}");
+        }
+
+        return (title, string.Join("\n", lines));
+    }
+
+    private async Task<bool> PushToTestGoogleCalendarAsync(HallRentalRequest request)
+    {
+        var targetCalId = _webSettings?.SandboxGoogleCalendarId?.Trim();
+        if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(_webSettings?.SandboxCalendarFeedUrl))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(_webSettings.SandboxCalendarFeedUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+            }
+        }
+        if (string.IsNullOrWhiteSpace(targetCalId))
+        {
+            targetCalId = _settings.PrimaryGoogleCalendarId?.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(_settings.PublicCalendarUrl))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(_settings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(targetCalId))
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ℹ️ No Test Google Calendar ID configured. Local database record created only.");
+            ToastService.ShowInfo("Database record created (no Google Calendar ID configured).");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail) || string.IsNullOrWhiteSpace(_settings.ServiceAccountPrivateKey))
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ⚠️ Google Service Account Key is missing. Upload your .json key in Google Calendar tab.");
+            ToastService.ShowWarning("Google Calendar push skipped: Service Account .json key is missing.");
+            return false;
+        }
+
+        try
+        {
+            var testCalSettings = new GoogleCalendarSettings
+            {
+                PrimaryGoogleCalendarId = targetCalId,
+                ServiceAccountEmail = _settings.ServiceAccountEmail,
+                ServiceAccountPrivateKey = _settings.ServiceAccountPrivateKey,
+                ServiceAccountProjectNumber = _settings.ServiceAccountProjectNumber,
+                EnableWriteApi = true,
+                GoogleEventVisibility = _settings.GoogleEventVisibility,
+                PushApplicantNameToTitle = _settings.PushApplicantNameToTitle,
+                PushApplicantNameToDescription = _settings.PushApplicantNameToDescription,
+                PushApplicantPhoneToDescription = _settings.PushApplicantPhoneToDescription,
+                PushApplicantEmailToDescription = _settings.PushApplicantEmailToDescription,
+                PushPricingQuoteToDescription = _settings.PushPricingQuoteToDescription,
+                PushGuestCountToDescription = _settings.PushGuestCountToDescription,
+                PushServicesToDescription = _settings.PushServicesToDescription,
+                PushAddressToDescription = _settings.PushAddressToDescription,
+                PushNotesToDescription = _settings.PushNotesToDescription
+            };
+
+            DateTime start = request.EventDate.Date.AddHours(14);
+            DateTime end = request.EventDate.Date.AddHours(20);
+            if (DateTime.TryParse(request.StartTime, out var ps)) start = request.EventDate.Date.Add(ps.TimeOfDay);
+            if (DateTime.TryParse(request.EndTime, out var pe)) end = request.EventDate.Date.Add(pe.TimeOfDay);
+
+            var (eventTitle, eventDescription) = FormatGoogleEventDetails(request, isTest: true);
+
+            var googleEvt = new CalendarEventItem
+            {
+                Title = eventTitle,
+                Start = start,
+                End = end,
+                Location = request.RoomSelected ?? "Function Hall",
+                Description = eventDescription
+            };
+
+            var gResult = await CalendarService.CreateGoogleEventAsync(googleEvt, testCalSettings);
+            if (gResult.Success)
+            {
+                _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 📅 Test event pushed to Google Calendar '{targetCalId}'!");
+                ToastService.ShowSuccess($"Event added to Google Calendar ({targetCalId})!");
+                return true;
+            }
+            else
+            {
+                _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ❌ Google Calendar API error: {gResult.Message}");
+                ToastService.ShowError($"Google Calendar push error: {gResult.Message}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ❌ Google Calendar push exception: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task RunModalSimulation(string scenario)
+    {
+        _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 🚀 Starting Preset Simulation: {scenario.ToUpper()}...");
+        try
+        {
+            var testReq = new HallRentalRequest
+            {
+                IsTestRecord = true,
+                RequestedDate = DateTime.Today.AddDays(14),
+                EventDate = DateTime.Today.AddDays(14),
+                CreatedDate = DateTime.UtcNow,
+                Status = "Pending"
+            };
+
+            switch (scenario.ToLowerInvariant())
+            {
+                case "wedding":
+                    testReq.ApplicantName = "Jane Doe (Test Wedding)";
+                    testReq.RequesterName = "Jane Doe";
+                    testReq.RequesterEmail = _webSettings?.SandboxTestEmail ?? "test-applicant@example.com";
+                    testReq.RequesterPhone = "(978) 555-0199";
+                    testReq.EventType = "Wedding Reception";
+                    testReq.RoomSelected = "Function Hall";
+                    testReq.GuestCount = 130;
+                    testReq.MemberStatus = false;
+                    testReq.BartenderRequested = true;
+                    testReq.KitchenUsage = true;
+                    testReq.AvEquipmentUsage = true;
+                    testReq.SecurityDepositAmount = _webSettings?.SecurityDepositAmount ?? 200;
+                    testReq.TotalPrice = (_webSettings?.FunctionHallNonMemberRate ?? 400) + (_webSettings?.BartenderServiceFee ?? 100) + (_webSettings?.KitchenFee ?? 50) + (_webSettings?.AvEquipmentFee ?? 50);
+                    break;
+                case "birthday":
+                    testReq.ApplicantName = "Carlos Silva (Test Birthday)";
+                    testReq.RequesterName = "Carlos Silva";
+                    testReq.RequesterEmail = _webSettings?.SandboxTestEmail ?? "carlos-test@example.com";
+                    testReq.RequesterPhone = "(978) 555-0144";
+                    testReq.EventType = "Birthday Party";
+                    testReq.RoomSelected = "Coalition Room";
+                    testReq.GuestCount = 40;
+                    testReq.MemberStatus = false;
+                    testReq.BartenderRequested = false;
+                    testReq.KitchenUsage = true;
+                    testReq.SecurityDepositAmount = _webSettings?.SecurityDepositAmount ?? 200;
+                    testReq.TotalPrice = (_webSettings?.CoalitionNonMemberRate ?? 250) + (_webSettings?.KitchenFee ?? 50);
+                    break;
+                case "youth":
+                    testReq.ApplicantName = "Gloucester Youth Soccer (Test Banquet)";
+                    testReq.RequesterName = "Coach Mike";
+                    testReq.RequesterEmail = _webSettings?.SandboxTestEmail ?? "youth-coach@example.com";
+                    testReq.RequesterPhone = "(978) 555-0188";
+                    testReq.EventType = "Youth Sports Banquet";
+                    testReq.RoomSelected = "Youth Organization Rate";
+                    testReq.GuestCount = 80;
+                    testReq.MemberStatus = true;
+                    testReq.AvEquipmentUsage = true;
+                    testReq.SecurityDepositAmount = 100;
+                    testReq.TotalPrice = (_webSettings?.YouthOrganizationMemberRate ?? 150) + (_webSettings?.AvEquipmentFee ?? 50);
+                    break;
+            }
+
+            var created = await RentalService.SubmitPublicRentalRequestAsync(testReq, isTest: true);
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ✅ Database record created: Application #{created.Id} (Status: Pending, IsTestRecord: true, Quote: ${created.TotalPrice:N2})");
+
+            if (!string.IsNullOrEmpty(_webSettings?.SandboxTestEmail))
+            {
+                _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 📧 Simulated confirmation notification sent to: {_webSettings.SandboxTestEmail}");
+            }
+
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 🎉 Simulation '{scenario}' finished successfully!");
+            ToastService.ShowSuccess($"Simulation '{scenario}' recorded!");
+        }
+        catch (Exception ex)
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ❌ ERROR: {ex.Message}");
+            ToastService.ShowError($"Simulation failed: {ex.Message}");
+        }
+    }
+
+    private async Task SubmitManualTestSimulation()
+    {
+        _isSubmittingManualTest = true;
+        _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 🚀 Starting Custom Simulation for '{_manualTestModel.ApplicantName}'...");
+
+        try
+        {
+            RecalculateManualTestQuote();
+            _manualTestModel.IsTestRecord = true;
+            _manualTestModel.Status = "Pending";
+            _manualTestModel.CreatedDate = DateTime.UtcNow;
+            _manualTestModel.RequestedDate = _manualTestModel.EventDate;
+            _manualTestModel.RequesterName = _manualTestModel.ApplicantName;
+
+            var created = await RentalService.SubmitPublicRentalRequestAsync(_manualTestModel, isTest: true);
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ✅ Database record created: Application #{created.Id} (Status: Pending, IsTestRecord: true, Quote: ${created.TotalPrice:N2})");
+
+            if (!string.IsNullOrEmpty(_webSettings?.SandboxTestEmail))
+            {
+                _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 📧 Simulated confirmation sent to: {_webSettings.SandboxTestEmail}");
+            }
+
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 🎉 Custom test application finished successfully!");
+            ToastService.ShowSuccess("Custom simulation recorded!");
+        }
+        catch (Exception ex)
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ❌ ERROR: {ex.Message}");
+            ToastService.ShowError($"Custom simulation error: {ex.Message}");
+        }
+        finally
+        {
+            _isSubmittingManualTest = false;
+        }
+    }
+
+    private async Task CleanUpTestRecords()
+    {
+        try
+        {
+            await RentalService.CleanupTestRecordsAsync();
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] 🧹 All test database records have been purged.");
+            ToastService.ShowSuccess("All simulated test submissions have been purged.");
+        }
+        catch (Exception ex)
+        {
+            _modalSimulationLogs.Add($"[{DateTime.Now:HH:mm:ss}] ❌ Cleanup error: {ex.Message}");
+            ToastService.ShowError($"Cleanup error: {ex.Message}");
+        }
+    }
+
+    private void GoBackToHallRentals()
+    {
+        Navigation.NavigateTo("/hall-rentals");
+    }
+}
