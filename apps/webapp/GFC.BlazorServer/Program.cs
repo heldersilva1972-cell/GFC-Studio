@@ -1654,6 +1654,65 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($"Error executing QuarterRollsCount column repair: {ex.Message}");
                 }
+
+                // [AUTO-FIX 14] Auto-create ReportingApiKeys and ReportingApiLogs tables and register /admin/reporting-api page
+                try
+                {
+                    var reportingTablesSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[ReportingApiKeys]') AND type in (N'U'))
+                        BEGIN
+                            CREATE TABLE [dbo].[ReportingApiKeys] (
+                                [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                                [KeyHash] NVARCHAR(255) NOT NULL,
+                                [KeyPrefix] NVARCHAR(20) NOT NULL,
+                                [Label] NVARCHAR(100) NOT NULL,
+                                [AllowedDatasets] NVARCHAR(500) NULL,
+                                [AllowedIpAddress] NVARCHAR(100) NULL,
+                                [BoundDeviceName] NVARCHAR(100) NULL,
+                                [CreatedByUserId] INT NOT NULL,
+                                [AssignedUserId] INT NULL,
+                                [PendingClaimRawKey] NVARCHAR(255) NULL,
+                                [ClaimedAtUtc] DATETIME2 NULL,
+                                [CreatedAtUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                                [ExpiresAtUtc] DATETIME2 NULL,
+                                [IsActive] BIT NOT NULL DEFAULT 1,
+                                [LastUsedAtUtc] DATETIME2 NULL,
+                                [RevokedAtUtc] DATETIME2 NULL,
+                                [RevokedByUserId] INT NULL,
+                                [RevokedReason] NVARCHAR(255) NULL
+                            );
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[ReportingApiLogs]') AND type in (N'U'))
+                        BEGIN
+                            CREATE TABLE [dbo].[ReportingApiLogs] (
+                                [Id] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                                [ApiKeyId] INT NULL,
+                                [RequestTimestampUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                                [Endpoint] NVARCHAR(200) NOT NULL,
+                                [QueryParameters] NVARCHAR(500) NULL,
+                                [IpAddress] NVARCHAR(50) NOT NULL,
+                                [ResolvedDeviceName] NVARCHAR(100) NULL,
+                                [UserAgent] NVARCHAR(255) NULL,
+                                [DurationMs] INT NOT NULL DEFAULT 0,
+                                [RecordCount] INT NOT NULL DEFAULT 0,
+                                [ResponseStatusCode] INT NOT NULL DEFAULT 200,
+                                [ErrorMessage] NVARCHAR(500) NULL
+                            );
+                        END
+
+                        IF NOT EXISTS (SELECT 1 FROM [dbo].[AppPages] WHERE [PageRoute] = '/admin/reporting-api')
+                        BEGIN
+                            INSERT INTO [dbo].[AppPages] ([PageName], [PageRoute], [Description], [Category], [RequiresAdmin], [IsActive], [DisplayOrder])
+                            VALUES ('Reporting & Tableau API', '/admin/reporting-api', 'Manage external reporting keys and Tableau connection logs', 'ADMINISTRATION', 1, 1, 16);
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(reportingTablesSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error auto-creating Reporting API tables: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {

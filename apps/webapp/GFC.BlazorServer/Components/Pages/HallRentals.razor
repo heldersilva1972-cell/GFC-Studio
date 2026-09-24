@@ -7,6 +7,7 @@
 @inject IGoogleCalendarService CalendarService
 @inject IUserManagementService UserService
 @inject IRentalService RentalService
+@inject IRentalEmailDispatcher RentalEmailDispatcher
 @inject GFC.Core.Interfaces.IWebsiteSettingsService WebsiteSettingsService
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
@@ -221,7 +222,7 @@
                             <button class="btn @(_filterCategory == "PENDING" ? "btn-warning" : "btn-outline-secondary")" @onclick='() => _filterCategory = "PENDING"'>Pending (@GetPendingCount())</button>
                             <button class="btn @(_filterCategory == "PAID" ? "btn-success" : "btn-outline-secondary")" @onclick='() => _filterCategory = "PAID"'>Paid (@GetPaidEventsCount())</button>
                             <button class="btn @(_filterCategory == "UNPAID" ? "btn-danger" : "btn-outline-secondary")" @onclick='() => _filterCategory = "UNPAID"'>Unpaid</button>
-                            <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications</button>
+                            <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications (@GetApplicationsCount())</button>
                         </div>
 
                         <div class="btn-group shadow-sm" role="group">
@@ -497,8 +498,42 @@
     var isCancelled = (_selectedRequest != null && string.Equals(_selectedRequest.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) ||
                       _selectedEvent.Title.Contains("CANCELLED", StringComparison.OrdinalIgnoreCase);
 
+    string effectiveName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName)
+        ? _selectedRequest.ApplicantName
+        : (!string.IsNullOrWhiteSpace(appDetails.ApplicantName) ? appDetails.ApplicantName : cleanTitle);
+
+    string? effectivePhone = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterPhone)
+        ? _selectedRequest.RequesterPhone
+        : appDetails.Phone;
+
+    string? effectiveEmail = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail)
+        ? _selectedRequest.RequesterEmail
+        : appDetails.Email;
+
+    string? effectiveAddress = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterAddress)
+        ? $"{_selectedRequest.RequesterAddress}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterCity) ? $", {_selectedRequest.RequesterCity}" : "")}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterState) ? $", {_selectedRequest.RequesterState}" : "")}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterZip) ? $" {_selectedRequest.RequesterZip}" : "")}"
+        : (!string.IsNullOrWhiteSpace(appDetails.StreetAddress)
+            ? $"{appDetails.StreetAddress}{(string.IsNullOrWhiteSpace(appDetails.City) ? "" : $", {appDetails.City}")}{(string.IsNullOrWhiteSpace(appDetails.State) ? "" : $", {appDetails.State}")}{(string.IsNullOrWhiteSpace(appDetails.Zip) ? "" : $" {appDetails.Zip}")}"
+            : null);
+
+    bool? isMemberVal = _selectedRequest != null
+        ? _selectedRequest.MemberStatus
+        : (!string.IsNullOrEmpty(appDetails.IsClubMember) ? appDetails.IsClubMember.ToLower().StartsWith("y") : null);
+
+    var modalPaySummary = GetEventPaymentSummary(_selectedEvent);
+
+    string? effectiveTimestamp = _selectedRequest != null && _selectedRequest.CreatedDate.Year > 2000
+        ? _selectedRequest.CreatedDate.ToLocalTime().ToString("MMMM dd, yyyy 'at' h:mm tt")
+        : (!string.IsNullOrEmpty(appDetails.FormattedTimestamp) ? appDetails.FormattedTimestamp : appDetails.Timestamp);
+
+    string? effectiveSignature = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantSignature)
+        ? _selectedRequest.ApplicantSignature
+        : (!string.IsNullOrWhiteSpace(appDetails.ApplicantSignature) ? appDetails.ApplicantSignature : "Electronic Acceptance");
+
+    var acceptedPoliciesList = GetAcceptedPoliciesForDisplay(_selectedRequest, appDetails);
+
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.65);" role="dialog">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
             <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
                 <!-- Modal Header -->
                 <div class="modal-header bg-light border-bottom p-3 px-4">
@@ -525,539 +560,952 @@
                                 {
                                     <span class="badge bg-primary">SCHEDULED</span>
                                 }
+                                @if (_isEditingBooking)
+                                {
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-pencil me-1"></i>EDIT MODE</span>
+                                }
                             </div>
                             <div class="text-muted small">Calendar Source: <strong>@_selectedEvent.Source</strong></div>
                         </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="PrintSelectedApplication" title="Print application or save as PDF">
-                            <i class="bi bi-printer-fill text-primary"></i>
-                            <span class="fw-semibold">Print / Save PDF</span>
-                        </button>
-                        <button type="button" class="btn-close" @onclick="() => _selectedEvent = null"></button>
+                        @if (!_isEditingBooking)
+                        {
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="EnterBookingEditMode" title="Modify booking specs, room, services & prices">
+                                <i class="bi bi-pencil-square"></i>
+                                <span class="fw-semibold">Modify Booking &amp; Prices</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="PrintSelectedApplication" title="Print application or save as PDF">
+                                <i class="bi bi-printer-fill text-primary"></i>
+                                <span class="fw-semibold">Print / PDF</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm" @onclick="CancelBookingEditMode">
+                                <i class="bi bi-x-lg me-1"></i>Cancel Edit
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-bold" @onclick="InitiateSaveBookingChanges">
+                                <i class="bi bi-check-lg me-1"></i>Review &amp; Save
+                            </button>
+                        }
+                        <button type="button" class="btn-close" @onclick="CloseEventDetailsModal"></button>
                     </div>
                 </div>
 
                 <!-- Modal Body -->
                 <div class="modal-body p-4">
-                    <!-- Hero Event Banner -->
-                    <div class="event-hero-banner p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
-                        <div>
-                            <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-calendar3 me-1"></i> Scheduled Event Date</div>
-                            <h4 class="fw-bold text-dark mb-0">
-                                @if (_selectedEvent.Start.Year > 2000)
-                                {
-                                    @_selectedEvent.Start.ToString("dddd, MMMM dd, yyyy")
-                                }
-                                else if (_selectedRequest != null && _selectedRequest.EventDate.Year > 2000)
-                                {
-                                    @_selectedRequest.EventDate.ToString("dddd, MMMM dd, yyyy")
-                                }
-                                else if (!string.IsNullOrEmpty(appDetails.PreferredEventDate))
-                                {
-                                    @appDetails.PreferredEventDate
-                                }
-                                else
-                                {
-                                    <span>Date Pending / Unspecified</span>
-                                }
-                            </h4>
-                        </div>
-                        <div class="text-md-end">
-                            <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-clock me-1"></i> Time Range</div>
-                            <h5 class="fw-bold text-dark mb-0">
-                                @if (_selectedRequest != null && !string.IsNullOrEmpty(_selectedRequest.StartTime) && !string.IsNullOrEmpty(_selectedRequest.EndTime))
-                                {
-                                    <span>@_selectedRequest.StartTime - @_selectedRequest.EndTime</span>
-                                }
-                                else if (!string.IsNullOrEmpty(appDetails.StartTime) && !string.IsNullOrEmpty(appDetails.EndTime))
-                                {
-                                    <span>@appDetails.StartTime - @appDetails.EndTime</span>
-                                }
-                                else if (!_selectedEvent.IsAllDay)
-                                {
-                                    <span>@_selectedEvent.Start.ToString("h:mm tt") - @_selectedEvent.End.ToString("h:mm tt")</span>
-                                }
-                                else
-                                {
-                                    <span>All Day Event</span>
-                                }
-                            </h5>
-                        </div>
-                    </div>
-
-                    <!-- 1. APPLICANT CONTACT CARD -->
-                    @{
-                        string effectiveName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) 
-                            ? _selectedRequest.ApplicantName 
-                            : (!string.IsNullOrWhiteSpace(appDetails.ApplicantName) ? appDetails.ApplicantName : cleanTitle);
-
-                        string? effectivePhone = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterPhone) 
-                            ? _selectedRequest.RequesterPhone 
-                            : appDetails.Phone;
-
-                        string? effectiveEmail = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) 
-                            ? _selectedRequest.RequesterEmail 
-                            : appDetails.Email;
-
-                        string? effectiveAddress = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterAddress)
-                            ? $"{_selectedRequest.RequesterAddress}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterCity) ? $", {_selectedRequest.RequesterCity}" : "")}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterState) ? $", {_selectedRequest.RequesterState}" : "")}{(!string.IsNullOrWhiteSpace(_selectedRequest.RequesterZip) ? $" {_selectedRequest.RequesterZip}" : "")}"
-                            : (!string.IsNullOrWhiteSpace(appDetails.StreetAddress) 
-                                ? $"{appDetails.StreetAddress}{(string.IsNullOrWhiteSpace(appDetails.City) ? "" : $", {appDetails.City}")}{(string.IsNullOrWhiteSpace(appDetails.State) ? "" : $", {appDetails.State}")}{(string.IsNullOrWhiteSpace(appDetails.Zip) ? "" : $" {appDetails.Zip}")}"
-                                : null);
-
-                        bool? isMemberVal = _selectedRequest != null 
-                            ? _selectedRequest.MemberStatus 
-                            : (!string.IsNullOrEmpty(appDetails.IsClubMember) ? appDetails.IsClubMember.ToLower().StartsWith("y") : null);
-                    }
-                    <div class="card border rounded-3 mb-3 shadow-none bg-white">
-                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-person-circle text-primary me-2"></i>Applicant / Organizer</span>
-                            @if (isMemberVal.HasValue)
-                            {
-                                <span class="badge @(isMemberVal.Value ? "bg-success" : "bg-secondary")">
-                                    @(isMemberVal.Value ? "Club Member" : "Non-Member")
-                                </span>
-                            }
-                        </div>
-                        <div class="card-body p-3">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Full Name</div>
-                                    <div class="fw-bold fs-6">@effectiveName</div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Contact Phone</div>
-                                    <div class="fw-semibold">
-                                        @if (!string.IsNullOrEmpty(effectivePhone))
-                                        {
-                                            <a href="tel:@effectivePhone" class="text-decoration-none text-primary">
-                                                <i class="bi bi-telephone me-1"></i>@effectivePhone
-                                            </a>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">None provided</span>
-                                        }
+                    @if (_isEditingBooking && _selectedRequest != null)
+                    {
+                        <!-- ========================================================= -->
+                        <!-- DIRECT EDITING WORKSPACE / FORM -->
+                        <!-- ========================================================= -->
+                        <!-- 1. EDIT FINANCIALS & PRICE OVERRIDE CARD (STICKY TOP) -->
+                        <div class="card border rounded-3 mb-3 shadow-sm bg-white sticky-top-card">
+                            <div class="card-header section-header-success py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-currency-dollar text-success me-2 fs-5"></i>Agreed Price &amp; Security Deposit</span>
+                                <button type="button" class="btn btn-outline-success btn-sm fw-semibold shadow-sm" @onclick="AutoCalculateSelectedRequestPrice" title="Recalculate price based on room & active add-ons">
+                                    <i class="bi bi-calculator me-1"></i>Auto-Calc Quote
+                                </button>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">Agreed Total Price ($)</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" class="form-control form-control-lg fw-bold text-success" @bind="_selectedRequest.TotalPrice" />
+                                            <button type="button" class="btn btn-outline-secondary" @onclick="AutoCalculateSelectedRequestPrice" title="Reset to standard quote based on selections">
+                                                <i class="bi bi-arrow-clockwise me-1"></i>Auto-Calc
+                                            </button>
+                                        </div>
+                                        <small class="text-muted">Enter any custom agreed price, discount, or waiver.</small>
                                     </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Email Address</div>
-                                    <div class="fw-semibold">
-                                        @if (!string.IsNullOrEmpty(effectiveEmail))
-                                        {
-                                            <a href="mailto:@effectiveEmail" class="text-decoration-none text-primary">
-                                                <i class="bi bi-envelope me-1"></i>@effectiveEmail
-                                            </a>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">None provided</span>
-                                        }
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Mailing Address</div>
-                                    <div class="fw-semibold">
-                                        @if (!string.IsNullOrEmpty(effectiveAddress))
-                                        {
-                                            <span>@effectiveAddress</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">None provided</span>
-                                        }
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold text-dark mb-1">Security Deposit Required ($)</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" class="form-control form-control-lg fw-bold text-warning-emphasis" @bind="_selectedRequest.SecurityDepositAmount" />
+                                        </div>
+                                        <small class="text-muted">Refundable security deposit amount.</small>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- 2. EVENT SPECIFICATIONS & SERVICES -->
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <div class="card border rounded-3 h-100 shadow-none bg-white">
-                                <div class="card-header bg-light py-2 px-3 fw-bold">
-                                    <i class="bi bi-card-checklist text-primary me-2"></i>Event Specifications
-                                </div>
-                                <div class="card-body p-3">
-                                    <div class="d-flex justify-content-between py-1 border-bottom">
-                                        <span class="text-muted small">Event Type</span>
-                                        <span class="fw-bold">@(_selectedRequest?.EventType ?? appDetails.EventType ?? "General Function")</span>
-                                    </div>
-                                    @if (!string.IsNullOrEmpty(appDetails.EventDescription))
-                                    {
-                                        <div class="d-flex justify-content-between py-1 border-bottom">
-                                            <span class="text-muted small">Description / Purpose</span>
-                                            <span class="fw-bold text-dark">@appDetails.EventDescription</span>
-                                        </div>
-                                    }
-                                    <div class="d-flex justify-content-between py-1 border-bottom">
-                                        <span class="text-muted small">Estimated Guests</span>
-                                        <span class="fw-bold">@(_selectedRequest?.GuestCount > 0 ? _selectedRequest.GuestCount.ToString() : (appDetails.GuestCount ?? "Unspecified"))</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between py-1 border-bottom">
-                                        <span class="text-muted small">Setup Time Required?</span>
-                                        <span class="fw-bold @(appDetails.SetupTimeRequired?.ToLower().StartsWith("y") == true ? "text-success" : "text-muted")">
-                                            @(appDetails.SetupTimeRequired ?? "No")
-                                        </span>
-                                    </div>
-                                    @if (!string.IsNullOrEmpty(appDetails.AlternateDate))
-                                    {
-                                        <div class="d-flex justify-content-between py-1">
-                                            <span class="text-muted small">Alternate Date Choice</span>
-                                            <span class="fw-bold text-info">@appDetails.AlternateDate</span>
-                                        </div>
-                                    }
+                        <div class="alert alert-primary d-flex align-items-center justify-content-between p-3 rounded-3 mb-3 shadow-sm border border-primary-subtle">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-info-circle-fill fs-5 text-primary"></i>
+                                <div>
+                                    <div class="fw-bold">You are modifying this booking</div>
+                                    <small class="text-muted">Adjust any applicant info, schedule, room selection, amenities, or price override below. You will review a summary before saving.</small>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="col-md-6">
-                            <div class="card border rounded-3 h-100 shadow-none bg-white">
-                                <div class="card-header bg-light py-2 px-3 fw-bold">
-                                    <i class="bi bi-cup-straw text-primary me-2"></i>Facilities & Add-Ons
-                                </div>
-                                <div class="card-body p-3">
-                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                                        <div>
-                                            <div class="fw-semibold"><i class="bi bi-cup-hot text-danger me-1"></i>Bar Service</div>
-                                            <div class="text-muted small" style="font-size: 0.75rem;">Alcohol & bartender staffing</div>
-                                        </div>
-                                        <span class="badge @((_selectedRequest?.BartenderRequested == true || appDetails.BarService?.ToLower().StartsWith("y") == true) ? "bg-success" : "bg-light text-muted border") px-3 py-1">
-                                            @((_selectedRequest?.BartenderRequested == true || appDetails.BarService?.ToLower().StartsWith("y") == true) ? "Requested" : "No")
-                                        </span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                                        <div>
-                                            <div class="fw-semibold"><i class="bi bi-fire text-warning me-1"></i>Kitchen Access</div>
-                                            <div class="text-muted small" style="font-size: 0.75rem;">Food prep / kitchen usage</div>
-                                        </div>
-                                        <span class="badge @((_selectedRequest?.KitchenUsage == true || appDetails.KitchenAccess?.ToLower().StartsWith("y") == true) ? "bg-success" : "bg-light text-muted border") px-3 py-1">
-                                            @((_selectedRequest?.KitchenUsage == true || appDetails.KitchenAccess?.ToLower().StartsWith("y") == true) ? "Requested" : "No")
-                                        </span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center py-2">
-                                        <div>
-                                            <div class="fw-semibold"><i class="bi bi-speaker text-info me-1"></i>A/V Equipment</div>
-                                            <div class="text-muted small" style="font-size: 0.75rem;">Microphone, speakers, projector</div>
-                                        </div>
-                                        <span class="badge @(_selectedRequest?.AvEquipmentUsage == true ? "bg-success" : "bg-light text-muted border") px-3 py-1">
-                                            @(_selectedRequest?.AvEquipmentUsage == true ? "Requested" : "No")
-                                        </span>
-                                    </div>
-                                </div>
+                        <!-- 2. EDIT SCHEDULE & ROOM CARD -->
+                        <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                            <div class="card-header section-header-primary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-calendar-event text-primary me-2 fs-5"></i>Date, Time &amp; Space Selection</span>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- 3. FINANCIAL SUMMARY & REAL-TIME PAYMENT STATUS -->
-                    @{
-                        var modalPaySummary = GetEventPaymentSummary(_selectedEvent);
-                    }
-                    <div class="card border rounded-3 shadow-none bg-white mb-3">
-                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-currency-dollar text-success me-2"></i>Financial &amp; Payment Breakdown</span>
-                            <span class="badge @(modalPaySummary.Status == "Paid" ? "bg-success text-white" : (modalPaySummary.Status == "Deposit Paid" ? "bg-primary text-white" : (modalPaySummary.Status == "Partial" ? "bg-warning text-dark" : "bg-dark text-white"))) px-3 py-1.5 fs-6 shadow-sm fw-bold">
-                                Payment Status: @modalPaySummary.Status.ToUpper()
-                            </span>
-                        </div>
-                        <div class="card-body p-3">
-                            <div class="row g-3 text-center">
-                                <div class="col-md-3 col-6">
-                                    <div class="p-2 bg-light rounded border">
-                                        <small class="text-muted d-block">Agreed Total Price</small>
-                                        <strong class="fs-5 text-dark">$@modalPaySummary.TotalPrice.ToString("N2")</strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-3 col-6">
-                                    <div class="p-2 bg-light rounded border">
-                                        <small class="text-muted d-block">Security Deposit</small>
-                                        <strong class="fs-5 text-warning-emphasis">$@modalPaySummary.DepositRequired.ToString("N2")</strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-3 col-6">
-                                    <div class="p-2 bg-success bg-opacity-10 rounded border border-success-subtle">
-                                        <small class="text-success fw-semibold d-block">Total Paid to Date</small>
-                                        <strong class="fs-5 text-success">$@modalPaySummary.TotalPaid.ToString("N2")</strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-3 col-6">
-                                    <div class="p-2 @(modalPaySummary.RemainingBalance > 0 ? "bg-danger bg-opacity-10 border border-danger-subtle" : "bg-light border") rounded">
-                                        <small class="@(modalPaySummary.RemainingBalance > 0 ? "text-danger fw-semibold" : "text-muted") d-block">Remaining Balance</small>
-                                        <strong class="fs-5 @(modalPaySummary.RemainingBalance > 0 ? "text-danger" : "text-success")">$@modalPaySummary.RemainingBalance.ToString("N2")</strong>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 4. MANUAL BOOKING ADJUSTMENTS & PRICE OVERRIDE -->
-                    <div class="card border rounded-3 shadow-none bg-white mb-3">
-                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-sliders text-primary me-2"></i>Adjust Booking, Services &amp; Price Overrides</span>
-                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => _showBookingAdjustor = !_showBookingAdjustor">
-                                <i class="bi @(_showBookingAdjustor ? "bi-chevron-up" : "bi-pencil-square") me-1"></i>@(_showBookingAdjustor ? "Hide Editor" : "Modify Booking & Pricing")
-                            </button>
-                        </div>
-                        @if (_showBookingAdjustor && _selectedRequest != null)
-                        {
-                            <div class="card-body p-3 border-top bg-light animate-fade-in">
+                            <div class="card-body p-3">
                                 <div class="row g-3">
                                     <div class="col-md-4">
-                                        <label class="form-label small fw-bold text-dark mb-1">Renter Tier / Membership</label>
-                                        <select class="form-select form-select-sm" @bind="_selectedRequest.MemberStatus">
-                                            <option value="false">Non-Member Rate</option>
-                                            <option value="true">Active Member Rate</option>
-                                        </select>
+                                        <label class="form-label small fw-bold text-dark mb-1">Event Date</label>
+                                        <input type="date" class="form-control" @bind="_selectedRequest.EventDate" />
                                     </div>
                                     <div class="col-md-4">
-                                        <label class="form-label small fw-bold text-dark mb-1">Room / Facility Selection</label>
-                                        <select class="form-select form-select-sm" @bind="_selectedRequest.RoomSelected">
-                                            @foreach (var room in _editableRooms)
+                                        <label class="form-label small fw-bold text-dark mb-1">Start Time</label>
+                                        <input type="text" class="form-control" placeholder="e.g. 2:00 PM" @bind="_selectedRequest.StartTime" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">End Time</label>
+                                        <input type="text" class="form-control" placeholder="e.g. 10:00 PM" @bind="_selectedRequest.EndTime" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">Room / Space</label>
+                                        <select class="form-select" @bind="_selectedRequest.RoomSelected" @bind:after="RecalculateEditPriceQuote">
+                                            @foreach (var room in (_editableRooms.Any() ? _editableRooms : (_webSettings?.GetRoomsList() ?? new List<RentalRoomOption>())))
                                             {
                                                 <option value="@room.Name">@room.Name ($@( _selectedRequest.MemberStatus ? room.MemberRate : room.NonMemberRate))</option>
                                             }
                                         </select>
                                     </div>
                                     <div class="col-md-4">
-                                        <label class="form-label small fw-bold text-dark mb-1">Guest Attendance</label>
-                                        <input type="number" class="form-control form-control-sm" @bind="_selectedRequest.GuestCount" />
+                                        <label class="form-label small fw-bold text-dark mb-1">Renter Tier / Membership</label>
+                                        <select class="form-select fw-semibold" value="@(_selectedRequest.MemberStatus ? "true" : "false")" @onchange="OnMemberStatusSelectionChanged">
+                                            <option value="false">Non-Member Rate</option>
+                                            <option value="true">Active Member Rate</option>
+                                        </select>
                                     </div>
-
-                                    <div class="col-12">
-                                        <label class="form-label small fw-bold text-dark mb-1">Selected Amenities / Services</label>
-                                        <div class="d-flex gap-3 flex-wrap">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="adjBar" @bind="_selectedRequest.BartenderRequested" />
-                                                <label class="form-check-label small" for="adjBar">Bar Service (+$@(_webSettings?.BartenderServiceFee ?? 100))</label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="adjKit" @bind="_selectedRequest.KitchenUsage" />
-                                                <label class="form-check-label small" for="adjKit">Kitchen Access (+$@(_webSettings?.KitchenFee ?? 50))</label>
-                                            </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="adjAv" @bind="_selectedRequest.AvEquipmentUsage" />
-                                                <label class="form-check-label small" for="adjAv">A/V Equipment (+$@(_webSettings?.AvEquipmentFee ?? 25))</label>
-                                            </div>
-                                        </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">Booking Status</label>
+                                        <select class="form-select fw-semibold @(_selectedRequest.Status == "Approved" ? "text-success" : (_selectedRequest.Status == "Cancelled" ? "text-danger" : "text-warning-emphasis"))" @bind="_selectedRequest.Status">
+                                            <option value="Pending">Pending Review</option>
+                                            <option value="Approved">Approved</option>
+                                            <option value="Cancelled">Cancelled</option>
+                                        </select>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
 
+                        <!-- 3. EDIT APPLICANT INFO CARD -->
+                        <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                            <div class="card-header section-header-indigo py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-person-circle text-primary me-2 fs-5"></i>Applicant &amp; Event Details</span>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="row g-3">
                                     <div class="col-md-6">
-                                        <label class="form-label small fw-bold text-dark mb-1">Total Agreed Price ($) <span class="text-primary">(Custom Discount / Override)</span></label>
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">$</span>
-                                            <input type="number" class="form-control fw-bold" step="0.01" @bind="_selectedRequest.TotalPrice" />
-                                            <button type="button" class="btn btn-outline-secondary" @onclick="AutoCalculateSelectedRequestPrice" title="Reset to standard calculated quote">Auto-Calc</button>
-                                        </div>
-                                        <small class="text-muted">Type any custom price (e.g. member discount, fee waiver).</small>
+                                        <label class="form-label small fw-bold text-dark mb-1">Applicant / Organization Name</label>
+                                        <input type="text" class="form-control" @bind="_selectedRequest.ApplicantName" />
                                     </div>
-
-                                    <div class="col-md-6">
-                                        <label class="form-label small fw-bold text-dark mb-1">Security Deposit Amount ($)</label>
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">$</span>
-                                            <input type="number" class="form-control fw-bold" step="0.01" @bind="_selectedRequest.SecurityDepositAmount" />
-                                        </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">Contact Phone</label>
+                                        <input type="text" class="form-control" placeholder="(978) 555-0199" @bind="_selectedRequest.RequesterPhone" />
                                     </div>
-
-                                    <div class="col-12 text-end">
-                                        <button type="button" class="btn btn-primary btn-sm px-4 shadow-sm fw-bold" @onclick="SaveBookingAdjustments" disabled="@_isSavingAdjustments">
-                                            @if (_isSavingAdjustments)
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-bold text-dark mb-1">Email Address</label>
+                                        <input type="email" class="form-control" placeholder="user@example.com" @bind="_selectedRequest.RequesterEmail" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">Event Type / Purpose</label>
+                                        <select class="form-select" @bind="_selectedRequest.EventType">
+                                            <option value="">-- Select Event Type --</option>
+                                            @if (!string.IsNullOrWhiteSpace(_selectedRequest.EventType) && !_standardEventTypeOptions.Contains(_selectedRequest.EventType))
                                             {
-                                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                                <span>Saving Changes...</span>
+                                                <option value="@_selectedRequest.EventType">@_selectedRequest.EventType (Current)</option>
+                                            }
+                                            @foreach (var evType in _standardEventTypeOptions)
+                                            {
+                                                <option value="@evType">@evType</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">Guest Attendance</label>
+                                        <input type="number" class="form-control" min="1" max="500" @bind="_selectedRequest.GuestCount" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold text-dark mb-1">Mailing Address</label>
+                                        <input type="text" class="form-control" placeholder="Street, City, State Zip" @bind="_selectedRequest.RequesterAddress" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. EDIT AMENITIES & ADD-ONS CARD -->
+                        <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                            <div class="card-header section-header-amber py-2 px-3 fw-bold">
+                                <i class="bi bi-check2-square text-warning-emphasis me-2 fs-5"></i>Requested Amenities &amp; Services
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <div class="p-3 border rounded-3 bg-light d-flex align-items-center justify-content-between">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" id="editBar" @bind="_selectedRequest.BartenderRequested" @bind:after="RecalculateEditPriceQuote" />
+                                                <label class="form-check-label fw-bold small" for="editBar">
+                                                    Bar Service
+                                                </label>
+                                                <small class="text-muted d-block">Alcohol &amp; Bartender</small>
+                                            </div>
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">+$@(_webSettings?.BartenderServiceFee ?? 100)</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="p-3 border rounded-3 bg-light d-flex align-items-center justify-content-between">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" id="editKit" @bind="_selectedRequest.KitchenUsage" @bind:after="RecalculateEditPriceQuote" />
+                                                <label class="form-check-label fw-bold small" for="editKit">
+                                                    Kitchen Access
+                                                </label>
+                                                <small class="text-muted d-block">Food prep &amp; warming</small>
+                                            </div>
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">+$@(_webSettings?.KitchenFee ?? 50)</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="p-3 border rounded-3 bg-light d-flex align-items-center justify-content-between">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" id="editAv" @bind="_selectedRequest.AvEquipmentUsage" @bind:after="RecalculateEditPriceQuote" />
+                                                <label class="form-check-label fw-bold small" for="editAv">
+                                                    A/V Equipment
+                                                </label>
+                                                <small class="text-muted d-block">Mic, speakers &amp; projector</small>
+                                            </div>
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">+$@(_webSettings?.AvEquipmentFee ?? 25)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- ========================================================= -->
+                        <!-- STANDARD READ-ONLY EVENT DETAILS VIEW -->
+                        <!-- ========================================================= -->
+                        <!-- Hero Event Banner (Sticky Top) -->
+                        <div class="event-hero-banner p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3 sticky-top-card">
+                            <div>
+                                <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-calendar3 me-1"></i> Scheduled Event Date</div>
+                                <h4 class="fw-bold text-dark mb-0">
+                                    @if (_selectedEvent.Start.Year > 2000)
+                                    {
+                                        @_selectedEvent.Start.ToString("dddd, MMMM dd, yyyy")
+                                    }
+                                    else if (_selectedRequest != null && _selectedRequest.EventDate.Year > 2000)
+                                    {
+                                        @_selectedRequest.EventDate.ToString("dddd, MMMM dd, yyyy")
+                                    }
+                                    else if (!string.IsNullOrEmpty(appDetails.PreferredEventDate))
+                                    {
+                                        @appDetails.PreferredEventDate
+                                    }
+                                    else
+                                    {
+                                        <span>Date Pending / Unspecified</span>
+                                    }
+                                </h4>
+                            </div>
+                            <div class="text-md-end">
+                                <div class="text-uppercase fw-bold small text-primary-emphasis mb-1"><i class="bi bi-clock me-1"></i> Time Range</div>
+                                <h5 class="fw-bold text-dark mb-0">
+                                    @if (_selectedRequest != null && !string.IsNullOrEmpty(_selectedRequest.StartTime) && !string.IsNullOrEmpty(_selectedRequest.EndTime))
+                                    {
+                                        <span>@_selectedRequest.StartTime - @_selectedRequest.EndTime</span>
+                                    }
+                                    else if (!string.IsNullOrEmpty(appDetails.StartTime) && !string.IsNullOrEmpty(appDetails.EndTime))
+                                    {
+                                        <span>@appDetails.StartTime - @appDetails.EndTime</span>
+                                    }
+                                    else if (!_selectedEvent.IsAllDay)
+                                    {
+                                        <span>@_selectedEvent.Start.ToString("h:mm tt") - @_selectedEvent.End.ToString("h:mm tt")</span>
+                                    }
+                                    else
+                                    {
+                                        <span>All Day Event</span>
+                                    }
+                                </h5>
+                            </div>
+                        </div>
+
+                        <!-- 1. APPLICANT CONTACT CARD -->
+                        <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                            <div class="card-header section-header-primary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-person-circle text-primary me-2 fs-5"></i>Applicant / Organizer</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    @if (isMemberVal.HasValue)
+                                    {
+                                        <span class="badge @(isMemberVal.Value ? "bg-success" : "bg-secondary")">
+                                            @(isMemberVal.Value ? "Club Member" : "Non-Member")
+                                        </span>
+                                    }
+                                    <button type="button" class="btn btn-link btn-sm text-primary p-0 text-decoration-none" @onclick="EnterBookingEditMode" title="Edit applicant info">
+                                        <i class="bi bi-pencil-square me-1"></i>Edit
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Full Name</div>
+                                        <div class="fw-bold fs-6">@effectiveName</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Contact Phone</div>
+                                        <div class="fw-semibold">
+                                            @if (!string.IsNullOrEmpty(effectivePhone))
+                                            {
+                                                <a href="tel:@effectivePhone" class="text-decoration-none text-primary">
+                                                    <i class="bi bi-telephone me-1"></i>@effectivePhone
+                                                </a>
                                             }
                                             else
                                             {
-                                                <i class="bi bi-check-lg me-1"></i>
-                                                <span>Save Booking &amp; Price Adjustments</span>
+                                                <span class="text-muted">None provided</span>
                                             }
-                                        </button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Email Address</div>
+                                        <div class="fw-semibold">
+                                            @if (!string.IsNullOrEmpty(effectiveEmail))
+                                            {
+                                                <a href="mailto:@effectiveEmail" class="text-decoration-none text-primary">
+                                                    <i class="bi bi-envelope me-1"></i>@effectiveEmail
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">None provided</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Mailing Address</div>
+                                        <div class="fw-semibold">
+                                            @if (!string.IsNullOrEmpty(effectiveAddress))
+                                            {
+                                                <span>@effectiveAddress</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">None provided</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        }
-                    </div>
-
-                    <!-- 5. AGREEMENTS & SUBMISSION TIMESTAMP -->
-                    @{
-                        string? effectiveTimestamp = _selectedRequest != null && _selectedRequest.CreatedDate.Year > 2000
-                            ? _selectedRequest.CreatedDate.ToLocalTime().ToString("MMMM dd, yyyy 'at' h:mm tt")
-                            : (!string.IsNullOrEmpty(appDetails.FormattedTimestamp) ? appDetails.FormattedTimestamp : appDetails.Timestamp);
-
-                        string? effectiveSignature = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantSignature)
-                            ? _selectedRequest.ApplicantSignature
-                            : (!string.IsNullOrWhiteSpace(appDetails.ApplicantSignature) ? appDetails.ApplicantSignature : "Electronic Acceptance");
-
-                        var acceptedPoliciesList = GetAcceptedPoliciesForDisplay(_selectedRequest, appDetails);
-                    }
-                    <div class="card border rounded-3 shadow-none bg-white mb-3">
-                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-shield-check text-success me-2"></i>Accepted Terms, Policies &amp; Digital Signature</span>
-                            @if (!string.IsNullOrEmpty(effectiveTimestamp))
-                            {
-                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
-                                    <i class="bi bi-clock-history me-1"></i>Submitted: @effectiveTimestamp
-                                </span>
-                            }
                         </div>
-                        <div class="card-body p-3">
-                            <div class="text-muted small fw-bold text-uppercase mb-2" style="font-size: 0.75rem; letter-spacing: 0.5px;">
-                                Acknowledged Policies &amp; Agreements (@acceptedPoliciesList.Count)
-                            </div>
-                            
-                            <div class="d-flex flex-column gap-2 mb-3">
-                                @foreach (var pol in acceptedPoliciesList)
-                                {
-                                    <div class="p-2 px-3 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
-                                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                                            <i class="bi bi-check-circle-fill text-success fs-6"></i>
-                                            <span class="fw-semibold text-dark small">@pol.Title</span>
-                                            @if (!string.IsNullOrEmpty(pol.Tag))
-                                            {
-                                                <span class="badge bg-white text-dark border border-secondary-subtle px-2 py-1 shadow-sm fw-semibold" style="font-size: 0.75rem;">@pol.Tag</span>
-                                            }
+
+                        <!-- 2. EVENT SPECIFICATIONS & SERVICES -->
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <div class="card border rounded-3 h-100 shadow-none bg-white">
+                                    <div class="card-header section-header-primary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-card-checklist text-primary me-2 fs-5"></i>Event Specifications</span>
+                                        <button type="button" class="btn btn-link btn-sm text-primary p-0 text-decoration-none" @onclick="EnterBookingEditMode" title="Edit specifications">
+                                            <i class="bi bi-pencil-square me-1"></i>Edit
+                                        </button>
+                                    </div>
+                                    <div class="card-body p-3">
+                                        <div class="d-flex justify-content-between py-1 border-bottom">
+                                            <span class="text-muted small">Event Type</span>
+                                            <span class="fw-bold">@(_selectedRequest?.EventType ?? appDetails.EventType ?? "General Function")</span>
                                         </div>
-                                        <span class="badge py-1 px-3 small fw-bold shadow-sm d-inline-flex align-items-center gap-1" style="background-color: #15803d !important; color: #ffffff !important; border: 1px solid #166534 !important; font-size: 0.8rem; letter-spacing: 0.3px;">
-                                            <i class="bi bi-shield-fill-check"></i>Accepted
-                                        </span>
+                                        <div class="d-flex justify-content-between py-1 border-bottom">
+                                            <span class="text-muted small">Selected Room</span>
+                                            <span class="fw-bold text-primary">@(_selectedRequest?.RoomSelected ?? _selectedEvent.Location ?? "Function Hall")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between py-1 border-bottom">
+                                            <span class="text-muted small">Estimated Guests</span>
+                                            <span class="fw-bold">@(_selectedRequest?.GuestCount > 0 ? _selectedRequest.GuestCount.ToString() : (appDetails.GuestCount ?? "Unspecified"))</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between py-1 border-bottom">
+                                            <span class="text-muted small">Setup Time Required?</span>
+                                            <span class="fw-bold @(appDetails.SetupTimeRequired?.ToLower().StartsWith("y") == true ? "text-success" : "text-muted")">
+                                                @(appDetails.SetupTimeRequired ?? "No")
+                                            </span>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(appDetails.AlternateDate))
+                                        {
+                                            <div class="d-flex justify-content-between py-1">
+                                                <span class="text-muted small">Alternate Date Choice</span>
+                                                <span class="fw-bold text-info">@appDetails.AlternateDate</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="card border rounded-3 h-100 shadow-none bg-white">
+                                    <div class="card-header section-header-amber py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-cup-straw text-warning-emphasis me-2 fs-5"></i>Facilities &amp; Add-Ons</span>
+                                        <button type="button" class="btn btn-link btn-sm text-primary p-0 text-decoration-none" @onclick="EnterBookingEditMode" title="Edit add-ons">
+                                            <i class="bi bi-pencil-square me-1"></i>Edit
+                                        </button>
+                                    </div>
+                                    <div class="card-body p-3">
+                                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                            <div>
+                                                <div class="fw-semibold"><i class="bi bi-cup-hot text-danger me-1"></i>Bar Service</div>
+                                                <div class="text-muted small" style="font-size: 0.75rem;">Alcohol &amp; bartender staffing</div>
+                                            </div>
+                                            <span class="badge @((_selectedRequest?.BartenderRequested == true || appDetails.BarService?.ToLower().StartsWith("y") == true) ? "bg-success" : "bg-light text-muted border") px-3 py-1">
+                                                @((_selectedRequest?.BartenderRequested == true || appDetails.BarService?.ToLower().StartsWith("y") == true) ? "Requested" : "No")
+                                            </span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                            <div>
+                                                <div class="fw-semibold"><i class="bi bi-fire text-warning me-1"></i>Kitchen Access</div>
+                                                <div class="text-muted small" style="font-size: 0.75rem;">Food prep / kitchen usage</div>
+                                            </div>
+                                            <span class="badge @((_selectedRequest?.KitchenUsage == true || appDetails.KitchenAccess?.ToLower().StartsWith("y") == true) ? "bg-success" : "bg-light text-muted border") px-3 py-1">
+                                                @((_selectedRequest?.KitchenUsage == true || appDetails.KitchenAccess?.ToLower().StartsWith("y") == true) ? "Requested" : "No")
+                                            </span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center py-2">
+                                            <div>
+                                                <div class="fw-semibold"><i class="bi bi-speaker text-info me-1"></i>A/V Equipment</div>
+                                                <div class="text-muted small" style="font-size: 0.75rem;">Microphone, speakers, projector</div>
+                                            </div>
+                                            <span class="badge @(_selectedRequest?.AvEquipmentUsage == true ? "bg-success" : "bg-light text-muted border") px-3 py-1">
+                                                @(_selectedRequest?.AvEquipmentUsage == true ? "Requested" : "No")
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. FINANCIAL SUMMARY & REAL-TIME PAYMENT STATUS -->
+                        <div class="card border rounded-3 shadow-none bg-white mb-3">
+                            <div class="card-header section-header-success py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-currency-dollar text-success me-2 fs-5"></i>Financial &amp; Payment Breakdown</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge @(modalPaySummary.Status == "Paid" ? "bg-success text-white" : (modalPaySummary.Status == "Deposit Paid" ? "bg-primary text-white" : (modalPaySummary.Status == "Partial" ? "bg-warning text-dark" : "bg-light text-dark border border-secondary shadow-sm"))) px-3 py-1 fs-6 fw-bold" style="@(modalPaySummary.Status == "Unpaid" ? "color: #1e293b !important; background-color: #f1f5f9 !important; border-color: #94a3b8 !important;" : "")">
+                                        Payment Status: @modalPaySummary.Status.ToUpper()
+                                    </span>
+                                    <button type="button" class="btn btn-outline-success btn-sm rounded-pill px-2 py-0.5 shadow-sm" @onclick="EnterBookingEditMode" title="Modify pricing or deposit">
+                                        <i class="bi bi-pencil-square me-1"></i>Edit Price
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="row g-3 text-center">
+                                    <div class="col-md-3 col-6">
+                                        <div class="p-2 bg-light rounded border">
+                                            <small class="text-muted d-block">Agreed Total Price</small>
+                                            <strong class="fs-5 text-dark">$@modalPaySummary.TotalPrice.ToString("N2")</strong>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="p-2 bg-light rounded border">
+                                            <small class="text-muted d-block">Security Deposit</small>
+                                            <strong class="fs-5 text-warning-emphasis">$@modalPaySummary.DepositRequired.ToString("N2")</strong>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="p-2 bg-success bg-opacity-10 rounded border border-success-subtle">
+                                            <small class="text-success fw-semibold d-block">Total Paid to Date</small>
+                                            <strong class="fs-5 text-success">$@modalPaySummary.TotalPaid.ToString("N2")</strong>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="p-2 @(modalPaySummary.RemainingBalance > 0 ? "bg-danger bg-opacity-10 border border-danger-subtle" : "bg-light border") rounded">
+                                            <small class="@(modalPaySummary.RemainingBalance > 0 ? "text-danger fw-semibold" : "text-muted") d-block">Remaining Balance</small>
+                                            <strong class="fs-5 @(modalPaySummary.RemainingBalance > 0 ? "text-danger" : "text-success")">$@modalPaySummary.RemainingBalance.ToString("N2")</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. AGREEMENTS & SUBMISSION TIMESTAMP -->
+                        <div class="card border rounded-3 shadow-none bg-white mb-3">
+                            <div class="card-header section-header-success py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-shield-check text-success me-2 fs-5"></i>Accepted Terms, Policies &amp; Digital Signature</span>
+                                @if (!string.IsNullOrEmpty(effectiveTimestamp))
+                                {
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                        <i class="bi bi-clock-history me-1"></i>Submitted: @effectiveTimestamp
+                                    </span>
+                                }
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="text-muted small fw-bold text-uppercase mb-2" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                                    Acknowledged Policies &amp; Agreements (@acceptedPoliciesList.Count)
+                                </div>
+                                
+                                <div class="d-flex flex-column gap-2 mb-3">
+                                    @foreach (var pol in acceptedPoliciesList)
+                                    {
+                                        <div class="p-2 px-3 rounded-3 border bg-light d-flex align-items-center justify-content-between gap-3">
+                                            <div class="d-flex align-items-center gap-2 flex-wrap min-w-0">
+                                                <i class="bi bi-check-circle-fill text-success fs-6 flex-shrink-0"></i>
+                                                <span class="fw-semibold text-dark small text-break">@pol.Title</span>
+                                                @if (!string.IsNullOrEmpty(pol.Tag))
+                                                {
+                                                    <span class="badge bg-white text-dark border border-secondary-subtle px-2 py-0.5 shadow-sm fw-semibold flex-shrink-0" style="font-size: 0.72rem;">@pol.Tag</span>
+                                                }
+                                            </div>
+                                            <span class="badge py-1 px-3 small fw-bold shadow-sm d-inline-flex align-items-center gap-1 flex-shrink-0 ms-auto" style="background-color: #15803d !important; color: #ffffff !important; border: 1px solid #166534 !important; font-size: 0.8rem; letter-spacing: 0.3px;">
+                                                <i class="bi bi-shield-fill-check"></i>Accepted
+                                            </span>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="row g-3 pt-2 border-top">
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Applicant Digital Signature</div>
+                                        <div class="fw-bold font-monospace bg-light p-2 rounded border text-dark">
+                                            <i class="bi bi-pen me-1 text-primary"></i>@effectiveSignature
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-muted small">Submission Timestamp</div>
+                                        <div class="fw-semibold p-2 bg-light rounded border text-dark">
+                                            <i class="bi bi-calendar-check text-primary me-1"></i>
+                                            @(string.IsNullOrEmpty(effectiveTimestamp) ? "Recorded" : effectiveTimestamp)
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. AUDIT TRAIL & CHANGE HISTORY CARD -->
+                        @if (!string.IsNullOrWhiteSpace(_selectedRequest?.InternalNotes))
+                        {
+                            <div class="card border rounded-3 shadow-none bg-white mb-3">
+                                <div class="card-header section-header-secondary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-journal-text text-secondary me-2 fs-5"></i>Audit Trail &amp; Modification History</span>
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Audit Log</span>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="bg-light p-3 rounded-3 border font-monospace small" style="white-space: pre-wrap; font-size: 0.8rem; line-height: 1.5;">@_selectedRequest.InternalNotes</div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- 6. MANUAL PAYMENT & DEPOSIT TRACKING LEDGER -->
+                        <div class="card border rounded-3 shadow-none bg-white mb-3">
+                            <div class="card-header section-header-success py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-cash-stack text-success me-2 fs-5"></i>Payment &amp; Deposit Ledger</span>
+                                <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3 shadow-sm" @onclick="() => OpenRecordPaymentModal(_selectedEvent)">
+                                    <i class="bi bi-plus-circle me-1"></i>Record Payment / Deposit
+                                </button>
+                            </div>
+                            <div class="card-body p-2 @(_selectedPayments.Any() ? "p-3" : "")">
+                                @if (_selectedPayments.Any())
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-hover align-middle mb-0">
+                                            <thead class="table-light small">
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>Type</th>
+                                                    <th>Method</th>
+                                                    <th>Ref / Check #</th>
+                                                    <th>Amount</th>
+                                                    <th>Recorded By</th>
+                                                    <th class="text-end">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var p in _selectedPayments)
+                                                {
+                                                    <tr>
+                                                        <td class="small">@p.PaymentDate.ToString("MM/dd/yyyy")</td>
+                                                        <td>
+                                                            <span class="badge @(p.PaymentType == "Security Deposit" ? "bg-warning text-dark" : (p.PaymentType == "Refund" ? "bg-danger" : "bg-success"))">
+                                                                @p.PaymentType
+                                                            </span>
+                                                        </td>
+                                                        <td class="small">@p.PaymentMethod</td>
+                                                        <td class="small font-monospace">@(string.IsNullOrEmpty(p.ReferenceOrCheckNumber) ? "—" : p.ReferenceOrCheckNumber)</td>
+                                                        <td class="fw-bold @(p.PaymentType == "Refund" ? "text-danger" : "text-success")">
+                                                            @(p.PaymentType == "Refund" ? "-" : "")$@p.Amount.ToString("N2")
+                                                        </td>
+                                                        <td class="small text-muted">@p.RecordedBy</td>
+                                                        <td class="text-end">
+                                                            <button class="btn btn-link btn-sm text-danger p-0" title="Delete payment" @onclick="() => DeletePayment(p.Id)">
+                                                                <i class="bi bi-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-items-center justify-content-between p-2 px-3 bg-light rounded-2 text-muted small">
+                                        <span><i class="bi bi-info-circle me-1 text-secondary"></i>No payment transactions recorded yet.</span>
+                                        <span class="text-secondary opacity-75" style="font-size: 0.75rem;">Balance pending</span>
                                     </div>
                                 }
                             </div>
-
-                            <div class="row g-3 pt-2 border-top">
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Applicant Digital Signature</div>
-                                    <div class="fw-bold font-monospace bg-light p-2 rounded border text-dark">
-                                        <i class="bi bi-pen me-1 text-primary"></i>@effectiveSignature
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="text-muted small">Submission Timestamp</div>
-                                    <div class="fw-semibold p-2 bg-light rounded border text-dark">
-                                        <i class="bi bi-calendar-check text-primary me-1"></i>
-                                        @(string.IsNullOrEmpty(effectiveTimestamp) ? "Recorded" : effectiveTimestamp)
-                                    </div>
-                                </div>
-                            </div>
                         </div>
-                    </div>
 
-                    <!-- 6. MANUAL PAYMENT & DEPOSIT TRACKING LEDGER -->
-                    <div class="card border rounded-3 shadow-none bg-white mb-3">
-                        <div class="card-header bg-light py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-cash-stack text-success me-2"></i>Payment & Deposit Ledger</span>
-                            <button type="button" class="btn btn-sm btn-success rounded-pill px-3 shadow-sm" @onclick="() => OpenRecordPaymentModal(_selectedEvent)">
-                                <i class="bi bi-plus-circle me-1"></i>Record Payment / Deposit
+                        <!-- Collapsible Raw Notes Section -->
+                        <div class="mt-3">
+                            <button class="btn btn-link btn-sm text-decoration-none p-0 text-muted" type="button" @onclick="() => _showRawNotes = !_showRawNotes">
+                                <i class="bi @(_showRawNotes ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
+                                @(_showRawNotes ? "Hide Raw Notes" : "View Raw Description & Details")
                             </button>
-                        </div>
-                        <div class="card-body p-3">
-                            @if (_selectedPayments.Any())
+
+                            @if (_showRawNotes && !string.IsNullOrEmpty(_selectedEvent.Description))
                             {
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-hover align-middle mb-0">
-                                        <thead class="table-light small">
-                                            <tr>
-                                                <th>Date</th>
-                                                <th>Type</th>
-                                                <th>Method</th>
-                                                <th>Ref / Check #</th>
-                                                <th>Amount</th>
-                                                <th>Recorded By</th>
-                                                <th class="text-end">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var p in _selectedPayments)
-                                            {
-                                                <tr>
-                                                    <td class="small">@p.PaymentDate.ToString("MM/dd/yyyy")</td>
-                                                    <td>
-                                                        <span class="badge @(p.PaymentType == "Security Deposit" ? "bg-warning text-dark" : (p.PaymentType == "Refund" ? "bg-danger" : "bg-success"))">
-                                                            @p.PaymentType
-                                                        </span>
-                                                    </td>
-                                                    <td class="small">@p.PaymentMethod</td>
-                                                    <td class="small font-monospace">@(string.IsNullOrEmpty(p.ReferenceOrCheckNumber) ? "—" : p.ReferenceOrCheckNumber)</td>
-                                                    <td class="fw-bold @(p.PaymentType == "Refund" ? "text-danger" : "text-success")">
-                                                        @(p.PaymentType == "Refund" ? "-" : "")$@p.Amount.ToString("N2")
-                                                    </td>
-                                                    <td class="small text-muted">@p.RecordedBy</td>
-                                                    <td class="text-end">
-                                                        <button class="btn btn-link btn-sm text-danger p-0" title="Delete payment" @onclick="() => DeletePayment(p.Id)">
-                                                            <i class="bi bi-trash"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="text-center py-3 text-muted small">
-                                    <i class="bi bi-wallet2 fs-4 d-block mb-1 opacity-50"></i>
-                                    No payments or deposits recorded yet.
+                                <div class="p-3 bg-light rounded-3 border mt-2">
+                                    <pre class="small mb-0 text-dark" style="white-space: pre-wrap; font-family: inherit;">@_selectedEvent.Description</pre>
                                 </div>
                             }
                         </div>
-                    </div>
-
-                    <!-- Collapsible Raw Notes Section -->
-                    <div class="mt-3">
-                        <button class="btn btn-link btn-sm text-decoration-none p-0 text-muted" type="button" @onclick="() => _showRawNotes = !_showRawNotes">
-                            <i class="bi @(_showRawNotes ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
-                            @(_showRawNotes ? "Hide Raw Notes" : "View Raw Description & Details")
-                        </button>
-
-                        @if (_showRawNotes && !string.IsNullOrEmpty(_selectedEvent.Description))
-                        {
-                            <div class="p-3 bg-light rounded-3 border mt-2">
-                                <pre class="small mb-0 text-dark" style="white-space: pre-wrap; font-family: inherit;">@_selectedEvent.Description</pre>
-                            </div>
-                        }
-                    </div>
+                    }
                 </div>
 
                 <!-- Modal Footer -->
-                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between flex-wrap gap-2">
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-outline-danger btn-sm shadow-sm" @onclick="PromptCancelOrRemoveEvent" title="Cancel booking or remove this event">
-                            <i class="bi bi-x-circle me-1"></i>Cancel / Remove Event
+                        <button type="button" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm" @onclick="PromptCancelOrRemoveEvent" title="Cancel booking or remove this event">
+                            <i class="bi bi-trash3 me-1"></i>Cancel / Delete Event
                         </button>
                     </div>
-                    <div class="d-flex gap-2 flex-wrap">
-                        @if (isPending)
+                    <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                        @if (_isEditingBooking)
                         {
-                            <button type="button" class="btn btn-primary px-3 shadow-sm" @onclick="ApproveBookingAsync" disabled="@_isApprovingBooking" title="Approve this rental booking and remove PENDING prefix">
-                                @if (_isApprovingBooking)
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm" @onclick="CancelBookingEditMode">
+                                <i class="bi bi-x-lg me-1"></i>Cancel
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="InitiateSaveBookingChanges" disabled="@_isSavingAdjustments">
+                                @if (_isSavingAdjustments)
                                 {
-                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                    <span>Approving...</span>
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                    <span>Saving...</span>
                                 }
                                 else
                                 {
                                     <i class="bi bi-check2-circle me-1"></i>
-                                    <span>Approve Booking</span>
+                                    <span>Review &amp; Save</span>
                                 }
                             </button>
                         }
-                        <button type="button" class="btn btn-outline-dark px-3 shadow-sm" @onclick="PrintSelectedApplication">
-                            <i class="bi bi-printer me-1"></i>Print / Save PDF
-                        </button>
-                        <button type="button" class="btn btn-success px-3 shadow-sm" @onclick="() => OpenRecordPaymentModal(_selectedEvent)">
-                            <i class="bi bi-cash me-1"></i>Add Payment
-                        </button>
-                        @if (_settings.EnableWriteApi)
+                        else
                         {
-                            <button type="button" class="btn btn-warning px-3 shadow-sm" @onclick="() => OpenEditEventModal(_selectedEvent)">
-                                <i class="bi bi-pencil-square me-1"></i>Edit Booking
+                            <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm" @onclick="PrintSelectedApplication" title="Print application or save as PDF">
+                                <i class="bi bi-printer me-1"></i>Print / PDF
                             </button>
+                            <button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm" @onclick="() => OpenRecordPaymentModal(_selectedEvent)">
+                                <i class="bi bi-cash-stack me-1"></i>Add Payment
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) || !string.IsNullOrWhiteSpace(appDetails.Email))
+                            {
+                                <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" @onclick="OpenResendQuoteConfirmation" disabled="@_isResendingQuote" title="Email updated rental quote & breakdown to applicant">
+                                    <i class="bi bi-envelope-paper me-1"></i>
+                                    <span>Resend Quote</span>
+                                </button>
+                            }
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-semibold" @onclick="EnterBookingEditMode">
+                                <i class="bi bi-pencil-square me-1"></i>Modify Booking
+                            </button>
+                            @if (isPending)
+                            {
+                                <button type="button" class="btn btn-success btn-sm rounded-pill px-3 shadow-sm fw-bold" @onclick="PromptApproveBooking" disabled="@_isApprovingBooking" title="Approve this rental booking and remove PENDING prefix">
+                                    <i class="bi bi-check2-circle me-1"></i>
+                                    <span>Approve Booking</span>
+                                </button>
+                            }
+                            <div class="vr mx-1 d-none d-sm-block" style="height: 24px;"></div>
+                            <button type="button" class="btn btn-secondary btn-sm rounded-pill px-4 shadow-sm" @onclick="CloseEventDetailsModal">Close</button>
                         }
-                        <button type="button" class="btn btn-secondary px-4 shadow-sm" @onclick="() => _selectedEvent = null">Close</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- CONFIRM RESEND QUOTE EMAIL MODAL -->
+<!-- ========================================================================= -->
+@if (_showResendQuoteConfirmModal && _selectedEvent != null)
+{
+    var confirmAppData = ParseApplicationDetails(_selectedEvent);
+    var confirmEmail = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : confirmAppData.Email;
+    var confirmPaySummary = GetEventPaymentSummary(_selectedEvent);
+    var confirmName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (confirmAppData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+    var confirmRoom = !string.IsNullOrWhiteSpace(_selectedRequest?.RoomSelected) ? _selectedRequest.RoomSelected : (_selectedEvent.Location ?? "Function Hall");
+    var confirmPrice = _selectedRequest != null ? _selectedRequest.TotalPrice : confirmPaySummary.TotalPrice;
+    var confirmDeposit = _selectedRequest != null && _selectedRequest.SecurityDepositAmount > 0 ? _selectedRequest.SecurityDepositAmount : confirmPaySummary.DepositRequired;
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-primary text-white p-3 px-4">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-envelope-paper"></i>
+                        <span>Confirm Resend Quote</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showResendQuoteConfirmModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to send the latest rental quote and pricing breakdown to the applicant?
+                    </p>
+
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Recipient Email:</span>
+                                <span class="fw-bold text-dark">@confirmEmail</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Applicant Name:</span>
+                                <span class="fw-bold text-dark">@confirmName</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Event Date &amp; Space:</span>
+                                <span class="fw-bold text-dark">@_selectedEvent.Start.ToString("MMM dd, yyyy") (@confirmRoom)</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Rental Price:</span>
+                                <span class="fw-bold text-primary">$@confirmPrice.ToString("N2")</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between">
+                                <span class="text-muted">Security Deposit:</span>
+                                <span class="fw-bold text-warning-emphasis">$@confirmDeposit.ToString("N2")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-info flex-shrink-0"></i>
+                        <span>This will send a formatted quote email directly to <strong>@confirmEmail</strong>.</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showResendQuoteConfirmModal = false" disabled="@_isResendingQuote">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="ConfirmAndSendQuoteAsync" disabled="@_isResendingQuote">
+                        @if (_isResendingQuote)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Sending Quote...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-send-fill me-1"></i>
+                            <span>Send Quote Email</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- CONFIRM BOOKING APPROVAL MODAL -->
+<!-- ========================================================================= -->
+@if (_showApproveBookingConfirmModal && _selectedEvent != null)
+{
+    var appData = ParseApplicationDetails(_selectedEvent);
+    var cleanName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (appData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+    var spaceName = !string.IsNullOrWhiteSpace(_selectedRequest?.RoomSelected) ? _selectedRequest.RoomSelected : (_selectedEvent.Location ?? "Function Hall");
+    var paySummary = GetEventPaymentSummary(_selectedEvent);
+    var totalPrice = _selectedRequest != null ? _selectedRequest.TotalPrice : paySummary.TotalPrice;
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-success text-white p-3 px-4">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-check2-circle"></i>
+                        <span>Confirm Booking Approval</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showApproveBookingConfirmModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to approve this rental booking?
+                    </p>
+
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Applicant Name:</span>
+                                <span class="fw-bold text-dark">@cleanName</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Event Date &amp; Space:</span>
+                                <span class="fw-bold text-dark">@_selectedEvent.Start.ToString("dddd, MMM dd, yyyy") (@spaceName)</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Time Window:</span>
+                                <span class="fw-bold text-dark">@(_selectedEvent.IsAllDay ? "All Day" : $"{_selectedEvent.Start:h:mm tt} - {_selectedEvent.End:h:mm tt}")</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between">
+                                <span class="text-muted">Agreed Price:</span>
+                                <span class="fw-bold text-success">$@totalPrice.ToString("N2")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-success bg-success bg-opacity-10 border border-success-subtle py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-success flex-shrink-0"></i>
+                        <span>This will mark the application <strong>APPROVED</strong> in the database and remove the "PENDING" prefix from Google Calendar.</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showApproveBookingConfirmModal = false" disabled="@_isApprovingBooking">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-success btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="ConfirmAndApproveBookingAsync" disabled="@_isApprovingBooking">
+                        @if (_isApprovingBooking)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Approving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg me-1"></i>
+                            <span>Confirm &amp; Approve</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- PRE-SAVE CHANGE CONFIRMATION & AUDIT DIFF MODAL -->
+<!-- ========================================================================= -->
+@if (_showConfirmChangesModal && _selectedRequest != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-primary text-white p-3 px-4">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-check"></i>
+                        <span>Confirm Booking Modifications</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showConfirmChangesModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Please review the detected changes below before updating the database, Google Calendar schedule, and availability ledger:
+                    </p>
+
+                    <div class="card border rounded-3 mb-3 bg-light shadow-none">
+                        <div class="card-header bg-white py-2 px-3 fw-bold small text-uppercase text-secondary">
+                            Detected Field Differences (@_detectedDiffs.Count)
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive mb-0">
+                                <table class="table table-sm table-striped align-middle mb-0">
+                                    <thead class="table-light small">
+                                        <tr>
+                                            <th>Field</th>
+                                            <th>Previous Value</th>
+                                            <th>New Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var diff in _detectedDiffs)
+                                        {
+                                            <tr>
+                                                <td class="fw-bold small text-dark">@diff.FieldName</td>
+                                                <td><span class="badge bg-secondary-subtle text-secondary border">@diff.OldValue</span></td>
+                                                <td><span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold">@diff.NewValue</span></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">
+                            Reason for modification / Admin note <span class="text-muted font-normal">(Recorded to Audit Trail)</span>:
+                        </label>
+                        <input type="text" class="form-control" placeholder="e.g. Applied member discount, changed time upon renter request" @bind="_changeReasonNote" />
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_selectedRequest.RequesterEmail))
+                    {
+                        <div class="p-3 bg-white rounded-3 border mb-3">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="sendQuoteToggle" @bind="_sendUpdatedQuoteEmail" />
+                                <label class="form-check-label fw-bold text-dark small" for="sendQuoteToggle">
+                                    <i class="bi bi-envelope-paper me-1 text-primary"></i>Email Updated Quote to Applicant
+                                </label>
+                                <small class="text-muted d-block">Sends updated breakdown and pricing to <strong>@_selectedRequest.RequesterEmail</strong></small>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-info"></i>
+                        <span>This action will update the database record and synchronize connected calendars immediately.</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showConfirmChangesModal = false">
+                        <i class="bi bi-arrow-left me-1"></i>Back to Editor
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="CommitBookingModificationsAsync" disabled="@_isSavingAdjustments">
+                        @if (_isSavingAdjustments)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Applying Changes...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle me-1"></i>
+                            <span>Confirm &amp; Apply Changes</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- UNSAVED CHANGES WARNING CONFIRMATION MODAL -->
+@if (_showUnsavedChangesWarning)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1070;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered modal-sm" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-warning bg-opacity-25 text-warning-emphasis p-3">
+                    <h6 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                        <span>Unsaved Changes</span>
+                    </h6>
+                </div>
+                <div class="modal-body p-3">
+                    <p class="small text-muted mb-0">
+                        You have modified fields that have not been saved. Are you sure you want to discard your changes and close?
+                    </p>
+                </div>
+                <div class="modal-footer bg-light p-2 px-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _showUnsavedChangesWarning = false">
+                        Keep Editing
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger fw-bold" @onclick="ForceCloseEventDetails">
+                        Discard &amp; Close
+                    </button>
                 </div>
             </div>
         </div>
@@ -1702,6 +2150,44 @@
     border: 1px solid rgba(13, 110, 253, 0.15);
 }
 
+.sticky-top-card {
+    position: sticky !important;
+    top: -1.5rem;
+    z-index: 1020;
+    backdrop-filter: blur(8px);
+}
+
+/* Enhanced Section Header Accents */
+.section-header-primary {
+    background: linear-gradient(90deg, #f0f7ff 0%, #ffffff 100%) !important;
+    border-left: 4px solid #0d6efd !important;
+    color: #0d3c61 !important;
+}
+
+.section-header-success {
+    background: linear-gradient(90deg, #f0fdf4 0%, #ffffff 100%) !important;
+    border-left: 4px solid #16a34a !important;
+    color: #14532d !important;
+}
+
+.section-header-indigo {
+    background: linear-gradient(90deg, #f5f3ff 0%, #ffffff 100%) !important;
+    border-left: 4px solid #6366f1 !important;
+    color: #312e81 !important;
+}
+
+.section-header-amber {
+    background: linear-gradient(90deg, #fffbeb 0%, #ffffff 100%) !important;
+    border-left: 4px solid #f59e0b !important;
+    color: #78350f !important;
+}
+
+.section-header-secondary {
+    background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%) !important;
+    border-left: 4px solid #64748b !important;
+    color: #1e293b !important;
+}
+
 .stat-card {
     background: #ffffff;
     border-radius: 1rem;
@@ -2296,9 +2782,27 @@
     private CalendarEventItem? _eventToCancelOrRemove;
     private bool _isProcessingCancelOrRemove = false;
     private bool _isApprovingBooking = false;
+    private bool _showApproveBookingConfirmModal = false;
 
     private string? _writeTestFeedback;
     private bool _writeTestSuccess = false;
+
+    private readonly List<string> _standardEventTypeOptions = new()
+    {
+        "Birthday Party",
+        "Wedding",
+        "Anniversary Party",
+        "Bereavement / Memorial / Collation",
+        "Business Meeting / Corporate Event",
+        "Fundraiser / Charity Event",
+        "Holiday Party",
+        "Baby / Bridal Shower",
+        "Christening / Baptism",
+        "Graduation Party",
+        "Retirement Party",
+        "Reunion",
+        "Other Celebration / Event"
+    };
 
     public class ParsedApplicationData
     {
@@ -3472,6 +3976,18 @@
         }
     }
 
+    private void PromptApproveBooking()
+    {
+        if (_selectedEvent == null) return;
+        _showApproveBookingConfirmModal = true;
+    }
+
+    private async Task ConfirmAndApproveBookingAsync()
+    {
+        _showApproveBookingConfirmModal = false;
+        await ApproveBookingAsync();
+    }
+
     private async Task ApproveBookingAsync()
     {
         if (_selectedEvent == null) return;
@@ -3619,8 +4135,6 @@
     private List<HallRentalRequest> _cachedRentalRequests = new();
     private List<HallRentalPayment> _allPayments = new();
     private HallRentalRequest? _selectedRequest;
-    private bool _showBookingAdjustor = false;
-    private bool _isSavingAdjustments = false;
 
     private bool _showRecordPaymentModal = false;
     private HallRentalPayment _paymentModel = new();
@@ -3803,7 +4317,10 @@
     {
         _selectedEvent = evt;
         _showRawNotes = false;
-        _showBookingAdjustor = false;
+        _isEditingBooking = false;
+        _showConfirmChangesModal = false;
+        _showUnsavedChangesWarning = false;
+        _originalBookingSnapshot = null;
         await LoadPaymentsForSelectedEvent(evt);
     }
 
@@ -3904,7 +4421,406 @@
         }
     }
 
-    private void AutoCalculateSelectedRequestPrice()
+    // Direct Booking & Pricing Editor State
+    private bool _isEditingBooking = false;
+    private bool _showConfirmChangesModal = false;
+    private bool _showUnsavedChangesWarning = false;
+    private bool _isSavingAdjustments = false;
+    private string _changeReasonNote = "";
+    private HallRentalRequest? _originalBookingSnapshot;
+
+    public class BookingFieldDiff
+    {
+        public string FieldName { get; set; } = string.Empty;
+        public string OldValue { get; set; } = string.Empty;
+        public string NewValue { get; set; } = string.Empty;
+    }
+
+    private List<BookingFieldDiff> _detectedDiffs = new();
+
+    private void EnterBookingEditMode()
+    {
+        if (_selectedEvent == null) return;
+
+        // Ensure _selectedRequest is bound and created if missing
+        if (_selectedRequest == null)
+        {
+            var appData = ParseApplicationDetails(_selectedEvent);
+            _selectedRequest = new HallRentalRequest
+            {
+                ApplicantName = appData.ApplicantName ?? GetCleanTitle(_selectedEvent),
+                RequesterName = appData.ApplicantName ?? GetCleanTitle(_selectedEvent),
+                RequesterEmail = appData.Email ?? "",
+                RequesterPhone = appData.Phone ?? "",
+                RequesterAddress = !string.IsNullOrWhiteSpace(appData.StreetAddress) 
+                    ? $"{appData.StreetAddress}{(string.IsNullOrWhiteSpace(appData.City) ? "" : $", {appData.City}")}{(string.IsNullOrWhiteSpace(appData.State) ? "" : $", {appData.State}")}{(string.IsNullOrWhiteSpace(appData.Zip) ? "" : $" {appData.Zip}")}"
+                    : "",
+                EventDate = _selectedEvent.Start.Date,
+                RequestedDate = _selectedEvent.Start.Date,
+                StartTime = _selectedEvent.Start.ToString("h:mm tt"),
+                EndTime = _selectedEvent.End.ToString("h:mm tt"),
+                RoomSelected = _selectedEvent.Location ?? "Function Hall",
+                EventType = appData.EventType ?? "Hall Rental",
+                GuestCount = int.TryParse(appData.GuestCount, out var gc) ? gc : 50,
+                MemberStatus = !string.IsNullOrEmpty(appData.IsClubMember) && appData.IsClubMember.ToLower().StartsWith("y"),
+                BartenderRequested = appData.BarService?.ToLower().StartsWith("y") == true,
+                KitchenUsage = appData.KitchenAccess?.ToLower().StartsWith("y") == true,
+                AvEquipmentUsage = false,
+                SecurityDepositAmount = _webSettings?.SecurityDepositAmount ?? 200,
+                TotalPrice = 400,
+                Status = _selectedEvent.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase) ? "Pending" : "Approved"
+            };
+        }
+
+        // Create snapshot clone for diff checking
+        _originalBookingSnapshot = new HallRentalRequest
+        {
+            Id = _selectedRequest.Id,
+            ApplicantName = _selectedRequest.ApplicantName,
+            RequesterName = _selectedRequest.RequesterName,
+            RequesterEmail = _selectedRequest.RequesterEmail,
+            RequesterPhone = _selectedRequest.RequesterPhone,
+            RequesterAddress = _selectedRequest.RequesterAddress,
+            EventDate = _selectedRequest.EventDate,
+            StartTime = _selectedRequest.StartTime,
+            EndTime = _selectedRequest.EndTime,
+            RoomSelected = _selectedRequest.RoomSelected,
+            EventType = _selectedRequest.EventType,
+            MemberStatus = _selectedRequest.MemberStatus,
+            GuestCount = _selectedRequest.GuestCount,
+            BartenderRequested = _selectedRequest.BartenderRequested,
+            KitchenUsage = _selectedRequest.KitchenUsage,
+            AvEquipmentUsage = _selectedRequest.AvEquipmentUsage,
+            TotalPrice = _selectedRequest.TotalPrice,
+            SecurityDepositAmount = _selectedRequest.SecurityDepositAmount,
+            Status = _selectedRequest.Status,
+            InternalNotes = _selectedRequest.InternalNotes
+        };
+
+        if (_webSettings != null)
+        {
+            _editableRooms = _webSettings.GetRoomsList();
+            _editableAddons = _webSettings.GetAddonsList();
+        }
+
+        _isEditingBooking = true;
+    }
+
+    private void CancelBookingEditMode()
+    {
+        if (_originalBookingSnapshot != null && _selectedRequest != null)
+        {
+            // Restore snapshot
+            _selectedRequest.ApplicantName = _originalBookingSnapshot.ApplicantName;
+            _selectedRequest.RequesterPhone = _originalBookingSnapshot.RequesterPhone;
+            _selectedRequest.RequesterEmail = _originalBookingSnapshot.RequesterEmail;
+            _selectedRequest.RequesterAddress = _originalBookingSnapshot.RequesterAddress;
+            _selectedRequest.EventDate = _originalBookingSnapshot.EventDate;
+            _selectedRequest.StartTime = _originalBookingSnapshot.StartTime;
+            _selectedRequest.EndTime = _originalBookingSnapshot.EndTime;
+            _selectedRequest.RoomSelected = _originalBookingSnapshot.RoomSelected;
+            _selectedRequest.EventType = _originalBookingSnapshot.EventType;
+            _selectedRequest.MemberStatus = _originalBookingSnapshot.MemberStatus;
+            _selectedRequest.GuestCount = _originalBookingSnapshot.GuestCount;
+            _selectedRequest.BartenderRequested = _originalBookingSnapshot.BartenderRequested;
+            _selectedRequest.KitchenUsage = _originalBookingSnapshot.KitchenUsage;
+            _selectedRequest.AvEquipmentUsage = _originalBookingSnapshot.AvEquipmentUsage;
+            _selectedRequest.TotalPrice = _originalBookingSnapshot.TotalPrice;
+            _selectedRequest.SecurityDepositAmount = _originalBookingSnapshot.SecurityDepositAmount;
+            _selectedRequest.Status = _originalBookingSnapshot.Status;
+        }
+
+        _isEditingBooking = false;
+        _showConfirmChangesModal = false;
+    }
+
+    private void CloseEventDetailsModal()
+    {
+        if (_isEditingBooking && HasPendingModifications())
+        {
+            _showUnsavedChangesWarning = true;
+            return;
+        }
+
+        _isEditingBooking = false;
+        _selectedEvent = null;
+        _showConfirmChangesModal = false;
+        _showUnsavedChangesWarning = false;
+    }
+
+    private void ForceCloseEventDetails()
+    {
+        CancelBookingEditMode();
+        _showUnsavedChangesWarning = false;
+        _selectedEvent = null;
+    }
+
+    private bool HasPendingModifications()
+    {
+        if (_selectedRequest == null || _originalBookingSnapshot == null) return false;
+        return CalculateDiffs().Any();
+    }
+
+    private List<BookingFieldDiff> CalculateDiffs()
+    {
+        var diffs = new List<BookingFieldDiff>();
+        if (_selectedRequest == null || _originalBookingSnapshot == null) return diffs;
+
+        var orig = _originalBookingSnapshot;
+        var curr = _selectedRequest;
+
+        if (orig.ApplicantName != curr.ApplicantName)
+            diffs.Add(new BookingFieldDiff { FieldName = "Applicant Name", OldValue = orig.ApplicantName ?? "(empty)", NewValue = curr.ApplicantName ?? "(empty)" });
+
+        if (orig.EventDate.Date != curr.EventDate.Date)
+            diffs.Add(new BookingFieldDiff { FieldName = "Event Date", OldValue = orig.EventDate.ToString("MM/dd/yyyy"), NewValue = curr.EventDate.ToString("MM/dd/yyyy") });
+
+        if ((orig.StartTime ?? "") != (curr.StartTime ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Start Time", OldValue = string.IsNullOrEmpty(orig.StartTime) ? "(unspecified)" : orig.StartTime, NewValue = string.IsNullOrEmpty(curr.StartTime) ? "(unspecified)" : curr.StartTime });
+
+        if ((orig.EndTime ?? "") != (curr.EndTime ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "End Time", OldValue = string.IsNullOrEmpty(orig.EndTime) ? "(unspecified)" : orig.EndTime, NewValue = string.IsNullOrEmpty(curr.EndTime) ? "(unspecified)" : curr.EndTime });
+
+        if ((orig.RoomSelected ?? "") != (curr.RoomSelected ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Room / Space", OldValue = orig.RoomSelected ?? "Function Hall", NewValue = curr.RoomSelected ?? "Function Hall" });
+
+        if (orig.MemberStatus != curr.MemberStatus)
+            diffs.Add(new BookingFieldDiff { FieldName = "Renter Tier", OldValue = orig.MemberStatus ? "Active Member" : "Non-Member", NewValue = curr.MemberStatus ? "Active Member" : "Non-Member" });
+
+        if (orig.TotalPrice != curr.TotalPrice)
+            diffs.Add(new BookingFieldDiff { FieldName = "Total Agreed Price", OldValue = $"${orig.TotalPrice:N2}", NewValue = $"${curr.TotalPrice:N2}" });
+
+        if (orig.SecurityDepositAmount != curr.SecurityDepositAmount)
+            diffs.Add(new BookingFieldDiff { FieldName = "Security Deposit", OldValue = $"${orig.SecurityDepositAmount:N2}", NewValue = $"${curr.SecurityDepositAmount:N2}" });
+
+        if (orig.BartenderRequested != curr.BartenderRequested)
+            diffs.Add(new BookingFieldDiff { FieldName = "Bar Service", OldValue = orig.BartenderRequested ? "Yes" : "No", NewValue = curr.BartenderRequested ? "Yes" : "No" });
+
+        if (orig.KitchenUsage != curr.KitchenUsage)
+            diffs.Add(new BookingFieldDiff { FieldName = "Kitchen Access", OldValue = orig.KitchenUsage ? "Yes" : "No", NewValue = curr.KitchenUsage ? "Yes" : "No" });
+
+        if (orig.AvEquipmentUsage != curr.AvEquipmentUsage)
+            diffs.Add(new BookingFieldDiff { FieldName = "A/V Equipment", OldValue = orig.AvEquipmentUsage ? "Yes" : "No", NewValue = curr.AvEquipmentUsage ? "Yes" : "No" });
+
+        if (orig.GuestCount != curr.GuestCount)
+            diffs.Add(new BookingFieldDiff { FieldName = "Guest Attendance", OldValue = orig.GuestCount.ToString(), NewValue = curr.GuestCount.ToString() });
+
+        if ((orig.EventType ?? "") != (curr.EventType ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Event Type", OldValue = orig.EventType ?? "General", NewValue = curr.EventType ?? "General" });
+
+        if ((orig.RequesterPhone ?? "") != (curr.RequesterPhone ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Phone", OldValue = orig.RequesterPhone ?? "(empty)", NewValue = curr.RequesterPhone ?? "(empty)" });
+
+        if ((orig.RequesterEmail ?? "") != (curr.RequesterEmail ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Email", OldValue = orig.RequesterEmail ?? "(empty)", NewValue = curr.RequesterEmail ?? "(empty)" });
+
+        if ((orig.RequesterAddress ?? "") != (curr.RequesterAddress ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Mailing Address", OldValue = orig.RequesterAddress ?? "(empty)", NewValue = curr.RequesterAddress ?? "(empty)" });
+
+        if ((orig.Status ?? "") != (curr.Status ?? ""))
+            diffs.Add(new BookingFieldDiff { FieldName = "Status", OldValue = orig.Status ?? "Pending", NewValue = curr.Status ?? "Pending" });
+
+        return diffs;
+    }
+
+    private void InitiateSaveBookingChanges()
+    {
+        _detectedDiffs = CalculateDiffs();
+        if (!_detectedDiffs.Any())
+        {
+            ToastService.ShowInfo("No modifications were detected.");
+            _isEditingBooking = false;
+            return;
+        }
+
+        _changeReasonNote = "";
+        _showConfirmChangesModal = true;
+    }
+
+    private async Task CommitBookingModificationsAsync()
+    {
+        if (_selectedRequest == null || _selectedEvent == null) return;
+        _isSavingAdjustments = true;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            // 1. Build timestamped audit trail log entry
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+            foreach (var diff in _detectedDiffs)
+            {
+                sb.AppendLine($"• {diff.FieldName}: {diff.OldValue} ➔ {diff.NewValue}");
+            }
+            if (!string.IsNullOrWhiteSpace(_changeReasonNote))
+            {
+                sb.AppendLine($"• Reason / Note: {_changeReasonNote.Trim()}");
+            }
+            sb.AppendLine();
+
+            _selectedRequest.InternalNotes = (sb.ToString() + (_selectedRequest.InternalNotes ?? "")).Trim();
+            _selectedRequest.StatusChangedBy = adminUser;
+            _selectedRequest.StatusChangedDate = DateTime.UtcNow;
+
+            // 2. Persist to SQL Database
+            if (_selectedRequest.Id > 0)
+            {
+                await RentalService.UpdateRentalRequestAsync(_selectedRequest);
+            }
+            else
+            {
+                await RentalService.CreateRentalRequestAsync(_selectedRequest);
+            }
+
+            // 3. Update Calendar Availability Schedule
+            try
+            {
+                string availStatus = string.Equals(_selectedRequest.Status, "Cancelled", StringComparison.OrdinalIgnoreCase) ? "Available" : "Booked";
+                await RentalService.UpdateCalendarAvailabilityAsync(_selectedRequest.EventDate.Date, availStatus, _selectedRequest.ApplicantName, _selectedRequest.StartTime, _selectedRequest.EndTime);
+            }
+            catch { }
+
+            // 4. Update Google Calendar Event if connected and write API is enabled
+            var googleId = _selectedEvent.GoogleEventId ?? _selectedEvent.Uid;
+            if (!string.IsNullOrEmpty(googleId) && _settings.EnableWriteApi)
+            {
+                try
+                {
+                    DateTime start = _selectedRequest.EventDate.Date.AddHours(14);
+                    DateTime end = _selectedRequest.EventDate.Date.AddHours(20);
+                    if (DateTime.TryParse(_selectedRequest.StartTime, out var ps)) start = _selectedRequest.EventDate.Date.Add(ps.TimeOfDay);
+                    if (DateTime.TryParse(_selectedRequest.EndTime, out var pe)) end = _selectedRequest.EventDate.Date.Add(pe.TimeOfDay);
+
+                    var (eventTitle, eventDescription) = FormatGoogleEventDetails(_selectedRequest, _selectedRequest.IsTestRecord);
+                    if (string.Equals(_selectedRequest.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+                    {
+                        eventTitle = eventTitle.Replace("PENDING: ", "APPROVED: ");
+                    }
+
+                    var updatedCalItem = new CalendarEventItem
+                    {
+                        Uid = _selectedEvent.Uid,
+                        GoogleEventId = googleId,
+                        Title = eventTitle,
+                        Start = start,
+                        End = end,
+                        Location = _selectedRequest.RoomSelected ?? "Function Hall",
+                        Description = eventDescription
+                    };
+
+                    await CalendarService.UpdateGoogleEventAsync(googleId, updatedCalItem, _settings);
+                }
+                catch (Exception gEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Notice: Google Calendar sync warning during modification: {gEx.Message}");
+                }
+            }
+
+            // 5. Update local in-memory event and summary
+            _selectedEvent.Title = $"{(_selectedRequest.IsTestRecord ? "[TEST] " : "")}{(_selectedRequest.Status == "Approved" ? "APPROVED: " : (_selectedRequest.Status == "Cancelled" ? "CANCELLED: " : "PENDING: "))}{_selectedRequest.ApplicantName} ({_selectedRequest.EventType ?? "Rental"})";
+            _selectedEvent.Location = _selectedRequest.RoomSelected ?? "Function Hall";
+            _selectedEvent.Status = _selectedRequest.Status.ToUpperInvariant();
+
+            // 6. Send updated quote email if enabled
+            if (_sendUpdatedQuoteEmail && !string.IsNullOrWhiteSpace(_selectedRequest.RequesterEmail))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var settings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+                        if (settings != null)
+                        {
+                            decimal effectiveDeposit = _selectedRequest.SecurityDepositAmount > 0 ? _selectedRequest.SecurityDepositAmount : (settings.SecurityDepositAmount ?? 200m);
+                            string subject = $"Updated Hall Rental Application Quote - Gloucester Fraternity Club";
+                            
+                            var sb = new System.Text.StringBuilder();
+                            sb.AppendLine($"<h3>Updated Hall Rental Quote &amp; Booking Details</h3>");
+                            sb.AppendLine($"<p>Dear {_selectedRequest.ApplicantName ?? "Applicant"},</p>");
+                            sb.AppendLine($"<p>Your rental application details and pricing quote have been updated by club administration:</p>");
+                            sb.AppendLine($"<ul>");
+                            sb.AppendLine($"<li><strong>Event Date:</strong> {_selectedRequest.EventDate:dddd, MMMM dd, yyyy}</li>");
+                            if (!string.IsNullOrEmpty(_selectedRequest.StartTime) && !string.IsNullOrEmpty(_selectedRequest.EndTime))
+                                sb.AppendLine($"<li><strong>Time Window:</strong> {_selectedRequest.StartTime} - {_selectedRequest.EndTime}</li>");
+                            sb.AppendLine($"<li><strong>Selected Space:</strong> {_selectedRequest.RoomSelected ?? "Function Hall"}</li>");
+                            if (_selectedRequest.GuestCount > 0)
+                                sb.AppendLine($"<li><strong>Estimated Guests:</strong> {_selectedRequest.GuestCount}</li>");
+                            sb.AppendLine($"<li><strong>Agreed Total Price:</strong> ${_selectedRequest.TotalPrice:N2}</li>");
+                            if (settings.RequireSecurityDeposit)
+                                sb.AppendLine($"<li><strong>Refundable Security Deposit:</strong> ${effectiveDeposit:N2}</li>");
+                            sb.AppendLine($"<li><strong>Bar Service:</strong> {(_selectedRequest.BartenderRequested ? "Requested" : "No")}</li>");
+                            sb.AppendLine($"<li><strong>Kitchen Access:</strong> {(_selectedRequest.KitchenUsage ? "Requested" : "No")}</li>");
+                            sb.AppendLine($"<li><strong>A/V Equipment:</strong> {(_selectedRequest.AvEquipmentUsage ? "Requested" : "No")}</li>");
+                            sb.AppendLine($"</ul>");
+                            if (!string.IsNullOrWhiteSpace(_changeReasonNote))
+                            {
+                                sb.AppendLine($"<p><strong>Note from Administration:</strong> {_changeReasonNote.Trim()}</p>");
+                            }
+                            sb.AppendLine($"<p>If you have any questions, please contact the Gloucester Fraternity Club at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
+
+                            await RentalEmailDispatcher.SendRentalEmailAsync(settings, _selectedRequest.RequesterEmail, subject, sb.ToString(), settings.RentalEmailCc);
+                        }
+                    }
+                    catch { }
+                });
+            }
+
+            await LoadAllRequestsAndPayments();
+            ToastService.ShowSuccess($"Booking & pricing updated successfully! ({_detectedDiffs.Count} changes recorded)");
+
+            _showConfirmChangesModal = false;
+            _isEditingBooking = false;
+            _originalBookingSnapshot = null;
+            _sendUpdatedQuoteEmail = false;
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save booking modifications: {ex.Message}");
+        }
+        finally
+        {
+            _isSavingAdjustments = false;
+        }
+    }
+
+    private bool _sendUpdatedQuoteEmail = false;
+    private bool _isResendingQuote = false;
+    private bool _showResendQuoteConfirmModal = false;
+
+    private void OpenResendQuoteConfirmation()
+    {
+        if (_selectedEvent == null) return;
+        var appData = ParseApplicationDetails(_selectedEvent);
+        string? email = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            ToastService.ShowWarning("No applicant email address is associated with this booking.");
+            return;
+        }
+
+        _showResendQuoteConfirmModal = true;
+    }
+
+    private async Task ConfirmAndSendQuoteAsync()
+    {
+        _showResendQuoteConfirmModal = false;
+        await ResendQuoteToApplicantAsync();
+    }
+
+    private void OnMemberStatusSelectionChanged(ChangeEventArgs e)
+    {
+        if (_selectedRequest == null) return;
+        if (bool.TryParse(e.Value?.ToString(), out var isMember))
+        {
+            _selectedRequest.MemberStatus = isMember;
+            RecalculateEditPriceQuote();
+        }
+    }
+
+    private void RecalculateEditPriceQuote()
     {
         if (_selectedRequest == null) return;
         decimal basePrice = 0;
@@ -3928,26 +4844,90 @@
         if (_selectedRequest.AvEquipmentUsage) addOns += (_webSettings?.AvEquipmentFee ?? 25);
 
         _selectedRequest.TotalPrice = basePrice + addOns;
-        ToastService.ShowInfo($"Calculated standard quote: ${_selectedRequest.TotalPrice:N2}");
     }
 
-    private async Task SaveBookingAdjustments()
+    private void AutoCalculateSelectedRequestPrice()
     {
-        if (_selectedRequest == null) return;
-        _isSavingAdjustments = true;
+        RecalculateEditPriceQuote();
+        if (_selectedRequest != null)
+        {
+            ToastService.ShowInfo($"Calculated standard quote: ${_selectedRequest.TotalPrice:N2}");
+        }
+    }
+
+    private async Task ResendQuoteToApplicantAsync()
+    {
+        if (_selectedEvent == null) return;
+        var appData = ParseApplicationDetails(_selectedEvent);
+        string? email = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            ToastService.ShowWarning("No applicant email address is associated with this booking.");
+            return;
+        }
+
+        _isResendingQuote = true;
         try
         {
-            await RentalService.UpdateRentalRequestAsync(_selectedRequest);
-            await LoadAllRequestsAndPayments();
-            ToastService.ShowSuccess("Booking selections and price adjustments updated successfully!");
+            var settings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+            if (settings == null)
+            {
+                ToastService.ShowError("Could not load club website settings.");
+                return;
+            }
+
+            var req = _selectedRequest ?? new HallRentalRequest
+            {
+                ApplicantName = appData.ApplicantName ?? GetCleanTitle(_selectedEvent),
+                RequesterEmail = email,
+                EventDate = _selectedEvent.Start.Date,
+                RoomSelected = _selectedEvent.Location ?? "Function Hall",
+                TotalPrice = GetEventPaymentSummary(_selectedEvent).TotalPrice,
+                SecurityDepositAmount = GetEventPaymentSummary(_selectedEvent).DepositRequired
+            };
+
+            decimal effectiveDeposit = req.SecurityDepositAmount > 0 ? req.SecurityDepositAmount : (settings.SecurityDepositAmount ?? 200m);
+            string subject = $"Updated Hall Rental Application Quote - Gloucester Fraternity Club";
+            
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"<h3>Updated Hall Rental Quote &amp; Booking Details</h3>");
+            sb.AppendLine($"<p>Dear {req.ApplicantName ?? "Applicant"},</p>");
+            sb.AppendLine($"<p>Here is your updated rental quote and specification breakdown from the Gloucester Fraternity Club:</p>");
+            sb.AppendLine($"<ul>");
+            sb.AppendLine($"<li><strong>Event Date:</strong> {req.EventDate:dddd, MMMM dd, yyyy}</li>");
+            if (!string.IsNullOrEmpty(req.StartTime) && !string.IsNullOrEmpty(req.EndTime))
+                sb.AppendLine($"<li><strong>Time Window:</strong> {req.StartTime} - {req.EndTime}</li>");
+            sb.AppendLine($"<li><strong>Selected Space:</strong> {req.RoomSelected ?? "Function Hall"}</li>");
+            if (req.GuestCount > 0)
+                sb.AppendLine($"<li><strong>Estimated Guests:</strong> {req.GuestCount}</li>");
+            sb.AppendLine($"<li><strong>Agreed Total Price:</strong> ${req.TotalPrice:N2}</li>");
+            if (settings.RequireSecurityDeposit)
+                sb.AppendLine($"<li><strong>Refundable Security Deposit:</strong> ${effectiveDeposit:N2}</li>");
+            sb.AppendLine($"<li><strong>Bar Service:</strong> {(req.BartenderRequested ? "Requested" : "No")}</li>");
+            sb.AppendLine($"<li><strong>Kitchen Access:</strong> {(req.KitchenUsage ? "Requested" : "No")}</li>");
+            sb.AppendLine($"<li><strong>A/V Equipment:</strong> {(req.AvEquipmentUsage ? "Requested" : "No")}</li>");
+            sb.AppendLine($"</ul>");
+            sb.AppendLine($"<p>If you have any questions or need to make further adjustments, please contact us at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
+            sb.AppendLine($"<p>Thank you,<br/><strong>Gloucester Fraternity Club</strong></p>");
+
+            var result = await RentalEmailDispatcher.SendRentalEmailAsync(settings, email, subject, sb.ToString(), settings.RentalEmailCc);
+            if (result.Success)
+            {
+                ToastService.ShowSuccess($"Updated quote successfully emailed to {email}!");
+            }
+            else
+            {
+                ToastService.ShowError($"Email sending failed: {result.ErrorMessage}");
+            }
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Failed to update booking: {ex.Message}");
+            ToastService.ShowError($"Failed to send updated quote: {ex.Message}");
         }
         finally
         {
-            _isSavingAdjustments = false;
+            _isResendingQuote = false;
         }
     }
 
@@ -4088,14 +5068,69 @@
         return string.IsNullOrWhiteSpace(title) ? "Hall Rental Event" : title;
     }
 
+    private bool IsEventMatchingFilter(CalendarEventItem e)
+    {
+        if (!string.IsNullOrEmpty(_filterFeedSource) && e.Source != _filterFeedSource)
+        {
+            return false;
+        }
+
+        if (_filterCategory == "PENDING")
+        {
+            if (!IsEventPending(e)) return false;
+        }
+        else if (_filterCategory == "PAID")
+        {
+            if (GetEventPaymentStatus(e) != "Paid") return false;
+        }
+        else if (_filterCategory == "UNPAID")
+        {
+            if (GetEventPaymentStatus(e) == "Paid") return false;
+        }
+        else if (_filterCategory == "APPLICATIONS")
+        {
+            bool isApp = !string.IsNullOrEmpty(e.Description) && 
+                         (e.Description.Contains("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
+                          e.Description.Contains("Preferred Event Date", StringComparison.OrdinalIgnoreCase) ||
+                          e.Description.Contains("Applicant", StringComparison.OrdinalIgnoreCase) ||
+                          e.Source == "Rental Booking" ||
+                          e.Source == "Sandbox Booking");
+            if (!isApp) return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            var q = _searchTerm.ToLowerInvariant();
+            bool matchesSearch = e.Title.ToLower().Contains(q) ||
+                                 (e.Description ?? "").ToLower().Contains(q) ||
+                                 (e.Location ?? "").ToLower().Contains(q) ||
+                                 e.Start.ToString("yyyy-MM-dd").Contains(q);
+            if (!matchesSearch) return false;
+        }
+
+        return true;
+    }
+
+    private bool IsEventPending(CalendarEventItem evt)
+    {
+        if (evt.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase)) return true;
+        
+        var appData = ParseApplicationDetails(evt);
+        var cleanTitle = GetCleanTitle(evt);
+        var matched = _cachedRentalRequests.FirstOrDefault(r => 
+            r.EventDate.Date == evt.Start.Date && 
+            (string.Equals(r.ApplicantName, appData.ApplicantName, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(r.ApplicantName, cleanTitle, StringComparison.OrdinalIgnoreCase)));
+        
+        return matched != null && string.Equals(matched.Status, "Pending", StringComparison.OrdinalIgnoreCase);
+    }
+
     private List<CalendarEventItem> GetEventsForDate(DateTime date)
     {
-        var list = _events.Where(e => e.Start.Date == date.Date);
-        if (!string.IsNullOrEmpty(_filterFeedSource))
-        {
-            list = list.Where(e => e.Source == _filterFeedSource);
-        }
-        return list.OrderBy(e => e.Start).ToList();
+        return _events.Where(e => e.Start.Date == date.Date && IsEventMatchingFilter(e))
+                      .OrderBy(e => e.Start)
+                      .ToList();
     }
 
     private int GetUpcomingCount()
@@ -4106,50 +5141,25 @@
 
     private int GetPendingCount()
     {
-        return _events.Count(e => e.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase));
+        return _events.Count(e => IsEventPending(e));
+    }
+
+    private int GetApplicationsCount()
+    {
+        return _events.Count(e => !string.IsNullOrEmpty(e.Description) && 
+                                  (e.Description.Contains("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
+                                   e.Description.Contains("Preferred Event Date", StringComparison.OrdinalIgnoreCase) ||
+                                   e.Description.Contains("Applicant", StringComparison.OrdinalIgnoreCase) ||
+                                   e.Source == "Rental Booking" ||
+                                   e.Source == "Sandbox Booking"));
     }
 
     private List<CalendarEventItem> GetFilteredEvents()
     {
-        var list = _events.AsEnumerable();
-
-        if (!string.IsNullOrEmpty(_filterFeedSource))
-        {
-            list = list.Where(e => e.Source == _filterFeedSource);
-        }
-
-        if (_filterCategory == "PENDING")
-        {
-            list = list.Where(e => e.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase));
-        }
-        else if (_filterCategory == "PAID")
-        {
-            list = list.Where(e => GetEventPaymentStatus(e) == "Paid");
-        }
-        else if (_filterCategory == "UNPAID")
-        {
-            list = list.Where(e => GetEventPaymentStatus(e) != "Paid");
-        }
-        else if (_filterCategory == "APPLICATIONS")
-        {
-            list = list.Where(e => !string.IsNullOrEmpty(e.Description) && 
-                                  (e.Description.Contains("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
-                                   e.Description.Contains("Preferred Event Date", StringComparison.OrdinalIgnoreCase) ||
-                                   e.Description.Contains("Applicant", StringComparison.OrdinalIgnoreCase)));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_searchTerm))
-        {
-            var q = _searchTerm.ToLowerInvariant();
-            list = list.Where(e => e.Title.ToLower().Contains(q) ||
-                                  (e.Description ?? "").ToLower().Contains(q) ||
-                                  (e.Location ?? "").ToLower().Contains(q) ||
-                                  e.Start.ToString("yyyy-MM-dd").Contains(q));
-        }
-
-        return list.OrderByDescending(e => e.Start.Year > 2000)
-                   .ThenByDescending(e => e.Start)
-                   .ToList();
+        return _events.Where(IsEventMatchingFilter)
+                      .OrderByDescending(e => e.Start.Year > 2000)
+                      .ThenByDescending(e => e.Start)
+                      .ToList();
     }
 
     private ParsedApplicationData ParseApplicationDetails(CalendarEventItem evt)
@@ -4285,10 +5295,17 @@
                     data.ApplicantSignature = val;
                     break;
                 case "timestamp":
+                case "submission timestamp":
+                case "submitted at":
                     data.Timestamp = val;
-                    if (DateTime.TryParse(val, out var parsedTs))
+                    if (DateTimeOffset.TryParse(val, out var parsedDto))
                     {
-                        data.FormattedTimestamp = parsedTs.ToString("MMMM dd, yyyy 'at' h:mm tt");
+                        data.FormattedTimestamp = parsedDto.ToLocalTime().ToString("MMMM dd, yyyy 'at' h:mm tt");
+                    }
+                    else if (DateTime.TryParse(val, out var parsedTs))
+                    {
+                        var localTs = parsedTs.Kind == DateTimeKind.Utc ? parsedTs.ToLocalTime() : (parsedTs.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(parsedTs, DateTimeKind.Utc).ToLocalTime() : parsedTs);
+                        data.FormattedTimestamp = localTs.ToString("MMMM dd, yyyy 'at' h:mm tt");
                     }
                     else
                     {

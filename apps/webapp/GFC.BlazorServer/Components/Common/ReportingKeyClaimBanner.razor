@@ -1,0 +1,281 @@
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject GfcDbContext DbContext
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<ReportingKeyClaimBanner> Logger
+
+@if (_pendingKeys.Count > 0)
+{
+    var currentKey = _pendingKeys.First();
+
+    <!-- DASHBOARD EMBEDDED WIDGET / NOTIFICATION BANNER -->
+    <div class="card border shadow-sm mb-4" style="background: #ffffff; border-left: 6px solid #0d6efd !important; border-radius: 12px; overflow: hidden;">
+        <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="p-3 rounded-circle shadow-sm pulse-badge" style="background: #eff6ff; border: 2px solid #0d6efd;">
+                    <i class="bi bi-bar-chart-steps fs-2 text-primary"></i>
+                </div>
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="badge bg-warning text-dark fw-bold px-2 py-1">
+                            <i class="bi bi-shield-lock-fill me-1"></i> TABLEAU & REPORTING ACCESS
+                        </span>
+                        <span class="badge bg-primary-subtle text-primary fw-semibold">Action Required</span>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-1" style="color: #0f172a !important;">New Reporting API Key Assigned</h5>
+                    <div class="text-secondary" style="font-size: 0.95rem; color: #475569 !important;">
+                        Purpose: <strong class="text-dark" style="color: #0f172a !important;">@currentKey.Label</strong> — Click to reveal, copy credentials, and connect Tableau.
+                    </div>
+                </div>
+            </div>
+            <div>
+                <button type="button" class="btn btn-primary btn-lg fw-bold px-4 shadow-sm pulse-btn d-flex align-items-center gap-2" @onclick="() => _showModal = true">
+                    <i class="bi bi-key-fill fs-5 text-warning"></i>
+                    <span>View & Copy Key</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN MODAL POPUP -->
+    @if (_showModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.7); z-index: 2050; backdrop-filter: blur(2px);">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow-lg" style="border-radius: 12px; overflow: hidden;">
+                    <div class="modal-header bg-primary text-white py-3">
+                        <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                            <span class="spinner-grow spinner-grow-sm text-warning" role="status"></span>
+                            <i class="bi bi-shield-lock-fill"></i> Tableau & Reporting Access Granted
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="DismissTemporarily"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center mb-4" style="background: #e7f1ff; border-left: 5px solid #0d6efd !important;">
+                            <i class="bi bi-info-circle-fill fs-2 text-primary me-3 flex-shrink-0"></i>
+                            <div>
+                                <strong class="fs-6">An administrator has assigned you external reporting access for Tableau.</strong>
+                                <div class="small text-muted mt-1">Your secret API key has been delivered securely to your workstation. Copy it into Tableau now, as it will <strong>only be revealed once</strong>.</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-muted small text-uppercase">Key Label / Purpose</label>
+                            <div class="fs-5 fw-semibold text-dark">@currentKey.Label</div>
+                        </div>
+
+                        @if (!_isRevealed)
+                        {
+                            <div class="text-center py-5 border rounded-3 bg-light mb-3 shadow-sm">
+                                <div class="mb-3">
+                                    <span class="p-3 bg-white rounded-circle shadow-sm d-inline-block">
+                                        <i class="bi bi-eye-slash-fill fs-1 text-primary"></i>
+                                    </span>
+                                </div>
+                                <h6 class="fw-bold text-dark">API Key is Hidden for Security</h6>
+                                <p class="text-muted small mb-4 px-4">Click below when you are ready to reveal and copy your credentials into Tableau.</p>
+                                <button class="btn btn-primary btn-lg px-4 shadow pulse-btn fw-bold" @onclick="() => _isRevealed = true">
+                                    <i class="bi bi-eye-fill me-2"></i> Reveal My API Key
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="card border-primary mb-4 shadow-sm" style="border-width: 2px;">
+                                <div class="card-header bg-primary-subtle text-primary-emphasis fw-bold d-flex justify-content-between align-items-center py-2">
+                                    <span><i class="bi bi-key-fill me-1"></i> Secret API Key</span>
+                                    <button type="button" class="btn btn-sm btn-primary fw-bold" @onclick="() => CopyToClipboard(currentKey.PendingClaimRawKey)">
+                                        <i class="bi @(_copiedKeyOnly ? "bi-check2 text-white" : "bi-clipboard") me-1"></i> @(_copiedKeyOnly ? "Copied to Clipboard!" : "Copy Key")
+                                    </button>
+                                </div>
+                                <div class="card-body bg-white p-3">
+                                    <input type="text" class="form-control font-monospace fw-bold fs-5 text-primary bg-light" readonly value="@currentKey.PendingClaimRawKey" />
+                                    <div class="small text-muted mt-2">
+                                        <i class="bi bi-shield-check text-success me-1"></i> Use this value for HTTP Header: <code>X-Reporting-Key</code> or Bearer Token in Tableau.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card border mb-3 shadow-sm">
+                                <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center py-2">
+                                    <span><i class="bi bi-diagram-3-fill text-primary me-1"></i> Permitted Datasets & Tableau Instructions</span>
+                                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold" @onclick="() => CopyFullBundle(currentKey)">
+                                        <i class="bi @(_copiedFullBundle ? "bi-check2 text-success" : "bi-clipboard-check") me-1"></i> @(_copiedFullBundle ? "Copied Connection Details!" : "Copy Full Connection Bundle")
+                                    </button>
+                                </div>
+                                <div class="card-body p-2 bg-light font-monospace small" style="max-height: 140px; overflow-y: auto;">
+                                    @if (string.IsNullOrWhiteSpace(currentKey.AllowedDatasets) || currentKey.AllowedDatasets == "ALL")
+                                    {
+                                        <div class="text-success"><i class="bi bi-check-circle me-1"></i>All system datasets are accessible.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var ds in currentKey.AllowedDatasets.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                                        {
+                                            <div class="text-truncate py-1"><i class="bi bi-link-45deg me-1 text-primary"></i><code>@Nav.BaseUri.TrimEnd('/')/api/reporting/@ds.Trim()</code></div>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer bg-light py-3">
+                        @if (!_isRevealed)
+                        {
+                            <button type="button" class="btn btn-outline-secondary" @onclick="DismissTemporarily">Remind Me Later</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-success btn-lg px-4 shadow-sm fw-bold" @onclick="() => AcknowledgeAndClaimKey(currentKey)">
+                                <i class="bi bi-check-circle-fill me-2"></i> I Have Copied & Saved My Key
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+<style>
+    @@keyframes pulseGlow {
+        0% {
+            box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+            transform: scale(1);
+        }
+        50% {
+            box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
+            transform: scale(1.02);
+        }
+        100% {
+            box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+            transform: scale(1);
+        }
+    }
+
+    .pulse-badge {
+        animation: pulseGlow 2s infinite;
+    }
+
+    .pulse-btn {
+        animation: pulseGlow 2.5s infinite;
+    }
+</style>
+
+@code {
+    private List<ReportingApiKey> _pendingKeys = new();
+    private bool _showModal = false;
+    private bool _isRevealed;
+    private bool _copiedKeyOnly;
+    private bool _copiedFullBundle;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckPendingKeysAsync();
+    }
+
+    private async Task CheckPendingKeysAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name;
+            if (string.IsNullOrWhiteSpace(username))
+                return;
+
+            var user = await DbContext.AppUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+            if (user == null)
+                return;
+
+            _pendingKeys = await DbContext.ReportingApiKeys
+                .Where(k => k.AssignedUserId == user.UserId && k.PendingClaimRawKey != null && k.IsActive)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Failed to check pending reporting keys: {Message}", ex.Message);
+        }
+    }
+
+    private void DismissTemporarily()
+    {
+        _showModal = false;
+    }
+
+    private async Task CopyToClipboard(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copiedKeyOnly = true;
+            StateHasChanged();
+            await Task.Delay(2500);
+            _copiedKeyOnly = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Clipboard copy failed: {Message}", ex.Message);
+        }
+    }
+
+    private async Task CopyFullBundle(ReportingApiKey key)
+    {
+        try
+        {
+            var baseUri = Nav.BaseUri.TrimEnd('/');
+            var endpoints = (string.IsNullOrWhiteSpace(key.AllowedDatasets) || key.AllowedDatasets == "ALL")
+                ? $"{baseUri}/api/reporting/metadata"
+                : string.Join("\n", key.AllowedDatasets.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(d => $"- {baseUri}/api/reporting/{d.Trim()}"));
+
+            var bundle = $"=== TABLEAU / REPORTING CONNECTION INSTRUCTIONS ===\n" +
+                         $"Purpose / Label: {key.Label}\n" +
+                         $"Secret API Key: {key.PendingClaimRawKey}\n\n" +
+                         $"HTTP Header: X-Reporting-Key\n" +
+                         $"Header Value: {key.PendingClaimRawKey}\n\n" +
+                         $"Permitted Datasets:\n{endpoints}\n";
+
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", bundle);
+            _copiedFullBundle = true;
+            StateHasChanged();
+            await Task.Delay(2500);
+            _copiedFullBundle = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Clipboard bundle copy failed: {Message}", ex.Message);
+        }
+    }
+
+    private async Task AcknowledgeAndClaimKey(ReportingApiKey key)
+    {
+        try
+        {
+            var dbRecord = await DbContext.ReportingApiKeys.FindAsync(key.Id);
+            if (dbRecord != null)
+            {
+                // Erase raw secret key permanently from DB, keep only SHA-256 hash
+                dbRecord.PendingClaimRawKey = null;
+                dbRecord.ClaimedAtUtc = DateTime.UtcNow;
+                await DbContext.SaveChangesAsync();
+            }
+
+            _pendingKeys.Remove(key);
+            _isRevealed = false;
+
+            if (_pendingKeys.Count == 0)
+            {
+                _showModal = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Error claiming reporting key: {Message}", ex.Message);
+        }
+    }
+}

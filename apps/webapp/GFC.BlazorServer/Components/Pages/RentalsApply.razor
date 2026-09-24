@@ -196,27 +196,31 @@
                                     <label class="form-label fw-semibold small">Alternate Date <span class="text-muted">(Optional)</span></label>
                                     <input type="date" class="form-control" value="@(_request.AlternateEventDate?.ToString("yyyy-MM-dd") ?? "")" min="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" @onchange="OnAlternateDateChanged" />
                                 </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">Start Time</label>
-                                    <select class="form-select" value="@_request.StartTime" @onchange="OnStartTimeChanged">
-                                        @foreach (var t in _timeOptions.Take(_timeOptions.Count - 2))
-                                        {
-                                            <option value="@t">@t</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">End Time</label>
-                                    <select class="form-select" @bind="_request.EndTime" @bind:after="RecalculatePricing">
-                                        @foreach (var t in GetAvailableEndTimes())
-                                        {
-                                            <option value="@t">@t</option>
-                                        }
-                                    </select>
-                                </div>
-
                                 @{
                                     var dayConfig = GetCurrentDayConfig();
+                                    var hasConfiguredSlots = dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0;
+                                }
+
+                                @if (!hasConfiguredSlots)
+                                {
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold small">Start Time</label>
+                                        <select class="form-select" value="@_request.StartTime" @onchange="OnStartTimeChanged">
+                                            @foreach (var t in _timeOptions.Take(_timeOptions.Count - 2))
+                                            {
+                                                <option value="@t">@t</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold small">End Time</label>
+                                        <select class="form-select" @bind="_request.EndTime" @bind:after="RecalculatePricing">
+                                            @foreach (var t in GetAvailableEndTimes())
+                                            {
+                                                <option value="@t">@t</option>
+                                            }
+                                        </select>
+                                    </div>
                                 }
 
                                 @if (dayConfig != null && !dayConfig.IsAvailable)
@@ -231,28 +235,51 @@
                                     </div>
                                 }
 
-                                @if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+                                @if (hasConfiguredSlots)
                                 {
-                                    <div class="col-12">
-                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
-                                            <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-clock-history me-1 text-primary"></i>Standard Time Periods for @(_request.EventDate.ToString("dddd")):</label>
-                                            <small class="text-muted" style="font-size: 0.75rem;">👉 Click a time block or choose custom start/end times above</small>
+                                    var allSlotsBooked = dayConfig!.Slots.All(s => IsSlotBooked(s));
+
+                                    if (allSlotsBooked)
+                                    {
+                                        <div class="col-12">
+                                            <div class="alert alert-danger d-flex align-items-center gap-2 mb-0 shadow-sm border-danger">
+                                                <i class="bi bi-calendar-x-fill text-danger fs-5"></i>
+                                                <div>
+                                                    <strong>Fully Booked:</strong> All standard time periods for @(_request.EventDate.ToString("dddd, MMMM d, yyyy")) are already reserved. Please select another date.
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="d-flex flex-wrap gap-2">
-                                            @foreach (var slot in dayConfig.Slots)
-                                            {
-                                                var isSlotSelected = _request.StartTime == slot.StartTime && _request.EndTime == slot.EndTime;
-                                                <button type="button" 
-                                                        class="btn btn-sm d-inline-flex align-items-center gap-2 px-3 py-2 rounded-3 @(isSlotSelected ? "btn-primary text-white fw-bold shadow-sm" : "btn-light border text-dark")" 
-                                                        style="cursor: pointer; transition: all 0.2s ease;"
-                                                        @onclick="() => SelectTimeSlot(slot)">
-                                                    <i class="bi @(isSlotSelected ? "bi-check-circle-fill text-white" : "bi-clock text-muted")"></i>
-                                                    <span>@slot.Label</span>
-                                                    <span class="badge @(isSlotSelected ? "bg-white text-primary fw-bold" : "bg-light text-secondary border") ms-1">@slot.StartTime - @slot.EndTime</span>
-                                                </button>
-                                            }
+                                    }
+                                    else
+                                    {
+                                        <div class="col-12">
+                                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-2">
+                                                <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-clock-history me-1 text-primary"></i>Available Time Periods for @(_request.EventDate.ToString("dddd")):</label>
+                                                <small class="text-muted" style="font-size: 0.75rem;">👉 Select an available time block for your event</small>
+                                            </div>
+                                            <div class="d-flex flex-row flex-wrap align-items-center gap-2">
+                                                @foreach (var slot in dayConfig!.Slots)
+                                                {
+                                                    var isBooked = IsSlotBooked(slot);
+                                                    var isSlotSelected = _request.StartTime == slot.StartTime && _request.EndTime == slot.EndTime;
+                                                    
+                                                    <button type="button" 
+                                                            disabled="@isBooked"
+                                                            class="btn btn-sm d-inline-flex align-items-center gap-2 px-3 py-2 rounded-3 text-nowrap @(isBooked ? "btn-light border text-muted opacity-50 pe-none" : isSlotSelected ? "btn-primary text-white fw-bold shadow-sm" : "btn-light border text-dark")" 
+                                                            style="@(isBooked ? "cursor: not-allowed;" : "cursor: pointer; transition: all 0.2s ease;")"
+                                                            @onclick="() => SelectTimeSlot(slot)">
+                                                        <i class="bi @(isBooked ? "bi-slash-circle text-danger" : isSlotSelected ? "bi-check-circle-fill text-white" : "bi-clock text-muted")"></i>
+                                                        <span class="@(isBooked ? "text-decoration-line-through text-muted" : "")">@slot.Label</span>
+                                                        <span class="badge @(isSlotSelected && !isBooked ? "bg-white text-primary fw-bold" : "bg-light text-secondary border") ms-1">@slot.StartTime - @slot.EndTime</span>
+                                                        @if (isBooked)
+                                                        {
+                                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1">Unavailable</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            </div>
                                         </div>
-                                    </div>
+                                    }
                                 }
 
                                 <!-- Explicit Selected Date & Time Status Bar -->
@@ -275,10 +302,19 @@
                                                 <div class="border-start ps-3 d-none d-md-block" style="height: 28px;"></div>
                                                 <div>
                                                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">Selected Time Period</small>
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <span class="fw-bold text-dark"><i class="bi bi-clock-fill text-primary me-1"></i>@_request.StartTime to @_request.EndTime</span>
-                                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10 rounded-pill" style="font-size: 0.72rem;">@(_calculatedDurationHours) hrs</span>
-                                                    </div>
+                                                    @if (IsCurrentSelectionBooked())
+                                                    {
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-danger"><i class="bi bi-x-circle-fill text-danger me-1"></i>No Time Slot Selected (Unavailable)</span>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-dark"><i class="bi bi-clock-fill text-primary me-1"></i>@_request.StartTime to @_request.EndTime</span>
+                                                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10 rounded-pill" style="font-size: 0.72rem;">@(_calculatedDurationHours) hrs</span>
+                                                        </div>
+                                                    }
                                                 </div>
                                                 @if (!string.IsNullOrEmpty(_request.RoomSelected))
                                                 {
@@ -290,9 +326,18 @@
                                                 }
                                             </div>
                                             <div>
-                                                <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 rounded-pill small">
-                                                    <i class="bi bi-check2-circle me-1"></i>Ready for Application
-                                                </span>
+                                                @if (IsCurrentSelectionBooked() || (dayConfig != null && !dayConfig.IsAvailable))
+                                                {
+                                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1 rounded-pill small">
+                                                        <i class="bi bi-exclamation-octagon-fill me-1"></i>Date / Time Unavailable
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 rounded-pill small">
+                                                        <i class="bi bi-check2-circle me-1"></i>Ready for Application
+                                                    </span>
+                                                }
                                             </div>
                                         </div>
                                     </div>
@@ -676,6 +721,8 @@
         "Other Celebration / Event"
     };
 
+    private List<UnavailableDateDto> _unavailableDates = new();
+
     private bool _isEmbedded = false;
     private bool _isSubmitting = false;
     private bool _isSubmitted = false;
@@ -697,6 +744,15 @@
             _availableAddons = _settings.GetAddonsList();
             _policies = _settings.GetPoliciesList();
 
+            try
+            {
+                _unavailableDates = await RentalService.GetUnavailableDatesAsync();
+            }
+            catch (Exception)
+            {
+                _unavailableDates = new List<UnavailableDateDto>();
+            }
+
             var displayed = GetDisplayedRooms();
             if (displayed.Count > 0 && string.IsNullOrEmpty(_request.RoomSelected))
             {
@@ -704,18 +760,122 @@
                 _request.RoomSelected = defaultRoom.Name;
             }
 
-            var dayConfig = GetCurrentDayConfig();
-            if (dayConfig != null && dayConfig.Slots.Count > 0)
-            {
-                _request.StartTime = dayConfig.Slots[0].StartTime;
-                _request.EndTime = dayConfig.Slots[0].EndTime;
-            }
-
+            ApplyDefaultSlotForDate();
             RecalculatePricing();
         }
         catch (Exception ex)
         {
             _errorMessage = "Could not load club settings: " + ex.Message;
+        }
+    }
+
+    private bool IsSlotBooked(DayScheduleSlotConfig slot)
+    {
+        var targetDate = _request.EventDate.Date;
+        var dayEvents = _unavailableDates.Where(d => d.Date.Date == targetDate).ToList();
+        if (!dayEvents.Any()) return false;
+
+        var slotStart = ParseTimeToMinutes(slot.StartTime);
+        var slotEnd = ParseTimeToMinutes(slot.EndTime);
+        if (slotStart < 0 || slotEnd < 0) return false;
+
+        foreach (var ev in dayEvents)
+        {
+            if (string.IsNullOrWhiteSpace(ev.EventTime))
+            {
+                // Full day booking or blackout date
+                return true;
+            }
+
+            var parts = ev.EventTime.Split('-', StringSplitOptions.TrimEntries);
+            if (parts.Length == 2)
+            {
+                var evStart = ParseTimeToMinutes(parts[0]);
+                var evEnd = ParseTimeToMinutes(parts[1]);
+
+                if (evStart >= 0 && evEnd >= 0)
+                {
+                    // Check interval overlap: [slotStart, slotEnd) overlaps [evStart, evEnd)
+                    if (slotStart < evEnd && slotEnd > evStart)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    // Could not parse times, treat as conflicting
+                    return true;
+                }
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsCurrentSelectionBooked()
+    {
+        var dayConfig = GetCurrentDayConfig();
+        if (dayConfig != null && !dayConfig.IsAvailable) return true;
+
+        if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+        {
+            var matchingSlot = dayConfig.Slots.FirstOrDefault(s => s.StartTime == _request.StartTime && s.EndTime == _request.EndTime);
+            if (matchingSlot == null)
+            {
+                // Custom or nonexistent slot selected when slots are required
+                return true;
+            }
+            return IsSlotBooked(matchingSlot);
+        }
+
+        // For custom times, check interval directly
+        var targetDate = _request.EventDate.Date;
+        var dayEvents = _unavailableDates.Where(d => d.Date.Date == targetDate).ToList();
+        if (!dayEvents.Any()) return false;
+
+        var startMin = ParseTimeToMinutes(_request.StartTime);
+        var endMin = ParseTimeToMinutes(_request.EndTime);
+        if (startMin < 0 || endMin < 0) return false;
+
+        foreach (var ev in dayEvents)
+        {
+            if (string.IsNullOrWhiteSpace(ev.EventTime)) return true;
+            var parts = ev.EventTime.Split('-', StringSplitOptions.TrimEntries);
+            if (parts.Length == 2)
+            {
+                var evStart = ParseTimeToMinutes(parts[0]);
+                var evEnd = ParseTimeToMinutes(parts[1]);
+                if (evStart >= 0 && evEnd >= 0 && startMin < evEnd && endMin > evStart)
+                {
+                    return true;
+                }
+            }
+            else return true;
+        }
+
+        return false;
+    }
+
+    private void ApplyDefaultSlotForDate()
+    {
+        var dayConfig = GetCurrentDayConfig();
+        if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+        {
+            var firstAvailableSlot = dayConfig.Slots.FirstOrDefault(s => !IsSlotBooked(s));
+            if (firstAvailableSlot != null)
+            {
+                _request.StartTime = firstAvailableSlot.StartTime;
+                _request.EndTime = firstAvailableSlot.EndTime;
+            }
+            else
+            {
+                _request.StartTime = string.Empty;
+                _request.EndTime = string.Empty;
+            }
         }
     }
 
@@ -741,6 +901,7 @@
 
     private void SelectTimeSlot(DayScheduleSlotConfig slot)
     {
+        if (IsSlotBooked(slot)) return;
         _request.StartTime = slot.StartTime;
         _request.EndTime = slot.EndTime;
         RecalculatePricing();
@@ -759,11 +920,18 @@
         RecalculatePricing();
     }
 
-    private void OnDateChanged(ChangeEventArgs e)
+    private async Task OnDateChanged(ChangeEventArgs e)
     {
         if (DateTime.TryParse(e.Value?.ToString(), out var dt))
         {
             _request.EventDate = dt;
+
+            try
+            {
+                _unavailableDates = await RentalService.GetUnavailableDatesAsync();
+            }
+            catch { }
+
             var displayed = GetDisplayedRooms();
             if (displayed.Count > 0 && !displayed.Any(r => r.Name.Equals(_request.RoomSelected, StringComparison.OrdinalIgnoreCase)))
             {
@@ -771,13 +939,7 @@
                 _request.RoomSelected = defaultRoom.Name;
             }
 
-            var dayConfig = GetCurrentDayConfig();
-            if (dayConfig != null && dayConfig.Slots.Count > 0)
-            {
-                _request.StartTime = dayConfig.Slots[0].StartTime;
-                _request.EndTime = dayConfig.Slots[0].EndTime;
-            }
-
+            ApplyDefaultSlotForDate();
             RecalculatePricing();
         }
     }
@@ -1039,6 +1201,7 @@
 
     private bool CanSubmit()
     {
+        if (IsCurrentSelectionBooked()) return false;
         if (!_request.RulesAgreed) return false;
 
         var requiredVisiblePolicies = GetVisiblePolicies().Where(p => p.IsRequired);

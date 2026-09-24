@@ -138,6 +138,10 @@ public class GfcDbContext : DbContext
     public DbSet<LiquorLocationStock> LiquorLocationStocks => Set<LiquorLocationStock>();
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
     public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
+
+    // Reporting API / Tableau Integrations
+    public DbSet<ReportingApiKey> ReportingApiKeys => Set<ReportingApiKey>();
+    public DbSet<ReportingApiLog> ReportingApiLogs => Set<ReportingApiLog>();
     public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
     public DbSet<LotteryVendingCollection> LotteryVendingCollections => Set<LotteryVendingCollection>();
     public DbSet<ClubEvent> ClubEvents => Set<ClubEvent>();

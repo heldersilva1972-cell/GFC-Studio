@@ -1,0 +1,774 @@
+@page "/admin/reporting-api"
+@attribute [Authorize]
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Auth
+@using Microsoft.EntityFrameworkCore
+@inject GfcDbContext DbContext
+@inject IEmailService EmailService
+@inject ILogger<ReportingApiManager> Logger
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Reporting & Tableau API - GFC Administration</PageTitle>
+
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 fw-bold mb-1"><i class="bi bi-bar-chart-steps text-primary me-2"></i>Reporting & Tableau API</h1>
+        <p class="text-muted mb-0">Manage granular dataset permissions, revocable API keys, and monitor Tableau query audit logs.</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" @onclick="OpenCreateKeyModal">
+            <i class="bi bi-plus-circle me-1"></i> Generate API Key
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_successMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill fs-5 me-2"></i>
+        <div>@_successMessage</div>
+        <button type="button" class="btn-close" @onclick="@(() => _successMessage = null)"></button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill fs-5 me-2"></i>
+        <div>@_errorMessage</div>
+        <button type="button" class="btn-close" @onclick="@(() => _errorMessage = null)"></button>
+    </div>
+}
+
+<!-- TABS -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "keys" ? "active fw-bold" : "")" @onclick="@(() => _activeTab = "keys")">
+            <i class="bi bi-key-fill me-1"></i> API Keys & Permissions (@_keys.Count)
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "logs" ? "active fw-bold" : "")" @onclick="@(() => _activeTab = "logs")">
+            <i class="bi bi-activity me-1"></i> Tableau Query Audit Logs
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "endpoints" ? "active fw-bold" : "")" @onclick="@(() => _activeTab = "endpoints")">
+            <i class="bi bi-journal-code me-1"></i> Tableau Connection Guide & Datasets
+        </button>
+    </li>
+</ul>
+
+@if (_activeTab == "keys")
+{
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Label / Purpose</th>
+                            <th>Prefix</th>
+                            <th>Allowed Datasets</th>
+                            <th>Bound Workstation / IP</th>
+                            <th>Created By</th>
+                            <th>Last Used</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_isLoading)
+                        {
+                            <tr><td colspan="8" class="text-center py-4 text-muted">Loading API keys...</td></tr>
+                        }
+                        else if (_keys.Count == 0)
+                        {
+                            <tr><td colspan="8" class="text-center py-4 text-muted">No reporting API keys have been generated yet.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var key in _keys)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@key.Label</div>
+                                        <small class="text-muted">Created @key.CreatedAtUtc.ToLocalTime().ToString("MMM dd, yyyy")</small>
+                                    </td>
+                                    <td><code>@key.KeyPrefix...</code></td>
+                                    <td>
+                                        @if (string.IsNullOrWhiteSpace(key.AllowedDatasets) || key.AllowedDatasets == "ALL")
+                                        {
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">All Datasets (10)</span>
+                                        }
+                                        else
+                                        {
+                                            var count = key.AllowedDatasets.Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" title="@key.AllowedDatasets">
+                                                @count Selected Datasets
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(key.BoundDeviceName))
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary border">
+                                                <i class="bi bi-display me-1"></i>@key.BoundDeviceName
+                                            </span>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(key.AllowedIpAddress))
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary">
+                                                <i class="bi bi-ethernet me-1"></i>@key.AllowedIpAddress
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Any authorized IP</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (key.AssignedUser != null)
+                                        {
+                                            <div class="fw-semibold"><i class="bi bi-person-fill text-primary me-1"></i>@key.AssignedUser.Username</div>
+                                            @if (key.ClaimedAtUtc.HasValue)
+                                            {
+                                                <small class="text-success"><i class="bi bi-check-circle me-1"></i>Claimed on Workstation</small>
+                                            }
+                                            else
+                                            {
+                                                <small class="text-warning"><i class="bi bi-hourglass-split me-1"></i>Pending First Login</small>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">@(key.CreatedByUser?.Username ?? "Admin")</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (key.LastUsedAtUtc.HasValue)
+                                        {
+                                            <span title="@key.LastUsedAtUtc.Value.ToLocalTime()">@GetTimeAgo(key.LastUsedAtUtc.Value)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Never</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (key.IsActive)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Revoked</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (key.IsActive)
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeKey(key.Id)">
+                                                <i class="bi bi-slash-circle me-1"></i> Revoke
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteKey(key.Id)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+else if (_activeTab == "logs")
+{
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-semibold">Live Audit & Performance Log</h5>
+            <button class="btn btn-sm btn-outline-primary" @onclick="LoadAuditLogs">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 font-monospace small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Workstation / Device</th>
+                            <th>IP Address</th>
+                            <th>Endpoint</th>
+                            <th>Client / App</th>
+                            <th>Rows</th>
+                            <th>Latency</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_logs.Count == 0)
+                        {
+                            <tr><td colspan="8" class="text-center py-4 text-muted">No API queries recorded yet.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var log in _logs)
+                            {
+                                <tr>
+                                    <td>@log.RequestTimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(log.ResolvedDeviceName))
+                                        {
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                                <i class="bi bi-laptop me-1"></i>@log.ResolvedDeviceName
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Direct / Cloud</span>
+                                        }
+                                    </td>
+                                    <td>@log.IpAddress</td>
+                                    <td><strong>@log.Endpoint</strong></td>
+                                    <td>@(log.UserAgent?.Length > 30 ? log.UserAgent.Substring(0, 30) + "..." : log.UserAgent)</td>
+                                    <td>@log.RecordCount</td>
+                                    <td>@($"{log.DurationMs}ms")</td>
+                                    <td>
+                                        @if (log.ResponseStatusCode == 200)
+                                        {
+                                            <span class="badge bg-success-subtle text-success">200 OK</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger" title="@log.ErrorMessage">@log.ResponseStatusCode</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+else if (_activeTab == "endpoints")
+{
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white fw-bold">Tableau Connection Instructions</div>
+                <div class="card-body">
+                    <h6>1. Base API URL:</h6>
+                    <pre class="bg-light p-2 rounded border"><code>@Nav.BaseUri.TrimEnd('/')/api/reporting/[dataset-name]</code></pre>
+
+                    <h6 class="mt-3">2. Authentication Header:</h6>
+                    <p class="small text-muted mb-1">Pass the key in the HTTP header:</p>
+                    <pre class="bg-light p-2 rounded border"><code>X-Reporting-Key: gfc_rep_YOUR_SECRET_KEY</code></pre>
+                    <p class="small text-muted mb-0">Or via Bearer Token:</p>
+                    <pre class="bg-light p-2 rounded border"><code>Authorization: Bearer gfc_rep_YOUR_SECRET_KEY</code></pre>
+
+                    <h6 class="mt-3">3. Metadata / Discovery Endpoint:</h6>
+                    <pre class="bg-light p-2 rounded border"><code>@Nav.BaseUri.TrimEnd('/')/api/reporting/metadata</code></pre>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white fw-bold">All Available Datasets (@_allDatasets.Count)</div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush small">
+                        @foreach (var d in _allDatasets)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold">/api/reporting/@d.Key</div>
+                                    <div class="text-muted">@d.Description</div>
+                                </div>
+                                <span class="badge bg-secondary">GET</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- CREATE KEY & EMAIL MODAL -->
+@if (_showCreateModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">
+                        @if (string.IsNullOrWhiteSpace(_newGeneratedRawKey))
+                        {
+                            <span>Generate New Reporting API Key</span>
+                        }
+                        else
+                        {
+                            <span>API Key Created & Ready to Share</span>
+                        }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseCreateKeyModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (string.IsNullOrWhiteSpace(_newGeneratedRawKey))
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-7">
+                                <label class="form-label fw-semibold">Key Label / Purpose <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" placeholder="e.g., Tableau Desktop - Financial Analyst" @bind="_newKeyLabel" />
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label fw-semibold">Assign to User Account</label>
+                                <select class="form-select" @bind="_selectedAssignedUserId">
+                                    <option value="">-- No Direct User (Manual Copy) --</option>
+                                    @foreach (var u in _availableUsers)
+                                    {
+                                        <option value="@u.UserId">@u.Username @(!string.IsNullOrWhiteSpace(u.Email) ? $"({u.Email})" : "")</option>
+                                    }
+                                </select>
+                                <small class="text-muted">Popups automatically on their screen upon login.</small>
+                            </div>
+
+                            <div class="col-md-12">
+                                <label class="form-label fw-semibold d-flex justify-content-between align-items-center">
+                                    <span>Select Accessible Datasets</span>
+                                    <span class="small">
+                                        <a href="javascript:void(0)" class="text-decoration-none me-2" @onclick="SelectAllDatasets">Select All</a> | 
+                                        <a href="javascript:void(0)" class="text-decoration-none ms-2" @onclick="ClearDatasets">Clear All</a>
+                                    </span>
+                                </label>
+                                <div class="border rounded p-3 bg-light" style="max-height: 200px; overflow-y: auto;">
+                                    <div class="row g-2">
+                                        @foreach (var dataset in _allDatasets)
+                                        {
+                                            <div class="col-md-6">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="ds_@dataset.Key" 
+                                                           checked="@_selectedDatasets.Contains(dataset.Key)" 
+                                                           @onchange="(e) => ToggleDataset(dataset.Key, e.Value)" />
+                                                    <label class="form-check-label small" for="ds_@dataset.Key">
+                                                        <strong>@dataset.Name</strong>
+                                                        <div class="text-muted" style="font-size: 0.75rem;">/api/reporting/@dataset.Key</div>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Shared Workstation / Device</label>
+                                <select class="form-select" @onchange="OnWorkstationSelected">
+                                    <option value="">-- None / Custom Workstation --</option>
+                                    @foreach (var ws in _knownWorkstations)
+                                    {
+                                        <option value="@ws.Name" data-ip="@ws.IpAddress">
+                                            @ws.Name @(!string.IsNullOrWhiteSpace(ws.IpAddress) ? $"({ws.IpAddress})" : "") — Last Active: @ws.LastActive
+                                        </option>
+                                    }
+                                </select>
+                                @if (_isCustomWorkstation)
+                                {
+                                    <input type="text" class="form-control mt-2" placeholder="Enter workstation name..." @bind="_newKeyDeviceName" />
+                                }
+                                <small class="text-muted">Auto-populates IP address lock when selecting known devices.</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">IP Address Lock (Optional)</label>
+                                <input type="text" class="form-control" placeholder="e.g., 10.8.0.14 or leave blank for any" @bind="_newKeyIpLock" />
+                                <small class="text-muted">Requests will only be accepted from this specific IP.</small>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            <div class="fw-bold mb-1"><i class="bi bi-shield-lock-fill me-1"></i> Save Your API Key</div>
+                            <small>This secret key will <strong>never be shown again</strong>. You can copy the connection bundle below.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Generated API Key:</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" readonly value="@_newGeneratedRawKey" />
+                            </div>
+                        </div>
+
+                        <!-- In-App Assignment Notice or Direct Copy -->
+                        @if (!string.IsNullOrWhiteSpace(_selectedAssignedUserId))
+                        {
+                            var targetUser = _availableUsers.FirstOrDefault(u => u.UserId.ToString() == _selectedAssignedUserId);
+                            <div class="alert alert-success d-flex align-items-center mb-3">
+                                <i class="bi bi-person-check-fill fs-3 text-success me-3"></i>
+                                <div>
+                                    <div class="fw-bold">Assigned to @(targetUser?.Username ?? "User")</div>
+                                    <div class="small">This key will pop up securely on their workstation screen when they log into the system.</div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- ONE-CLICK COPY INSTRUCTIONS -->
+                        <div class="card border mb-3">
+                            <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-journal-code text-primary me-1"></i> Tableau Connection Bundle</span>
+                                <button type="button" class="btn btn-sm btn-primary" @onclick="CopyConnectionBundle">
+                                    <i class="bi @(_copiedBundle ? "bi-check2" : "bi-clipboard") me-1"></i> @(_copiedBundle ? "Copied!" : "Copy All Details")
+                                </button>
+                            </div>
+                            <div class="card-body p-2">
+                                <textarea class="form-control font-monospace small border-0 bg-light" rows="7" readonly>@_connectionBundleText</textarea>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (string.IsNullOrWhiteSpace(_newGeneratedRawKey))
+                    {
+                        <button type="button" class="btn btn-secondary" @onclick="CloseCreateKeyModal">Cancel</button>
+                        <button type="button" class="btn btn-primary" @onclick="GenerateKey" disabled="@(string.IsNullOrWhiteSpace(_newKeyLabel) || _selectedDatasets.Count == 0)">
+                            Generate Key
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-success" @onclick="CloseCreateKeyModal">Done</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _activeTab = "keys";
+    private bool _isLoading = true;
+    private List<ReportingApiKey> _keys = new();
+    private List<ReportingApiLog> _logs = new();
+    private string? _successMessage;
+    private string? _errorMessage;
+
+    // Modal state
+    private bool _showCreateModal;
+    private string _newKeyLabel = "";
+    private string _newKeyDeviceName = "";
+    private string _newKeyIpLock = "";
+    private string _selectedAssignedUserId = "";
+    private List<AppUser> _availableUsers = new();
+    private HashSet<string> _selectedDatasets = new();
+    private string? _newGeneratedRawKey;
+    private string? _connectionBundleText;
+
+    // Email delivery state
+    private string _recipientEmail = "";
+    private bool _isSendingEmail;
+    private string? _emailStatusMessage;
+    private bool _emailSuccess;
+
+    private record DatasetItem(string Key, string Name, string Description);
+
+    private readonly List<DatasetItem> _allDatasets = new()
+    {
+        new("pos-sales", "POS Sales & Receipts", "Point of Sale transactions, taxes, payment breakdown"),
+        new("lottery-summary", "Lottery & Pull-Tabs", "Pull-tabs & Lottery machine shift collections & statistics"),
+        new("bar-sales", "Bar Sales (Daily/Shift)", "Daily and shift-level bar sales totals"),
+        new("member-stats", "Member Demographics", "Active memberships, demographics, and statuses"),
+        new("hall-rentals", "Hall Rentals", "Hall rental bookings, guest counts, and revenue"),
+        new("bingo-sessions", "Bingo Sessions", "Bingo game sessions, admissions, gross receipts, and prize payouts"),
+        new("dues-payments", "Dues Payments", "Member annual dues payment history and tender types"),
+        new("finance-bills", "Bills & Invoices", "Club bills, invoices, due dates, and payment balances"),
+        new("liquor-inventory", "Liquor Inventory", "Liquor item catalog, bottle sizes, and vendor pricing"),
+        new("door-swipes", "Door Access & Key Swipes", "Key card swipe events, entry access history, and door logs")
+    };
+
+    private record WorkstationItem(string Name, string? IpAddress, string LastActive);
+    private List<WorkstationItem> _knownWorkstations = new();
+    private bool _isCustomWorkstation = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SelectAllDatasets();
+        await LoadKeysAsync();
+        await LoadAuditLogs();
+        await LoadUsersAsync();
+        await LoadWorkstationsAsync();
+    }
+
+    private async Task LoadWorkstationsAsync()
+    {
+        try
+        {
+            var list = new List<WorkstationItem>();
+
+            // Query all active stations exactly as shown on the User Management screen
+            var activeStations = await DbContext.TrustedDevices
+                .AsNoTracking()
+                .Where(d => d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .OrderByDescending(d => d.LastUsedUtc)
+                .ToListAsync();
+
+            foreach (var s in activeStations)
+            {
+                var name = !string.IsNullOrWhiteSpace(s.StationName) ? s.StationName : $"Shared Station #{s.Id}";
+                var ip = !string.IsNullOrWhiteSpace(s.IpAddress) && s.IpAddress != "detected-at-auth" && s.IpAddress != "0.0.0.0" ? s.IpAddress : null;
+                var lastActive = GetTimeAgo(s.LastUsedUtc);
+                
+                if (!list.Any(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    list.Add(new WorkstationItem(name, ip, lastActive));
+                }
+            }
+
+            _knownWorkstations = list.OrderBy(w => w.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Failed to load workstations: {Message}", ex.Message);
+        }
+    }
+
+    private void OnWorkstationSelected(ChangeEventArgs e)
+    {
+        var selectedName = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedName))
+        {
+            _isCustomWorkstation = true;
+            _newKeyDeviceName = "";
+            _newKeyIpLock = "";
+        }
+        else
+        {
+            _isCustomWorkstation = false;
+            _newKeyDeviceName = selectedName;
+            var matchedWs = _knownWorkstations.FirstOrDefault(w => w.Name == selectedName);
+            if (matchedWs != null && !string.IsNullOrWhiteSpace(matchedWs.IpAddress))
+            {
+                _newKeyIpLock = matchedWs.IpAddress;
+            }
+            else
+            {
+                _newKeyIpLock = "";
+            }
+        }
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        try
+        {
+            _availableUsers = await DbContext.AppUsers
+                .Where(u => u.IsActive)
+                .OrderBy(u => u.Username)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Failed to load users: {Message}", ex.Message);
+        }
+    }
+
+    private void SelectAllDatasets()
+    {
+        _selectedDatasets = _allDatasets.Select(d => d.Key).ToHashSet();
+    }
+
+    private void ClearDatasets()
+    {
+        _selectedDatasets.Clear();
+    }
+
+    private void ToggleDataset(string key, object? isChecked)
+    {
+        if (isChecked is bool b && b)
+            _selectedDatasets.Add(key);
+        else
+            _selectedDatasets.Remove(key);
+    }
+
+    private async Task LoadKeysAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _keys = await DbContext.ReportingApiKeys
+                .Include(k => k.CreatedByUser)
+                .Include(k => k.AssignedUser)
+                .OrderByDescending(k => k.CreatedAtUtc)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load keys: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadAuditLogs()
+    {
+        try
+        {
+            _logs = await DbContext.ReportingApiLogs
+                .OrderByDescending(l => l.RequestTimestampUtc)
+                .Take(100)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load audit logs: {ex.Message}";
+        }
+    }
+
+    private void OpenCreateKeyModal()
+    {
+        _newKeyLabel = "";
+        _newKeyDeviceName = "";
+        _newKeyIpLock = "";
+        _selectedAssignedUserId = "";
+        _recipientEmail = "";
+        _emailStatusMessage = null;
+        _newGeneratedRawKey = null;
+        _connectionBundleText = null;
+        SelectAllDatasets();
+        _showCreateModal = true;
+    }
+
+    private void CloseCreateKeyModal()
+    {
+        _showCreateModal = false;
+        _newGeneratedRawKey = null;
+        _connectionBundleText = null;
+    }
+
+    private async Task GenerateKey()
+    {
+        if (string.IsNullOrWhiteSpace(_newKeyLabel) || _selectedDatasets.Count == 0)
+            return;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "Admin";
+            var user = await DbContext.AppUsers.FirstOrDefaultAsync(u => u.Username == username);
+
+            // Generate secure 32-byte secret key with prefix
+            var rawSecret = "gfc_rep_" + Convert.ToHexString(global::System.Security.Cryptography.RandomNumberGenerator.GetBytes(24)).ToLower();
+            var keyHash = ReportingApiKeyAuthAttribute.ComputeSha256Hash(rawSecret);
+            var prefix = rawSecret.Substring(0, 16);
+
+            var allowedDatasetsStr = _selectedDatasets.Count == _allDatasets.Count ? "ALL" : string.Join(",", _selectedDatasets);
+
+            int? assignedUserId = int.TryParse(_selectedAssignedUserId, out var uid) && uid > 0 ? uid : null;
+
+            var keyEntity = new ReportingApiKey
+            {
+                Label = _newKeyLabel.Trim(),
+                KeyHash = keyHash,
+                KeyPrefix = prefix,
+                AllowedDatasets = allowedDatasetsStr,
+                AssignedUserId = assignedUserId,
+                PendingClaimRawKey = assignedUserId.HasValue ? rawSecret : null,
+                BoundDeviceName = string.IsNullOrWhiteSpace(_newKeyDeviceName) ? null : _newKeyDeviceName.Trim(),
+                AllowedIpAddress = string.IsNullOrWhiteSpace(_newKeyIpLock) ? null : _newKeyIpLock.Trim(),
+                CreatedByUserId = user?.UserId ?? 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            DbContext.ReportingApiKeys.Add(keyEntity);
+            await DbContext.SaveChangesAsync();
+
+            _newGeneratedRawKey = rawSecret;
+
+            var baseUri = Nav.BaseUri.TrimEnd('/');
+            var endpointsText = string.Join("\n", _selectedDatasets.Select(d => $"- {baseUri}/api/reporting/{d}"));
+
+            _connectionBundleText = $"=== GFC-STUDIO REPORTING & TABLEAU ACCESS ===\n" +
+                                   $"Key Label: {_newKeyLabel.Trim()}\n" +
+                                   $"Secret API Key: {rawSecret}\n\n" +
+                                   $"TABLEAU CONNECTION SETTINGS:\n" +
+                                   $"Header Name: X-Reporting-Key\n" +
+                                   $"Header Value: {rawSecret}\n\n" +
+                                   $"PERMITTED DATASETS:\n{endpointsText}\n";
+
+            _successMessage = "API Key successfully generated!";
+            await LoadKeysAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to generate key: {ex.Message}";
+        }
+    }
+
+    private bool _copiedBundle;
+
+    private async Task CopyConnectionBundle()
+    {
+        if (string.IsNullOrWhiteSpace(_connectionBundleText)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _connectionBundleText);
+            _copiedBundle = true;
+            StateHasChanged();
+            await Task.Delay(3000);
+            _copiedBundle = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Clipboard copy failed: {Message}", ex.Message);
+        }
+    }
+
+    private async Task RevokeKey(int keyId)
+    {
+        var key = await DbContext.ReportingApiKeys.FindAsync(keyId);
+        if (key != null)
+        {
+            key.IsActive = false;
+            key.RevokedAtUtc = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+            _successMessage = $"Key '{key.Label}' has been revoked.";
+            await LoadKeysAsync();
+        }
+    }
+
+    private async Task DeleteKey(int keyId)
+    {
+        var key = await DbContext.ReportingApiKeys.FindAsync(keyId);
+        if (key != null)
+        {
+            DbContext.ReportingApiKeys.Remove(key);
+            await DbContext.SaveChangesAsync();
+            _successMessage = "Key deleted.";
+            await LoadKeysAsync();
+        }
+    }
+
+    private string GetTimeAgo(DateTime utcDate)
+    {
+        var span = DateTime.UtcNow - utcDate;
+        if (span.TotalMinutes < 2) return "Just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+}
