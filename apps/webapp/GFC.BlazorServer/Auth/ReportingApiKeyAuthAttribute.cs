@@ -97,14 +97,29 @@ namespace GFC.BlazorServer.Auth
             }
 
             // Check IP Binding constraint if specified
-            if (!string.IsNullOrWhiteSpace(apiKeyRecord.AllowedIpAddress) && !apiKeyRecord.AllowedIpAddress.Equals(clientIp, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(apiKeyRecord.AllowedIpAddress))
             {
-                await LogRequestAsync(dbContext, apiKeyRecord.Id, endpoint, queryString, clientIp, resolvedDeviceName, userAgent, (int)stopwatch.ElapsedMilliseconds, 0, 403, $"IP address {clientIp} not permitted for this key");
-                context.Result = new JsonResult(new { error = "This API Key is locked to a specific authorized workstation/IP." })
+                var allowed = apiKeyRecord.AllowedIpAddress.Trim();
+                bool isMatch = allowed.Equals(clientIp, StringComparison.OrdinalIgnoreCase);
+
+                // Handle localhost / loopback translations (::1 vs 127.0.0.1)
+                if (!isMatch && (allowed == "127.0.0.1" || allowed == "::1" || allowed.Equals("localhost", StringComparison.OrdinalIgnoreCase)))
                 {
-                    StatusCode = 403
-                };
-                return;
+                    if (clientIp == "127.0.0.1" || clientIp == "::1" || clientIp.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isMatch = true;
+                    }
+                }
+
+                if (!isMatch)
+                {
+                    await LogRequestAsync(dbContext, apiKeyRecord.Id, endpoint, queryString, clientIp, resolvedDeviceName, userAgent, (int)stopwatch.ElapsedMilliseconds, 0, 403, $"IP address {clientIp} does not match allowed IP {allowed}");
+                    context.Result = new JsonResult(new { error = $"This API Key is locked to a specific authorized workstation/IP ({allowed}). Your request came from {clientIp}." })
+                    {
+                        StatusCode = 403
+                    };
+                    return;
+                }
             }
 
             // Check Dataset Access Permission

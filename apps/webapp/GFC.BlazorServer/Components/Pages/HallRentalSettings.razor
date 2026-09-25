@@ -15,6 +15,8 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@HasUnsavedChanges" />
+
 <div class="rental-settings-page-wrapper">
     @if (!_hasPageAccess && !_isAdmin)
     {
@@ -101,8 +103,8 @@
             <ul class="nav nav-pills gap-2 flex-nowrap overflow-x-auto p-1">
                 <li class="nav-item">
                     <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "pricing", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("pricing")'>
-                        <i class="bi bi-building"></i>
-                        <span>Rooms &amp; Pricing</span>
+                        <i class="bi bi-tag-fill"></i>
+                        <span>Rental Pricing &amp; Rates</span>
                     </button>
                 </li>
                 <li class="nav-item">
@@ -220,15 +222,15 @@
                         </div>
                     </div>
 
-                    <!-- Rooms & Spaces Grid -->
+                    <!-- Rental Pricing Categories Grid -->
                     <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
                         <div>
-                            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-door-open-fill text-primary me-2"></i>Configured Rental Rooms &amp; Rates</h5>
-                            <small class="text-muted">Set room titles, capacity limits, and pricing tiers for members and non-members</small>
+                            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-tag-fill text-primary me-2"></i>Function Hall Rental Pricing Categories &amp; Rates</h5>
+                            <small class="text-muted">Configure pricing tiers and renter categories (Standard, Coalition, Youth Organizations) for Function Hall rentals</small>
                         </div>
                         <button type="button" class="btn btn-primary px-3 shadow-sm d-flex align-items-center gap-2" @onclick="AddNewRoom">
                             <i class="bi bi-plus-circle-fill"></i>
-                            <span>Add New Room / Category</span>
+                            <span>Add Rental Category / Tier</span>
                         </button>
                     </div>
 
@@ -239,17 +241,17 @@
                                 <div class="card border rounded-4 p-3 h-100 shadow-sm bg-white position-relative">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div class="flex-grow-1 me-2">
-                                            <input type="text" class="form-control form-control-lg fw-bold text-dark border-0 bg-light mb-1" placeholder="Room Name (e.g. Function Hall)" @bind="room.Name" />
-                                            <input type="text" class="form-control form-control-sm border-0 text-muted" placeholder="Description / subtitle (e.g. Accommodates large banquets)" @bind="room.Description" />
+                                            <input type="text" class="form-control form-control-lg fw-bold text-dark border-0 bg-light mb-1" placeholder="Category Name (e.g. Function Hall - Standard Rate)" @bind="room.Name" />
+                                            <input type="text" class="form-control form-control-sm border-0 text-muted" placeholder="Description / subtitle (e.g. Standard event rental rate)" @bind="room.Description" />
                                         </div>
-                                        <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-2" title="Remove Room" @onclick="() => RemoveRoom(room)" disabled="@(_editableRooms.Count <= 1)">
+                                        <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-2" title="Remove Category" @onclick="() => RemoveRoom(room)" disabled="@(_editableRooms.Count <= 1)">
                                             <i class="bi bi-trash3"></i>
                                         </button>
                                     </div>
 
                                     <div class="row g-2 mt-2 pt-2 border-top">
                                         <div class="col-4">
-                                            <label class="form-label small text-muted mb-1"><i class="bi bi-people me-1"></i>Capacity</label>
+                                            <label class="form-label small text-muted mb-1"><i class="bi bi-people me-1"></i>Max Guests</label>
                                             <input type="number" class="form-control form-control-sm text-center fw-bold" @bind="room.Capacity" />
                                         </div>
                                         <div class="col-4">
@@ -272,7 +274,7 @@
                                         @if (room.IsDefault)
                                         {
                                             <span class="badge bg-primary text-white py-1 px-3 rounded-pill small">
-                                                <i class="bi bi-star-fill text-warning me-1"></i>Default Selected Room on Form
+                                                <i class="bi bi-star-fill text-warning me-1"></i>Default Selected Category on Form
                                             </span>
                                         }
                                         else
@@ -1758,6 +1760,52 @@
     </div>
 }
 
+<!-- UNSAVED CHANGES CONFIRMATION MODAL -->
+@if (_showUnsavedChangesModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.65); z-index: 1070;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 480px;" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-warning text-dark p-3 px-4 border-0">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill text-dark"></i>
+                        <span>Unsaved Changes Detected</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="StayAndKeepEditing"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-dark fw-semibold mb-1">You have unsaved changes in Hall Rental Settings.</p>
+                    <p class="text-muted small mb-0">
+                        If you leave now without saving, any modifications made to room rates, day schedules, policies, emails, or calendar connections will be discarded.
+                    </p>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3 rounded-pill" @onclick="StayAndKeepEditing">
+                        <i class="bi bi-pencil me-1"></i>Stay &amp; Keep Editing
+                    </button>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-danger btn-sm px-3 rounded-pill" @onclick="DiscardChangesAndLeave">
+                            <i class="bi bi-trash me-1"></i>Discard &amp; Leave
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill shadow-sm fw-bold" @onclick="SaveAndLeaveAsync" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle me-1"></i>
+                                <span>Save &amp; Leave</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
 .rental-settings-page-wrapper {
     height: calc(100vh - 5rem);
@@ -1816,6 +1864,80 @@
     private bool _isAdmin = false;
     private bool _isLoading = true;
     private bool _isSaving = false;
+
+    // Unsaved Changes Tracking & Navigation Guard
+    private string? _initialSnapshot;
+    private bool _showUnsavedChangesModal = false;
+    private string? _pendingNavigationTarget;
+    private bool _forceNavigate = false;
+
+    private bool HasUnsavedChanges => !_isLoading && _initialSnapshot != null && _initialSnapshot != GenerateStateSnapshot();
+
+    private string GenerateStateSnapshot()
+    {
+        try
+        {
+            var data = new
+            {
+                Settings = _settings,
+                Web = _webSettings != null ? System.Text.Json.JsonSerializer.Serialize(_webSettings) : null,
+                Rooms = _editableRooms,
+                Addons = _editableAddons,
+                Schedules = _editableDaySchedules,
+                Policies = _editablePolicies,
+                Recipients = _editableRecipients
+            };
+            return System.Text.Json.JsonSerializer.Serialize(data);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void OnBeforeInternalNavigation(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context)
+    {
+        if (_forceNavigate)
+        {
+            return;
+        }
+
+        if (HasUnsavedChanges)
+        {
+            context.PreventNavigation();
+            _pendingNavigationTarget = context.TargetLocation;
+            _showUnsavedChangesModal = true;
+            StateHasChanged();
+        }
+    }
+
+    private void StayAndKeepEditing()
+    {
+        _showUnsavedChangesModal = false;
+        _pendingNavigationTarget = null;
+    }
+
+    private void DiscardChangesAndLeave()
+    {
+        _showUnsavedChangesModal = false;
+        _forceNavigate = true;
+        var target = _pendingNavigationTarget ?? "/hall-rentals";
+        _pendingNavigationTarget = null;
+        Navigation.NavigateTo(target);
+    }
+
+    private async Task SaveAndLeaveAsync()
+    {
+        var saved = await SaveAllSettingsInternalAsync();
+        if (saved)
+        {
+            _showUnsavedChangesModal = false;
+            _forceNavigate = true;
+            var target = _pendingNavigationTarget ?? "/hall-rentals";
+            _pendingNavigationTarget = null;
+            Navigation.NavigateTo(target);
+        }
+    }
 
     private string _activeTab = "pricing";
     private string _previewDevice = "desktop";
@@ -1976,11 +2098,16 @@
             }
 
             RecalculateManualTestQuote();
+            _initialSnapshot = GenerateStateSnapshot();
         }
         catch (Exception ex)
         {
             _feedbackMessage = $"Error loading settings: {ex.Message}";
             _feedbackSuccess = false;
+        }
+        finally
+        {
+            _isLoading = false;
         }
     }
 
@@ -2010,11 +2137,11 @@
         _editableRooms.Add(new RentalRoomOption
         {
             Id = Guid.NewGuid().ToString("N"),
-            Name = $"New Space #{_editableRooms.Count + 1}",
-            Description = "Event and gathering space",
+            Name = $"Rental Rate Category #{_editableRooms.Count + 1}",
+            Description = "Standard pricing rate tier",
             NonMemberRate = 350,
             MemberRate = 250,
-            Capacity = 50,
+            Capacity = 180,
             IsActive = true
         });
     }
@@ -2514,6 +2641,11 @@
 
     private async Task SaveAllSettings()
     {
+        await SaveAllSettingsInternalAsync();
+    }
+
+    private async Task<bool> SaveAllSettingsInternalAsync()
+    {
         _isSaving = true;
         _feedbackMessage = null;
         try
@@ -2528,7 +2660,7 @@
                     _feedbackMessage = $"Cannot save: {day.DayOfWeek} has schedule conflicts: {warning}";
                     ToastService.ShowError($"Please fix schedule overlap on {day.DayOfWeek} before saving.");
                     _isSaving = false;
-                    return;
+                    return false;
                 }
             }
 
@@ -2551,9 +2683,11 @@
 
             await CalendarService.SaveSettingsAsync(_settings);
 
+            _initialSnapshot = GenerateStateSnapshot();
             _feedbackMessage = "Hall rental, room pricing, day schedules, email triggers, and calendar sync settings saved successfully.";
             _feedbackSuccess = true;
             ToastService.ShowSuccess("All settings updated successfully.");
+            return true;
         }
         catch (Exception ex)
         {
@@ -2561,6 +2695,7 @@
             var fullDetails = ex.InnerException != null ? $"{ex.Message} --> Inner: {ex.InnerException.Message}" : ex.Message;
             _feedbackMessage = $"Failed to save settings: {fullDetails}";
             ToastService.ShowError($"Error saving settings: {fullDetails}");
+            return false;
         }
         finally
         {

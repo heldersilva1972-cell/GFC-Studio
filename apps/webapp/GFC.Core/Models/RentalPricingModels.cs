@@ -45,8 +45,8 @@ namespace GFC.Core.Models
                 new RentalRoomOption
                 {
                     Id = "room_fh",
-                    Name = "Function Hall",
-                    Description = "Main banquet hall with bar & dance floor",
+                    Name = "Function Hall (Standard Rate)",
+                    Description = "Standard rental rate for private events & banquets",
                     NonMemberRate = 400,
                     MemberRate = 300,
                     Capacity = 180,
@@ -56,21 +56,21 @@ namespace GFC.Core.Models
                 new RentalRoomOption
                 {
                     Id = "room_cr",
-                    Name = "Coalition Room",
-                    Description = "Meeting & small event space",
+                    Name = "Coalition Partner Rate",
+                    Description = "Discounted rate for affiliated coalition partners",
                     NonMemberRate = 200,
                     MemberRate = 100,
-                    Capacity = 40,
+                    Capacity = 180,
                     IsActive = true
                 },
                 new RentalRoomOption
                 {
                     Id = "room_yo",
-                    Name = "Youth Organizations",
-                    Description = "Community non-profit rate",
+                    Name = "Youth Organization Rate",
+                    Description = "Special discounted rate for youth sports & non-profit organizations",
                     NonMemberRate = 100,
                     MemberRate = 100,
-                    Capacity = 100,
+                    Capacity = 180,
                     IsActive = true
                 }
             };
