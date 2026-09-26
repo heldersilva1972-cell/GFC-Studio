@@ -140,6 +140,15 @@ namespace GFC.BlazorServer.Services
                                 case "policiesjson": settings.PoliciesJson = val?.ToString(); break;
                                 case "uselegacypricingengine": settings.UseLegacyPricingEngine = Convert.ToBoolean(val); break;
                                 case "tiercardsjson": settings.TierCardsJson = val?.ToString(); break;
+                                case "monthcalendardisplaymode": settings.MonthCalendarDisplayMode = val?.ToString() ?? "multiline"; break;
+                                case "monthcalendarfieldsjson": settings.MonthCalendarFieldsJson = val?.ToString(); break;
+                                case "schedulelistcolumnsjson": settings.ScheduleListColumnsJson = val?.ToString(); break;
+                                case "webapppushbarservice": settings.WebAppPushBarService = Convert.ToBoolean(val); break;
+                                case "webappbarservicedisplayname": settings.WebAppBarServiceDisplayName = val?.ToString() ?? "Bar / Bartender"; break;
+                                case "webapppushkitchenusage": settings.WebAppPushKitchenUsage = Convert.ToBoolean(val); break;
+                                case "webappkitchenusagedisplayname": settings.WebAppKitchenUsageDisplayName = val?.ToString() ?? "Kitchen Access"; break;
+                                case "webapppushavequipment": settings.WebAppPushAvEquipment = Convert.ToBoolean(val); break;
+                                case "webappavequipmentdisplayname": settings.WebAppAvEquipmentDisplayName = val?.ToString() ?? "A/V Equipment"; break;
                                 case "seotitle": settings.SeoTitle = val?.ToString() ?? ""; break;
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
@@ -275,7 +284,16 @@ namespace GFC.BlazorServer.Services
                             [RentalPaymentWindowNotice] = @p62,
                             [PoliciesJson] = @p63,
                             [UseLegacyPricingEngine] = @p64,
-                            [TierCardsJson] = @p65
+                            [TierCardsJson] = @p65,
+                            [MonthCalendarDisplayMode] = @p68,
+                            [MonthCalendarFieldsJson] = @p69,
+                            [ScheduleListColumnsJson] = @p70,
+                            [WebAppPushBarService] = @p71,
+                            [WebAppBarServiceDisplayName] = @p72,
+                            [WebAppPushKitchenUsage] = @p73,
+                            [WebAppKitchenUsageDisplayName] = @p74,
+                            [WebAppPushAvEquipment] = @p75,
+                            [WebAppAvEquipmentDisplayName] = @p76
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -303,7 +321,10 @@ namespace GFC.BlazorServer.Services
                             [RequireApplicantName], [RequireEmail], [RequirePhone], [RequireAddress], [RequireEventType], [RequireGuestCount],
                             [AllowAdditionalHours],
                             [RentalTermsAndConditionsText], [RentalCancellationPolicyText], [RentalKitchenPolicyText], [RentalPolicyUrl], [RentalPaymentWindowNotice],
-                            [PoliciesJson], [UseLegacyPricingEngine], [TierCardsJson]
+                            [PoliciesJson], [UseLegacyPricingEngine], [TierCardsJson],
+                            [MonthCalendarDisplayMode], [MonthCalendarFieldsJson], [ScheduleListColumnsJson],
+                            [WebAppPushBarService], [WebAppBarServiceDisplayName], [WebAppPushKitchenUsage], [WebAppKitchenUsageDisplayName],
+                            [WebAppPushAvEquipment], [WebAppAvEquipmentDisplayName]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -312,7 +333,9 @@ namespace GFC.BlazorServer.Services
                             @p66, @p67,
                             @p51, @p52, @p53, @p54, @p55, @p56, @p57,
                             @p58, @p59, @p60, @p61, @p62,
-                            @p63, @p64, @p65
+                            @p63, @p64, @p65,
+                            @p68, @p69, @p70,
+                            @p71, @p72, @p73, @p74, @p75, @p76
                         );
                     END";
 
@@ -350,7 +373,7 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p29", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.SandboxGoogleCalendarId ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p30", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.SandboxCalendarFeedUrl ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p31", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.FormIngestionMode ?? "NativeForm" },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p32", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.NotificationEmailList ?? "hnsilva@comcast.net" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p32", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.NotificationEmailList ?? "" },
                     new Microsoft.Data.SqlClient.SqlParameter("@p33", System.Data.SqlDbType.Bit) { Value = settings.NotifyOnNewSubmission },
                     new Microsoft.Data.SqlClient.SqlParameter("@p34", System.Data.SqlDbType.Bit) { Value = settings.NotifyOnPaymentRecorded },
                     new Microsoft.Data.SqlClient.SqlParameter("@p35", System.Data.SqlDbType.Bit) { Value = settings.SendApplicantConfirmation },
@@ -385,7 +408,16 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p64", System.Data.SqlDbType.Bit) { Value = settings.UseLegacyPricingEngine },
                     new Microsoft.Data.SqlClient.SqlParameter("@p65", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.TierCardsJson ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p66", System.Data.SqlDbType.Bit) { Value = settings.ShowAlternateDateField },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p67", System.Data.SqlDbType.Bit) { Value = settings.RequireAlternateDate }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p67", System.Data.SqlDbType.Bit) { Value = settings.RequireAlternateDate },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p68", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.MonthCalendarDisplayMode ?? "multiline" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p69", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.MonthCalendarFieldsJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p70", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.ScheduleListColumnsJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p71", System.Data.SqlDbType.Bit) { Value = settings.WebAppPushBarService },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p72", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppBarServiceDisplayName ?? "Bar / Bartender" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p73", System.Data.SqlDbType.Bit) { Value = settings.WebAppPushKitchenUsage },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p74", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppKitchenUsageDisplayName ?? "Kitchen Access" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p75", System.Data.SqlDbType.Bit) { Value = settings.WebAppPushAvEquipment },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p76", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppAvEquipmentDisplayName ?? "A/V Equipment" }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -661,6 +693,33 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'TierCardsJson')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [TierCardsJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'MonthCalendarDisplayMode')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [MonthCalendarDisplayMode] NVARCHAR(50) NOT NULL DEFAULT 'multiline';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'MonthCalendarFieldsJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [MonthCalendarFieldsJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ScheduleListColumnsJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ScheduleListColumnsJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppPushBarService')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppPushBarService] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppBarServiceDisplayName')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppBarServiceDisplayName] NVARCHAR(100) NOT NULL DEFAULT 'Bar / Bartender';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppPushKitchenUsage')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppPushKitchenUsage] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppKitchenUsageDisplayName')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppKitchenUsageDisplayName] NVARCHAR(100) NOT NULL DEFAULT 'Kitchen Access';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppPushAvEquipment')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppPushAvEquipment] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppAvEquipmentDisplayName')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppAvEquipmentDisplayName] NVARCHAR(100) NOT NULL DEFAULT 'A/V Equipment';
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

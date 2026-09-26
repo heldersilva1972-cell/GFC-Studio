@@ -76,7 +76,7 @@ namespace GFC.BlazorServer.Controllers
                 AvEquipmentUsage = payload.AvEquipment,
                 RulesAgreed = true,
                 Status = "Pending",
-                IsTestRecord = payload.IsTest || (settings?.EnableSandboxMode == true)
+                IsTestRecord = payload.IsTest
             };
 
             // Calculate pricing based on settings

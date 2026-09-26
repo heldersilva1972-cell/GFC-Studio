@@ -36,6 +36,7 @@ namespace GFC.BlazorServer.Services
         // Payment & Deposit Management
         Task<IEnumerable<HallRentalPayment>> GetPaymentsForRequestAsync(int requestId);
         Task<HallRentalPayment> RecordPaymentAsync(HallRentalPayment payment);
+        Task<HallRentalPayment> UpdatePaymentAsync(HallRentalPayment payment);
         Task<bool> DeletePaymentAsync(int paymentId);
 
         // Simulation & Test Record Management

@@ -325,7 +325,7 @@ namespace GFC.BlazorServer.Services
             var results = new List<UnavailableDateDto>();
             await using var context = await _contextFactory.CreateDbContextAsync();
 
-            // 1. Get manually blocked/booked dates (Blackouts/Club Events)
+            // 1. Get manually blocked/booked dates (Blackouts/Club Events from AvailabilityCalendars table)
             var calendarDates = await context.AvailabilityCalendars
                 .Where(d => d.Status == "Booked" || d.Status == "Blackout")
                 .Select(d => new UnavailableDateDto 
@@ -339,20 +339,11 @@ namespace GFC.BlazorServer.Services
             
             results.AddRange(calendarDates);
 
-            // 2. Get dates from requests
+            // 2. Get dates from active rental requests
             var requestDates = await context.HallRentalRequests
                 .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
-                .ToListAsync(); // First get the full objects
+                .ToListAsync();
             
-            // ... (rest of method remains same using results and requestDates)
-            // DEBUG: Log what we got
-            foreach (var req in requestDates)
-            {
-                Console.WriteLine($"DEBUG: ID={req.Id}, EventType={req.EventType}, StartTime={req.StartTime}, EndTime={req.EndTime}");
-            }
-            
-            // Now map to DTOs
-            var mappedDates = new List<UnavailableDateDto>();
             foreach (var r in requestDates)
             {
                 var dto = new UnavailableDateDto
@@ -362,19 +353,86 @@ namespace GFC.BlazorServer.Services
                     EventType = r.EventType,
                     EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null
                 };
-                Console.WriteLine($"MAPPED: EventType={dto.EventType}, EventTime={dto.EventTime}");
-                mappedDates.Add(dto);
+                results.Add(dto);
             }
 
-            results.AddRange(mappedDates);
+            // 3. Get Club Events / External Bookings from Google Calendar Service
+            try
+            {
+                if (_googleCalendarService != null)
+                {
+                    var calSettings = await _googleCalendarService.GetSettingsAsync();
+                    var externalEvents = new List<CalendarEventItem>();
 
-            // 3. Return distinct by Date (prioritizing entries with event details)
+                    if (calSettings != null)
+                    {
+                        // Fetch configured feeds
+                        if (calSettings.Feeds != null && calSettings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+                        {
+                            try
+                            {
+                                var fetched = await _googleCalendarService.FetchAllFeedsAsync(calSettings);
+                                if (fetched != null)
+                                {
+                                    externalEvents.AddRange(fetched);
+                                }
+                            }
+                            catch { }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                        {
+                            try
+                            {
+                                var fetched = await _googleCalendarService.FetchEventsFromUrlAsync(calSettings.PublicCalendarUrl);
+                                if (fetched != null)
+                                {
+                                    externalEvents.AddRange(fetched);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // Map Google Calendar / Club events to UnavailableDateDto
+                    foreach (var evt in externalEvents)
+                    {
+                        if (string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // Check if event is all day or has specific times
+                        string? eventTime = null;
+                        if (!evt.IsAllDay && evt.Start != default && evt.End != default && (evt.Start.TimeOfDay != TimeSpan.Zero || evt.End.TimeOfDay != TimeSpan.Zero))
+                        {
+                            eventTime = $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}";
+                        }
+
+                        // Avoid duplicate entries if this event was already loaded from HallRentalRequests
+                        bool alreadyPresent = results.Any(x => x.Date.Date == evt.Start.Date && 
+                            string.Equals(x.EventTime, eventTime, StringComparison.OrdinalIgnoreCase) &&
+                            (string.Equals(x.EventType, evt.Title, StringComparison.OrdinalIgnoreCase) || x.Status == "Booked"));
+
+                        if (!alreadyPresent)
+                        {
+                            results.Add(new UnavailableDateDto
+                            {
+                                Date = evt.Start.Date,
+                                Status = "Booked",
+                                EventType = !string.IsNullOrWhiteSpace(evt.Title) ? evt.Title : "Club Event",
+                                EventTime = eventTime
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RentalService] Notice: Error fetching external calendar feeds for conflict check: {ex.Message}");
+            }
+
+            // 4. Return all distinct unavailable interval entries (preserving multiple slots per day)
             return results
-                .GroupBy(x => x.Date.Date)
-                .Select(g => g.OrderBy(x => (x.EventType == "Private Event" || x.EventType == "Club Event" || string.IsNullOrEmpty(x.EventType)) ? 2 : 0) // Heavily deprioritize fallbacks
-                              .ThenBy(x => string.IsNullOrEmpty(x.EventType) ? 1 : 0) // Then prioritize ANY details over none
-                              .ThenBy(x => x.Status == "Booked" ? 0 : 1) // Then prioritize Booked over Pending
-                              .First())
+                .GroupBy(x => new { Date = x.Date.Date, EventTime = x.EventTime ?? "FULL_DAY", EventType = x.EventType ?? "" })
+                .Select(g => g.First())
                 .ToList();
         }
 
@@ -490,6 +548,40 @@ namespace GFC.BlazorServer.Services
             }
 
             await context.SaveChangesAsync();
+            return payment;
+        }
+
+        public async Task<HallRentalPayment> UpdatePaymentAsync(HallRentalPayment payment)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.HallRentalPayments.FindAsync(payment.Id);
+            if (existing != null)
+            {
+                existing.PaymentType = payment.PaymentType;
+                existing.Amount = payment.Amount;
+                existing.PaymentDate = payment.PaymentDate;
+                existing.PaymentMethod = payment.PaymentMethod;
+                existing.ReferenceOrCheckNumber = payment.ReferenceOrCheckNumber;
+                existing.Notes = payment.Notes;
+                existing.RecordedBy = payment.RecordedBy;
+                context.Entry(existing).State = EntityState.Modified;
+                await context.SaveChangesAsync();
+
+                // Recalculate request totals
+                var req = await context.HallRentalRequests.FindAsync(existing.HallRentalRequestId);
+                if (req != null)
+                {
+                    var allPayments = await context.HallRentalPayments
+                        .Where(p => p.HallRentalRequestId == existing.HallRentalRequestId)
+                        .ToListAsync();
+
+                    decimal total = allPayments.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+                    req.AmountPaid = Math.Max(0, total);
+                    req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                    context.Entry(req).State = EntityState.Modified;
+                    await context.SaveChangesAsync();
+                }
+            }
             return payment;
         }
 
@@ -625,7 +717,7 @@ namespace GFC.BlazorServer.Services
             // Auto-schedule pending calendar entry in local database and Google Calendar
             try
             {
-                string titlePrefix = isTest ? "[TEST] PENDING: " : "PENDING: ";
+                string titlePrefix = "PENDING: ";
                 string room = string.IsNullOrEmpty(request.RoomSelected) ? "Function Hall" : request.RoomSelected;
                 string desc = $"Applicant: {request.ApplicantName}\nPhone: {request.RequesterPhone}\nEmail: {request.RequesterEmail}\nRoom: {room}\nGuests: {request.GuestCount}\nTotal: ${request.TotalPrice}";
 
@@ -639,11 +731,8 @@ namespace GFC.BlazorServer.Services
 
                 // Push to Google Calendar directly if Service Account / Write API is configured
                 var calSettings = await _googleCalendarService.GetSettingsAsync();
-                var webSettings = await _websiteSettingsService.GetWebsiteSettingsAsync();
 
-                string? targetCalId = isTest
-                    ? (!string.IsNullOrWhiteSpace(webSettings?.SandboxGoogleCalendarId) ? webSettings.SandboxGoogleCalendarId.Trim() : calSettings?.PrimaryGoogleCalendarId?.Trim())
-                    : calSettings?.PrimaryGoogleCalendarId?.Trim();
+                string? targetCalId = calSettings?.PrimaryGoogleCalendarId?.Trim();
 
                 if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings?.PublicCalendarUrl))
                 {
@@ -667,6 +756,7 @@ namespace GFC.BlazorServer.Services
                         ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
                         EnableWriteApi = true,
                         GoogleEventVisibility = calSettings.GoogleEventVisibility,
+                        EventTitleFields = calSettings.EventTitleFields,
                         PushApplicantNameToTitle = calSettings.PushApplicantNameToTitle,
                         PushApplicantNameToDescription = calSettings.PushApplicantNameToDescription,
                         PushApplicantPhoneToDescription = calSettings.PushApplicantPhoneToDescription,
@@ -674,6 +764,12 @@ namespace GFC.BlazorServer.Services
                         PushPricingQuoteToDescription = calSettings.PushPricingQuoteToDescription,
                         PushGuestCountToDescription = calSettings.PushGuestCountToDescription,
                         PushServicesToDescription = calSettings.PushServicesToDescription,
+                        PushBarServiceToDescription = calSettings.PushBarServiceToDescription,
+                        BarServiceCalendarDisplayName = calSettings.BarServiceCalendarDisplayName,
+                        PushKitchenUsageToDescription = calSettings.PushKitchenUsageToDescription,
+                        KitchenUsageCalendarDisplayName = calSettings.KitchenUsageCalendarDisplayName,
+                        PushAvEquipmentToDescription = calSettings.PushAvEquipmentToDescription,
+                        AvEquipmentCalendarDisplayName = calSettings.AvEquipmentCalendarDisplayName,
                         PushAddressToDescription = calSettings.PushAddressToDescription,
                         PushNotesToDescription = calSettings.PushNotesToDescription
                     };
@@ -684,10 +780,82 @@ namespace GFC.BlazorServer.Services
                     if (DateTime.TryParse(request.EndTime, out var pe)) end = request.EventDate.Date.Add(pe.TimeOfDay);
 
                     string eventType = string.IsNullOrWhiteSpace(request.EventType) ? "Hall Rental" : request.EventType;
-                    string eventTitle = $"{titlePrefix}{request.ApplicantName} - {eventType}";
-                    if (!calSettings.PushApplicantNameToTitle)
+                    string roomName = string.IsNullOrWhiteSpace(request.RoomSelected) ? "Main Function Hall" : request.RoomSelected;
+
+                    var services = new List<string>();
+                    if (request.BartenderRequested && calSettings.PushBarServiceToDescription)
                     {
-                        eventTitle = $"{titlePrefix}{eventType}";
+                        var barName = !string.IsNullOrWhiteSpace(calSettings.BarServiceCalendarDisplayName) ? calSettings.BarServiceCalendarDisplayName : "Bar / Bartender Service";
+                        services.Add(barName);
+                    }
+                    if (request.KitchenUsage && calSettings.PushKitchenUsageToDescription)
+                    {
+                        var kitchenName = !string.IsNullOrWhiteSpace(calSettings.KitchenUsageCalendarDisplayName) ? calSettings.KitchenUsageCalendarDisplayName : "Kitchen Access";
+                        services.Add(kitchenName);
+                    }
+                    if (request.AvEquipmentUsage && calSettings.PushAvEquipmentToDescription)
+                    {
+                        var avName = !string.IsNullOrWhiteSpace(calSettings.AvEquipmentCalendarDisplayName) ? calSettings.AvEquipmentCalendarDisplayName : "A/V Equipment";
+                        services.Add(avName);
+                    }
+                    if (request.RequiresSetupTime) services.Add("Setup Time Requested");
+
+                    // Ordered Title Fields Construction (Pipe '|' Delimited)
+                    var titleFields = calSettings.EventTitleFields ?? GoogleCalendarSettings.GetDefaultGoogleTitleFields();
+                    var enabledOrderedFields = titleFields.Where(f => f.IsEnabled).OrderBy(f => f.Order).ToList();
+
+                    var titleSegments = new List<string>();
+                    foreach (var field in enabledOrderedFields)
+                    {
+                        switch (field.FieldKey)
+                        {
+                            case "applicant_name":
+                                if (!string.IsNullOrWhiteSpace(request.ApplicantName))
+                                    titleSegments.Add(request.ApplicantName.Trim());
+                                break;
+                            case "event_type":
+                                if (!string.IsNullOrWhiteSpace(eventType))
+                                    titleSegments.Add(eventType.Trim());
+                                break;
+                            case "room_location":
+                                if (!string.IsNullOrWhiteSpace(roomName))
+                                    titleSegments.Add(roomName.Trim());
+                                break;
+                            case "time_window":
+                                if (!string.IsNullOrWhiteSpace(request.StartTime) && !string.IsNullOrWhiteSpace(request.EndTime))
+                                    titleSegments.Add($"{request.StartTime} - {request.EndTime}");
+                                break;
+                            case "services":
+                                if (services.Any())
+                                    titleSegments.Add(string.Join(", ", services));
+                                break;
+                            case "guest_count":
+                                if (request.GuestCount > 0)
+                                    titleSegments.Add($"{request.GuestCount} Guests");
+                                break;
+                            case "pricing_quote":
+                                if (request.TotalPrice > 0)
+                                    titleSegments.Add($"${request.TotalPrice:N0}");
+                                break;
+                            case "contact_phone":
+                                if (!string.IsNullOrWhiteSpace(request.RequesterPhone))
+                                    titleSegments.Add(request.RequesterPhone.Trim());
+                                break;
+                            case "contact_email":
+                                if (!string.IsNullOrWhiteSpace(request.RequesterEmail))
+                                    titleSegments.Add(request.RequesterEmail.Trim());
+                                break;
+                        }
+                    }
+
+                    string eventTitle;
+                    if (titleSegments.Any())
+                    {
+                        eventTitle = $"{titlePrefix}{string.Join(" | ", titleSegments)}";
+                    }
+                    else
+                    {
+                        eventTitle = $"{titlePrefix}{request.ApplicantName} - {eventType}";
                     }
 
                     var lines = new List<string>();
@@ -703,15 +871,8 @@ namespace GFC.BlazorServer.Services
                         lines.Add($"Total Quote: ${request.TotalPrice:N2}");
                     if (!string.IsNullOrWhiteSpace(request.RoomSelected))
                         lines.Add($"Space: {request.RoomSelected}");
-
-                    var services = new List<string>();
-                    if (request.BartenderRequested) services.Add("Bar / Bartender");
-                    if (request.KitchenUsage) services.Add("Kitchen Usage");
-                    if (request.AvEquipmentUsage) services.Add("A/V Equipment");
-                    if (request.RequiresSetupTime) services.Add("Setup Time Requested");
                     if (calSettings.PushServicesToDescription && services.Any())
                         lines.Add($"Services: {string.Join(", ", services)}");
-
                     if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
                         lines.Add($"Applicant Notes: {request.InternalNotes}");
 
@@ -741,9 +902,7 @@ namespace GFC.BlazorServer.Services
                     // 1. Send Applicant Confirmation Email (if enabled and applicant provided email)
                     if (settings.SendApplicantConfirmation && !string.IsNullOrWhiteSpace(request.RequesterEmail))
                     {
-                        string targetEmail = (isTest && !string.IsNullOrWhiteSpace(settings.SandboxTestEmail))
-                            ? settings.SandboxTestEmail
-                            : request.RequesterEmail;
+                        string targetEmail = request.RequesterEmail;
 
                         decimal effectiveDeposit = request.SecurityDepositAmount > 0 
                             ? request.SecurityDepositAmount 
@@ -821,9 +980,7 @@ namespace GFC.BlazorServer.Services
 
                             foreach (var recipient in recipients)
                             {
-                                string targetStaffEmail = (isTest && !string.IsNullOrWhiteSpace(settings.SandboxTestEmail))
-                                    ? settings.SandboxTestEmail
-                                    : recipient;
+                                string targetStaffEmail = recipient;
 
                                 await _emailDispatcher.SendRentalEmailAsync(settings, targetStaffEmail, staffSubject, staffBody);
                             }

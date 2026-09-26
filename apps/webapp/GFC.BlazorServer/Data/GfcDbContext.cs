@@ -798,9 +798,13 @@ public class GfcDbContext : DbContext
             entity.ToTable("NavMenuEntries");
         });
 
+        modelBuilder.Ignore<CalendarFieldDisplayConfig>();
+
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+            entity.Ignore(e => e.MonthCalendarFields);
+            entity.Ignore(e => e.ScheduleListColumns);
             entity.Property(e => e.AdditionalHourRate).HasColumnType("decimal(18,2)");
             entity.Property(e => e.AvEquipmentFee).HasColumnType("decimal(18,2)");
             entity.Property(e => e.BartenderServiceFee).HasColumnType("decimal(18,2)");

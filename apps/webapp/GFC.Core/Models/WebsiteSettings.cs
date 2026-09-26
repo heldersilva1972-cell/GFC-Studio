@@ -104,6 +104,118 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public bool EnableOnlineRentalsPayment { get; set; } = false;
         public string? PaymentGatewayUrl { get; set; }
         public string? PaymentGatewayApiKey { get; set; }
+
+        // Web App Internal Calendar & Schedule List Display Configurations
+        public string MonthCalendarDisplayMode { get; set; } = "multiline"; // "compact" or "multiline"
+        public string? MonthCalendarFieldsJson { get; set; }
+        public string? ScheduleListColumnsJson { get; set; }
+
+        // Web App Services & Amenities Visibility & Custom Display Names
+        public bool WebAppPushBarService { get; set; } = true;
+        public string? WebAppBarServiceDisplayName { get; set; } = "Bar / Bartender Service";
+        public bool WebAppPushKitchenUsage { get; set; } = true;
+        public string? WebAppKitchenUsageDisplayName { get; set; } = "Kitchen Access";
+        public bool WebAppPushAvEquipment { get; set; } = true;
+        public string? WebAppAvEquipmentDisplayName { get; set; } = "A/V Equipment";
+
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public List<CalendarFieldDisplayConfig> MonthCalendarFields
+        {
+            get => GetMonthCalendarFieldsList();
+            set => SetMonthCalendarFieldsList(value);
+        }
+
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public List<CalendarFieldDisplayConfig> ScheduleListColumns
+        {
+            get => GetScheduleListColumnsList();
+            set => SetScheduleListColumnsList(value);
+        }
+
+        public List<CalendarFieldDisplayConfig> GetMonthCalendarFieldsList()
+        {
+            if (!string.IsNullOrWhiteSpace(MonthCalendarFieldsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<CalendarFieldDisplayConfig>>(MonthCalendarFieldsJson);
+                    if (items != null && items.Any()) return items;
+                }
+                catch { }
+            }
+            return GetDefaultMonthCalendarFields();
+        }
+
+        public void SetMonthCalendarFieldsList(IEnumerable<CalendarFieldDisplayConfig> list)
+        {
+            if (list == null)
+            {
+                MonthCalendarFieldsJson = null;
+                return;
+            }
+            MonthCalendarFieldsJson = JsonSerializer.Serialize(list);
+        }
+
+        public List<CalendarFieldDisplayConfig> GetScheduleListColumnsList()
+        {
+            if (!string.IsNullOrWhiteSpace(ScheduleListColumnsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<CalendarFieldDisplayConfig>>(ScheduleListColumnsJson);
+                    if (items != null && items.Any()) return items;
+                }
+                catch { }
+            }
+            return GetDefaultScheduleListColumns();
+        }
+
+        public void SetScheduleListColumnsList(IEnumerable<CalendarFieldDisplayConfig> list)
+        {
+            if (list == null)
+            {
+                ScheduleListColumnsJson = null;
+                return;
+            }
+            ScheduleListColumnsJson = JsonSerializer.Serialize(list);
+        }
+
+        public static List<CalendarFieldDisplayConfig> GetDefaultMonthCalendarFields()
+        {
+            return new List<CalendarFieldDisplayConfig>
+            {
+                new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time badge", IsEnabled = true, Order = 1 },
+                new() { FieldKey = "payment_status", Label = "Payment Status Badge", Description = "Badge (PAID, DEP PAID, UNPAID)", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Selected rental room or hall space", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services (Bar, Kitchen, A/V)", IsEnabled = true, Order = 6 },
+                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Number of anticipated attendees", IsEnabled = false, Order = 7 },
+                new() { FieldKey = "pricing_quote", Label = "Total Price / Financial Quote", Description = "Total rental price quote ($)", IsEnabled = false, Order = 8 },
+                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 9 },
+                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 10 }
+            };
+        }
+
+        public static List<CalendarFieldDisplayConfig> GetDefaultScheduleListColumns()
+        {
+            return new List<CalendarFieldDisplayConfig>
+            {
+                new() { FieldKey = "event_date", Label = "Event Date", Description = "Scheduled date of event", IsEnabled = true, Order = 1 },
+                new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "event_status", Label = "Approval Status", Description = "Pending, Confirmed, Cancelled badge", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "payment_status", Label = "Payment Status", Description = "Paid in full, Deposit, or Unpaid badge", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Occasion or event category badge", IsEnabled = true, Order = 6 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall or Coalition Room", IsEnabled = true, Order = 7 },
+                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services list", IsEnabled = true, Order = 8 },
+                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Estimated number of attendees", IsEnabled = true, Order = 9 },
+                new() { FieldKey = "pricing_quote", Label = "Total Price Quote", Description = "Calculated rental fee total ($)", IsEnabled = true, Order = 10 },
+                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 11 },
+                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 12 },
+                new() { FieldKey = "calendar_source", Label = "Calendar Source", Description = "Internal Studio, GCal Sync, or Form Intake", IsEnabled = true, Order = 13 }
+            };
+        }
         
         // System Settings
         public string PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue
@@ -258,7 +370,7 @@ Warm regards,
         {
             if (string.IsNullOrWhiteSpace(NotificationEmailList))
             {
-                return new List<string> { "gfc@gloucesterfraternityclub.com" };
+                return new List<string>();
             }
 
             var items = NotificationEmailList
@@ -268,7 +380,7 @@ Warm regards,
                 .Distinct(System.StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return items.Any() ? items : new List<string> { "gfc@gloucesterfraternityclub.com" };
+            return items;
         }
 
         public void SetRecipientsList(IEnumerable<string> list)

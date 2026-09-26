@@ -119,7 +119,7 @@
                                     <label class="form-label fw-semibold small">
                                         Phone Number @((_settings?.RequirePhone ?? true) ? "*" : "(Optional)")
                                     </label>
-                                    <InputText class="form-control" type="tel" placeholder="(978) 555-0123" @bind-Value="_request.RequesterPhone" />
+                                    <input class="form-control" type="tel" placeholder="" value="@_request.RequesterPhone" @onchange="OnPhoneChanged" />
                                 </div>
                                 @if (_settings?.ShowAddressField ?? true)
                                 {
@@ -127,25 +127,25 @@
                                         <label class="form-label fw-semibold small">
                                             Street Address @((_settings?.RequireAddress ?? false) ? "*" : "(Optional)")
                                         </label>
-                                        <InputText class="form-control" placeholder="123 Main Street" @bind-Value="_request.RequesterAddress" />
+                                        <InputText class="form-control" placeholder="" @bind-Value="_request.RequesterAddress" />
                                     </div>
                                     <div class="col-md-5">
                                         <label class="form-label fw-semibold small">
                                             City @((_settings?.RequireAddress ?? false) ? "*" : "(Optional)")
                                         </label>
-                                        <InputText class="form-control" placeholder="Gloucester" @bind-Value="_request.RequesterCity" />
+                                        <InputText class="form-control" placeholder="" @bind-Value="_request.RequesterCity" />
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label fw-semibold small">
                                             State @((_settings?.RequireAddress ?? false) ? "*" : "(Optional)")
                                         </label>
-                                        <InputText class="form-control" placeholder="MA" @bind-Value="_request.RequesterState" />
+                                        <InputText class="form-control" placeholder="" @bind-Value="_request.RequesterState" />
                                     </div>
                                     <div class="col-md-3">
                                         <label class="form-label fw-semibold small">
                                             ZIP Code @((_settings?.RequireAddress ?? false) ? "*" : "(Optional)")
                                         </label>
-                                        <InputText class="form-control" placeholder="01930" @bind-Value="_request.RequesterZip" />
+                                        <InputText class="form-control" placeholder="" @bind-Value="_request.RequesterZip" />
                                     </div>
                                 }
                                 <div class="col-12">
@@ -451,7 +451,13 @@
                                                 <div class="border-start ps-3 d-none d-md-block" style="height: 28px;"></div>
                                                 <div>
                                                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">@_request.EventDate.ToString("dddd") Rate</small>
-                                                    @if (_settings?.UseLegacyPricingEngine == false)
+                                                    @if (IsCurrentSelectionBooked() || isCategoryUnavailableOnDay)
+                                                    {
+                                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">
+                                                            <i class="bi bi-slash-circle me-1"></i>Unavailable
+                                                        </span>
+                                                    }
+                                                    else if (_settings?.UseLegacyPricingEngine == false)
                                                     {
                                                         if (string.IsNullOrEmpty(_selectedTierCardId))
                                                         {
@@ -630,7 +636,14 @@
                                         <i class="bi bi-calculator me-1"></i>Live Estimated Total
                                     </span>
                                     <div class="d-flex align-items-baseline gap-2">
-                                        @if (_settings?.UseLegacyPricingEngine == false && string.IsNullOrEmpty(_selectedTierCardId))
+                                        @if (IsCurrentSelectionBooked() || isCategoryUnavailableOnDay)
+                                        {
+                                            <h2 class="display-6 fw-bold mb-0 text-muted fs-3">--</h2>
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 small">
+                                                <i class="bi bi-calendar-x me-1"></i>Date Unavailable
+                                            </span>
+                                        }
+                                        else if (_settings?.UseLegacyPricingEngine == false && string.IsNullOrEmpty(_selectedTierCardId))
                                         {
                                             <h2 class="display-6 fw-bold mb-0 text-muted fs-3">--</h2>
                                             <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
@@ -645,13 +658,13 @@
                                             </span>
                                         }
                                     </div>
-                                    @if (_extraHours > 0 && (_settings?.UseLegacyPricingEngine != false || !string.IsNullOrEmpty(_selectedTierCardId)))
+                                    @if (!IsCurrentSelectionBooked() && !isCategoryUnavailableOnDay && _extraHours > 0 && (_settings?.UseLegacyPricingEngine != false || !string.IsNullOrEmpty(_selectedTierCardId)))
                                     {
                                         <div class="small text-primary mt-1 fw-semibold">
                                             <i class="bi bi-plus-circle me-1"></i>Includes +@(_extraHours) extra hrs (@($"${_settings?.AdditionalHourRate ?? 50:N2}")/hr = +$@_extraHoursFee.ToString("N2"))
                                         </div>
                                     }
-                                    @if ((_settings?.RequireSecurityDeposit ?? true) && _request.SecurityDepositAmount > 0)
+                                    @if (!IsCurrentSelectionBooked() && !isCategoryUnavailableOnDay && (_settings?.RequireSecurityDeposit ?? true) && _request.SecurityDepositAmount > 0)
                                     {
                                         <div class="small text-muted mt-1">
                                             <i class="bi bi-shield-check text-success me-1"></i>+ $@_request.SecurityDepositAmount.ToString("N2") Refundable Security Deposit
@@ -1406,6 +1419,32 @@
         }
     }
 
+    private static string FormatPhoneNumber(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        var digits = System.Text.RegularExpressions.Regex.Replace(input, @"\D", "");
+        if (digits.Length == 10)
+        {
+            return $"({digits.Substring(0, 3)}) {digits.Substring(3, 3)}-{digits.Substring(6, 4)}";
+        }
+        else if (digits.Length == 11 && digits.StartsWith("1"))
+        {
+            return $"({digits.Substring(1, 3)}) {digits.Substring(4, 3)}-{digits.Substring(7, 4)}";
+        }
+        else if (digits.Length == 7)
+        {
+            // 7 digits without area code: keep as-is with hyphen so user notices missing area code
+            return $"{digits.Substring(0, 3)}-{digits.Substring(3, 4)}";
+        }
+        return input.Trim();
+    }
+
+    private void OnPhoneChanged(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString() ?? "";
+        _request.RequesterPhone = FormatPhoneNumber(raw);
+    }
+
     private static int ParseTimeToMinutes(string? timeStr)
     {
         if (string.IsNullOrWhiteSpace(timeStr)) return -1;
@@ -1597,16 +1636,42 @@
         }
 
         bool reqPhone = _settings?.RequirePhone ?? true;
-        if (reqPhone && string.IsNullOrWhiteSpace(_request.RequesterPhone))
+        if (reqPhone)
         {
-            missingFields.Add("Phone Number");
+            if (string.IsNullOrWhiteSpace(_request.RequesterPhone))
+            {
+                missingFields.Add("Phone Number (with area code)");
+            }
+            else
+            {
+                var digits = System.Text.RegularExpressions.Regex.Replace(_request.RequesterPhone, @"\D", "");
+                if (digits.Length < 10)
+                {
+                    missingFields.Add("Valid 10-Digit Phone Number (missing area code or digits)");
+                }
+            }
         }
 
         bool showAddress = _settings?.ShowAddressField ?? true;
         bool reqAddress = _settings?.RequireAddress ?? false;
-        if (showAddress && reqAddress && string.IsNullOrWhiteSpace(_request.RequesterAddress))
+        if (showAddress && reqAddress)
         {
-            missingFields.Add("Street Address");
+            if (string.IsNullOrWhiteSpace(_request.RequesterAddress))
+            {
+                missingFields.Add("Street Address");
+            }
+            if (string.IsNullOrWhiteSpace(_request.RequesterCity))
+            {
+                missingFields.Add("City");
+            }
+            if (string.IsNullOrWhiteSpace(_request.RequesterState))
+            {
+                missingFields.Add("State");
+            }
+            if (string.IsNullOrWhiteSpace(_request.RequesterZip))
+            {
+                missingFields.Add("ZIP Code");
+            }
         }
 
         bool showAltDate = _settings?.ShowAlternateDateField ?? true;
