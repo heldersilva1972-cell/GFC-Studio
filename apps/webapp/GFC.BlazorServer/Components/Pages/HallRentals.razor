@@ -53,6 +53,10 @@
                     <i class="bi bi-controller"></i>
                     <span>Test Form</span>
                 </button>
+                <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 shadow-sm fw-semibold" @onclick="() => _showPricingGuideModal = true" title="View & Customize Pricing Guide">
+                    <i class="bi bi-bar-chart-fill text-primary"></i>
+                    <span>Pricing Guide Chart</span>
+                </button>
                 <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 shadow-sm" @onclick='() => Navigation.NavigateTo("/hall-rentals/settings")'>
                     <i class="bi bi-sliders2-vertical"></i>
                     <span>Rental Settings</span>
@@ -90,18 +94,24 @@
             <div class="card-body p-2 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <!-- Inline Metric Pills -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 rounded-pill fw-semibold">
+                    <span class="badge bg-primary text-white border border-primary px-2.5 py-1 rounded-pill fw-semibold shadow-sm">
                         <i class="bi bi-calendar-event me-1"></i>Total: <strong>@_events.Count</strong>
                     </span>
-                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-pill fw-semibold">
+                    <span class="badge bg-success text-white border border-success px-2.5 py-1 rounded-pill fw-semibold shadow-sm">
                         <i class="bi bi-calendar-check me-1"></i>Next 30 Days: <strong>@GetUpcomingCount()</strong>
                     </span>
-                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 rounded-pill fw-semibold">
+                    <span class="badge bg-warning text-dark border border-warning px-2.5 py-1 rounded-pill fw-bold shadow-sm">
                         <i class="bi bi-clock-history me-1"></i>Pending: <strong>@GetPendingCount()</strong>
                     </span>
-                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-2 py-1 rounded-pill fw-semibold">
+                    <span class="badge bg-info text-dark border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm">
                         <i class="bi bi-layers-fill me-1"></i>Calendars: <strong>@(_settings.Feeds.Count(f => f.IsEnabled)) Active</strong>
                     </span>
+                    @if (GetCancelledCount() > 0)
+                    {
+                        <span class="badge bg-danger-subtle text-danger border border-danger px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer;" @onclick='() => _filterCategory = "CANCELLED"' title="Filter by Cancelled Bookings">
+                            <i class="bi bi-x-circle me-1"></i>Cancelled: <strong>@GetCancelledCount()</strong>
+                        </span>
+                    }
                 </div>
 
                 <!-- Environment & Active Source Selector -->
@@ -163,6 +173,7 @@
                             <button class="btn @(_filterCategory == "PAID" ? "btn-success fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "PAID"'>Paid (@GetPaidEventsCount())</button>
                             <button class="btn @(_filterCategory == "UNPAID" ? "btn-danger fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "UNPAID"'>Unpaid</button>
                             <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications (@GetApplicationsCount())</button>
+                            <button class="btn @(_filterCategory == "CANCELLED" ? "btn-danger fw-bold text-white" : "btn-outline-secondary")" @onclick='() => _filterCategory = "CANCELLED"'>Cancelled (@GetCancelledCount())</button>
                         </div>
 
                         <div class="btn-group btn-group-sm shadow-sm" role="group">
@@ -328,11 +339,12 @@
                                     @foreach (var evt in filteredEvents)
                                     {
                                         var details = ParseApplicationDetails(evt);
+                                        var isCancelled = string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase);
                                         var isPending = evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
                                         var isApproved = evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
                                         var paySummary = GetEventPaymentSummary(evt);
 
-                                        <tr>
+                                        <tr class="@(isCancelled ? "table-danger bg-opacity-10" : "")">
                                             <td class="fw-semibold">
                                                 @if (evt.Start.Year > 2000)
                                                 {
@@ -347,7 +359,13 @@
                                                 @(evt.IsAllDay ? "All-Day Event" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}")
                                             </td>
                                             <td>
-                                                @if (isPending)
+                                                @if (isCancelled)
+                                                {
+                                                    <span class="badge bg-danger text-white border border-danger px-2 py-1 rounded-pill fw-bold shadow-sm">
+                                                        <i class="bi bi-x-circle me-1"></i>Cancelled
+                                                    </span>
+                                                }
+                                                else if (isPending)
                                                 {
                                                     <span class="badge px-2 py-1 rounded-pill" style="background-color: #fef3c7 !important; color: #78350f !important; font-weight: 700; border: 1px solid #d97706 !important;">
                                                         <i class="bi bi-hourglass-split me-1 text-warning"></i>Pending
@@ -1041,18 +1059,24 @@
                         </div>
 
                         <!-- 5. AUDIT TRAIL & CHANGE HISTORY CARD -->
-                        @if (!string.IsNullOrWhiteSpace(_selectedRequest?.InternalNotes))
-                        {
-                            <div class="card border rounded-3 shadow-none bg-white mb-3">
-                                <div class="card-header section-header-secondary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
-                                    <span><i class="bi bi-journal-text text-secondary me-2 fs-5"></i>Audit Trail &amp; Modification History</span>
-                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Audit Log</span>
-                                </div>
-                                <div class="card-body p-3">
-                                    <div class="bg-light p-3 rounded-3 border font-monospace small" style="white-space: pre-wrap; font-size: 0.8rem; line-height: 1.5;">@_selectedRequest.InternalNotes</div>
-                                </div>
+                        <div class="card border rounded-3 shadow-none bg-white mb-3">
+                            <div class="card-header section-header-secondary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-journal-text text-secondary me-2 fs-5"></i>Audit Trail &amp; Modification History</span>
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Audit Log</span>
                             </div>
-                        }
+                            <div class="card-body p-3">
+                                @if (!string.IsNullOrWhiteSpace(_selectedRequest?.InternalNotes))
+                                {
+                                    <div class="bg-light p-3 rounded-3 border font-monospace small" style="white-space: pre-wrap; font-size: 0.8rem; line-height: 1.5;">@_selectedRequest.InternalNotes</div>
+                                }
+                                else
+                                {
+                                    <div class="text-muted small py-2 text-center fst-italic">
+                                        <i class="bi bi-info-circle me-1"></i>No modifications or email delivery logs recorded yet for this booking.
+                                    </div>
+                                }
+                            </div>
+                        </div>
 
                         <!-- 6. MANUAL PAYMENT & DEPOSIT TRACKING LEDGER -->
                         <div class="card border rounded-3 shadow-none bg-white mb-3">
@@ -1170,6 +1194,13 @@
                             <button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm" @onclick="() => OpenRecordPaymentModal(_selectedEvent)">
                                 <i class="bi bi-cash-stack me-1"></i>Add Payment
                             </button>
+                            @if ((!string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) || !string.IsNullOrWhiteSpace(appDetails.Email)) && modalPaySummary.RemainingBalance > 0)
+                            {
+                                <button type="button" class="btn btn-outline-warning text-dark btn-sm rounded-pill px-3 shadow-sm fw-semibold" @onclick="OpenPaymentReminderConfirmation" disabled="@_isSendingPaymentReminder" title="Send payment & balance reminder email to applicant">
+                                    <i class="bi bi-credit-card-2-front me-1 text-warning"></i>
+                                    <span>Send Payment Reminder</span>
+                                </button>
+                            }
                             @if (!string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) || !string.IsNullOrWhiteSpace(appDetails.Email))
                             {
                                 <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" @onclick="OpenResendQuoteConfirmation" disabled="@_isResendingQuote" title="Email updated rental quote & breakdown to applicant">
@@ -1250,6 +1281,22 @@
                         </div>
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">
+                            Optional Memo / Note to Applicant <span class="text-muted font-normal">(Recorded to Audit Trail &amp; Email)</span>:
+                        </label>
+                        <div class="mb-2">
+                            <select class="form-select form-select-sm" @onchange="OnResendQuotePresetSelected">
+                                <option value="">-- Choose a preset reason or enter custom below (Optional) --</option>
+                                @foreach (var reason in (_webSettings?.GetModificationReasonPresetsList() ?? WebsiteSettings.GetDefaultModificationReasonPresets()))
+                                {
+                                    <option value="@reason">@reason</option>
+                                }
+                            </select>
+                        </div>
+                        <input type="text" class="form-control form-control-sm" placeholder="e.g. Updated quote per your phone request" @bind="_resendQuoteCustomNote" />
+                    </div>
+
                     <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
                         <i class="bi bi-info-circle-fill text-info flex-shrink-0"></i>
                         <span>This will send a formatted quote email directly to <strong>@confirmEmail</strong>.</span>
@@ -1324,10 +1371,40 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-success bg-success bg-opacity-10 border border-success-subtle py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                    <div class="alert alert-success bg-success bg-opacity-10 border border-success-subtle py-2 px-3 small d-flex align-items-center gap-2 mb-3">
                         <i class="bi bi-info-circle-fill text-success flex-shrink-0"></i>
                         <span>This will mark the application <strong>APPROVED</strong> in the database and remove the "PENDING" prefix from Google Calendar.</span>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">
+                            Approval Note / Memo <span class="text-muted font-normal">(Recorded to Audit Trail &amp; Email)</span>:
+                        </label>
+                        <div class="mb-2">
+                            <select class="form-select form-select-sm" @onchange="OnApprovalReasonPresetSelected">
+                                <option value="">-- Choose a preset note or enter custom below (Optional) --</option>
+                                @foreach (var reason in (_webSettings?.GetModificationReasonPresetsList() ?? WebsiteSettings.GetDefaultModificationReasonPresets()))
+                                {
+                                    <option value="@reason">@reason</option>
+                                }
+                            </select>
+                        </div>
+                        <input type="text" class="form-control form-control-sm" placeholder="e.g. Approved per Rental Committee review" @bind="_approvalReasonNote" />
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) || !string.IsNullOrWhiteSpace(appData.Email))
+                    {
+                        var targetEmail = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+                        <div class="p-3 bg-white rounded-3 border">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="sendApprEmailSw" @bind="_sendApprovalEmailOnConfirm" />
+                                <label class="form-check-label fw-bold text-dark small" for="sendApprEmailSw">
+                                    <i class="bi bi-envelope-check-fill text-success me-1"></i>Send Booking Approval Email to Applicant
+                                </label>
+                                <small class="text-muted d-block">Sends the official approval &amp; calendar confirmed notice to <strong>@targetEmail</strong></small>
+                            </div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
                     <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showApproveBookingConfirmModal = false" disabled="@_isApprovingBooking">
@@ -1343,6 +1420,107 @@
                         {
                             <i class="bi bi-check-lg me-1"></i>
                             <span>Confirm &amp; Approve</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- CONFIRM PAYMENT REMINDER EMAIL MODAL -->
+<!-- ========================================================================= -->
+@if (_showPaymentReminderModal && _selectedEvent != null)
+{
+    var remAppData = ParseApplicationDetails(_selectedEvent);
+    var remEmail = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : remAppData.Email;
+    var remPaySummary = GetEventPaymentSummary(_selectedEvent);
+    var remName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (remAppData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+    var remRoom = !string.IsNullOrWhiteSpace(_selectedRequest?.RoomSelected) ? _selectedRequest.RoomSelected : (_selectedEvent.Location ?? "Function Hall");
+    var remTotalPrice = _selectedRequest != null ? _selectedRequest.TotalPrice : remPaySummary.TotalPrice;
+    var remPaid = remPaySummary.TotalPaid;
+    var remRemaining = remPaySummary.RemainingBalance;
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-warning text-dark p-3 px-4">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-credit-card-2-front-fill"></i>
+                        <span>Send Payment &amp; Deposit Reminder</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showPaymentReminderModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Are you sure you want to send a payment reminder to this applicant regarding their outstanding balance?
+                    </p>
+
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Recipient Email:</span>
+                                <span class="fw-bold text-dark">@remEmail</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Applicant Name:</span>
+                                <span class="fw-bold text-dark">@remName</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Event Date &amp; Room:</span>
+                                <span class="fw-bold text-dark">@_selectedEvent.Start.ToString("dddd, MMM dd, yyyy") (@remRoom)</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Total Quoted:</span>
+                                <span class="fw-bold text-dark">$@remTotalPrice.ToString("N2")</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between border-bottom pb-2">
+                                <span class="text-muted">Total Received:</span>
+                                <span class="fw-bold text-success">$@remPaid.ToString("N2")</span>
+                            </div>
+                            <div class="col-12 d-flex justify-content-between">
+                                <span class="text-muted fw-bold">Remaining Balance Due:</span>
+                                <span class="fw-bold text-danger fs-6">$@remRemaining.ToString("N2")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">
+                            Optional Reminder Note / Instructions <span class="text-muted font-normal">(Recorded to Audit Trail &amp; Email)</span>:
+                        </label>
+                        <div class="mb-2">
+                            <select class="form-select form-select-sm" @onchange="OnPaymentReminderPresetSelected">
+                                <option value="">-- Choose a preset reason or enter custom below (Optional) --</option>
+                                @foreach (var reason in (_webSettings?.GetModificationReasonPresetsList() ?? WebsiteSettings.GetDefaultModificationReasonPresets()))
+                                {
+                                    <option value="@reason">@reason</option>
+                                }
+                            </select>
+                        </div>
+                        <input type="text" class="form-control form-control-sm" placeholder="e.g. Deposit due within 14 days to confirm reservation" @bind="_paymentReminderCustomNote" />
+                    </div>
+
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-info flex-shrink-0"></i>
+                        <span>This will send the customized payment reminder email from <strong>@(_webSettings?.RentalSenderEmail ?? "rentals@gloucesterfraternityclub.com")</strong> to <strong>@remEmail</strong>.</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showPaymentReminderModal = false" disabled="@_isSendingPaymentReminder">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-warning text-dark btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="ConfirmAndSendPaymentReminderAsync" disabled="@_isSendingPaymentReminder">
+                        @if (_isSendingPaymentReminder)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Sending Reminder...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-send-fill me-1"></i>
+                            <span>Send Payment Reminder</span>
                         }
                     </button>
                 </div>
@@ -1404,7 +1582,16 @@
                         <label class="form-label small fw-bold text-dark mb-1">
                             Reason for modification / Admin note <span class="text-muted font-normal">(Recorded to Audit Trail)</span>:
                         </label>
-                        <input type="text" class="form-control" placeholder="e.g. Applied member discount, changed time upon renter request" @bind="_changeReasonNote" />
+                        <div class="mb-2">
+                            <select class="form-select form-select-sm" @onchange="OnModificationReasonPresetSelected">
+                                <option value="">-- Choose a preset reason or enter custom below --</option>
+                                @foreach (var reason in (_webSettings?.GetModificationReasonPresetsList() ?? WebsiteSettings.GetDefaultModificationReasonPresets()))
+                                {
+                                    <option value="@reason">@reason</option>
+                                }
+                            </select>
+                        </div>
+                        <input type="text" class="form-control form-control-sm" placeholder="e.g. Applied member discount, changed time upon renter request" @bind="_changeReasonNote" />
                     </div>
 
                     @if (!string.IsNullOrWhiteSpace(_selectedRequest.RequesterEmail))
@@ -1685,22 +1872,25 @@
             </div>
         </div>
 
-        <!-- 3. Accepted Agreements & Policies (Clean multi-column list) -->
+        <!-- 3. Accepted Agreements & Policies (Clean flexible list with full text visibility) -->
         <div class="print-card mt-2">
             <div class="print-card-header">
                 <span class="print-card-title">5. ACKNOWLEDGED POLICIES &amp; ACCEPTED TERMS (@printAgreedPolicies.Count)</span>
             </div>
-            <div class="print-card-body py-1">
+            <div class="print-card-body p-2">
                 <div class="print-policies-grid">
                     @foreach (var pol in printAgreedPolicies)
                     {
                         <div class="print-policy-pill">
                             <span class="print-check-mark">✓</span>
-                            <span class="print-pol-title">@pol.Title</span>
-                            @if (!string.IsNullOrEmpty(pol.Tag))
-                            {
-                                <span class="print-pol-tag">(@pol.Tag)</span>
-                            }
+                            <div class="print-pol-content">
+                                <span class="print-pol-title">@pol.Title</span>
+                                @if (!string.IsNullOrEmpty(pol.Tag))
+                                {
+                                    <span class="print-pol-tag">@pol.Tag</span>
+                                }
+                            </div>
+                            <span class="print-pol-accepted">ACCEPTED</span>
                         </div>
                     }
                 </div>
@@ -1812,11 +2002,21 @@
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label small fw-semibold text-muted mb-1">Start Time</label>
-                                                <input type="time" class="form-control" value="@_singleStartTime" @oninput="OnStartTimeInput" @onchange="OnStartTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleStartTime" @onchange="OnStartTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label small fw-semibold text-muted mb-1">End Time</label>
-                                                <input type="time" class="form-control" value="@_singleEndTime" @oninput="OnEndTimeInput" @onchange="OnEndTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleEndTime" @onchange="OnEndTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                         </div>
                                     }
@@ -1833,11 +2033,21 @@
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-muted mb-1">Start Time</label>
-                                                <input type="time" class="form-control" value="@_singleStartTime" @oninput="OnStartTimeInput" @onchange="OnStartTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleStartTime" @onchange="OnStartTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-muted mb-1">End Time</label>
-                                                <input type="time" class="form-control" value="@_singleEndTime" @oninput="OnEndTimeInput" @onchange="OnEndTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleEndTime" @onchange="OnEndTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                             <div class="col-12 mt-2">
                                                 <label class="form-label small fw-semibold text-muted mb-1 d-block">Repeat on Days of the Week:</label>
@@ -1870,11 +2080,21 @@
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-muted mb-1">Start Time</label>
-                                                <input type="time" class="form-control" value="@_singleStartTime" @oninput="OnStartTimeInput" @onchange="OnStartTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleStartTime" @onchange="OnStartTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-muted mb-1">End Time</label>
-                                                <input type="time" class="form-control" value="@_singleEndTime" @oninput="OnEndTimeInput" @onchange="OnEndTimeChanged" />
+                                                <select class="form-select shadow-none" value="@_singleEndTime" @onchange="OnEndTimeChanged">
+                                                    @foreach (var opt in _timeSlotOptions)
+                                                    {
+                                                        <option value="@opt.Value">@opt.Label</option>
+                                                    }
+                                                </select>
                                             </div>
                                         </div>
                                         <div class="d-flex gap-1 flex-wrap mt-2 p-2 bg-white rounded border">
@@ -1899,12 +2119,26 @@
                             <!-- Single event editing start/end controls -->
                             <div class="col-md-6">
                                 <label class="form-label fw-semibold small">Start Date &amp; Time <span class="text-danger">*</span></label>
-                                <input type="datetime-local" class="form-control" @bind="_editEventModel.Start" @bind:event="oninput" />
+                                <input type="date" class="form-control shadow-none mb-2" value="@_editEventDate.ToString("yyyy-MM-dd")" @onchange="OnEditEventDateChanged" />
+                                <label class="form-label fw-semibold small">Start Time <span class="text-danger">*</span></label>
+                                <select class="form-select shadow-none" value="@_editEventStartTime" @onchange="OnEditEventStartTimeChanged">
+                                    @foreach (var opt in _timeSlotOptions)
+                                    {
+                                        <option value="@opt.Value">@opt.Label</option>
+                                    }
+                                </select>
                             </div>
 
                             <div class="col-md-6">
                                 <label class="form-label fw-semibold small">End Date &amp; Time <span class="text-danger">*</span></label>
-                                <input type="datetime-local" class="form-control" @bind="_editEventModel.End" @bind:event="oninput" />
+                                <input type="date" class="form-control shadow-none mb-2" value="@_editEventEndDate.ToString("yyyy-MM-dd")" @onchange="OnEditEventEndDateChanged" />
+                                <label class="form-label fw-semibold small">End Time <span class="text-danger">*</span></label>
+                                <select class="form-select shadow-none" value="@_editEventEndTime" @onchange="OnEditEventEndTimeChanged">
+                                    @foreach (var opt in _timeSlotOptions)
+                                    {
+                                        <option value="@opt.Value">@opt.Label</option>
+                                    }
+                                </select>
                             </div>
                         }
 
@@ -2293,6 +2527,49 @@
                             </div>
                         </div>
 
+                        @{
+                            var testConflicts = GetBookingConflictsForRequest(_manualTestModel);
+                        }
+
+                        <!-- LIVE CALENDAR CONFLICT CHECK ALERT -->
+                        <div class="mb-3">
+                            @if (testConflicts.Any())
+                            {
+                                <div class="alert alert-danger p-3 rounded-3 mb-0 shadow-sm border border-danger">
+                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                        <i class="bi bi-exclamation-octagon-fill text-danger fs-5"></i>
+                                        <strong class="text-danger">⚠️ Schedule Conflict Detected! (@testConflicts.Count overlapping @(testConflicts.Count == 1 ? "event" : "events"))</strong>
+                                    </div>
+                                    <p class="small mb-2 text-dark">The following existing booking(s) on the calendar overlap with <strong>@(_manualTestModel.RoomSelected ?? "Main Function Hall")</strong> on @_manualTestModel.EventDate.ToString("MMM dd, yyyy"):</p>
+                                    <div class="list-group list-group-flush border rounded-2 bg-white small">
+                                        @foreach (var c in testConflicts.Take(3))
+                                        {
+                                            <div class="list-group-item py-2 d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <strong>@c.Title</strong>
+                                                    <div class="text-muted" style="font-size: 0.78rem;">
+                                                        <i class="bi bi-clock me-1"></i>@c.Start.ToString("MMM dd, yyyy h:mm tt") - @c.End.ToString("h:mm tt")
+                                                        <span class="mx-1">•</span>
+                                                        <i class="bi bi-geo-alt me-1"></i>@(c.Location ?? "Main Function Hall")
+                                                    </div>
+                                                </div>
+                                                <span class="badge @(c.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase) ? "bg-warning text-dark" : "bg-danger")">
+                                                    @(c.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase) ? "Pending Hold" : "Confirmed Booking")
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="alert alert-success py-2 px-3 rounded-3 mb-0 small d-flex align-items-center gap-2 bg-success bg-opacity-10 border border-success-subtle text-success">
+                                    <i class="bi bi-check-circle-fill fs-6 text-success"></i>
+                                    <span><strong>Space Available:</strong> No conflicting events found on the calendar for @(_manualTestModel.RoomSelected ?? "Main Function Hall") on @_manualTestModel.EventDate.ToString("MMM dd, yyyy").</span>
+                                </div>
+                            }
+                        </div>
+
                         <!-- Live Quote Calculation Preview -->
                         <div class="p-3 bg-light border rounded-3 d-flex justify-content-between align-items-center mb-3">
                             <div>
@@ -2320,6 +2597,41 @@
                             </button>
                         </div>
                     </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- PRICING GUIDE & CHART MODAL -->
+@if (_showPricingGuideModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(15,23,42,0.65); z-index: 1055; backdrop-filter: blur(4px);" role="dialog">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header border-bottom py-3 px-4 bg-light d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 rounded-3 bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-bar-chart-fill fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0">Hall Rental Pricing Guide &amp; Comparison Chart</h5>
+                            <small class="text-muted">Interactive preview, live rates synchronization, and customizable rates</small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <a href="/hall-rentals/pricing-guide" target="_blank" class="btn btn-outline-primary btn-sm shadow-sm d-flex align-items-center gap-1">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                            <span>Full Page</span>
+                        </a>
+                        <button type="button" class="btn-close" @onclick="() => _showPricingGuideModal = false" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <GFC.BlazorServer.Components.Shared.RentalPricingGuideView 
+                        Settings="_webSettings" 
+                        ShowFullPageLink="false" 
+                        OnCustomGuideSaved="HandleCustomGuideSaved" />
                 </div>
             </div>
         </div>
@@ -2813,18 +3125,19 @@
         font-weight: 600;
     }
 
-    /* Policies Grid (Compact Pills) */
+    /* Policies List (Clean Full Visibility) */
     .print-policies-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 3px 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 3.5px;
     }
 
     .print-policy-pill {
         display: flex;
         align-items: center;
-        gap: 4px;
-        padding: 1.5px 4px;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 2.5px 6px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 3px;
@@ -2834,21 +3147,50 @@
     .print-check-mark {
         color: #16a34a;
         font-weight: 900;
-        font-size: 8pt;
+        font-size: 8.5pt;
+        flex-shrink: 0;
+    }
+
+    .print-pol-content {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        flex: 1;
+        min-width: 0;
     }
 
     .print-pol-title {
         color: #1e293b;
         font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        line-height: 1.25;
+        word-break: break-word;
+        white-space: normal;
     }
 
     .print-pol-tag {
-        color: #64748b;
-        font-size: 6.5pt;
+        color: #475569;
+        font-size: 6pt;
+        font-weight: 600;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 2px;
+        padding: 0.5px 4px;
         white-space: nowrap;
+        text-transform: uppercase;
+    }
+
+    .print-pol-accepted {
+        color: #15803d;
+        font-size: 6pt;
+        font-weight: 800;
+        background: #dcfce7;
+        border: 1px solid #86efac;
+        border-radius: 2px;
+        padding: 0.5px 4px;
+        white-space: nowrap;
+        letter-spacing: 0.4px;
+        flex-shrink: 0;
     }
 
     /* Signature & Legal Notice */
@@ -2917,12 +3259,22 @@
     private List<string> _modalSimulationLogs = new();
     private string? _testResultFeedback;
     private bool _testResultSuccess = false;
+    private bool _showPricingGuideModal = false;
     private string? _syncMessage;
     private bool _syncSuccess = false;
 
     // Dynamic Rooms & Addons in Settings Modal
     private List<RentalRoomOption> _editableRooms = new();
     private List<RentalAddonOption> _editableAddons = new();
+
+    private async Task HandleCustomGuideSaved(RentalPricingGuideModel model)
+    {
+        if (_webSettings != null)
+        {
+            _webSettings.PricingGuideJson = System.Text.Json.JsonSerializer.Serialize(model);
+            await WebsiteSettingsService.UpdateWebsiteSettingsAsync(_webSettings);
+        }
+    }
 
     private void AddNewRoom()
     {
@@ -3014,10 +3366,32 @@
     private DateTime _singleEventDate = DateTime.Today.AddDays(7);
     private string _singleStartTime = "18:00";
     private string _singleEndTime = "21:00";
+    private DateTime _editEventDate = DateTime.Today.AddDays(7);
+    private DateTime _editEventEndDate = DateTime.Today.AddDays(7);
+    private string _editEventStartTime = "18:00";
+    private string _editEventEndTime = "21:00";
     private int _weeklyRepeatIntervalWeeks = 1;
     private DateTime _weeklyEndDate = DateTime.Today.AddMonths(2);
     private DateTime _customDateToAdd = DateTime.Today.AddDays(14);
     private List<DateTime> _customDatesList = new();
+
+    private static readonly List<(string Value, string Label)> _timeSlotOptions = GenerateTimeSlots();
+
+    private static List<(string Value, string Label)> GenerateTimeSlots()
+    {
+        var slots = new List<(string Value, string Label)>();
+        // Generate every 30 minutes from 06:00 to 23:30, plus midnight/early morning slots
+        for (int h = 0; h < 24; h++)
+        {
+            for (int m = 0; m < 60; m += 30)
+            {
+                var ts = new TimeSpan(h, m, 0);
+                var dt = DateTime.Today.Add(ts);
+                slots.Add((ts.ToString(@"hh\:mm"), dt.ToString("h:mm tt")));
+            }
+        }
+        return slots;
+    }
 
     private void SetRecurrenceMode(string mode)
     {
@@ -3110,6 +3484,52 @@
 
         _editEventModel.Start = _singleEventDate.Date.Add(st);
         _editEventModel.End = _singleEventDate.Date.Add(et);
+    }
+
+    private void OnEditEventDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var dt))
+        {
+            _editEventDate = dt;
+            _editEventEndDate = dt;
+            UpdateExistingEditModel();
+            StateHasChanged();
+        }
+    }
+
+    private void OnEditEventEndDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var dt))
+        {
+            _editEventEndDate = dt;
+            UpdateExistingEditModel();
+            StateHasChanged();
+        }
+    }
+
+    private void OnEditEventStartTimeChanged(ChangeEventArgs e)
+    {
+        _editEventStartTime = e.Value?.ToString() ?? "18:00";
+        UpdateExistingEditModel();
+        StateHasChanged();
+    }
+
+    private void OnEditEventEndTimeChanged(ChangeEventArgs e)
+    {
+        _editEventEndTime = e.Value?.ToString() ?? "21:00";
+        UpdateExistingEditModel();
+        StateHasChanged();
+    }
+
+    private void UpdateExistingEditModel()
+    {
+        var st = ParseFlexibleTimeSpan(_editEventStartTime, TimeSpan.FromHours(18));
+        var et = ParseFlexibleTimeSpan(_editEventEndTime, TimeSpan.FromHours(21));
+        if (_editEventEndDate < _editEventDate) _editEventEndDate = _editEventDate;
+        if (_editEventEndDate == _editEventDate && et <= st) et = st.Add(TimeSpan.FromHours(3));
+
+        _editEventModel.Start = _editEventDate.Date.Add(st);
+        _editEventModel.End = _editEventEndDate.Date.Add(et);
     }
 
     private HashSet<DayOfWeek> _weeklySelectedDays = new() { DateTime.Today.DayOfWeek };
@@ -3352,12 +3772,83 @@
 
         return conflicts;
     }
+
+    private List<CalendarEventItem> GetBookingConflictsForRequest(HallRentalRequest req)
+    {
+        var conflicts = new List<CalendarEventItem>();
+        if (_events == null || !_events.Any() || req == null)
+        {
+            return conflicts;
+        }
+
+        var targetRoomNorm = NormalizeRoomName(req.RoomSelected);
+        var pDate = req.EventDate.Date;
+
+        TimeSpan startTimeSpan = TimeSpan.FromHours(14);
+        TimeSpan endTimeSpan = TimeSpan.FromHours(20);
+        if (DateTime.TryParse(req.StartTime, out var ps)) startTimeSpan = ps.TimeOfDay;
+        if (DateTime.TryParse(req.EndTime, out var pe)) endTimeSpan = pe.TimeOfDay;
+        if (endTimeSpan <= startTimeSpan) endTimeSpan = startTimeSpan.Add(TimeSpan.FromHours(4));
+
+        var pStart = pDate.Add(startTimeSpan);
+        var pEnd = pDate.Add(endTimeSpan);
+
+        foreach (var evt in _events)
+        {
+            // Skip cancelled / rejected events
+            if (string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(evt.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Check room overlap
+            var evtRoomNorm = NormalizeRoomName(evt.Location);
+            bool roomOverlap = targetRoomNorm == "entire facility"
+                || evtRoomNorm == "entire facility"
+                || targetRoomNorm == evtRoomNorm;
+
+            if (!roomOverlap)
+            {
+                continue;
+            }
+
+            var evtStartLocal = evt.Start.Kind == DateTimeKind.Utc ? evt.Start.ToLocalTime() : evt.Start;
+            var evtEndLocal = evt.End.Kind == DateTimeKind.Utc ? evt.End.ToLocalTime() : evt.End;
+
+            if (evt.IsAllDay)
+            {
+                if (pDate >= evtStartLocal.Date && pDate <= evtEndLocal.Date)
+                {
+                    if (!conflicts.Any(c => (c.Uid == evt.Uid && !string.IsNullOrEmpty(evt.Uid)) || (!string.IsNullOrEmpty(c.GoogleEventId) && c.GoogleEventId == evt.GoogleEventId) || (c.Start == evt.Start && c.Title == evt.Title)))
+                    {
+                        conflicts.Add(evt);
+                    }
+                }
+            }
+            else
+            {
+                if (evtEndLocal <= evtStartLocal)
+                {
+                    evtEndLocal = evtStartLocal.AddHours(3);
+                }
+
+                if (pStart < evtEndLocal && pEnd > evtStartLocal)
+                {
+                    if (!conflicts.Any(c => (c.Uid == evt.Uid && !string.IsNullOrEmpty(evt.Uid)) || (!string.IsNullOrEmpty(c.GoogleEventId) && c.GoogleEventId == evt.GoogleEventId) || (c.Start == evt.Start && c.Title == evt.Title)))
+                    {
+                        conflicts.Add(evt);
+                    }
+                }
+            }
+        }
+
+        return conflicts;
+    }
     
     private bool _showCancelEventConfirm = false;
     private CalendarEventItem? _eventToCancelOrRemove;
     private bool _isProcessingCancelOrRemove = false;
-    private bool _isApprovingBooking = false;
-    private bool _showApproveBookingConfirmModal = false;
 
     private string? _writeTestFeedback;
     private bool _writeTestSuccess = false;
@@ -3560,14 +4051,35 @@
             try
             {
                 var dbRequests = await RentalService.GetRentalRequestsAsync();
+                
+                // Collect set of cancelled request dates / applicants so they are never displayed on calendar
+                var cancelledRequests = dbRequests.Where(r => string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)).ToList();
+                foreach (var cancelled in cancelledRequests)
+                {
+                    string cleanCancelledName = (cancelled.ApplicantName ?? "").Trim();
+                    int parenIdx = cleanCancelledName.IndexOf('(');
+                    if (parenIdx > 0) cleanCancelledName = cleanCancelledName.Substring(0, parenIdx).Trim();
+
+                    calendarEvents.RemoveAll(e => 
+                        e.Start.Date == cancelled.EventDate.Date && 
+                        (!string.IsNullOrWhiteSpace(cleanCancelledName) && (
+                            e.Title.Contains(cleanCancelledName, StringComparison.OrdinalIgnoreCase) || 
+                            (!string.IsNullOrWhiteSpace(cancelled.RequesterName) && e.Title.Contains(cancelled.RequesterName, StringComparison.OrdinalIgnoreCase))
+                        )));
+                }
+
                 foreach (var req in dbRequests)
                 {
+                    // Do not display Cancelled requests on the calendar; they are kept in DB for audit trail & records
+                    if (string.Equals(req.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) continue;
+
                     bool isTestReq = req.IsTestRecord;
                     // In sandbox mode, show both or sandbox; in live mode, prioritize live requests
                     if (!isSandbox && isTestReq) continue;
 
                     string prefix = isTestReq ? "[TEST] " : "";
-                    string statusPrefix = string.Equals(req.Status, "Approved", StringComparison.OrdinalIgnoreCase) ? "APPROVED: " : "PENDING: ";
+                    bool isApproved = string.Equals(req.Status, "Approved", StringComparison.OrdinalIgnoreCase);
+                    string statusPrefix = isApproved ? "" : "PENDING: ";
                     string title = $"{prefix}{statusPrefix}{req.ApplicantName} ({req.EventType ?? "Rental"})";
 
                     // Check if already present in calendar events by date & name
@@ -3595,7 +4107,7 @@
                             Location = req.RoomSelected ?? "Function Hall",
                             Source = isTestReq ? "Sandbox Booking" : "Rental Booking",
                             Status = req.Status?.ToUpperInvariant() ?? "PENDING",
-                            ColorCategory = string.Equals(req.Status, "Approved", StringComparison.OrdinalIgnoreCase) ? "badge-success" : "badge-warning",
+                            ColorCategory = isApproved ? "badge-success" : "badge-warning",
                             Description = $"Applicant: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nAddress: {req.RequesterAddress}\nRoom: {req.RoomSelected}\nGuests: {req.GuestCount}\nTotal: ${req.TotalPrice:N2}"
                         });
                     }
@@ -4325,13 +4837,22 @@
         _isNewEvent = false;
         _editEventError = null;
         _bookingCategory = evt.Title.StartsWith("Hall Rental", StringComparison.OrdinalIgnoreCase) ? "rental" : "club";
+        
+        var startLocal = evt.Start.Kind == DateTimeKind.Utc ? evt.Start.ToLocalTime() : evt.Start;
+        var endLocal = evt.End.Kind == DateTimeKind.Utc ? evt.End.ToLocalTime() : evt.End;
+
+        _editEventDate = startLocal.Date;
+        _editEventEndDate = endLocal.Date;
+        _editEventStartTime = startLocal.ToString("HH:mm");
+        _editEventEndTime = endLocal.ToString("HH:mm");
+
         _editEventModel = new CalendarEventItem
         {
             Uid = evt.Uid,
             GoogleEventId = evt.GoogleEventId,
             Title = evt.Title,
-            Start = evt.Start,
-            End = evt.End,
+            Start = startLocal,
+            End = endLocal,
             Location = evt.Location,
             Description = evt.Description,
             Source = evt.Source,
@@ -4483,26 +5004,33 @@
         try
         {
             var targetEvent = _eventToCancelOrRemove;
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
 
-            // 1. If matching DB request exists, update status to Cancelled
-            if (_selectedRequest != null)
-            {
-                _selectedRequest.Status = "Cancelled";
-                await RentalService.UpdateRentalRequestAsync(_selectedRequest);
-            }
-            else
+            // 1. If matching DB request exists, update status to Cancelled and write audit trail
+            HallRentalRequest? reqToUpdate = _selectedRequest;
+            if (reqToUpdate == null)
             {
                 var appData = ParseApplicationDetails(targetEvent);
-                var matched = _cachedRentalRequests.FirstOrDefault(r =>
+                reqToUpdate = _cachedRentalRequests.FirstOrDefault(r =>
                     r.EventDate.Date == targetEvent.Start.Date &&
                     (string.Equals(r.ApplicantName, appData.ApplicantName, StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(r.ApplicantName, GetCleanTitle(targetEvent), StringComparison.OrdinalIgnoreCase)));
+            }
 
-                if (matched != null)
-                {
-                    matched.Status = "Cancelled";
-                    await RentalService.UpdateRentalRequestAsync(matched);
-                }
+            if (reqToUpdate != null)
+            {
+                reqToUpdate.Status = "Cancelled";
+                reqToUpdate.StatusChangedBy = adminUser;
+                reqToUpdate.StatusChangedDate = DateTime.UtcNow;
+
+                var sbAudit = new System.Text.StringBuilder();
+                sbAudit.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+                sbAudit.AppendLine($"❌ Booking Cancelled (Status changed to Cancelled & released from calendar)");
+                sbAudit.AppendLine();
+                reqToUpdate.InternalNotes = (sbAudit.ToString() + (reqToUpdate.InternalNotes ?? "")).Trim();
+
+                await RentalService.UpdateRentalRequestAsync(reqToUpdate);
             }
 
             // 2. If present in Google Calendar and write access is enabled, remove from active Google Calendar schedule
@@ -4523,10 +5051,11 @@
             }
             catch { }
 
-            ToastService.ShowSuccess("Booking status changed to Cancelled.");
+            ToastService.ShowSuccess("Booking status changed to Cancelled and logged to Audit Trail.");
             _showCancelEventConfirm = false;
             _selectedEvent = null;
             _eventToCancelOrRemove = null;
+            await LoadAllRequestsAndPayments();
             await LoadSettingsAndEvents();
         }
         catch (Exception ex)
@@ -4601,107 +5130,7 @@
         }
     }
 
-    private void PromptApproveBooking()
-    {
-        if (_selectedEvent == null) return;
-        _showApproveBookingConfirmModal = true;
-    }
 
-    private async Task ConfirmAndApproveBookingAsync()
-    {
-        _showApproveBookingConfirmModal = false;
-        await ApproveBookingAsync();
-    }
-
-    private async Task ApproveBookingAsync()
-    {
-        if (_selectedEvent == null) return;
-        _isApprovingBooking = true;
-
-        try
-        {
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            string adminUser = authState.User.Identity?.Name ?? "Admin";
-
-            // 1. If matching DB request exists, approve it via RentalService
-            int reqId = _selectedRequest?.Id ?? 0;
-            if (reqId == 0)
-            {
-                var appData = ParseApplicationDetails(_selectedEvent);
-                var matched = _cachedRentalRequests.FirstOrDefault(r =>
-                    r.EventDate.Date == _selectedEvent.Start.Date &&
-                    (string.Equals(r.ApplicantName, appData.ApplicantName, StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(r.ApplicantName, GetCleanTitle(_selectedEvent), StringComparison.OrdinalIgnoreCase)));
-                if (matched != null) reqId = matched.Id;
-            }
-
-            if (reqId > 0)
-            {
-                await RentalService.ApproveRentalRequestAsync(reqId, "Approved via Hall Rentals management console", adminUser);
-                if (_selectedRequest != null)
-                {
-                    _selectedRequest.Status = "Approved";
-                    _selectedRequest.ApprovedBy = adminUser;
-                    _selectedRequest.ApprovalDate = DateTime.UtcNow;
-                }
-            }
-            else
-            {
-                // Update local availability
-                try
-                {
-                    await RentalService.UpdateCalendarAvailabilityAsync(_selectedEvent.Start.Date, "Booked", _selectedEvent.Title, _selectedEvent.Start.ToString("h:mm tt"), _selectedEvent.End.ToString("h:mm tt"));
-                }
-                catch { }
-            }
-
-            // 2. Remove "PENDING" prefix from Google Calendar event if write API is enabled
-            var googleId = _selectedEvent.GoogleEventId ?? _selectedEvent.Uid;
-            var cleanTitle = GetCleanTitle(_selectedEvent);
-            bool isTest = _selectedRequest?.IsTestRecord == true || _selectedEvent.Title.Contains("[TEST]", StringComparison.OrdinalIgnoreCase);
-            string approvedPrefix = isTest ? "[TEST] APPROVED: " : "APPROVED: ";
-            string updatedTitle = $"{approvedPrefix}{cleanTitle}";
-
-            if (!string.IsNullOrEmpty(googleId) && _settings.EnableWriteApi)
-            {
-                try
-                {
-                    var updatedEvent = new CalendarEventItem
-                    {
-                        Uid = _selectedEvent.Uid,
-                        GoogleEventId = googleId,
-                        Title = updatedTitle,
-                        Start = _selectedEvent.Start,
-                        End = _selectedEvent.End,
-                        Location = _selectedEvent.Location,
-                        Description = _selectedEvent.Description
-                    };
-
-                    await CalendarService.UpdateGoogleEventAsync(googleId, updatedEvent, _settings);
-                }
-                catch (Exception gEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Google Calendar update on approval warning: {gEx.Message}");
-                }
-            }
-
-            // 3. Update local in-memory event title and status
-            _selectedEvent.Title = updatedTitle;
-            _selectedEvent.Status = "APPROVED";
-            _selectedEvent.ColorCategory = "badge-success";
-
-            ToastService.ShowSuccess("Booking approved successfully! 'PENDING' removed from calendar.");
-            await LoadSettingsAndEvents();
-        }
-        catch (Exception ex)
-        {
-            ToastService.ShowError($"Failed to approve booking: {ex.Message}");
-        }
-        finally
-        {
-            _isApprovingBooking = false;
-        }
-    }
 
     private async Task HandleFileUpload(InputFileChangeEventArgs e)
     {
@@ -5321,7 +5750,7 @@
                     var (eventTitle, eventDescription) = FormatGoogleEventDetails(_selectedRequest, _selectedRequest.IsTestRecord);
                     if (string.Equals(_selectedRequest.Status, "Approved", StringComparison.OrdinalIgnoreCase))
                     {
-                        eventTitle = eventTitle.Replace("PENDING: ", "APPROVED: ");
+                        eventTitle = eventTitle.Replace("PENDING: ", "").Replace("PENDING - ", "").Trim();
                     }
 
                     var updatedCalItem = new CalendarEventItem
@@ -5351,6 +5780,8 @@
             // 6. Send updated quote email if enabled
             if (_sendUpdatedQuoteEmail && !string.IsNullOrWhiteSpace(_selectedRequest.RequesterEmail))
             {
+                var diffsSnapshot = _detectedDiffs.ToList();
+                var noteSnapshot = _changeReasonNote?.Trim();
                 _ = Task.Run(async () =>
                 {
                     try
@@ -5359,33 +5790,77 @@
                         if (settings != null)
                         {
                             decimal effectiveDeposit = _selectedRequest.SecurityDepositAmount > 0 ? _selectedRequest.SecurityDepositAmount : (settings.SecurityDepositAmount ?? 200m);
-                            string subject = $"Updated Hall Rental Application Quote - Gloucester Fraternity Club";
+                            string clubNameStr = string.IsNullOrWhiteSpace(settings.RentalFormSubtitle) ? "Gloucester Fraternity Club" : settings.RentalFormSubtitle;
+                            string subject = $"Updated Hall Rental Booking Details & Quote - {clubNameStr}";
                             
                             var sb = new System.Text.StringBuilder();
-                            sb.AppendLine($"<h3>Updated Hall Rental Quote &amp; Booking Details</h3>");
-                            sb.AppendLine($"<p>Dear {_selectedRequest.ApplicantName ?? "Applicant"},</p>");
-                            sb.AppendLine($"<p>Your rental application details and pricing quote have been updated by club administration:</p>");
-                            sb.AppendLine($"<ul>");
+                            sb.AppendLine($"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 650px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>");
+                            sb.AppendLine($"<div style='border-bottom: 2px solid #0d6efd; padding-bottom: 12px; margin-bottom: 16px;'>");
+                            sb.AppendLine($"<h2 style='color: #0f172a; margin: 0;'>Booking Details &amp; Quote Update</h2>");
+                            sb.AppendLine($"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>{clubNameStr} &bull; Hall Rental Administration</p>");
+                            sb.AppendLine($"</div>");
+
+                            sb.AppendLine($"<p>Dear {System.Net.WebUtility.HtmlEncode(_selectedRequest.ApplicantName ?? "Applicant")},</p>");
+                            sb.AppendLine($"<p>Your hall rental application and pricing quote have been adjusted by club administration. Please review the updated specifications and summary below:</p>");
+                            
+                            // Changes Comparison Table
+                            if (diffsSnapshot.Any())
+                            {
+                                sb.AppendLine($"<div style='margin: 16px 0;'>");
+                                sb.AppendLine($"<h4 style='color: #334155; margin-bottom: 8px;'>Summary of Modifications ({diffsSnapshot.Count}):</h4>");
+                                sb.AppendLine($"<table style='width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;'>");
+                                sb.AppendLine($"<thead><tr style='background: #f1f5f9; border-bottom: 2px solid #cbd5e1;'>");
+                                sb.AppendLine($"<th style='padding: 8px 12px; color: #475569;'>Specification</th>");
+                                sb.AppendLine($"<th style='padding: 8px 12px; color: #475569;'>Previous Value</th>");
+                                sb.AppendLine($"<th style='padding: 8px 12px; color: #0284c7;'>Updated Value</th>");
+                                sb.AppendLine($"</tr></thead><tbody>");
+                                
+                                foreach (var diff in diffsSnapshot)
+                                {
+                                    sb.AppendLine($"<tr style='border-bottom: 1px solid #e2e8f0;'>");
+                                    sb.AppendLine($"<td style='padding: 8px 12px; font-weight: bold; color: #1e293b;'>{System.Net.WebUtility.HtmlEncode(diff.FieldName)}</td>");
+                                    sb.AppendLine($"<td style='padding: 8px 12px; color: #64748b; background: #f8fafc;'><strike>{System.Net.WebUtility.HtmlEncode(diff.OldValue)}</strike></td>");
+                                    sb.AppendLine($"<td style='padding: 8px 12px; color: #0f172a; font-weight: bold; background: #f0fdf4;'>{System.Net.WebUtility.HtmlEncode(diff.NewValue)}</td>");
+                                    sb.AppendLine($"</tr>");
+                                }
+                                sb.AppendLine($"</tbody></table></div>");
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(noteSnapshot))
+                            {
+                                sb.AppendLine($"<div style='background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 16px 0; border-radius: 4px;'>");
+                                sb.AppendLine($"<strong style='color: #92400e;'>Note from Administration:</strong>");
+                                sb.AppendLine($"<p style='color: #78350f; margin: 4px 0 0 0;'>{System.Net.WebUtility.HtmlEncode(noteSnapshot)}</p>");
+                                sb.AppendLine($"</div>");
+                            }
+
+                            // Current Complete Booking Specifications
+                            sb.AppendLine($"<h4 style='color: #334155; margin-bottom: 8px;'>Current Booking Specifications:</h4>");
+                            sb.AppendLine($"<ul style='padding-left: 20px;'>");
                             sb.AppendLine($"<li><strong>Event Date:</strong> {_selectedRequest.EventDate:dddd, MMMM dd, yyyy}</li>");
                             if (!string.IsNullOrEmpty(_selectedRequest.StartTime) && !string.IsNullOrEmpty(_selectedRequest.EndTime))
                                 sb.AppendLine($"<li><strong>Time Window:</strong> {_selectedRequest.StartTime} - {_selectedRequest.EndTime}</li>");
-                            sb.AppendLine($"<li><strong>Selected Space:</strong> {_selectedRequest.RoomSelected ?? "Function Hall"}</li>");
+                            sb.AppendLine($"<li><strong>Facility Room:</strong> {_selectedRequest.RoomSelected ?? "Function Hall"}</li>");
                             if (_selectedRequest.GuestCount > 0)
                                 sb.AppendLine($"<li><strong>Estimated Guests:</strong> {_selectedRequest.GuestCount}</li>");
-                            sb.AppendLine($"<li><strong>Agreed Total Price:</strong> ${_selectedRequest.TotalPrice:N2}</li>");
+                            sb.AppendLine($"<li><strong>Agreed Rental Rate:</strong> ${_selectedRequest.TotalPrice:N2}</li>");
                             if (settings.RequireSecurityDeposit)
                                 sb.AppendLine($"<li><strong>Refundable Security Deposit:</strong> ${effectiveDeposit:N2}</li>");
-                            sb.AppendLine($"<li><strong>Bar Service:</strong> {(_selectedRequest.BartenderRequested ? "Requested" : "No")}</li>");
-                            sb.AppendLine($"<li><strong>Kitchen Access:</strong> {(_selectedRequest.KitchenUsage ? "Requested" : "No")}</li>");
-                            sb.AppendLine($"<li><strong>A/V Equipment:</strong> {(_selectedRequest.AvEquipmentUsage ? "Requested" : "No")}</li>");
+                            sb.AppendLine($"<li><strong>Bar / Bartender Service:</strong> {(_selectedRequest.BartenderRequested ? "Yes (Included)" : "No")}</li>");
+                            sb.AppendLine($"<li><strong>Kitchen Access:</strong> {(_selectedRequest.KitchenUsage ? "Yes (Included)" : "No")}</li>");
+                            sb.AppendLine($"<li><strong>A/V Sound &amp; Projector:</strong> {(_selectedRequest.AvEquipmentUsage ? "Yes (Included)" : "No")}</li>");
                             sb.AppendLine($"</ul>");
-                            if (!string.IsNullOrWhiteSpace(_changeReasonNote))
-                            {
-                                sb.AppendLine($"<p><strong>Note from Administration:</strong> {_changeReasonNote.Trim()}</p>");
-                            }
-                            sb.AppendLine($"<p>If you have any questions, please contact the Gloucester Fraternity Club at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
+                            
+                            sb.AppendLine($"<p>If you have any questions or would like to discuss these changes, please contact the Gloucester Fraternity Club at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
+                            sb.AppendLine($"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>");
+                            sb.AppendLine($"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; (978) 283-2889</small>");
+                            sb.AppendLine($"</div>");
 
-                            await RentalEmailDispatcher.SendRentalEmailAsync(settings, _selectedRequest.RequesterEmail, subject, sb.ToString(), settings.RentalEmailCc);
+                            var sendRes = await RentalEmailDispatcher.SendRentalEmailAsync(settings, _selectedRequest.RequesterEmail, subject, sb.ToString(), settings.RentalEmailCc);
+                            if (sendRes.Success)
+                            {
+                                await AppendAuditEmailLogAsync(_selectedRequest, "Updated Booking & Quote Notice", _selectedRequest.RequesterEmail, subject, noteSnapshot);
+                            }
                         }
                     }
                     catch { }
@@ -5410,9 +5885,396 @@
         }
     }
 
+    private bool _sendApprovalEmailOnConfirm = true;
     private bool _sendUpdatedQuoteEmail = false;
     private bool _isResendingQuote = false;
     private bool _showResendQuoteConfirmModal = false;
+    private bool _showPaymentReminderModal = false;
+    private bool _isSendingPaymentReminder = false;
+    private bool _showApproveBookingConfirmModal = false;
+    private bool _isApprovingBooking = false;
+    private string _approvalReasonNote = "";
+    private string _paymentReminderCustomNote = "";
+    private string _resendQuoteCustomNote = "";
+
+    private void OnModificationReasonPresetSelected(ChangeEventArgs e)
+    {
+        var selected = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(selected))
+        {
+            _changeReasonNote = selected;
+        }
+    }
+
+    private void OnApprovalReasonPresetSelected(ChangeEventArgs e)
+    {
+        var selected = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(selected))
+        {
+            _approvalReasonNote = selected;
+        }
+    }
+
+    private void OnPaymentReminderPresetSelected(ChangeEventArgs e)
+    {
+        var selected = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(selected))
+        {
+            _paymentReminderCustomNote = selected;
+        }
+    }
+
+    private void OnResendQuotePresetSelected(ChangeEventArgs e)
+    {
+        var selected = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(selected))
+        {
+            _resendQuoteCustomNote = selected;
+        }
+    }
+
+    private async Task AppendAuditEmailLogAsync(HallRentalRequest req, string emailType, string recipient, string subject, string? note = null)
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+            sb.AppendLine($"📧 Email Sent: {emailType}");
+            sb.AppendLine($"• Recipient: {recipient}");
+            sb.AppendLine($"• Subject: {subject}");
+            if (!string.IsNullOrWhiteSpace(note))
+            {
+                sb.AppendLine($"• Note Attached: {note.Trim()}");
+            }
+            sb.AppendLine();
+
+            req.InternalNotes = (sb.ToString() + (req.InternalNotes ?? "")).Trim();
+
+            if (req.Id > 0)
+            {
+                await RentalService.UpdateRentalRequestAsync(req);
+            }
+
+            if (_selectedRequest != null && _selectedRequest.Id == req.Id)
+            {
+                _selectedRequest.InternalNotes = req.InternalNotes;
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Warning: Failed to append email audit trail: {ex.Message}");
+        }
+    }
+
+    private void PromptApproveBooking()
+    {
+        if (_selectedEvent == null) return;
+        _approvalReasonNote = "";
+        _showApproveBookingConfirmModal = true;
+    }
+
+    private async Task ConfirmAndApproveBookingAsync()
+    {
+        if (_selectedEvent == null) return;
+        _isApprovingBooking = true;
+
+        try
+        {
+            var appData = ParseApplicationDetails(_selectedEvent);
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            // 1. Match or create request record
+            if (_selectedRequest == null)
+            {
+                _selectedRequest = new HallRentalRequest
+                {
+                    ApplicantName = appData.ApplicantName ?? GetCleanTitle(_selectedEvent),
+                    RequesterName = appData.ApplicantName ?? GetCleanTitle(_selectedEvent),
+                    RequesterEmail = appData.Email ?? "",
+                    RequesterPhone = appData.Phone ?? "",
+                    EventDate = _selectedEvent.Start.Date,
+                    RequestedDate = _selectedEvent.Start.Date,
+                    StartTime = _selectedEvent.Start.ToString("h:mm tt"),
+                    EndTime = _selectedEvent.End.ToString("h:mm tt"),
+                    RoomSelected = _selectedEvent.Location ?? "Function Hall",
+                    EventType = appData.EventType ?? "Hall Rental",
+                    GuestCount = int.TryParse(appData.GuestCount, out var gc) ? gc : 50,
+                    TotalPrice = GetEventPaymentSummary(_selectedEvent).TotalPrice,
+                    SecurityDepositAmount = GetEventPaymentSummary(_selectedEvent).DepositRequired,
+                    Status = "Approved"
+                };
+                await RentalService.CreateRentalRequestAsync(_selectedRequest);
+            }
+            else
+            {
+                _selectedRequest.Status = "Approved";
+                _selectedRequest.StatusChangedBy = adminUser;
+                _selectedRequest.StatusChangedDate = DateTime.UtcNow;
+
+                var sbAudit = new System.Text.StringBuilder();
+                sbAudit.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+                sbAudit.AppendLine($"• Booking Approved");
+                if (!string.IsNullOrWhiteSpace(_approvalReasonNote))
+                {
+                    sbAudit.AppendLine($"• Approval Note: {_approvalReasonNote.Trim()}");
+                }
+                sbAudit.AppendLine();
+                _selectedRequest.InternalNotes = (sbAudit.ToString() + (_selectedRequest.InternalNotes ?? "")).Trim();
+
+                await RentalService.UpdateRentalRequestAsync(_selectedRequest);
+            }
+
+            // 2. Update Calendar Availability in DB
+            try
+            {
+                await RentalService.UpdateCalendarAvailabilityAsync(_selectedRequest.EventDate.Date, "Booked", _selectedRequest.ApplicantName, _selectedRequest.StartTime, _selectedRequest.EndTime);
+            }
+            catch { }
+
+            // 3. Update Google Calendar title to remove PENDING prefix
+            var googleId = _selectedEvent.GoogleEventId ?? _selectedEvent.Uid;
+            if (!string.IsNullOrEmpty(googleId) && _settings.EnableWriteApi)
+            {
+                try
+                {
+                    DateTime start = _selectedRequest.EventDate.Date.AddHours(14);
+                    DateTime end = _selectedRequest.EventDate.Date.AddHours(20);
+                    if (DateTime.TryParse(_selectedRequest.StartTime, out var ps)) start = _selectedRequest.EventDate.Date.Add(ps.TimeOfDay);
+                    if (DateTime.TryParse(_selectedRequest.EndTime, out var pe)) end = _selectedRequest.EventDate.Date.Add(pe.TimeOfDay);
+
+                    var (eventTitle, eventDescription) = FormatGoogleEventDetails(_selectedRequest, _selectedRequest.IsTestRecord);
+                    eventTitle = eventTitle.Replace("PENDING: ", "").Replace("PENDING - ", "").Replace("PENDING ", "").Trim();
+
+                    var updatedCalItem = new CalendarEventItem
+                    {
+                        Uid = _selectedEvent.Uid,
+                        GoogleEventId = googleId,
+                        Title = eventTitle,
+                        Start = start,
+                        End = end,
+                        Location = _selectedRequest.RoomSelected ?? "Function Hall",
+                        Description = eventDescription
+                    };
+
+                    await CalendarService.UpdateGoogleEventAsync(googleId, updatedCalItem, _settings);
+                }
+                catch (Exception gEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Notice: Google Calendar sync warning during approval: {gEx.Message}");
+                }
+            }
+
+            // 4. Update in-memory event state
+            _selectedEvent.Title = $"{(_selectedRequest.IsTestRecord ? "[TEST] " : "")}{_selectedRequest.ApplicantName} ({_selectedRequest.EventType ?? "Rental"})";
+            _selectedEvent.Status = "CONFIRMED";
+
+            // 5. Send Approval Email if opted
+            string? targetEmail = !string.IsNullOrWhiteSpace(_selectedRequest.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+            if (_sendApprovalEmailOnConfirm && !string.IsNullOrWhiteSpace(targetEmail))
+            {
+                try
+                {
+                    var settings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+                    if (settings != null)
+                    {
+                        string clubNameStr = string.IsNullOrWhiteSpace(settings.RentalFormSubtitle) ? "Gloucester Fraternity Club" : settings.RentalFormSubtitle;
+                        string clubPhoneStr = string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone;
+                        string eventDateStr = _selectedRequest.EventDate.ToString("dddd, MMMM dd, yyyy");
+
+                        string subject = settings.BookingApprovalEmailSubject ?? "Rental Booking Approved & Calendar Confirmed - {ClubName}";
+                        subject = subject
+                            .Replace("{ClubName}", clubNameStr)
+                            .Replace("{ApplicantName}", _selectedRequest.ApplicantName ?? "Applicant")
+                            .Replace("{EventDate}", eventDateStr);
+
+                        var sbBody = new System.Text.StringBuilder();
+                        sbBody.AppendLine($"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>");
+                        sbBody.AppendLine($"<div style='border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;'>");
+                        sbBody.AppendLine($"<h2 style='color: #15803d; margin: 0;'>Booking Approved &amp; Reserved!</h2>");
+                        sbBody.AppendLine($"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>{clubNameStr} &bull; Hall Rental Confirmation</p>");
+                        sbBody.AppendLine($"</div>");
+                        sbBody.AppendLine($"<p>Dear {System.Net.WebUtility.HtmlEncode(_selectedRequest.ApplicantName ?? "Applicant")},</p>");
+                        sbBody.AppendLine($"<p>We are delighted to confirm that your hall rental application has been officially <strong>APPROVED</strong> and reserved on the club calendar.</p>");
+
+                        if (!string.IsNullOrWhiteSpace(_approvalReasonNote))
+                        {
+                            sbBody.AppendLine($"<div style='background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px; margin: 16px 0; border-radius: 4px;'>");
+                            sbBody.AppendLine($"<strong style='color: #166534;'>Administrator Note:</strong>");
+                            sbBody.AppendLine($"<p style='color: #14532d; margin: 4px 0 0 0;'>{System.Net.WebUtility.HtmlEncode(_approvalReasonNote.Trim())}</p>");
+                            sbBody.AppendLine($"</div>");
+                        }
+
+                        sbBody.AppendLine($"<h4 style='color: #334155; margin-bottom: 8px;'>Confirmed Event Details:</h4>");
+                        sbBody.AppendLine($"<ul style='padding-left: 20px;'>");
+                        sbBody.AppendLine($"<li><strong>Event Date:</strong> {eventDateStr}</li>");
+                        if (!string.IsNullOrEmpty(_selectedRequest.StartTime) && !string.IsNullOrEmpty(_selectedRequest.EndTime))
+                            sbBody.AppendLine($"<li><strong>Reserved Time:</strong> {_selectedRequest.StartTime} - {_selectedRequest.EndTime}</li>");
+                        sbBody.AppendLine($"<li><strong>Selected Room:</strong> {_selectedRequest.RoomSelected ?? "Function Hall"}</li>");
+                        sbBody.AppendLine($"<li><strong>Total Rental Amount:</strong> ${_selectedRequest.TotalPrice:N2}</li>");
+                        sbBody.AppendLine($"</ul>");
+                        sbBody.AppendLine($"<p>If you have any questions or need to make any arrangements, please reach out to us at {clubPhoneStr}.</p>");
+                        sbBody.AppendLine($"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>");
+                        sbBody.AppendLine($"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; {clubPhoneStr}</small>");
+                        sbBody.AppendLine($"</div>");
+
+                        var sendResult = await RentalEmailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, sbBody.ToString(), settings.RentalEmailCc);
+                        if (sendResult.Success)
+                        {
+                            await AppendAuditEmailLogAsync(_selectedRequest, "Booking Approval & Confirmation", targetEmail, subject, _approvalReasonNote);
+                        }
+                    }
+                }
+                catch (Exception eEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Warning: Approval email failed: {eEx.Message}");
+                }
+            }
+
+            await LoadAllRequestsAndPayments();
+            ToastService.ShowSuccess("Booking approved and calendar updated successfully!");
+            _showApproveBookingConfirmModal = false;
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to approve booking: {ex.Message}");
+        }
+        finally
+        {
+            _isApprovingBooking = false;
+        }
+    }
+
+    private void OpenPaymentReminderConfirmation()
+    {
+        if (_selectedEvent == null) return;
+        var appData = ParseApplicationDetails(_selectedEvent);
+        string? email = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            ToastService.ShowWarning("No applicant email address is associated with this booking.");
+            return;
+        }
+
+        _paymentReminderCustomNote = "";
+        _showPaymentReminderModal = true;
+    }
+
+    private async Task ConfirmAndSendPaymentReminderAsync()
+    {
+        if (_selectedEvent == null) return;
+        var appData = ParseApplicationDetails(_selectedEvent);
+        string? email = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : appData.Email;
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            ToastService.ShowWarning("No applicant email address is associated with this booking.");
+            _showPaymentReminderModal = false;
+            return;
+        }
+
+        _isSendingPaymentReminder = true;
+        try
+        {
+            var settings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+            if (settings == null)
+            {
+                ToastService.ShowError("Could not load club website settings.");
+                return;
+            }
+
+            var paySummary = GetEventPaymentSummary(_selectedEvent);
+            string applicantName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (appData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+            string eventDateStr = _selectedEvent.Start.ToString("dddd, MMMM dd, yyyy");
+            decimal totalQuoted = _selectedRequest?.TotalPrice ?? paySummary.TotalPrice;
+            decimal amountPaid = paySummary.TotalPaid;
+            decimal remainingBalance = paySummary.RemainingBalance;
+            string clubNameStr = string.IsNullOrWhiteSpace(settings.RentalFormSubtitle) ? "Gloucester Fraternity Club" : settings.RentalFormSubtitle;
+            string clubPhoneStr = string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone;
+
+            string subject = settings.PaymentReminderEmailSubject ?? "Payment Reminder - {ClubName} Hall Rental for {EventDate}";
+            subject = subject
+                .Replace("{ClubName}", clubNameStr)
+                .Replace("{ApplicantName}", applicantName)
+                .Replace("{EventDate}", eventDateStr);
+
+            string body = settings.PaymentReminderEmailBody ?? @"Dear {ApplicantName},
+
+This is a friendly reminder regarding your upcoming hall rental booking with {ClubName} on {EventDate}.
+
+Payment Summary:
+- Total Rental Amount: ${TotalPrice}
+- Total Payments Received: ${AmountPaid}
+- Outstanding Balance Due: ${RemainingBalance}
+
+Please remit your outstanding balance as soon as possible to maintain your reserved date. If you have already submitted payment, please disregard this notice.
+
+If you have any questions or need assistance, please contact us at {ClubPhone}.
+
+Warm regards,
+{ClubName} Hall Rental Committee";
+
+            body = body
+                .Replace("{ApplicantName}", applicantName)
+                .Replace("{EventDate}", eventDateStr)
+                .Replace("{TotalPrice}", totalQuoted.ToString("N2"))
+                .Replace("{AmountPaid}", amountPaid.ToString("N2"))
+                .Replace("{RemainingBalance}", remainingBalance.ToString("N2"))
+                .Replace("{ClubPhone}", clubPhoneStr)
+                .Replace("{ClubName}", clubNameStr);
+
+            var noteHtml = "";
+            if (!string.IsNullOrWhiteSpace(_paymentReminderCustomNote))
+            {
+                noteHtml = $"<div style='background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 16px 0; border-radius: 4px;'>" +
+                           $"<strong style='color: #92400e;'>Special Note / Instructions:</strong>" +
+                           $"<p style='color: #78350f; margin: 4px 0 0 0;'>{System.Net.WebUtility.HtmlEncode(_paymentReminderCustomNote.Trim())}</p>" +
+                           $"</div>";
+            }
+
+            string formattedHtml = $"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>" +
+                $"<div style='border-bottom: 2px solid #f59e0b; padding-bottom: 12px; margin-bottom: 16px;'>" +
+                $"<h2 style='color: #b45309; margin: 0;'>Payment &amp; Balance Reminder</h2>" +
+                $"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>{clubNameStr} &bull; Hall Rentals</p>" +
+                $"</div>" +
+                $"<div style='white-space: pre-line;'>{System.Net.WebUtility.HtmlEncode(body)}</div>" +
+                noteHtml +
+                $"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>" +
+                $"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; {clubPhoneStr}</small>" +
+                $"</div>";
+
+            var result = await RentalEmailDispatcher.SendRentalEmailAsync(settings, email, subject, formattedHtml, settings.RentalEmailCc);
+            if (result.Success)
+            {
+                var reqToAudit = _selectedRequest ?? _cachedRentalRequests.FirstOrDefault(r => r.EventDate.Date == _selectedEvent.Start.Date);
+                if (reqToAudit != null)
+                {
+                    await AppendAuditEmailLogAsync(reqToAudit, "Payment Reminder", email, subject, _paymentReminderCustomNote);
+                }
+
+                ToastService.ShowSuccess($"Payment reminder successfully sent to {email}!");
+                _showPaymentReminderModal = false;
+            }
+            else
+            {
+                ToastService.ShowError($"Failed to send payment reminder: {result.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error sending payment reminder: {ex.Message}");
+        }
+        finally
+        {
+            _isSendingPaymentReminder = false;
+        }
+    }
 
     private void OpenResendQuoteConfirmation()
     {
@@ -5426,6 +6288,7 @@
             return;
         }
 
+        _resendQuoteCustomNote = "";
         _showResendQuoteConfirmModal = true;
     }
 
@@ -5516,10 +6379,23 @@
             string subject = $"Updated Hall Rental Application Quote - Gloucester Fraternity Club";
             
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"<h3>Updated Hall Rental Quote &amp; Booking Details</h3>");
-            sb.AppendLine($"<p>Dear {req.ApplicantName ?? "Applicant"},</p>");
+            sb.AppendLine($"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>");
+            sb.AppendLine($"<div style='border-bottom: 2px solid #0d6efd; padding-bottom: 12px; margin-bottom: 16px;'>");
+            sb.AppendLine($"<h2 style='color: #0f172a; margin: 0;'>Updated Rental Quote &amp; Specifications</h2>");
+            sb.AppendLine($"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>Gloucester Fraternity Club &bull; Hall Rentals</p>");
+            sb.AppendLine($"</div>");
+            sb.AppendLine($"<p>Dear {System.Net.WebUtility.HtmlEncode(req.ApplicantName ?? "Applicant")},</p>");
             sb.AppendLine($"<p>Here is your updated rental quote and specification breakdown from the Gloucester Fraternity Club:</p>");
-            sb.AppendLine($"<ul>");
+
+            if (!string.IsNullOrWhiteSpace(_resendQuoteCustomNote))
+            {
+                sb.AppendLine($"<div style='background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 16px 0; border-radius: 4px;'>");
+                sb.AppendLine($"<strong style='color: #1e40af;'>Note from Administration:</strong>");
+                sb.AppendLine($"<p style='color: #1e3a8a; margin: 4px 0 0 0;'>{System.Net.WebUtility.HtmlEncode(_resendQuoteCustomNote.Trim())}</p>");
+                sb.AppendLine($"</div>");
+            }
+
+            sb.AppendLine($"<ul style='padding-left: 20px;'>");
             sb.AppendLine($"<li><strong>Event Date:</strong> {req.EventDate:dddd, MMMM dd, yyyy}</li>");
             if (!string.IsNullOrEmpty(req.StartTime) && !string.IsNullOrEmpty(req.EndTime))
                 sb.AppendLine($"<li><strong>Time Window:</strong> {req.StartTime} - {req.EndTime}</li>");
@@ -5534,11 +6410,14 @@
             sb.AppendLine($"<li><strong>A/V Equipment:</strong> {(req.AvEquipmentUsage ? "Requested" : "No")}</li>");
             sb.AppendLine($"</ul>");
             sb.AppendLine($"<p>If you have any questions or need to make further adjustments, please contact us at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
-            sb.AppendLine($"<p>Thank you,<br/><strong>Gloucester Fraternity Club</strong></p>");
+            sb.AppendLine($"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>");
+            sb.AppendLine($"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; {settings.ClubPhone ?? "(978) 283-2889"}</small>");
+            sb.AppendLine($"</div>");
 
             var result = await RentalEmailDispatcher.SendRentalEmailAsync(settings, email, subject, sb.ToString(), settings.RentalEmailCc);
             if (result.Success)
             {
+                await AppendAuditEmailLogAsync(req, "Resent Quote & Pricing", email, subject, _resendQuoteCustomNote);
                 ToastService.ShowSuccess($"Updated quote successfully emailed to {email}!");
             }
             else
@@ -5722,6 +6601,11 @@
                           e.Source == "Sandbox Booking");
             if (!isApp) return false;
         }
+        else if (_filterCategory == "CANCELLED")
+        {
+            bool isCanc = string.Equals(e.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || e.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase);
+            if (!isCanc) return false;
+        }
 
         if (!string.IsNullOrWhiteSpace(_searchTerm))
         {
@@ -5769,6 +6653,11 @@
         return _events.Count(e => IsEventPending(e));
     }
 
+    private int GetCancelledCount()
+    {
+        return _cachedRentalRequests.Count(r => string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase));
+    }
+
     private int GetApplicationsCount()
     {
         return _events.Count(e => !string.IsNullOrEmpty(e.Description) && 
@@ -5781,10 +6670,36 @@
 
     private List<CalendarEventItem> GetFilteredEvents()
     {
-        return _events.Where(IsEventMatchingFilter)
-                      .OrderByDescending(e => e.Start.Year > 2000)
-                      .ThenByDescending(e => e.Start)
-                      .ToList();
+        var list = new List<CalendarEventItem>(_events);
+
+        if (_filterCategory == "CANCELLED")
+        {
+            var cancelledRequests = _cachedRentalRequests.Where(r => string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var req in cancelledRequests)
+            {
+                DateTime start = req.EventDate.Date.AddHours(12);
+                DateTime end = req.EventDate.Date.AddHours(17);
+                if (!string.IsNullOrWhiteSpace(req.StartTime) && DateTime.TryParse(req.StartTime, out var ps)) start = req.EventDate.Date.Add(ps.TimeOfDay);
+                if (!string.IsNullOrWhiteSpace(req.EndTime) && DateTime.TryParse(req.EndTime, out var pe)) end = req.EventDate.Date.Add(pe.TimeOfDay);
+
+                list.Add(new CalendarEventItem
+                {
+                    Title = $"CANCELLED: {req.ApplicantName} ({req.EventType ?? "Rental"})",
+                    Start = start,
+                    End = end,
+                    Location = req.RoomSelected ?? "Function Hall",
+                    Source = req.IsTestRecord ? "Sandbox Booking" : "Rental Booking",
+                    Status = "CANCELLED",
+                    ColorCategory = "badge-danger",
+                    Description = $"Applicant: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nAddress: {req.RequesterAddress}\nRoom: {req.RoomSelected}\nGuests: {req.GuestCount}\nTotal: ${req.TotalPrice:N2}"
+                });
+            }
+        }
+
+        return list.Where(IsEventMatchingFilter)
+                   .OrderByDescending(e => e.Start.Year > 2000)
+                   .ThenByDescending(e => e.Start)
+                   .ToList();
     }
 
     private ParsedApplicationData ParseApplicationDetails(CalendarEventItem evt)
@@ -5792,15 +6707,29 @@
         var data = new ParsedApplicationData();
         var desc = evt.Description;
 
-        // Default name from title if available (e.g. "Daniel Fialho (Bar)" -> "Daniel Fialho")
+        // Default name from title if available (e.g. "Helder Silva (Birthday Party)" -> Name: "Helder Silva", EventType: "Birthday Party")
         var cleanTitle = GetCleanTitle(evt);
         if (!string.IsNullOrEmpty(cleanTitle))
         {
-            var parenIndex = cleanTitle.IndexOf('(');
-            data.ApplicantName = parenIndex > 0 ? cleanTitle.Substring(0, parenIndex).Trim() : cleanTitle;
-            if (cleanTitle.Contains("(Bar)", StringComparison.OrdinalIgnoreCase))
+            var parenStart = cleanTitle.IndexOf('(');
+            var parenEnd = cleanTitle.LastIndexOf(')');
+            if (parenStart > 0 && parenEnd > parenStart)
             {
-                data.BarService = "Yes";
+                data.ApplicantName = cleanTitle.Substring(0, parenStart).Trim();
+                var insideParen = cleanTitle.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
+                
+                if (insideParen.Equals("Bar", StringComparison.OrdinalIgnoreCase))
+                {
+                    data.BarService = "Yes";
+                }
+                else if (string.IsNullOrEmpty(data.EventType))
+                {
+                    data.EventType = insideParen;
+                }
+            }
+            else
+            {
+                data.ApplicantName = cleanTitle;
             }
         }
 

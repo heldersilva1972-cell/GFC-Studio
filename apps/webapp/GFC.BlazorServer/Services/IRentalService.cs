@@ -41,6 +41,7 @@ namespace GFC.BlazorServer.Services
         // Simulation & Test Record Management
         Task<int> CleanupTestRecordsAsync();
         Task<HallRentalRequest> SubmitPublicRentalRequestAsync(HallRentalRequest request, bool isTest = false);
+        Task<(bool HasConflict, string? ConflictReason)> ValidateTimeSlotConflictAsync(DateTime date, string? startTime, string? endTime, string? roomName = null);
     }
 }
 

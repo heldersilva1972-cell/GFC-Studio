@@ -77,6 +77,8 @@ namespace GFC.BlazorServer.Services
                                 case "rentalformsuccessmessage": settings.RentalFormSuccessMessage = val?.ToString() ?? ""; break;
                                 case "showaddressfield": settings.ShowAddressField = Convert.ToBoolean(val); break;
                                 case "showguestcountfield": settings.ShowGuestCountField = Convert.ToBoolean(val); break;
+                                case "showalternatedatefield": settings.ShowAlternateDateField = Convert.ToBoolean(val); break;
+                                case "requirealternatedate": settings.RequireAlternateDate = Convert.ToBoolean(val); break;
                                 case "requireapplicantname": settings.RequireApplicantName = Convert.ToBoolean(val); break;
                                 case "requireemail": settings.RequireEmail = Convert.ToBoolean(val); break;
                                 case "requirephone": settings.RequirePhone = Convert.ToBoolean(val); break;
@@ -136,6 +138,8 @@ namespace GFC.BlazorServer.Services
                                 case "rentalpolicyurl": settings.RentalPolicyUrl = val?.ToString() ?? ""; break;
                                 case "rentalpaymentwindownotice": settings.RentalPaymentWindowNotice = val?.ToString() ?? ""; break;
                                 case "policiesjson": settings.PoliciesJson = val?.ToString(); break;
+                                case "uselegacypricingengine": settings.UseLegacyPricingEngine = Convert.ToBoolean(val); break;
+                                case "tiercardsjson": settings.TierCardsJson = val?.ToString(); break;
                                 case "seotitle": settings.SeoTitle = val?.ToString() ?? ""; break;
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
@@ -231,6 +235,8 @@ namespace GFC.BlazorServer.Services
                             [RentalFormSuccessMessage] = @p23,
                             [ShowAddressField] = @p24,
                             [ShowGuestCountField] = @p25,
+                            [ShowAlternateDateField] = @p66,
+                            [RequireAlternateDate] = @p67,
                             [EnableSandboxMode] = @p26,
                             [SandboxCalendarName] = @p27,
                             [SandboxTestEmail] = @p28,
@@ -267,7 +273,9 @@ namespace GFC.BlazorServer.Services
                             [RentalKitchenPolicyText] = @p60,
                             [RentalPolicyUrl] = @p61,
                             [RentalPaymentWindowNotice] = @p62,
-                            [PoliciesJson] = @p63
+                            [PoliciesJson] = @p63,
+                            [UseLegacyPricingEngine] = @p64,
+                            [TierCardsJson] = @p65
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -291,18 +299,20 @@ namespace GFC.BlazorServer.Services
                             [RentalEmailProvider], [RentalSmtpHost], [RentalSmtpPort], [RentalSmtpUsername],
                             [RentalSmtpPassword], [RentalSmtpEnableSsl], [RentalResendApiKey], [RentalSenderEmail],
                             [RentalSenderName], [RentalEmailCc],
+                            [ShowAlternateDateField], [RequireAlternateDate],
                             [RequireApplicantName], [RequireEmail], [RequirePhone], [RequireAddress], [RequireEventType], [RequireGuestCount],
                             [AllowAdditionalHours],
                             [RentalTermsAndConditionsText], [RentalCancellationPolicyText], [RentalKitchenPolicyText], [RentalPolicyUrl], [RentalPaymentWindowNotice],
-                            [PoliciesJson]
+                            [PoliciesJson], [UseLegacyPricingEngine], [TierCardsJson]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
                             @p30, @p31, @p32, @p33, @p34, @p35, @p36, 1, 0, 0, 0, @p38, @p39, @p40,
                             @p41, @p42, @p43, @p44, @p45, @p46, @p47, @p48, @p49, @p50,
+                            @p66, @p67,
                             @p51, @p52, @p53, @p54, @p55, @p56, @p57,
                             @p58, @p59, @p60, @p61, @p62,
-                            @p63
+                            @p63, @p64, @p65
                         );
                     END";
 
@@ -371,7 +381,11 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p60", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalKitchenPolicyText ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p61", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalPolicyUrl ?? "https://gloucesterfraternityclub.com/hall-rentals/hall-rental-policy/" },
                     new Microsoft.Data.SqlClient.SqlParameter("@p62", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalPaymentWindowNotice ?? "After electronically signing this application, and once your date is approved by the Gloucester Fraternity Club (GFC), you will have two (2) business days to complete payment to reserve your date." },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p63", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PoliciesJson ?? DBNull.Value }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p63", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PoliciesJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p64", System.Data.SqlDbType.Bit) { Value = settings.UseLegacyPricingEngine },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p65", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.TierCardsJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p66", System.Data.SqlDbType.Bit) { Value = settings.ShowAlternateDateField },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p67", System.Data.SqlDbType.Bit) { Value = settings.RequireAlternateDate }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -507,6 +521,12 @@ namespace GFC.BlazorServer.Services
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ShowGuestCountField')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [ShowGuestCountField] BIT NOT NULL DEFAULT 1;
 
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ShowAlternateDateField')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ShowAlternateDateField] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RequireAlternateDate')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [RequireAlternateDate] BIT NOT NULL DEFAULT 0;
+
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RequireApplicantName')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [RequireApplicantName] BIT NOT NULL DEFAULT 1;
 
@@ -635,6 +655,12 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SeoKeywords')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [SeoKeywords] NVARCHAR(1000) NULL DEFAULT '';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'UseLegacyPricingEngine')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [UseLegacyPricingEngine] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'TierCardsJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [TierCardsJson] NVARCHAR(MAX) NULL;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

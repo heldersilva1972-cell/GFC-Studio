@@ -39,6 +39,11 @@ namespace GFC.Core.Models
         // Dynamic Rooms & Add-on Services JSON Storage
         public string? RoomsJson { get; set; }
         public string? AddonsJson { get; set; }
+        public string? PricingGuideJson { get; set; }
+
+        // Master Engine Mode (True = Legacy, False = Matrix Tier Engine)
+        public bool UseLegacyPricingEngine { get; set; } = true;
+        public string? TierCardsJson { get; set; }
 
         // Form Customization & Content
         public string RentalFormTitle { get; set; } = "Hall Rental Application";
@@ -48,6 +53,8 @@ namespace GFC.Core.Models
         public string RentalFormSuccessMessage { get; set; } = "Your rental request has been received and added to our calendar as Pending. The Hall Rental Committee will review your date and reach out to you directly to confirm booking.";
         public bool ShowAddressField { get; set; } = true;
         public bool ShowGuestCountField { get; set; } = true;
+        public bool ShowAlternateDateField { get; set; } = true;
+        public bool RequireAlternateDate { get; set; } = false;
 
         // Dedicated Policies & Agreements
         public string RentalTermsAndConditionsText { get; set; } = @"The person executing this agreement expressly represents that he or she is TWENTY-ONE (21) years of age or older.
@@ -132,7 +139,7 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public string RentalSenderName { get; set; } = "Gloucester Fraternity Club - Hall Rentals";
         public string? RentalEmailCc { get; set; }
 
-        // Customizable Outgoing Response / Auto-Responder Email
+        // Customizable Outgoing Response / Auto-Responder Email (On Application Submission)
         public string ApplicantConfirmationEmailSubject { get; set; } = "Your Hall Rental Application Confirmation - {ClubName}";
         public string ApplicantConfirmationEmailBody { get; set; } = @"Hello {ApplicantName},
 
@@ -150,6 +157,91 @@ If you have any questions, please contact us at {ClubPhone}.
 
 Warm regards,
 {ClubName} Hall Rental Committee";
+
+        // Booking Approved & Calendar Confirmed Email
+        public bool SendBookingApprovalEmail { get; set; } = true;
+        public string BookingApprovalEmailSubject { get; set; } = "Booking Approved & Reserved - {ClubName} Hall Rental";
+        public string BookingApprovalEmailBody { get; set; } = @"Dear {ApplicantName},
+
+Great news! Your hall rental application for {ClubName} has been officially approved, and your event date has been confirmed and reserved on our calendar.
+
+Booking Summary:
+- Event Date: {EventDate}
+- Time: {StartTime} - {EndTime}
+- Facility / Room: {RoomSelected}
+- Quoted Rental Amount: ${TotalPrice}
+{DepositDetails}
+
+Next Steps & Payment:
+Please submit your required deposit and rental payment within the designated payment window to finalize your booking reservation.
+
+If you have any questions or need to make any adjustments, please contact us at {ClubPhone}.
+
+Warm regards,
+{ClubName} Hall Rental Management";
+
+        // Payment Reminder Email
+        public string PaymentReminderEmailSubject { get; set; } = "Payment Reminder - {ClubName} Hall Rental for {EventDate}";
+        public string PaymentReminderEmailBody { get; set; } = @"Dear {ApplicantName},
+
+This is a friendly reminder regarding your upcoming hall rental booking with {ClubName} on {EventDate}.
+
+Payment Summary:
+- Total Rental Amount: ${TotalPrice}
+- Total Payments Received: ${AmountPaid}
+- Outstanding Balance Due: ${RemainingBalance}
+
+Please remit your outstanding balance as soon as possible to maintain your reserved date. If you have already submitted payment, please disregard this notice.
+
+If you have any questions or need assistance, please contact us at {ClubPhone}.
+
+Warm regards,
+{ClubName} Hall Rental Committee";
+
+        // Predefined Modification Reasons & Admin Notes (JSON)
+        public string? ModificationReasonPresetsJson { get; set; }
+
+        public List<string> GetModificationReasonPresetsList()
+        {
+            if (!string.IsNullOrWhiteSpace(ModificationReasonPresetsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<string>>(ModificationReasonPresetsJson);
+                    if (items != null && items.Any()) return items.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).Distinct(System.StringComparer.OrdinalIgnoreCase).ToList();
+                }
+                catch { }
+            }
+
+            return GetDefaultModificationReasonPresets();
+        }
+
+        public void SetModificationReasonPresetsList(IEnumerable<string> list)
+        {
+            if (list == null)
+            {
+                ModificationReasonPresetsJson = null;
+                return;
+            }
+            var clean = list.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).Distinct(System.StringComparer.OrdinalIgnoreCase).ToList();
+            ModificationReasonPresetsJson = JsonSerializer.Serialize(clean);
+        }
+
+        public static List<string> GetDefaultModificationReasonPresets()
+        {
+            return new List<string>
+            {
+                "Applied member pricing discount",
+                "Adjusted event time slot per applicant request",
+                "Updated room assignment / space capacity",
+                "Added bartender service fee",
+                "Added kitchen usage access fee",
+                "Waived security deposit / fee adjustment",
+                "Applicant updated estimated guest count",
+                "Rescheduled date per committee review",
+                "Custom pricing concession granted by board"
+            };
+        }
 
         // Day-of-Week Rental Schedules & Time Slot Periods (JSON)
         public string? DaySchedulesJson { get; set; }
@@ -330,6 +422,189 @@ Warm regards,
                 defaults[3].Content = RentalKitchenPolicyText;
             }
             return defaults;
+        }
+
+        public RentalPricingGuideModel GetPricingGuideModel()
+        {
+            if (!string.IsNullOrWhiteSpace(PricingGuideJson))
+            {
+                try
+                {
+                    var custom = JsonSerializer.Deserialize<RentalPricingGuideModel>(PricingGuideJson);
+                    if (custom != null) return custom;
+                }
+                catch { }
+            }
+            return RentalPricingGuideModel.CreateDefaultFromSettings(this);
+        }
+
+        public List<PricingTierCardConfig> GetTierCardsList()
+        {
+            if (!string.IsNullOrWhiteSpace(TierCardsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<PricingTierCardConfig>>(TierCardsJson);
+                    if (items != null && items.Count > 0) return items;
+                }
+                catch { }
+            }
+            return PricingTierDefaults.GetDefaultTierCards();
+        }
+    }
+
+    public class PricingTierCardConfig
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Title { get; set; } = "Non-Members";
+        public string Subtitle { get; set; } = "Standard Private Event Rates";
+        public string AssociatedRenterType { get; set; } = "Non-Member"; // "Non-Member", "Member", "NonProfit", "Custom"
+        public string ThemeColor { get; set; } = "#0d6efd"; // Blue, Green, Amber, etc.
+        public bool IsEnabled { get; set; } = true;
+        
+        // Individual Day Rates
+        public decimal MondayRate { get; set; } = 350;
+        public decimal TuesdayRate { get; set; } = 350;
+        public decimal WednesdayRate { get; set; } = 350;
+        public decimal ThursdayRate { get; set; } = 350;
+        public decimal FridayRate { get; set; } = 400;
+        public decimal SaturdayRate { get; set; } = 550;
+        public decimal SundayRate { get; set; } = 450;
+
+        // Individual Day Availability Toggles
+        public bool MondayAvailable { get; set; } = true;
+        public bool TuesdayAvailable { get; set; } = true;
+        public bool WednesdayAvailable { get; set; } = true;
+        public bool ThursdayAvailable { get; set; } = true;
+        public bool FridayAvailable { get; set; } = true;
+        public bool SaturdayAvailable { get; set; } = true;
+        public bool SundayAvailable { get; set; } = true;
+
+        // Backward compatibility helpers for grouped Mon-Thu
+        [System.Text.Json.Serialization.JsonIgnore]
+        public decimal MonThuRate
+        {
+            get => MondayRate;
+            set
+            {
+                MondayRate = value;
+                TuesdayRate = value;
+                WednesdayRate = value;
+                ThursdayRate = value;
+            }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool MonThuAvailable
+        {
+            get => MondayAvailable && TuesdayAvailable && WednesdayAvailable && ThursdayAvailable;
+            set
+            {
+                MondayAvailable = value;
+                TuesdayAvailable = value;
+                WednesdayAvailable = value;
+                ThursdayAvailable = value;
+            }
+        }
+
+        // Dedicated Time Slot Blocks for this Tier (e.g. Afternoon 12pm-5pm, Evening 6pm-11pm)
+        public List<DayScheduleSlotConfig> TimeSlots { get; set; } = new();
+
+        // Subgroups / Special flat lines
+        public List<TierSubGroupItem> SubGroups { get; set; } = new();
+        public string FooterNote { get; set; } = "Standard Booking T&C";
+    }
+
+    public class TierSubGroupItem
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = "Youth Groups";
+        public decimal Rate { get; set; } = 50;
+        public string? Note { get; set; }
+        public bool IsAvailable { get; set; } = true;
+    }
+
+    public static class PricingTierDefaults
+    {
+        public static List<PricingTierCardConfig> GetDefaultTierCards()
+        {
+            return new List<PricingTierCardConfig>
+            {
+                new()
+                {
+                    Id = "tier_nonmember",
+                    Title = "NON-MEMBERS",
+                    Subtitle = "Standard Private Event Rates",
+                    AssociatedRenterType = "Non-Member",
+                    ThemeColor = "#0d6efd",
+                    MondayRate = 350,
+                    TuesdayRate = 350,
+                    WednesdayRate = 350,
+                    ThursdayRate = 350,
+                    FridayRate = 400,
+                    SaturdayRate = 550,
+                    SundayRate = 450,
+                    MondayAvailable = true,
+                    TuesdayAvailable = true,
+                    WednesdayAvailable = true,
+                    ThursdayAvailable = true,
+                    FridayAvailable = true,
+                    SaturdayAvailable = true,
+                    SundayAvailable = true,
+                    FooterNote = "Standard Booking T&C"
+                },
+                new()
+                {
+                    Id = "tier_member",
+                    Title = "MEMBERS",
+                    Subtitle = "Member Discount ($100 Savings)",
+                    AssociatedRenterType = "Member",
+                    ThemeColor = "#198754",
+                    MondayRate = 250,
+                    TuesdayRate = 250,
+                    WednesdayRate = 250,
+                    ThursdayRate = 250,
+                    FridayRate = 300,
+                    SaturdayRate = 450,
+                    SundayRate = 350,
+                    MondayAvailable = true,
+                    TuesdayAvailable = true,
+                    WednesdayAvailable = true,
+                    ThursdayAvailable = true,
+                    FridayAvailable = true,
+                    SaturdayAvailable = true,
+                    SundayAvailable = true,
+                    FooterNote = "Save $100 across every time slot"
+                },
+                new()
+                {
+                    Id = "tier_nonprofit",
+                    Title = "NON-PROFITS",
+                    Subtitle = "Charitable Causes & Community Groups",
+                    AssociatedRenterType = "NonProfit",
+                    ThemeColor = "#d97706",
+                    MondayRate = 100,
+                    TuesdayRate = 100,
+                    WednesdayRate = 100,
+                    ThursdayRate = 100,
+                    FridayRate = 200,
+                    SaturdayRate = 200,
+                    SundayRate = 200,
+                    MondayAvailable = true,
+                    TuesdayAvailable = true,
+                    WednesdayAvailable = true,
+                    ThursdayAvailable = true,
+                    FridayAvailable = true,
+                    SaturdayAvailable = true,
+                    SundayAvailable = true,
+                    SubGroups = new List<TierSubGroupItem>
+                    {
+                        new() { Name = "Youth Groups", Rate = 50, IsAvailable = true },
+                        new() { Name = "Local Causes", Rate = 0, Note = "*Fee waiver option", IsAvailable = true }
+                    },
+                    FooterNote = "*Fee waiver option for approved causes"
+                }
+            };
         }
     }
 

@@ -111,6 +111,13 @@ namespace GFC.BlazorServer.Controllers
                 if (request.EventDate.Year < 1753) request.EventDate = DateTime.UtcNow;
                 if (request.RequestedDate.Year < 1753) request.RequestedDate = DateTime.UtcNow;
 
+                // Server-side Calendar & Time-Slot Conflict Validation
+                var conflictCheck = await _rentalService.ValidateTimeSlotConflictAsync(request.EventDate, request.StartTime, request.EndTime, request.RoomSelected);
+                if (conflictCheck.HasConflict)
+                {
+                    return BadRequest(new { message = conflictCheck.ConflictReason ?? "The selected date or time slot is already booked or unavailable." });
+                }
+
                 // Final submission to Database
                 await _rentalService.CreateRentalRequestAsync(request);
 

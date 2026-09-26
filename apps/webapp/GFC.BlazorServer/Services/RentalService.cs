@@ -781,7 +781,17 @@ namespace GFC.BlazorServer.Services
                             .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
                             .Replace("{ClubName}", "Gloucester Fraternity Club");
 
-                        await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, body, settings.RentalEmailCc);
+                        var sendResult = await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, body, settings.RentalEmailCc);
+                        if (sendResult.Success)
+                        {
+                            var sbLog = new System.Text.StringBuilder();
+                            sbLog.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by System / Online Submission]");
+                            sbLog.AppendLine($"📧 Email Sent: Application Submission Confirmation");
+                            sbLog.AppendLine($"• Recipient: {targetEmail}");
+                            sbLog.AppendLine($"• Subject: {subject}");
+                            sbLog.AppendLine();
+                            request.InternalNotes = (sbLog.ToString() + (request.InternalNotes ?? "")).Trim();
+                        }
                     }
 
                     // 2. Send Staff Notification Alert (if enabled)
@@ -819,6 +829,13 @@ namespace GFC.BlazorServer.Services
                             }
                         }
                     }
+
+                    // Save any updated audit notes from the email dispatching
+                    if (!string.IsNullOrWhiteSpace(request.InternalNotes) && request.Id > 0)
+                    {
+                        context.HallRentalRequests.Update(request);
+                        await context.SaveChangesAsync();
+                    }
                 }
             }
             catch (Exception ex)
@@ -827,6 +844,141 @@ namespace GFC.BlazorServer.Services
             }
 
             return request;
+        }
+
+        public async Task<(bool HasConflict, string? ConflictReason)> ValidateTimeSlotConflictAsync(DateTime date, string? startTime, string? endTime, string? roomName = null)
+        {
+            try
+            {
+                var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                var dayConfigs = settings?.GetDaySchedulesList();
+                var dayConfig = dayConfigs?.FirstOrDefault(d => d.DayOfWeek == date.DayOfWeek);
+
+                // 1. Check if day of week is closed
+                if (settings?.UseLegacyPricingEngine == false)
+                {
+                    var tierCards = settings.GetTierCardsList();
+                    var dayOfWeek = date.DayOfWeek;
+                    bool isAnyTierAvailableOnDay = tierCards.Any(c => c.IsEnabled && (
+                        dayOfWeek == DayOfWeek.Monday ? c.MondayAvailable :
+                        dayOfWeek == DayOfWeek.Tuesday ? c.TuesdayAvailable :
+                        dayOfWeek == DayOfWeek.Wednesday ? c.WednesdayAvailable :
+                        dayOfWeek == DayOfWeek.Thursday ? c.ThursdayAvailable :
+                        dayOfWeek == DayOfWeek.Friday ? c.FridayAvailable :
+                        dayOfWeek == DayOfWeek.Saturday ? c.SaturdayAvailable :
+                        dayOfWeek == DayOfWeek.Sunday ? c.SundayAvailable : false
+                    ));
+
+                    if (!isAnyTierAvailableOnDay)
+                    {
+                        return (true, $"The club is closed / unavailable for private rentals on {date:dddd}s.");
+                    }
+                }
+                else if (dayConfig != null && !dayConfig.IsAvailable)
+                {
+                    return (true, $"The club is closed / unavailable for private rentals on {date:dddd}s.");
+                }
+
+                // 2. Check allowed rooms for day if roomName is provided
+                if (settings?.UseLegacyPricingEngine != false && !string.IsNullOrWhiteSpace(roomName) && dayConfig != null && dayConfig.AllowedRoomNames != null && dayConfig.AllowedRoomNames.Count > 0)
+                {
+                    if (dayConfig.AllowedRoomNames.Contains("__NONE__") || !dayConfig.AllowedRoomNames.Contains(roomName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        return (true, $"The space '{roomName}' is not available for rental on {date:dddd}s.");
+                    }
+                }
+
+                // 3. Fetch unavailable dates from local database
+                var unavailable = await GetUnavailableDatesAsync();
+                var dayEvents = unavailable.Where(u => u.Date.Date == date.Date).ToList();
+
+                // 4. Also fetch active Google Calendar events if configured
+                try
+                {
+                    if (_googleCalendarService != null)
+                    {
+                        var gCalSettings = await _googleCalendarService.GetSettingsAsync();
+                        var externalEvents = await _googleCalendarService.FetchAllFeedsAsync(gCalSettings);
+                        foreach (var ev in externalEvents.Where(e => e.Start.Date == date.Date))
+                        {
+                            dayEvents.Add(new UnavailableDateDto
+                            {
+                                Date = ev.Start.Date,
+                                Status = "Booked",
+                                EventType = !string.IsNullOrWhiteSpace(ev.Title) ? ev.Title : (ev.Description ?? "Google Calendar Event"),
+                                EventTime = ev.IsAllDay ? null : $"{ev.Start:hh:mm tt} - {ev.End:hh:mm tt}"
+                            });
+                        }
+                    }
+                }
+                catch { }
+
+                if (!dayEvents.Any())
+                {
+                    return (false, null);
+                }
+
+                // Full-day blackout / event checks
+                var fullDayBlock = dayEvents.FirstOrDefault(e => string.IsNullOrWhiteSpace(e.EventTime));
+                if (fullDayBlock != null)
+                {
+                    return (true, $"The entire day is already booked or blacked out for '{fullDayBlock.EventType ?? "Private Event"}'.");
+                }
+
+                // Time interval checks
+                var startMin = ParseTimeToMinutes(startTime);
+                var endMin = ParseTimeToMinutes(endTime);
+
+                if (startMin >= 0 && endMin > startMin)
+                {
+                    foreach (var ev in dayEvents)
+                    {
+                        if (string.IsNullOrWhiteSpace(ev.EventTime))
+                        {
+                            return (true, $"Date conflict with existing event: {ev.EventType ?? "Private Event"}.");
+                        }
+
+                        var parts = ev.EventTime.Split('-', StringSplitOptions.TrimEntries);
+                        if (parts.Length == 2)
+                        {
+                            var evStart = ParseTimeToMinutes(parts[0]);
+                            var evEnd = ParseTimeToMinutes(parts[1]);
+
+                            if (evStart >= 0 && evEnd >= 0 && startMin < evEnd && endMin > evStart)
+                            {
+                                return (true, $"Time slot ({startTime} - {endTime}) overlaps with existing event ({ev.EventTime}: {ev.EventType ?? "Reserved"}).");
+                            }
+                        }
+                        else
+                        {
+                            return (true, $"Date is reserved for existing event: {ev.EventType ?? "Reserved"}.");
+                        }
+                    }
+                }
+
+                return (false, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, null);
+            }
+        }
+
+        private static int ParseTimeToMinutes(string? timeStr)
+        {
+            if (string.IsNullOrWhiteSpace(timeStr)) return -1;
+            timeStr = timeStr.Trim();
+
+            if (timeStr.Equals("12:00 Midnight", StringComparison.OrdinalIgnoreCase))
+            {
+                return 24 * 60;
+            }
+
+            if (DateTime.TryParse(timeStr, out var dt))
+            {
+                return dt.Hour * 60 + dt.Minute;
+            }
+            return -1;
         }
     }
 }

@@ -33,6 +33,9 @@ namespace GFC.Core.Models
         public string DisplayMode { get; set; } = "Always"; // "Always", "AddonTriggered", "QuestionTriggered", "Hidden"
         public string? AssociatedAddonId { get; set; } // e.g., "addon_bar", "addon_kitchen"
         public string? PromptQuestion { get; set; } // Question asked to applicant (e.g. "Do you require setup time prior to your event start time listed above?")
+        public bool ShowExtraNoteOnYes { get; set; } = true; // Toggle whether to display any extra notice on Yes
+        public string? ExtraNoteOnYes { get; set; } // Additional text shown when 'Yes' is selected
+        public bool HighlightOnYes { get; set; } = true; // Whether the extra note / banner should be highlighted with amber/yellow callout
         public bool IsRequired { get; set; } = true;
     }
 
@@ -156,7 +159,9 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
                     Id = "policy_setup",
                     Title = "Event Setup & Takedown Policy",
                     PromptQuestion = "Do you require setup time prior to your event start time listed above?",
-                    Content = "Please note: The hall will be empty upon your arrival. Tables and chairs are available for your use, but setup and takedown are the responsibility of the renter. The hall must be returned to its original clean and empty condition at the end of your rental. Extra setup time is subject to availability; we will contact you to review details and confirm what's possible.",
+                    Content = "Please note: The hall will be empty upon your arrival. Tables and chairs are available for your use, but setup and takedown are the responsibility of the renter. The hall must be returned to its original clean and empty condition at the end of your rental.",
+                    ExtraNoteOnYes = "Extra setup time is subject to availability; we will contact you to review details and confirm what's possible.",
+                    HighlightOnYes = true,
                     CheckboxLabel = "I have read, understand, and agree to the setup and takedown policy above *",
                     DisplayMode = "QuestionTriggered",
                     AssociatedAddonId = null,

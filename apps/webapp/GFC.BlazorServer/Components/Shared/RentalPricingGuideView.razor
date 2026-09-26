@@ -1,0 +1,601 @@
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+
+<div class="pricing-guide-view-wrapper @(IsPrintMode ? "print-mode" : "")">
+    <!-- TOP TOOLBAR (Hidden during direct print) -->
+    @if (!HideToolbar)
+    {
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 p-3 bg-white rounded-4 border shadow-sm no-print">
+            <!-- Mode Switcher -->
+            <div class="d-flex align-items-center gap-2">
+                <span class="fw-bold small text-dark me-1"><i class="bi bi-layers-half text-primary me-1"></i>Guide Mode:</span>
+                <div class="btn-group btn-group-sm shadow-sm" role="group">
+                    <button type="button" class="btn @(ActiveMode == "live" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => SetMode("live")'>
+                        <i class="bi bi-arrow-repeat me-1"></i>Live Settings Rates
+                    </button>
+                    <button type="button" class="btn @(ActiveMode == "custom" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => SetMode("custom")'>
+                        <i class="bi bi-pencil-square me-1"></i>Custom / Proposal Rates
+                    </button>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                @if (ActiveMode == "custom")
+                {
+                    @if (IsEditing)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-info d-flex align-items-center gap-1 shadow-sm" @onclick="CopyFromLiveSettings" title="Populate from Current Settings">
+                            <i class="bi bi-box-arrow-in-down"></i>
+                            <span>Copy Live Settings</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1 shadow-sm" @onclick="LoadSample2027" title="Load 2027 Sample Rates">
+                            <i class="bi bi-magic"></i>
+                            <span>Load 2027 Sample</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-success d-flex align-items-center gap-1 shadow-sm fw-bold px-3" @onclick="SaveCustomGuide" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle"></i>
+                                <span>Save Changes</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleEdit">
+                            <span>Done Editing</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary d-flex align-items-center gap-1 shadow-sm fw-semibold" @onclick="ToggleEdit">
+                            <i class="bi bi-pencil"></i>
+                            <span>Edit &amp; Rename Everything</span>
+                        </button>
+                    }
+                }
+                else
+                {
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 small">
+                        <i class="bi bi-check-circle me-1"></i>Auto-Synchronized with Live Settings
+                    </span>
+                }
+
+                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 shadow-sm" @onclick="TriggerPrint">
+                    <i class="bi bi-printer"></i>
+                    <span>Print / Save PDF</span>
+                </button>
+
+                @if (ShowFullPageLink)
+                {
+                    <a href="/hall-rentals/pricing-guide" target="_blank" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 shadow-sm" title="Open Full Page">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                        <span>Open Full Page</span>
+                    </a>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- MAIN PRICING GUIDE CONTAINER (PIXEL-PERFECT RECREATION OF 1790348307839.png) -->
+    <div class="pricing-guide-sheet bg-white rounded-4 border p-4 shadow-sm mx-auto position-relative" style="max-width: 920px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #fafbfc;">
+        
+        <!-- 1. LIGHT HEADER BANNER -->
+        <div class="guide-header text-center mb-4 p-3 rounded-4 border" style="background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+            @if (IsEditing && ActiveMode == "custom")
+            {
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-1 fw-bold">Guide Title</label>
+                    <input type="text" class="form-control form-control-lg text-center fw-bold text-dark border-primary" @bind="ActiveModel.HeaderTitle" placeholder="PROPOSED 2027 EVENT PRICING GUIDE" />
+                </div>
+                <div>
+                    <label class="form-label small text-muted mb-1 fw-bold">Subtitle Categories</label>
+                    <input type="text" class="form-control text-center text-muted border-primary" @bind="ActiveModel.HeaderSubtitle" placeholder="Private Rentals • Member Pricing • Community Rates • Bar & Add-On Services" />
+                </div>
+            }
+            else
+            {
+                <h3 class="fw-bolder mb-1 text-dark text-uppercase tracking-wider" style="letter-spacing: 0.06em; font-size: 1.35rem;">@ActiveModel.HeaderTitle</h3>
+                <div class="text-secondary small fw-medium" style="font-size: 0.85rem; letter-spacing: 0.02em;">@ActiveModel.HeaderSubtitle</div>
+            }
+        </div>
+
+        <!-- 2. TOP 3 TIER CARDS GRID -->
+        <div class="row g-3 mb-4">
+            @for (int i = 0; i < ActiveModel.TierCards.Count; i++)
+            {
+                var cardIndex = i;
+                var card = ActiveModel.TierCards[cardIndex];
+                var headerBg = card.ThemeColor switch
+                {
+                    "primary" => "background: #dbeafe; color: #1e40af; border-bottom: 1px solid #bfdbfe;",
+                    "success" => "background: #d1fae5; color: #065f46; border-bottom: 1px solid #a7f3d0;",
+                    "warning" => "background: #fef3c7; color: #92400e; border-bottom: 1px solid #fde68a;",
+                    _ => "background: #f1f5f9; color: #334155; border-bottom: 1px solid #e2e8f0;"
+                };
+                var priceColor = card.ThemeColor switch
+                {
+                    "primary" => "color: #2563eb;",
+                    "success" => "color: #059669;",
+                    "warning" => "color: #d97706;",
+                    _ => "color: #1e293b;"
+                };
+
+                <div class="col-md-4">
+                    <div class="card h-100 border rounded-4 shadow-sm overflow-hidden d-flex flex-column" style="background: #ffffff; border-color: #e2e8f0 !important;">
+                        <!-- Header -->
+                        <div class="p-3 text-center" style="@headerBg">
+                            @if (IsEditing && ActiveMode == "custom")
+                            {
+                                <input type="text" class="form-control form-control-sm text-center fw-bold mb-1" @bind="card.Title" placeholder="Card Title" />
+                                <input type="text" class="form-control form-control-sm text-center small text-muted" @bind="card.Subtitle" placeholder="Subtitle" />
+                            }
+                            else
+                            {
+                                <h6 class="fw-bolder mb-0 text-uppercase" style="letter-spacing: 0.05em; font-size: 0.95rem;">@card.Title</h6>
+                                <div class="small mt-1 text-muted" style="font-size: 0.78rem;">@card.Subtitle</div>
+                            }
+                        </div>
+
+                        <!-- Rows with distinct rounded pill boxes like image -->
+                        <div class="p-3 flex-grow-1 d-flex flex-column gap-2" style="background: #fafbfc;">
+                            @for (int j = 0; j < card.Items.Count; j++)
+                            {
+                                var itemIndex = j;
+                                var item = card.Items[itemIndex];
+                                <div class="d-flex justify-content-between align-items-center px-3 py-2 rounded-3 border bg-white shadow-xs" style="border-color: #e2e8f0 !important;">
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bold me-2 p-0" @bind="item.Label" placeholder="Day / Slot" />
+                                        <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bolder text-end p-0" style="max-width: 90px; @priceColor" @bind="item.PriceText" placeholder="$0" />
+                                    }
+                                    else
+                                    {
+                                        <span class="fw-bold text-dark" style="font-size: 0.88rem;">@item.Label</span>
+                                        <span class="fw-bolder fs-6" style="@priceColor">@item.PriceText</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Footer Note -->
+                        <div class="p-2 text-center border-top bg-white mt-auto" style="border-color: #f1f5f9 !important;">
+                            @if (IsEditing && ActiveMode == "custom")
+                            {
+                                <input type="text" class="form-control form-control-sm text-center text-muted" @bind="card.FooterNote" placeholder="Footer Note" />
+                            }
+                            else
+                            {
+                                <span class="text-muted small" style="font-size: 0.75rem;">@card.FooterNote</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- 3. RATE COMPARISON HORIZONTAL BAR CHART (EXACT MATCH TO 1790348307839.png) -->
+        <div class="card border rounded-4 p-4 mb-4 shadow-sm bg-white" style="border-color: #e2e8f0 !important;">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 border-bottom pb-2">
+                @if (IsEditing && ActiveMode == "custom")
+                {
+                    <input type="text" class="form-control form-control-sm fw-bold text-dark border-primary" style="max-width: 420px;" @bind="ActiveModel.ChartTitle" placeholder="Chart Title" />
+                }
+                else
+                {
+                    <h6 class="fw-bolder text-dark mb-0 text-uppercase" style="letter-spacing: 0.04em; font-size: 0.88rem;">@ActiveModel.ChartTitle</h6>
+                }
+
+                <!-- Chart Legend (Blue, Green, Amber) -->
+                <div class="d-flex align-items-center gap-3">
+                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #2563eb; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Non-Member</span></span>
+                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #0f766e; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Member</span></span>
+                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #d97706; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Non-Profit</span></span>
+                </div>
+            </div>
+
+            <!-- Comparison Chart with Grid Lines like Reference Picture -->
+            <div class="chart-comparison-wrapper position-relative py-2">
+                <div class="d-flex flex-column gap-3">
+                    @foreach (var row in ActiveModel.ChartRows)
+                    {
+                        var maxVal = 700m;
+                        var nonMemberPct = Math.Min(100, Math.Max(2, (row.NonMemberAmount / maxVal) * 100));
+                        var memberPct = Math.Min(100, Math.Max(2, (row.MemberAmount / maxVal) * 100));
+                        var nonProfitPct = Math.Min(100, Math.Max(2, (row.NonProfitAmount / maxVal) * 100));
+
+                        <div class="d-flex align-items-center">
+                            <!-- Y-Axis Label -->
+                            <div class="fw-bold text-dark" style="width: 140px; min-width: 140px; font-size: 0.88rem;">
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <input type="text" class="form-control form-control-sm" @bind="row.DayLabel" />
+                                }
+                                else
+                                {
+                                    <span>@row.DayLabel</span>
+                                }
+                            </div>
+
+                            <!-- Horizontal Grid Area with 3 Bars & Values placed outside bar -->
+                            <div class="flex-grow-1 position-relative" style="border-left: 2px solid #94a3b8; border-bottom: 1px solid #e2e8f0; padding: 4px 0 4px 6px;">
+                                <!-- Non-Member Bar -->
+                                <div class="d-flex align-items-center mb-1">
+                                    <div style="width: @nonMemberPct.ToString("F1")%; height: 14px; background: #2563eb; border-radius: 2px;"></div>
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-primary fw-bold" style="width: 70px;" @bind="row.NonMemberAmount" />
+                                    }
+                                    else
+                                    {
+                                        <span class="ms-2 fw-bold small text-primary" style="font-size: 0.78rem;">$@row.NonMemberAmount:N0</span>
+                                    }
+                                </div>
+
+                                <!-- Member Bar -->
+                                <div class="d-flex align-items-center mb-1">
+                                    <div style="width: @memberPct.ToString("F1")%; height: 14px; background: #0f766e; border-radius: 2px;"></div>
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-success fw-bold" style="width: 70px;" @bind="row.MemberAmount" />
+                                    }
+                                    else
+                                    {
+                                        <span class="ms-2 fw-bold small" style="color: #0f766e; font-size: 0.78rem;">$@row.MemberAmount:N0</span>
+                                    }
+                                </div>
+
+                                <!-- Non-Profit Bar -->
+                                <div class="d-flex align-items-center">
+                                    <div style="width: @nonProfitPct.ToString("F1")%; height: 14px; background: #d97706; border-radius: 2px;"></div>
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-warning-emphasis fw-bold" style="width: 70px;" @bind="row.NonProfitAmount" />
+                                    }
+                                    else
+                                    {
+                                        <span class="ms-2 fw-bold small" style="color: #d97706; font-size: 0.78rem;">$@row.NonProfitAmount:N0</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- X-Axis Scale Baseline (0 - 700) -->
+                <div class="d-flex justify-content-between mt-1 text-muted small" style="margin-left: 140px; font-size: 0.72rem; padding-left: 6px;">
+                    <span>0</span>
+                    <span>100</span>
+                    <span>300</span>
+                    <span>500</span>
+                    <span>700</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. BOTTOM ADDON SERVICES (2 COLUMNS MATCHING REFERENCE PICTURE) -->
+        <div class="row g-3">
+            <!-- Left: Bar Service Options (Soft Cream / Amber Accent) -->
+            <div class="col-md-6">
+                <div class="card h-100 border rounded-4 p-3 shadow-sm bg-white d-flex flex-column" style="border-color: #fde68a !important; background: #ffffff;">
+                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                        @if (IsEditing && ActiveMode == "custom")
+                        {
+                            <input type="text" class="form-control form-control-sm fw-bold text-danger" @bind="ActiveModel.BottomLeftSection.Title" placeholder="Section Title" />
+                        }
+                        else
+                        {
+                            <h6 class="fw-bolder mb-0 text-uppercase" style="color: #881337; letter-spacing: 0.04em; font-size: 0.85rem;">
+                                @ActiveModel.BottomLeftSection.Title
+                            </h6>
+                        }
+                    </div>
+
+                    <div class="d-flex flex-column gap-2 flex-grow-1">
+                        @foreach (var item in ActiveModel.BottomLeftSection.Items)
+                        {
+                            <div class="p-2 rounded-3 border d-flex justify-content-between align-items-center gap-2" style="background: #fffbeb; border-color: #fef3c7 !important;">
+                                <div class="flex-grow-1">
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
+                                        <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
+                                    }
+                                    else
+                                    {
+                                        <div class="fw-bold text-dark" style="font-size: 0.82rem;">@item.Name</div>
+                                        <div class="text-muted small" style="font-size: 0.73rem;">@item.Description</div>
+                                    }
+                                </div>
+                                <div class="text-end" style="min-width: 95px;">
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="text" class="form-control form-control-sm text-end fw-bold text-danger" @bind="item.FeeBadgeText" placeholder="Fee" />
+                                    }
+                                    else
+                                    {
+                                        <span class="fw-bolder" style="color: #b91c1c; font-size: 0.85rem;">@item.FeeBadgeText</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Additional Services (Soft Green / Mint Accent) -->
+            <div class="col-md-6">
+                <div class="card h-100 border rounded-4 p-3 shadow-sm bg-white d-flex flex-column" style="border-color: #bbf7d0 !important; background: #ffffff;">
+                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                        @if (IsEditing && ActiveMode == "custom")
+                        {
+                            <input type="text" class="form-control form-control-sm fw-bold text-success" @bind="ActiveModel.BottomRightSection.Title" placeholder="Section Title" />
+                        }
+                        else
+                        {
+                            <h6 class="fw-bolder mb-0 text-uppercase" style="color: #065f46; letter-spacing: 0.04em; font-size: 0.85rem;">
+                                @ActiveModel.BottomRightSection.Title
+                            </h6>
+                        }
+                    </div>
+
+                    <div class="d-flex flex-column gap-2 flex-grow-1">
+                        @foreach (var item in ActiveModel.BottomRightSection.Items)
+                        {
+                            <div class="p-2 rounded-3 border d-flex justify-content-between align-items-center gap-2" style="background: #f0fdf4; border-color: #dcfce7 !important;">
+                                <div class="flex-grow-1">
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
+                                        <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
+                                    }
+                                    else
+                                    {
+                                        <div class="fw-bold text-dark" style="font-size: 0.82rem;">@item.Name</div>
+                                        <div class="text-muted small" style="font-size: 0.73rem;">@item.Description</div>
+                                    }
+                                </div>
+                                <div class="text-end" style="min-width: 95px;">
+                                    @if (IsEditing && ActiveMode == "custom")
+                                    {
+                                        <input type="text" class="form-control form-control-sm text-end fw-bold text-success" @bind="item.FeeBadgeText" placeholder="Fee" />
+                                    }
+                                    else
+                                    {
+                                        <span class="fw-bolder text-success" style="font-size: 0.85rem;">@item.FeeBadgeText</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @@page {
+        size: letter portrait;
+        margin: 0.15in 0.25in;
+    }
+
+    @@media print {
+        /* Hide everything by default in print */
+        body * {
+            visibility: hidden !important;
+        }
+
+        /* Show ONLY the pricing sheet and all its descendants */
+        .pricing-guide-sheet,
+        .pricing-guide-sheet * {
+            visibility: visible !important;
+        }
+
+        /* Position the pricing sheet at the absolute top-left of the printed page */
+        .pricing-guide-sheet {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 8px 10px !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 8px !important;
+            box-shadow: none !important;
+            background: #fafbfc !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+        }
+
+        /* Hide all outer containers, navigation, headers, footers, scrollbars, and toolbars */
+        .no-print,
+        .page-header-card,
+        .tabs-nav-card,
+        .bottom-action-bar,
+        .app-topbar,
+        .app-sidebar,
+        nav,
+        header,
+        footer,
+        .modal-header,
+        .modal-backdrop,
+        .btn-close,
+        .sidebar-overlay {
+            display: none !important;
+            visibility: hidden !important;
+        }
+
+        html, body {
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            font-size: 8pt !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        /* Compact sizing to guarantee everything fits on 1 page */
+        .guide-header {
+            padding: 4px 8px !important;
+            margin-bottom: 6px !important;
+            border-radius: 6px !important;
+            background: #ffffff !important;
+        }
+
+        .guide-header h3 {
+            font-size: 1.1rem !important;
+            margin-bottom: 2px !important;
+        }
+
+        .guide-header .text-secondary {
+            font-size: 0.75rem !important;
+        }
+
+        .row.g-3 {
+            --bs-gutter-x: 0.35rem !important;
+            --bs-gutter-y: 0.35rem !important;
+            margin-bottom: 5px !important;
+        }
+
+        .card {
+            border-radius: 6px !important;
+            box-shadow: none !important;
+        }
+
+        .p-3 {
+            padding: 4px 6px !important;
+        }
+
+        .p-4 {
+            padding: 6px 8px !important;
+        }
+
+        .p-2 {
+            padding: 3px 5px !important;
+        }
+
+        .chart-comparison-wrapper {
+            padding: 2px 0 !important;
+        }
+
+        .chart-comparison-wrapper .d-flex.flex-column.gap-3 {
+            gap: 3px !important;
+        }
+
+        .chart-comparison-wrapper input {
+            display: none !important;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public WebsiteSettings? Settings { get; set; }
+    [Parameter] public bool HideToolbar { get; set; } = false;
+    [Parameter] public bool ShowFullPageLink { get; set; } = true;
+    [Parameter] public EventCallback<RentalPricingGuideModel> OnCustomGuideSaved { get; set; }
+
+    private string ActiveMode { get; set; } = "live";
+    private bool IsEditing { get; set; } = false;
+    private bool IsPrintMode { get; set; } = false;
+    private bool _isSaving { get; set; } = false;
+
+    private RentalPricingGuideModel _liveModel = new();
+    private RentalPricingGuideModel _customModel = new();
+
+    private RentalPricingGuideModel ActiveModel => ActiveMode == "live" ? _liveModel : _customModel;
+
+    protected override void OnParametersSet()
+    {
+        RefreshModels();
+    }
+
+    private void RefreshModels()
+    {
+        _liveModel = RentalPricingGuideModel.CreateDefaultFromSettings(Settings);
+
+        if (!string.IsNullOrWhiteSpace(Settings?.PricingGuideJson))
+        {
+            try
+            {
+                var deserialized = JsonSerializer.Deserialize<RentalPricingGuideModel>(Settings.PricingGuideJson);
+                if (deserialized != null)
+                {
+                    _customModel = deserialized;
+                    return;
+                }
+            }
+            catch { }
+        }
+
+        _customModel = RentalPricingGuideModel.CreateSample2027Model();
+    }
+
+    private void SetMode(string mode)
+    {
+        ActiveMode = mode;
+        if (mode == "live")
+        {
+            IsEditing = false;
+        }
+    }
+
+    private void ToggleEdit()
+    {
+        IsEditing = !IsEditing;
+    }
+
+    private void CopyFromLiveSettings()
+    {
+        _customModel = RentalPricingGuideModel.CreateDefaultFromSettings(Settings);
+        ToastService.ShowSuccess("Copied live settings into custom pricing guide!");
+    }
+
+    private void LoadSample2027()
+    {
+        _customModel = RentalPricingGuideModel.CreateSample2027Model();
+        ToastService.ShowSuccess("Loaded 2027 proposal sample rates!");
+    }
+
+    private async Task SaveCustomGuide()
+    {
+        _isSaving = true;
+        try
+        {
+            if (Settings != null)
+            {
+                Settings.PricingGuideJson = JsonSerializer.Serialize(_customModel);
+            }
+            if (OnCustomGuideSaved.HasDelegate)
+            {
+                await OnCustomGuideSaved.InvokeAsync(_customModel);
+            }
+            IsEditing = false;
+            ToastService.ShowSuccess("Custom Pricing Guide saved successfully!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task TriggerPrint()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+}

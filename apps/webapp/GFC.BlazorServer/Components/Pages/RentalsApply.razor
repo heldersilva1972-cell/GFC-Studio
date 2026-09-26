@@ -56,12 +56,14 @@
                         }
                     </div>
                 </div>
-                <p class="small text-muted">
+                <p class="small text-muted mb-4">
                     @(_settings?.RentalFormSuccessMessage ?? "The Hall Rental Committee will review your date and reach out to you directly to confirm booking and arrange deposit payment.")
                 </p>
-                <button class="btn btn-outline-primary px-4 mt-2" @onclick="ResetForm">
-                    <i class="bi bi-plus-circle me-1"></i> Submit Another Application
-                </button>
+                <div class="d-flex justify-content-center gap-2 mt-2">
+                    <a href="https://gloucesterfraternityclub.com" class="btn btn-outline-secondary px-4">
+                        <i class="bi bi-box-arrow-up-right me-1"></i> Return to Main Website
+                    </a>
+                </div>
             </div>
         }
         else
@@ -147,37 +149,108 @@
                                     </div>
                                 }
                                 <div class="col-12">
-                                    <label class="form-label fw-bold small text-dark mb-2"><i class="bi bi-person-badge-fill text-primary me-1"></i>Applicant Membership Status *</label>
-                                    <div class="row g-2">
-                                        <div class="col-12 col-sm-6">
-                                            <div class="p-3 rounded-3 border @(!_request.MemberStatus ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
-                                                 style="cursor: pointer; transition: all 0.2s ease;" 
-                                                 @onclick="() => SetMemberStatus(false)">
-                                                <div class="form-check mb-0 d-flex align-items-center">
-                                                    <input class="form-check-input me-2" type="radio" name="memberRadio" id="nonMember" checked="@(!_request.MemberStatus)" />
-                                                    <div>
-                                                        <label class="form-check-label fw-bold text-dark fs-6" for="nonMember" style="cursor: pointer;">
-                                                             <i class="bi bi-person me-1 text-secondary"></i>Non-Member
-                                                        </label>
+                                    @if (_settings?.UseLegacyPricingEngine == false)
+                                    {
+                                        var activeTierCards = _settings.GetTierCardsList().Where(c => c.IsEnabled).ToList();
+                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-2">
+                                            <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-person-badge-fill text-primary me-1"></i>Select Renter Category / Tier *</label>
+                                            <small class="text-muted" style="font-size: 0.75rem;">👉 Please select an applicant category to see rates and available time slots</small>
+                                        </div>
+
+                                        @if (string.IsNullOrEmpty(_selectedTierCardId))
+                                        {
+                                            <div class="alert alert-warning py-2 px-3 mb-2 rounded-3 border-warning d-flex align-items-center gap-2 small">
+                                                <i class="bi bi-hand-index-thumb-fill text-warning fs-6"></i>
+                                                <span class="fw-semibold">Please select your category below</span>
+                                            </div>
+                                        }
+
+                                        <div class="row g-2">
+                                            @foreach (var card in activeTierCards)
+                                            {
+                                                var isAvailableOnDay = IsCardAvailableForDate(card, _request.EventDate);
+                                                var isCardSelected = _selectedTierCardId == card.Id;
+                                                <div class="col-12 col-md-4">
+                                                    <div class="p-3 rounded-3 border h-100 position-relative @(!isAvailableOnDay ? "bg-light opacity-75 border-secondary-subtle" : isCardSelected ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")"
+                                                         style="@(isAvailableOnDay ? "cursor: pointer;" : "cursor: not-allowed;") transition: all 0.2s ease; border-top: 4px solid @(isAvailableOnDay ? card.ThemeColor : "#adb5bd") !important;"
+                                                         @onclick="() => { if (isAvailableOnDay) SelectTierCard(card); }">
+                                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                                            <div class="form-check mb-0">
+                                                                <input class="form-check-input" type="radio" name="tierCardRadio" checked="@(isCardSelected && isAvailableOnDay)" disabled="@(!isAvailableOnDay)" />
+                                                                <label class="form-check-label fw-bold text-dark fs-6 ms-1 @(!isAvailableOnDay ? "text-muted" : "")" style="@(isAvailableOnDay ? "cursor: pointer;" : "cursor: not-allowed;")">
+                                                                    @card.Title
+                                                                </label>
+                                                            </div>
+                                                            @if (!isAvailableOnDay)
+                                                            {
+                                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0" style="font-size: 0.65rem;">UNAVAILABLE</span>
+                                                            }
+                                                            else if (isCardSelected)
+                                                            {
+                                                                <span class="badge bg-primary text-white rounded-pill px-2 py-0" style="font-size: 0.65rem;">SELECTED</span>
+                                                            }
+                                                        </div>
+                                                        <div class="small text-muted" style="font-size: 0.78rem;">@card.Subtitle</div>
+                                                        @if (!isAvailableOnDay)
+                                                        {
+                                                            <div class="pt-2 border-top mt-2">
+                                                                <span class="badge bg-secondary text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">Unavailable on @(_request.EventDate.ToString("dddd"))s</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Sub-group dropdown if active card has special sub-groups -->
+                                        @if (!string.IsNullOrEmpty(_selectedTierCardId) && activeTierCards.FirstOrDefault(c => c.Id == _selectedTierCardId) is var currentSelectedCard && currentSelectedCard != null && currentSelectedCard.SubGroups.Count > 0)
+                                        {
+                                            <div class="mt-3 p-3 bg-light border rounded-3">
+                                                <label class="form-label fw-bold small text-dark mb-1"><i class="bi bi-diagram-3-fill text-primary me-1"></i>Special Group / Sub-Category (Optional)</label>
+                                                <select class="form-select form-select-sm" value="@_selectedSubGroupId" @onchange="OnSubGroupChanged">
+                                                    <option value="">-- Standard @currentSelectedCard.Title Rate ($@GetCardRateForDate(currentSelectedCard, _request.EventDate)) --</option>
+                                                    @foreach (var sub in currentSelectedCard.SubGroups.Where(s => s.IsAvailable))
+                                                    {
+                                                        <option value="@sub.Id">@sub.Name - $@sub.Rate @(!string.IsNullOrWhiteSpace(sub.Note) ? $"({sub.Note})" : "")</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <label class="form-label fw-bold small text-dark mb-2"><i class="bi bi-person-badge-fill text-primary me-1"></i>Applicant Membership Status *</label>
+                                        <div class="row g-2">
+                                            <div class="col-12 col-sm-6">
+                                                <div class="p-3 rounded-3 border @(!_request.MemberStatus ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
+                                                     style="cursor: pointer; transition: all 0.2s ease;" 
+                                                     @onclick="() => SetMemberStatus(false)">
+                                                    <div class="form-check mb-0 d-flex align-items-center">
+                                                        <input class="form-check-input me-2" type="radio" name="memberRadio" id="nonMember" checked="@(!_request.MemberStatus)" />
+                                                        <div>
+                                                            <label class="form-check-label fw-bold text-dark fs-6" for="nonMember" style="cursor: pointer;">
+                                                                <i class="bi bi-person me-1 text-secondary"></i>Non-Member
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-12 col-sm-6">
+                                                <div class="p-3 rounded-3 border @(_request.MemberStatus ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
+                                                     style="cursor: pointer; transition: all 0.2s ease;" 
+                                                     @onclick="() => SetMemberStatus(true)">
+                                                    <div class="form-check mb-0 d-flex align-items-center">
+                                                        <input class="form-check-input me-2" type="radio" name="memberRadio" id="member" checked="@(_request.MemberStatus)" />
+                                                        <div>
+                                                            <label class="form-check-label fw-bold text-dark fs-6" for="member" style="cursor: pointer;">
+                                                                <i class="bi bi-star-fill me-1 text-primary"></i>GFC Member
+                                                            </label>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="col-12 col-sm-6">
-                                            <div class="p-3 rounded-3 border @(_request.MemberStatus ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
-                                                 style="cursor: pointer; transition: all 0.2s ease;" 
-                                                 @onclick="() => SetMemberStatus(true)">
-                                                <div class="form-check mb-0 d-flex align-items-center">
-                                                    <input class="form-check-input me-2" type="radio" name="memberRadio" id="member" checked="@(_request.MemberStatus)" />
-                                                    <div>
-                                                        <label class="form-check-label fw-bold text-dark fs-6" for="member" style="cursor: pointer;">
-                                                            <i class="bi bi-star-fill me-1 text-primary"></i>GFC Member
-                                                        </label>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -188,20 +261,52 @@
                                 <i class="bi bi-calendar-event me-2 text-primary"></i>2. Event Details &amp; Date Selection
                             </h6>
                             <div class="row g-3">
-                                <div class="col-md-6">
+                                <div class="@((_settings?.ShowAlternateDateField ?? true) ? "col-md-6" : "col-md-12")">
                                     <label class="form-label fw-semibold small">Desired Date *</label>
-                                    <input type="date" class="form-control" value="@_request.EventDate.ToString("yyyy-MM-dd")" min="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-primary-subtle text-primary fw-bold">@_request.EventDate.ToString("ddd")</span>
+                                        <input type="date" class="form-control" value="@_request.EventDate.ToString("yyyy-MM-dd")" min="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" @onchange="OnDateChanged" />
+                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">Alternate Date <span class="text-muted">(Optional)</span></label>
-                                    <input type="date" class="form-control" value="@(_request.AlternateEventDate?.ToString("yyyy-MM-dd") ?? "")" min="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" @onchange="OnAlternateDateChanged" />
-                                </div>
+                                @if (_settings?.ShowAlternateDateField ?? true)
+                                {
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold small">Alternate Date @((_settings?.RequireAlternateDate ?? false) ? "*" : "(Optional)")</label>
+                                        <div class="input-group">
+                                            @if (_request.AlternateEventDate.HasValue)
+                                            {
+                                                <span class="input-group-text bg-light text-secondary fw-bold">@_request.AlternateEventDate.Value.ToString("ddd")</span>
+                                            }
+                                            <input type="date" class="form-control" value="@(_request.AlternateEventDate?.ToString("yyyy-MM-dd") ?? "")" min="@DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")" @onchange="OnAlternateDateChanged" />
+                                        </div>
+                                    </div>
+                                }
                                 @{
-                                    var dayConfig = GetCurrentDayConfig();
-                                    var hasConfiguredSlots = dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0;
+                                    var activeSlots = GetActiveTimeSlots();
+                                    var hasConfiguredSlots = activeSlots.Count > 0;
+                                    var isCategoryUnavailableOnDay = false;
+                                    if (_settings?.UseLegacyPricingEngine == false && !string.IsNullOrEmpty(_selectedTierCardId))
+                                    {
+                                        var currentCard = _settings.GetTierCardsList().FirstOrDefault(c => c.Id == _selectedTierCardId);
+                                        if (currentCard != null && !IsCardAvailableForDate(currentCard, _request.EventDate))
+                                        {
+                                            isCategoryUnavailableOnDay = true;
+                                        }
+                                    }
                                 }
 
-                                @if (!hasConfiguredSlots)
+                                @if (isCategoryUnavailableOnDay)
+                                {
+                                    <div class="col-12">
+                                        <div class="alert alert-warning d-flex align-items-center gap-2 mb-0 shadow-sm border-warning">
+                                            <i class="bi bi-calendar-x-fill text-warning-emphasis fs-5 flex-shrink-0"></i>
+                                            <div>
+                                                <strong>Not Available for Selected Category:</strong> Bookings for this category are unavailable on <strong>@(_request.EventDate.ToString("dddd"))s</strong>. Please pick a different date.
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                                else if (!hasConfiguredSlots)
                                 {
                                     <div class="col-md-6">
                                         <label class="form-label fw-semibold small">Start Time</label>
@@ -222,22 +327,9 @@
                                         </select>
                                     </div>
                                 }
-
-                                @if (dayConfig != null && !dayConfig.IsAvailable)
+                                else
                                 {
-                                    <div class="col-12">
-                                        <div class="alert alert-warning d-flex align-items-center gap-2 mb-0 shadow-sm border-warning">
-                                            <i class="bi bi-calendar-x text-warning fs-5"></i>
-                                            <div>
-                                                <strong>Closed on @(_request.EventDate.ToString("dddd"))s:</strong> The Gloucester Fraternity Club is unavailable for private rentals on this day. Please pick another date.
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-
-                                @if (hasConfiguredSlots)
-                                {
-                                    var allSlotsBooked = dayConfig!.Slots.All(s => IsSlotBooked(s));
+                                    var allSlotsBooked = activeSlots.All(s => IsSlotBooked(s));
 
                                     if (allSlotsBooked)
                                     {
@@ -252,31 +344,57 @@
                                     }
                                     else
                                     {
+                                        var isAnySlotSelected = activeSlots.Any(s => _request.StartTime == s.StartTime && _request.EndTime == s.EndTime);
                                         <div class="col-12">
-                                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-2">
-                                                <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-clock-history me-1 text-primary"></i>Available Time Periods for @(_request.EventDate.ToString("dddd")):</label>
-                                                <small class="text-muted" style="font-size: 0.75rem;">👉 Select an available time block for your event</small>
-                                            </div>
-                                            <div class="d-flex flex-row flex-wrap align-items-center gap-2">
-                                                @foreach (var slot in dayConfig!.Slots)
+                                            <div class="p-3 rounded-4 border @(!isAnySlotSelected ? "bg-warning-subtle border-warning shadow-sm" : "bg-white border-primary-subtle shadow-sm")" style="transition: all 0.3s ease;">
+                                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                                    <label class="form-label fw-bold small text-dark mb-0 d-flex align-items-center gap-2">
+                                                        <i class="bi bi-clock-history text-primary fs-6"></i>
+                                                        <span>Select Time Block for @(_request.EventDate.ToString("dddd")) *</span>
+                                                    </label>
+                                                    @if (!isAnySlotSelected)
+                                                    {
+                                                        <span class="badge bg-warning text-dark border border-warning px-2 py-1 small fw-bold">
+                                                            <i class="bi bi-hand-index-thumb me-1"></i>Action Required: Click a time block
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success px-2 py-1 small fw-bold">
+                                                            <i class="bi bi-check2-circle me-1"></i>Time Block Selected
+                                                        </span>
+                                                    }
+                                                </div>
+
+                                                @if (!isAnySlotSelected)
                                                 {
-                                                    var isBooked = IsSlotBooked(slot);
-                                                    var isSlotSelected = _request.StartTime == slot.StartTime && _request.EndTime == slot.EndTime;
-                                                    
-                                                    <button type="button" 
-                                                            disabled="@isBooked"
-                                                            class="btn btn-sm d-inline-flex align-items-center gap-2 px-3 py-2 rounded-3 text-nowrap @(isBooked ? "btn-light border text-muted opacity-50 pe-none" : isSlotSelected ? "btn-primary text-white fw-bold shadow-sm" : "btn-light border text-dark")" 
-                                                            style="@(isBooked ? "cursor: not-allowed;" : "cursor: pointer; transition: all 0.2s ease;")"
-                                                            @onclick="() => SelectTimeSlot(slot)">
-                                                        <i class="bi @(isBooked ? "bi-slash-circle text-danger" : isSlotSelected ? "bi-check-circle-fill text-white" : "bi-clock text-muted")"></i>
-                                                        <span class="@(isBooked ? "text-decoration-line-through text-muted" : "")">@slot.Label</span>
-                                                        <span class="badge @(isSlotSelected && !isBooked ? "bg-white text-primary fw-bold" : "bg-light text-secondary border") ms-1">@slot.StartTime - @slot.EndTime</span>
-                                                        @if (isBooked)
-                                                        {
-                                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1">Unavailable</span>
-                                                        }
-                                                    </button>
+                                                    <div class="alert alert-warning py-2 px-3 mb-2 rounded-3 border-warning d-flex align-items-center gap-2 small">
+                                                        <i class="bi bi-exclamation-triangle-fill text-warning-emphasis fs-6 flex-shrink-0"></i>
+                                                        <span class="fw-semibold">Please select one of the available time blocks below.</span>
+                                                    </div>
                                                 }
+
+                                                <div class="d-flex flex-row flex-wrap align-items-center gap-2 pt-1">
+                                                    @foreach (var slot in activeSlots)
+                                                    {
+                                                        var isBooked = IsSlotBooked(slot);
+                                                        var isSlotSelected = _request.StartTime == slot.StartTime && _request.EndTime == slot.EndTime;
+                                                        
+                                                        <button type="button" 
+                                                                disabled="@isBooked"
+                                                                class="btn d-inline-flex align-items-center gap-2 px-3 py-2 rounded-3 text-nowrap @(isBooked ? "btn-light border text-muted opacity-50 pe-none" : isSlotSelected ? "btn-primary text-white fw-bold shadow ring-selected" : "btn-outline-primary bg-white text-dark border shadow-sm")" 
+                                                                style="@(isBooked ? "cursor: not-allowed;" : "cursor: pointer; font-size: 0.9rem; transition: all 0.2s ease;")"
+                                                                @onclick="() => SelectTimeSlot(slot)">
+                                                            <i class="bi @(isBooked ? "bi-slash-circle text-danger" : isSlotSelected ? "bi-check-circle-fill text-white fs-6" : "bi-circle text-primary fs-6")"></i>
+                                                            <span class="fw-bold @(isBooked ? "text-decoration-line-through text-muted" : "")">@slot.Label:</span>
+                                                            <span class="badge @(isSlotSelected && !isBooked ? "bg-white text-primary fw-bold fs-6" : "bg-light text-dark border") ms-1">@slot.StartTime - @slot.EndTime</span>
+                                                            @if (isBooked)
+                                                            {
+                                                                <span class="badge bg-danger text-white ms-1">Unavailable</span>
+                                                            }
+                                                        </button>
+                                                    }
+                                                </div>
                                             </div>
                                         </div>
                                     }
@@ -302,20 +420,73 @@
                                                 <div class="border-start ps-3 d-none d-md-block" style="height: 28px;"></div>
                                                 <div>
                                                     <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">Selected Time Period</small>
-                                                    @if (IsCurrentSelectionBooked())
+                                                    @if (isCategoryUnavailableOnDay)
                                                     {
                                                         <div class="d-flex align-items-center gap-2">
-                                                            <span class="fw-bold text-danger"><i class="bi bi-x-circle-fill text-danger me-1"></i>No Time Slot Selected (Unavailable)</span>
+                                                            <span class="fw-bold text-danger"><i class="bi bi-x-circle-fill text-danger me-1"></i>Category Unavailable on @_request.EventDate.ToString("dddd")s</span>
                                                         </div>
                                                     }
-                                                    else
+                                                    else if (IsCurrentSelectionBooked())
+                                                    {
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-danger"><i class="bi bi-x-circle-fill text-danger me-1"></i>Date / Time Period Unavailable</span>
+                                                        </div>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(_request.StartTime) && !string.IsNullOrEmpty(_request.EndTime))
                                                     {
                                                         <div class="d-flex align-items-center gap-2">
                                                             <span class="fw-bold text-dark"><i class="bi bi-clock-fill text-primary me-1"></i>@_request.StartTime to @_request.EndTime</span>
                                                             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10 rounded-pill" style="font-size: 0.72rem;">@(_calculatedDurationHours) hrs</span>
                                                         </div>
                                                     }
+                                                    else
+                                                    {
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-bold text-secondary"><i class="bi bi-clock me-1"></i>Standard @(_settings?.BaseFunctionHours ?? 5) hrs Function</span>
+                                                        </div>
+                                                    }
                                                 </div>
+                                                
+                                                <!-- Rate Display in Status Bar -->
+                                                <div class="border-start ps-3 d-none d-md-block" style="height: 28px;"></div>
+                                                <div>
+                                                    <small class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.7rem; letter-spacing: 0.5px;">@_request.EventDate.ToString("dddd") Rate</small>
+                                                    @if (_settings?.UseLegacyPricingEngine == false)
+                                                    {
+                                                        if (string.IsNullOrEmpty(_selectedTierCardId))
+                                                        {
+                                                            <span class="badge bg-warning text-dark border border-warning px-2 py-1 fw-bold fs-6">
+                                                                <i class="bi bi-hand-index-thumb me-1"></i>Select Category
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            var selCard = _settings.GetTierCardsList().FirstOrDefault(c => c.Id == _selectedTierCardId);
+                                                            if (selCard != null)
+                                                            {
+                                                                if (IsCardAvailableForDate(selCard, _request.EventDate))
+                                                                {
+                                                                    <span class="fw-bolder text-primary fs-5 d-inline-flex align-items-center">
+                                                                        <i class="bi bi-tag-fill me-1 fs-6"></i>$@GetRoomPrice(_request.RoomSelected ?? "Function Hall").ToString("N0")
+                                                                    </span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-danger text-white border border-danger px-2 py-1 fw-bold fs-6">
+                                                                        <i class="bi bi-x-circle me-1"></i>Unavailable on @(_request.EventDate.ToString("dddd"))s
+                                                                    </span>
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="fw-bolder text-primary fs-5 d-inline-flex align-items-center">
+                                                            <i class="bi bi-tag-fill me-1 fs-6"></i>$@GetRoomPrice(_request.RoomSelected ?? "Function Hall").ToString("N0")
+                                                        </span>
+                                                    }
+                                                </div>
+
                                                 @if (!string.IsNullOrEmpty(_request.RoomSelected))
                                                 {
                                                     <div class="border-start ps-3 d-none d-md-block" style="height: 28px;"></div>
@@ -326,7 +497,7 @@
                                                 }
                                             </div>
                                             <div>
-                                                @if (IsCurrentSelectionBooked() || (dayConfig != null && !dayConfig.IsAvailable))
+                                                @if (IsCurrentSelectionBooked())
                                                 {
                                                     <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1 rounded-pill small">
                                                         <i class="bi bi-exclamation-octagon-fill me-1"></i>Date / Time Unavailable
@@ -373,39 +544,42 @@
                                     <InputTextArea class="form-control" rows="3" placeholder="Please describe your planned affair, music, setup, or specific requirements..." @bind-Value="_request.EventDescription" />
                                 </div>
 
-                                <div class="col-12">
-                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
-                                        <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-tag-fill me-1 text-primary"></i>Select Rental Pricing Tier / Category *</label>
-                                        <small class="text-muted" style="font-size: 0.75rem;">👉 Click a pricing category card below to make your selection for the Function Hall</small>
-                                    </div>
-                                    <div class="row g-3">
-                                        @foreach (var room in GetDisplayedRooms())
-                                        {
-                                            var isSelected = _request.RoomSelected == room.Name;
-                                            <div class="col-12 col-sm-6 col-lg-4">
-                                                <div class="card p-3 h-100 room-card position-relative @(isSelected ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
-                                                     style="cursor: pointer; border-radius: 12px; transition: all 0.2s ease;"
-                                                     @onclick='() => SelectRoom(room.Name)'>
-                                                    <div class="d-flex align-items-center justify-content-between mb-2">
-                                                        <div class="form-check mb-0">
-                                                            <input class="form-check-input" type="radio" name="roomRadio" checked="@isSelected" />
-                                                            <label class="form-check-label fw-bold text-dark fs-6 ms-1">@room.Name</label>
+                                @if (_settings?.UseLegacyPricingEngine != false)
+                                {
+                                    <div class="col-12">
+                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
+                                            <label class="form-label fw-bold small text-dark mb-0"><i class="bi bi-tag-fill me-1 text-primary"></i>Select Rental Pricing Tier / Category *</label>
+                                            <small class="text-muted" style="font-size: 0.75rem;">👉 Click a pricing category card below to make your selection for the Function Hall</small>
+                                        </div>
+                                        <div class="row g-3">
+                                            @foreach (var room in GetDisplayedRooms())
+                                            {
+                                                var isSelected = _request.RoomSelected == room.Name;
+                                                <div class="col-12 col-sm-6 col-lg-4">
+                                                    <div class="card p-3 h-100 room-card position-relative @(isSelected ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")" 
+                                                         style="cursor: pointer; border-radius: 12px; transition: all 0.2s ease;"
+                                                         @onclick='() => SelectRoom(room.Name)'>
+                                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                                            <div class="form-check mb-0">
+                                                                <input class="form-check-input" type="radio" name="roomRadio" checked="@isSelected" />
+                                                                <label class="form-check-label fw-bold text-dark fs-6 ms-1">@room.Name</label>
+                                                            </div>
+                                                            @if (isSelected)
+                                                            {
+                                                                <span class="badge bg-primary text-white rounded-pill px-2 py-1" style="font-size: 0.65rem;">SELECTED</span>
+                                                            }
                                                         </div>
-                                                        @if (isSelected)
-                                                        {
-                                                            <span class="badge bg-primary text-white rounded-pill px-2 py-1" style="font-size: 0.65rem;">SELECTED</span>
-                                                        }
-                                                    </div>
-                                                    <div class="small text-muted mb-2 flex-grow-1">@room.Description</div>
-                                                    <div class="d-flex justify-content-between align-items-center pt-2 border-top mt-auto">
-                                                        <span class="small text-secondary"><i class="bi bi-people me-1"></i>Cap: @room.Capacity</span>
-                                                        <span class="fw-bold text-primary fs-5">$@GetRoomPrice(room.Name)</span>
+                                                        <div class="small text-muted mb-2 flex-grow-1">@room.Description</div>
+                                                        <div class="d-flex justify-content-between align-items-center pt-2 border-top mt-auto">
+                                                            <span class="small text-secondary"><i class="bi bi-people me-1"></i>Cap: @room.Capacity</span>
+                                                            <span class="fw-bold text-primary fs-5">$@GetRoomPrice(room.Name)</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        }
+                                            }
+                                        </div>
                                     </div>
-                                </div>
+                                }
                             </div>
                         </div>
 
@@ -456,12 +630,22 @@
                                         <i class="bi bi-calculator me-1"></i>Live Estimated Total
                                     </span>
                                     <div class="d-flex align-items-baseline gap-2">
-                                        <h2 class="display-6 fw-bold mb-0 text-dark">$@_request.TotalPrice.ToString("N2")</h2>
-                                        <span class="badge bg-light text-dark border px-2 py-1 small">
-                                            <i class="bi bi-clock me-1"></i>@(_calculatedDurationHours) hrs total
-                                        </span>
+                                        @if (_settings?.UseLegacyPricingEngine == false && string.IsNullOrEmpty(_selectedTierCardId))
+                                        {
+                                            <h2 class="display-6 fw-bold mb-0 text-muted fs-3">--</h2>
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
+                                                <i class="bi bi-exclamation-circle me-1"></i>Select a tier above
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <h2 class="display-6 fw-bold mb-0 text-dark">$@_request.TotalPrice.ToString("N2")</h2>
+                                            <span class="badge bg-light text-dark border px-2 py-1 small">
+                                                <i class="bi bi-clock me-1"></i>@(_calculatedDurationHours) hrs total
+                                            </span>
+                                        }
                                     </div>
-                                    @if (_extraHours > 0)
+                                    @if (_extraHours > 0 && (_settings?.UseLegacyPricingEngine != false || !string.IsNullOrEmpty(_selectedTierCardId)))
                                     {
                                         <div class="small text-primary mt-1 fw-semibold">
                                             <i class="bi bi-plus-circle me-1"></i>Includes +@(_extraHours) extra hrs (@($"${_settings?.AdditionalHourRate ?? 50:N2}")/hr = +$@_extraHoursFee.ToString("N2"))
@@ -478,9 +662,19 @@
                                     <div class="p-2 px-3 rounded-3 bg-light border text-dark fw-bold small d-inline-block text-wrap w-100 w-sm-auto text-start text-sm-end">
                                         <div class="text-muted small" style="font-size: 0.75rem;">Selected Package</div>
                                         <div class="text-truncate">@_request.RoomSelected</div>
-                                        <span class="badge @(_request.MemberStatus ? "bg-primary text-white" : "bg-secondary text-white") mt-1">
-                                            @(_request.MemberStatus ? "Member Rate" : "Non-Member Rate")
-                                        </span>
+                                        @if (_settings?.UseLegacyPricingEngine == false)
+                                        {
+                                            var activeCard = _settings.GetTierCardsList().FirstOrDefault(c => c.Id == _selectedTierCardId);
+                                            <span class="badge @(activeCard != null ? "bg-primary text-white" : "bg-warning text-dark") mt-1">
+                                                @(activeCard != null ? activeCard.Title : "No Tier Selected")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge @(_request.MemberStatus ? "bg-primary text-white" : "bg-secondary text-white") mt-1">
+                                                @(_request.MemberStatus ? "Member Rate" : "Non-Member Rate")
+                                            </span>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -496,37 +690,51 @@
                             @foreach (var qPolicy in GetQuestionTriggeredPolicies())
                             {
                                 bool isYes = _questionAnswers.TryGetValue(qPolicy.Id, out var ans) && ans;
+                                bool isAgreed = _agreedPolicyIds.Contains(qPolicy.Id);
+
                                 <div class="card mb-3 border shadow-sm rounded-3">
                                     <div class="p-3 bg-white">
                                         <label class="form-label fw-bold text-dark small mb-2 d-flex align-items-center gap-2">
                                             <i class="bi bi-question-circle-fill text-primary"></i>
                                             <span>@(string.IsNullOrWhiteSpace(qPolicy.PromptQuestion) ? qPolicy.Title : qPolicy.PromptQuestion) *</span>
                                         </label>
-                                        <div class="d-flex gap-2">
+                                        <div class="d-flex gap-2 mb-3">
                                             <button type="button" 
-                                                    class="btn btn-sm px-3 rounded-pill @(!isYes ? "btn-secondary text-white fw-bold shadow-sm" : "btn-outline-secondary")" 
+                                                    class="btn btn-sm px-3 rounded-pill @(!isYes ? "btn-dark text-white fw-bold shadow-sm" : "btn-outline-dark bg-white")" 
                                                     @onclick="() => SetQuestionAnswer(qPolicy.Id, false)">
-                                                <i class="bi @(!isYes ? "bi-check-circle-fill me-1" : "bi-circle me-1")"></i>No
+                                                <i class="bi @(!isYes ? "bi-check-circle-fill me-1" : "bi-circle me-1 text-muted")"></i>No
                                             </button>
                                             <button type="button" 
-                                                    class="btn btn-sm px-3 rounded-pill @(isYes ? "btn-primary text-white fw-bold shadow-sm" : "btn-outline-secondary")" 
+                                                    class="btn btn-sm px-3 rounded-pill @(isYes ? "btn-primary text-white fw-bold shadow-sm" : "btn-outline-primary bg-white")" 
                                                     @onclick="() => SetQuestionAnswer(qPolicy.Id, true)">
-                                                <i class="bi @(isYes ? "bi-check-circle-fill me-1" : "bi-circle me-1")"></i>Yes
+                                                <i class="bi @(isYes ? "bi-check-circle-fill me-1" : "bi-circle me-1 text-muted")"></i>Yes
                                             </button>
                                         </div>
-                                    </div>
 
-                                    @if (isYes)
-                                    {
-                                        bool isAgreed = _agreedPolicyIds.Contains(qPolicy.Id);
-                                        <div class="animate-fade-in border-top">
+                                        <!-- Policy Contract Body (Always displayed) -->
+                                        <div class="border rounded-3 overflow-hidden">
                                             <div class="card-header bg-light py-2">
                                                 <span class="fw-bold small text-dark"><i class="bi bi-info-circle-fill text-primary me-1"></i>@qPolicy.Title</span>
                                             </div>
-                                            <div class="card-body p-3 small text-muted" style="background-color: #fdfdfd; font-size: 0.85rem; line-height: 1.6; white-space: pre-line;">
+                                            <div class="p-3 small text-muted" style="background-color: #fdfdfd; font-size: 0.85rem; line-height: 1.6; white-space: pre-line;">
                                                 @((MarkupString)qPolicy.Content)
                                             </div>
-                                            <div class="card-footer bg-white border-top p-3">
+
+                                            @* Extra notice dynamically appended when 'Yes' is selected *@
+                                            @if (isYes && qPolicy.ShowExtraNoteOnYes && !string.IsNullOrWhiteSpace(qPolicy.ExtraNoteOnYes))
+                                            {
+                                                <div class="p-3 border-top animate-fade-in @(qPolicy.HighlightOnYes ? "bg-warning bg-opacity-10 border-warning text-dark" : "bg-light text-dark")" style="font-size: 0.86rem; line-height: 1.5;">
+                                                    <div class="d-flex align-items-start gap-2">
+                                                        <i class="bi @(qPolicy.HighlightOnYes ? "bi-exclamation-triangle-fill text-warning-emphasis" : "bi-info-circle-fill text-primary") fs-6 mt-1 flex-shrink-0"></i>
+                                                        <div class="fw-semibold">
+                                                            @((MarkupString)qPolicy.ExtraNoteOnYes)
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+
+                                            <!-- Single Required Confirmation Checkbox -->
+                                            <div class="bg-white border-top p-3">
                                                 <div class="form-check">
                                                     <input class="form-check-input" type="checkbox" id="@($"chk_{qPolicy.Id}")" 
                                                            checked="@isAgreed" 
@@ -537,7 +745,7 @@
                                                 </div>
                                             </div>
                                         </div>
-                                    }
+                                    </div>
                                 </div>
                             }
 
@@ -722,6 +930,8 @@
     };
 
     private List<UnavailableDateDto> _unavailableDates = new();
+    private string? _selectedTierCardId;
+    private string? _selectedSubGroupId;
 
     private bool _isEmbedded = false;
     private bool _isSubmitting = false;
@@ -818,18 +1028,38 @@
 
     private bool IsCurrentSelectionBooked()
     {
-        var dayConfig = GetCurrentDayConfig();
-        if (dayConfig != null && !dayConfig.IsAvailable) return true;
-
-        if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+        if (_settings?.UseLegacyPricingEngine == false)
         {
-            var matchingSlot = dayConfig.Slots.FirstOrDefault(s => s.StartTime == _request.StartTime && s.EndTime == _request.EndTime);
-            if (matchingSlot == null)
+            if (string.IsNullOrEmpty(_selectedTierCardId)) return false;
+
+            var tierCards = _settings.GetTierCardsList();
+            var card = tierCards.FirstOrDefault(c => c.Id == _selectedTierCardId);
+
+            if (card != null && !IsCardAvailableForDate(card, _request.EventDate)) return true;
+
+            var activeSlots = GetActiveTimeSlots();
+            if (activeSlots.Count > 0)
             {
-                // Custom or nonexistent slot selected when slots are required
-                return true;
+                var matchingSlot = activeSlots.FirstOrDefault(s => s.StartTime == _request.StartTime && s.EndTime == _request.EndTime);
+                if (matchingSlot == null) return true;
+                return IsSlotBooked(matchingSlot);
             }
-            return IsSlotBooked(matchingSlot);
+        }
+        else
+        {
+            var dayConfig = GetCurrentDayConfig();
+            if (dayConfig != null && !dayConfig.IsAvailable) return true;
+
+            if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+            {
+                var matchingSlot = dayConfig.Slots.FirstOrDefault(s => s.StartTime == _request.StartTime && s.EndTime == _request.EndTime);
+                if (matchingSlot == null)
+                {
+                    // Custom or nonexistent slot selected when slots are required
+                    return true;
+                }
+                return IsSlotBooked(matchingSlot);
+            }
         }
 
         // For custom times, check interval directly
@@ -860,12 +1090,35 @@
         return false;
     }
 
+    private List<DayScheduleSlotConfig> GetActiveTimeSlots()
+    {
+        if (_settings?.UseLegacyPricingEngine == false)
+        {
+            if (string.IsNullOrEmpty(_selectedTierCardId))
+            {
+                return new List<DayScheduleSlotConfig>();
+            }
+
+            var tierCards = _settings.GetTierCardsList();
+            var card = tierCards.FirstOrDefault(c => c.Id == _selectedTierCardId);
+
+            if (card != null && card.TimeSlots.Count > 0)
+            {
+                return card.TimeSlots.Where(s => s.IsActive).ToList();
+            }
+            return new List<DayScheduleSlotConfig>();
+        }
+
+        var dayConfig = GetCurrentDayConfig();
+        return dayConfig != null && dayConfig.IsAvailable ? dayConfig.Slots.Where(s => s.IsActive).ToList() : new List<DayScheduleSlotConfig>();
+    }
+
     private void ApplyDefaultSlotForDate()
     {
-        var dayConfig = GetCurrentDayConfig();
-        if (dayConfig != null && dayConfig.IsAvailable && dayConfig.Slots.Count > 0)
+        var activeSlots = GetActiveTimeSlots();
+        if (activeSlots.Count > 0)
         {
-            var firstAvailableSlot = dayConfig.Slots.FirstOrDefault(s => !IsSlotBooked(s));
+            var firstAvailableSlot = activeSlots.FirstOrDefault(s => !IsSlotBooked(s));
             if (firstAvailableSlot != null)
             {
                 _request.StartTime = firstAvailableSlot.StartTime;
@@ -877,6 +1130,38 @@
                 _request.EndTime = string.Empty;
             }
         }
+        else
+        {
+            // Open booking (custom hours): ensure standard defaults exist if empty
+            if (string.IsNullOrEmpty(_request.StartTime))
+            {
+                _request.StartTime = "2:00 PM";
+            }
+            if (string.IsNullOrEmpty(_request.EndTime))
+            {
+                int baseHours = _settings?.BaseFunctionHours ?? 5;
+                var startMin = ParseTimeToMinutes(_request.StartTime);
+                if (startMin >= 0)
+                {
+                    int endMin = startMin + (baseHours * 60);
+                    _request.EndTime = FormatMinutesToTimeString(endMin);
+                }
+                else
+                {
+                    _request.EndTime = "7:00 PM";
+                }
+            }
+        }
+    }
+
+    private static string FormatMinutesToTimeString(int minutes)
+    {
+        int hour24 = (minutes / 60) % 24;
+        int min = minutes % 60;
+        string ampm = hour24 >= 12 ? "PM" : "AM";
+        int hour12 = hour24 % 12;
+        if (hour12 == 0) hour12 = 12;
+        return $"{hour12}:{min:D2} {ampm}";
     }
 
     private DayOfWeekScheduleConfig? GetCurrentDayConfig()
@@ -905,6 +1190,51 @@
         _request.StartTime = slot.StartTime;
         _request.EndTime = slot.EndTime;
         RecalculatePricing();
+    }
+
+    private void SelectTierCard(PricingTierCardConfig card)
+    {
+        _selectedTierCardId = card.Id;
+        _selectedSubGroupId = null; // reset sub group when changing card
+        _request.RenterType = card.AssociatedRenterType ?? card.Title;
+        _request.MemberStatus = string.Equals(card.AssociatedRenterType, "Member", StringComparison.OrdinalIgnoreCase);
+        RecalculatePricing();
+    }
+
+    private void OnSubGroupChanged(ChangeEventArgs e)
+    {
+        _selectedSubGroupId = e.Value?.ToString();
+        RecalculatePricing();
+    }
+
+    private static bool IsCardAvailableForDate(PricingTierCardConfig card, DateTime date)
+    {
+        return date.DayOfWeek switch
+        {
+            DayOfWeek.Monday => card.MondayAvailable,
+            DayOfWeek.Tuesday => card.TuesdayAvailable,
+            DayOfWeek.Wednesday => card.WednesdayAvailable,
+            DayOfWeek.Thursday => card.ThursdayAvailable,
+            DayOfWeek.Friday => card.FridayAvailable,
+            DayOfWeek.Saturday => card.SaturdayAvailable,
+            DayOfWeek.Sunday => card.SundayAvailable,
+            _ => false
+        };
+    }
+
+    private static decimal GetCardRateForDate(PricingTierCardConfig card, DateTime date)
+    {
+        return date.DayOfWeek switch
+        {
+            DayOfWeek.Monday => card.MondayRate,
+            DayOfWeek.Tuesday => card.TuesdayRate,
+            DayOfWeek.Wednesday => card.WednesdayRate,
+            DayOfWeek.Thursday => card.ThursdayRate,
+            DayOfWeek.Friday => card.FridayRate,
+            DayOfWeek.Saturday => card.SaturdayRate,
+            DayOfWeek.Sunday => card.SundayRate,
+            _ => card.SaturdayRate
+        };
     }
 
     private void SetMemberStatus(bool isMember)
@@ -979,6 +1309,36 @@
     {
         bool isMember = _request.MemberStatus;
 
+        // Check if using Matrix Tier Pricing Engine
+        if (_settings?.UseLegacyPricingEngine == false)
+        {
+            if (string.IsNullOrEmpty(_selectedTierCardId))
+            {
+                return 0;
+            }
+
+            var tierCards = _settings.GetTierCardsList();
+            var card = tierCards.FirstOrDefault(c => c.Id == _selectedTierCardId);
+
+            if (card != null)
+            {
+                // If a special sub-group is selected, return its flat rate
+                if (!string.IsNullOrEmpty(_selectedSubGroupId))
+                {
+                    var sub = card.SubGroups.FirstOrDefault(s => s.Id == _selectedSubGroupId);
+                    if (sub != null)
+                    {
+                        return sub.Rate;
+                    }
+                }
+
+                return GetCardRateForDate(card, _request.EventDate);
+            }
+
+            return 0;
+        }
+
+        // Legacy Rate Lookup
         var room = _availableRooms.FirstOrDefault(r => r.Name.Equals(roomName, StringComparison.OrdinalIgnoreCase));
         if (room != null)
         {
@@ -1150,14 +1510,8 @@
 
         var result = new List<RentalPolicyItem>();
 
-        // 1. Add question-triggered policies only if applicant answered 'Yes'
-        foreach (var qp in GetQuestionTriggeredPolicies())
-        {
-            if (_questionAnswers.TryGetValue(qp.Id, out var ans) && ans)
-            {
-                result.Add(qp);
-            }
-        }
+        // 1. Add question-triggered policies (always visible & verified)
+        result.AddRange(GetQuestionTriggeredPolicies());
 
         // 2. Add standard & add-on triggered policies
         result.AddRange(GetStandardAndAddonVisiblePolicies());
@@ -1167,11 +1521,15 @@
 
     private void SetQuestionAnswer(string policyId, bool isYes)
     {
-        _questionAnswers[policyId] = isYes;
-        if (!isYes)
+        bool wasPreviousAnswerKnown = _questionAnswers.TryGetValue(policyId, out var previousAns);
+        
+        // If the answer changed (e.g. from No to Yes or vice versa), require re-acknowledgment
+        if (wasPreviousAnswerKnown && previousAns != isYes)
         {
             _agreedPolicyIds.Remove(policyId);
         }
+
+        _questionAnswers[policyId] = isYes;
 
         if (policyId == "policy_setup" || policyId.Contains("setup", StringComparison.OrdinalIgnoreCase))
         {
@@ -1201,6 +1559,7 @@
 
     private bool CanSubmit()
     {
+        if (_settings?.UseLegacyPricingEngine == false && string.IsNullOrEmpty(_selectedTierCardId)) return false;
         if (IsCurrentSelectionBooked()) return false;
         if (!_request.RulesAgreed) return false;
 
@@ -1219,6 +1578,11 @@
     private async Task HandleSubmit()
     {
         var missingFields = new List<string>();
+
+        if (_settings?.UseLegacyPricingEngine == false && string.IsNullOrEmpty(_selectedTierCardId))
+        {
+            missingFields.Add("Renter Category / Tier Selection");
+        }
 
         bool reqName = _settings?.RequireApplicantName ?? true;
         if (reqName && string.IsNullOrWhiteSpace(_request.ApplicantName))
@@ -1243,6 +1607,13 @@
         if (showAddress && reqAddress && string.IsNullOrWhiteSpace(_request.RequesterAddress))
         {
             missingFields.Add("Street Address");
+        }
+
+        bool showAltDate = _settings?.ShowAlternateDateField ?? true;
+        bool reqAltDate = _settings?.RequireAlternateDate ?? false;
+        if (showAltDate && reqAltDate && _request.AlternateEventDate == null)
+        {
+            missingFields.Add("Alternate Date");
         }
 
         bool reqEventType = _settings?.RequireEventType ?? true;
@@ -1330,6 +1701,20 @@
             _request.AgreedPoliciesJson = System.Text.Json.JsonSerializer.Serialize(agreedList);
 
             bool isTest = (_settings?.EnableSandboxMode == true) || (_settings?.FormIngestionMode == "Simulation");
+
+            // Server-side conflict verification before saving
+            var conflictCheck = await RentalService.ValidateTimeSlotConflictAsync(_request.EventDate, _request.StartTime, _request.EndTime, _request.RoomSelected);
+            if (conflictCheck.HasConflict)
+            {
+                _isSubmitting = false;
+                _errorMessage = conflictCheck.ConflictReason ?? "The selected date or time slot is already booked or unavailable. Please pick an alternate time.";
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('topErrorBanner')?.scrollIntoView({ behavior: 'smooth', block: 'center' });");
+                }
+                catch { }
+                return;
+            }
 
             await RentalService.SubmitPublicRentalRequestAsync(_request, isTest);
             _isSubmitted = true;
