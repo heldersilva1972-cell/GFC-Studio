@@ -86,6 +86,8 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public string RentalPolicyUrl { get; set; } = "https://gloucesterfraternityclub.com/hall-rentals/hall-rental-policy/";
 
         public string RentalPaymentWindowNotice { get; set; } = "After electronically signing this application, and once your date is approved by the Gloucester Fraternity Club (GFC), you will have two (2) business days to complete payment to reserve your date.";
+        public int ApplicationPaymentWindowDays { get; set; } = 2;
+        public bool EnableSubmissionAgeTracking { get; set; } = true;
 
         // Configurable Required Fields for Submission
         public bool RequireApplicantName { get; set; } = true;
@@ -202,14 +204,15 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
             {
                 new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time badge", IsEnabled = true, Order = 1 },
                 new() { FieldKey = "payment_status", Label = "Payment Status Badge", Description = "Badge (PAID, DEP PAID, UNPAID)", IsEnabled = true, Order = 2 },
-                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 3 },
-                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 4 },
-                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Selected rental room or hall space", IsEnabled = true, Order = 5 },
-                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services (Bar, Kitchen, A/V)", IsEnabled = true, Order = 6 },
-                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Number of anticipated attendees", IsEnabled = false, Order = 7 },
-                new() { FieldKey = "pricing_quote", Label = "Total Price / Financial Quote", Description = "Total rental price quote ($)", IsEnabled = false, Order = 8 },
-                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 9 },
-                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 10 }
+                new() { FieldKey = "submission_age", Label = "Submission Age / Payment Window", Description = "Remaining time or overdue indicator for pending applications", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Selected rental room or hall space", IsEnabled = true, Order = 6 },
+                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services (Bar, Kitchen, A/V)", IsEnabled = true, Order = 7 },
+                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Number of anticipated attendees", IsEnabled = false, Order = 8 },
+                new() { FieldKey = "pricing_quote", Label = "Total Price / Financial Quote", Description = "Total rental price quote ($)", IsEnabled = false, Order = 9 },
+                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 10 },
+                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 11 }
             };
         }
 
@@ -220,16 +223,17 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
                 new() { FieldKey = "event_date", Label = "Event Date", Description = "Scheduled date of event", IsEnabled = true, Order = 1 },
                 new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time", IsEnabled = true, Order = 2 },
                 new() { FieldKey = "event_status", Label = "Approval Status", Description = "Pending, Confirmed, Cancelled badge", IsEnabled = true, Order = 3 },
-                new() { FieldKey = "payment_status", Label = "Payment Status", Description = "Paid in full, Deposit, or Unpaid badge", IsEnabled = true, Order = 4 },
-                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 5 },
-                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Occasion or event category badge", IsEnabled = true, Order = 6 },
-                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall or Coalition Room", IsEnabled = true, Order = 7 },
-                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services list", IsEnabled = true, Order = 8 },
-                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Estimated number of attendees", IsEnabled = true, Order = 9 },
-                new() { FieldKey = "pricing_quote", Label = "Total Price Quote", Description = "Calculated rental fee total ($)", IsEnabled = true, Order = 10 },
-                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 11 },
-                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 12 },
-                new() { FieldKey = "calendar_source", Label = "Calendar Source", Description = "Internal Studio, GCal Sync, or Form Intake", IsEnabled = true, Order = 13 }
+                new() { FieldKey = "submission_age", Label = "Submission Age / Payment Window", Description = "Elapsed time & payment window countdown for pending applications", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "payment_status", Label = "Payment Status", Description = "Paid in full, Deposit, or Unpaid badge", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 6 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Occasion or event category badge", IsEnabled = true, Order = 7 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall or Coalition Room", IsEnabled = true, Order = 8 },
+                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services list", IsEnabled = true, Order = 9 },
+                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Estimated number of attendees", IsEnabled = true, Order = 10 },
+                new() { FieldKey = "pricing_quote", Label = "Total Price Quote", Description = "Calculated rental fee total ($)", IsEnabled = true, Order = 11 },
+                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 12 },
+                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 13 },
+                new() { FieldKey = "calendar_source", Label = "Calendar Source", Description = "Internal Studio, GCal Sync, or Form Intake", IsEnabled = true, Order = 14 }
             };
         }
         

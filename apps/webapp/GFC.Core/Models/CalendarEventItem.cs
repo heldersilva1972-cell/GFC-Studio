@@ -16,5 +16,6 @@ namespace GFC.Core.Models
         public string ColorCategory { get; set; } = "badge-primary";
         public string? GoogleEventId { get; set; }
         public string? CalendarId { get; set; }
+        public DateTime? CreatedDate { get; set; }
     }
 }

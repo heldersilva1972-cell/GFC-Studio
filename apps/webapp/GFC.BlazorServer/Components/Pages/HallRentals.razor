@@ -329,6 +329,33 @@
                                                                 <i class="bi bi-clock me-1 text-primary"></i>@fieldVal
                                                             </div>
                                                         }
+                                                        else if (field.FieldKey == "submission_age")
+                                                        {
+                                                            var ageInfo = GetSubmissionAgeInfo(evt, appData, payStatus);
+                                                            if (!string.IsNullOrEmpty(ageInfo.text))
+                                                            {
+                                                                <div class="card-row-item" title="@ageInfo.tooltip">
+                                                                    @if (ageInfo.isOverdue)
+                                                                    {
+                                                                        <span class="badge bg-danger text-white py-0 px-1 fw-bold shadow-sm" style="font-size: 0.65rem;">
+                                                                            <i class="bi bi-exclamation-circle-fill me-1"></i>@fieldVal
+                                                                        </span>
+                                                                    }
+                                                                    else if (ageInfo.badgeClass.Contains("badge-expiring-soon"))
+                                                                    {
+                                                                        <span class="badge py-0 px-1 fw-bold shadow-sm" style="font-size: 0.65rem; background-color: #fef3c7 !important; color: #92400e !important; border: 1px solid #f59e0b !important;">
+                                                                            <i class="bi bi-hourglass-split me-1 text-warning"></i>@fieldVal
+                                                                        </span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="badge bg-success bg-opacity-10 text-success border border-success py-0 px-1 fw-semibold" style="font-size: 0.65rem;">
+                                                                            <i class="bi bi-stopwatch me-1"></i>@fieldVal
+                                                                        </span>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        }
                                                         else if (field.FieldKey == "applicant_name")
                                                         {
                                                             <div class="card-row-item fw-bold text-dark text-truncate" style="font-size: 0.75rem;">
@@ -596,6 +623,39 @@
                                                             @if (!string.IsNullOrWhiteSpace(details.Phone))
                                                             {
                                                                 <a href="tel:@details.Phone" class="text-decoration-none text-muted small"><i class="bi bi-telephone me-1"></i>@FormatPhoneNumber(details.Phone)</a>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted small">—</span>
+                                                            }
+                                                        </td>
+                                                        break;
+
+                                                    case "submission_age":
+                                                        <td>
+                                                            @{
+                                                                var ageInfo = GetSubmissionAgeInfo(evt, details, paySummary.Status);
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(ageInfo.text))
+                                                            {
+                                                                @if (ageInfo.isOverdue)
+                                                                {
+                                                                    <span class="badge bg-danger text-white border border-danger px-2 py-1 rounded-pill fw-bold shadow-sm" title="@ageInfo.tooltip">
+                                                                        <i class="bi bi-exclamation-octagon-fill me-1"></i>@ageInfo.text
+                                                                    </span>
+                                                                }
+                                                                else if (ageInfo.badgeClass.Contains("badge-expiring-soon"))
+                                                                {
+                                                                    <span class="badge px-2 py-1 rounded-pill fw-bold shadow-sm" style="background-color: #fef3c7 !important; color: #92400e !important; border: 1px solid #f59e0b !important;" title="@ageInfo.tooltip">
+                                                                        <i class="bi bi-hourglass-split me-1 text-warning"></i>@ageInfo.text
+                                                                    </span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success px-2 py-1 rounded-pill fw-semibold shadow-sm" title="@ageInfo.tooltip">
+                                                                        <i class="bi bi-stopwatch me-1"></i>@ageInfo.text
+                                                                    </span>
+                                                                }
                                                             }
                                                             else
                                                             {
@@ -4895,7 +4955,8 @@
                             Source = isInquiryReq ? "General Inquiry" : "Rental Booking",
                             Status = req.Status?.ToUpperInvariant() ?? (isInquiryReq ? "INQUIRY" : "PENDING"),
                             ColorCategory = isInquiryReq ? "badge-info" : (isApproved ? "badge-success" : "badge-warning"),
-                            Description = eventDesc
+                            Description = eventDesc,
+                            CreatedDate = req.CreatedDate != default ? req.CreatedDate : (req.RequestedDate != default ? req.RequestedDate : null)
                         });
                     }
                 }
@@ -8334,6 +8395,7 @@ Warm regards,
             "payment_status" => "width: 120px;",
             "guest_count" => "width: 100px;",
             "pricing_quote" => "width: 110px;",
+            "submission_age" => "width: 175px;",
             "calendar_source" => "width: 130px;",
             _ => ""
         };
@@ -8437,6 +8499,120 @@ Warm regards,
         return string.Join(", ", services);
     }
 
+    private (string? text, string badgeClass, string tooltip, bool isOverdue) GetSubmissionAgeInfo(CalendarEventItem evt, ParsedApplicationData appData, string payStatus)
+    {
+        if (_webSettings?.EnableSubmissionAgeTracking != true)
+        {
+            return (null, "", "", false);
+        }
+
+        // Check if event is approved, confirmed, or paid in full / deposit paid - if so, tracking is not needed / removed
+        bool isApproved = evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || 
+                          string.Equals(evt.Status, "APPROVED", StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase);
+        bool isPaid = payStatus == "Paid" || payStatus == "Deposit Paid";
+        bool isCancelled = evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase) || 
+                           string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase);
+
+        if (isApproved || isPaid || isCancelled)
+        {
+            return (null, "", "", false);
+        }
+
+        DateTime? submittedDate = evt.CreatedDate;
+        if (!submittedDate.HasValue && !string.IsNullOrWhiteSpace(appData.Timestamp))
+        {
+            if (DateTime.TryParse(appData.Timestamp, out var parsedTs))
+            {
+                submittedDate = parsedTs;
+            }
+        }
+        if (!submittedDate.HasValue && !string.IsNullOrWhiteSpace(appData.CreatedTimestamp))
+        {
+            if (DateTime.TryParse(appData.CreatedTimestamp, out var parsedTs2))
+            {
+                submittedDate = parsedTs2;
+            }
+        }
+
+        if (!submittedDate.HasValue)
+        {
+            return (null, "", "", false);
+        }
+
+        var elapsed = DateTime.Now - submittedDate.Value;
+        int windowDays = _webSettings.ApplicationPaymentWindowDays > 0 ? _webSettings.ApplicationPaymentWindowDays : 2;
+        var window = TimeSpan.FromDays(windowDays);
+        var remaining = window - elapsed;
+
+        string elapsedText;
+        if (elapsed.TotalMinutes < 60)
+        {
+            elapsedText = $"{(int)Math.Max(1, elapsed.TotalMinutes)}m ago";
+        }
+        else if (elapsed.TotalHours < 24)
+        {
+            elapsedText = $"{(int)elapsed.TotalHours}h ago";
+        }
+        else
+        {
+            int days = (int)elapsed.TotalDays;
+            int hours = elapsed.Hours;
+            elapsedText = hours > 0 ? $"{days}d {hours}h ago" : $"{days}d ago";
+        }
+
+        if (remaining.TotalSeconds <= 0)
+        {
+            // Overdue
+            var overdueBy = elapsed - window;
+            string overdueText;
+            if (overdueBy.TotalHours < 24)
+            {
+                overdueText = $"{(int)Math.Max(1, overdueBy.TotalHours)}h overdue";
+            }
+            else
+            {
+                int d = (int)overdueBy.TotalDays;
+                int h = overdueBy.Hours;
+                overdueText = h > 0 ? $"{d}d {h}h overdue" : $"{d}d overdue";
+            }
+
+            string text = $"Overdue ({elapsedText})";
+            string badgeClass = "badge bg-danger text-white border border-danger px-2 py-1 rounded-pill fw-bold shadow-sm";
+            string tooltip = $"Submitted {submittedDate.Value:g}. Exceeded {windowDays}-day payment window by {overdueText}.";
+            return (text, badgeClass, tooltip, true);
+        }
+        else if (remaining.TotalHours <= 12)
+        {
+            // Expiring soon (less than 12h remaining)
+            string remText = remaining.TotalHours < 1 ? $"{(int)Math.Max(1, remaining.TotalMinutes)}m left" : $"{(int)remaining.TotalHours}h {remaining.Minutes}m left";
+            string text = $"{remText} ({elapsedText})";
+            string badgeClass = "badge px-2 py-1 rounded-pill fw-bold shadow-sm";
+            string tooltip = $"Submitted {submittedDate.Value:g}. Window expires in {remText} ({windowDays}-day limit).";
+            return (text, "badge-expiring-soon", tooltip, false);
+        }
+        else
+        {
+            // Within window (green)
+            string remText;
+            if (remaining.TotalDays >= 1)
+            {
+                int d = (int)remaining.TotalDays;
+                int h = remaining.Hours;
+                remText = h > 0 ? $"{d}d {h}h left" : $"{d}d left";
+            }
+            else
+            {
+                remText = $"{(int)remaining.TotalHours}h left";
+            }
+
+            string text = $"{remText} ({elapsedText})";
+            string badgeClass = "badge bg-success bg-opacity-10 text-success border border-success px-2 py-1 rounded-pill fw-semibold";
+            string tooltip = $"Submitted {submittedDate.Value:g}. {remText} remaining to pay ({windowDays}-day window).";
+            return (text, badgeClass, tooltip, false);
+        }
+    }
+
     private string? GetMonthGridFieldValue(CalendarEventItem evt, string fieldKey, ParsedApplicationData appData, string payStatus)
     {
         switch (fieldKey)
@@ -8446,6 +8622,10 @@ Warm regards,
 
             case "payment_status":
                 return payStatus;
+
+            case "submission_age":
+                var ageInfo = GetSubmissionAgeInfo(evt, appData, payStatus);
+                return ageInfo.text;
 
             case "applicant_name":
                 return GetCleanApplicantName(evt);
