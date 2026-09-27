@@ -6,7 +6,7 @@ namespace GFC.Core.Models
 {
     public class RentalPricingGuideModel
     {
-        public string HeaderTitle { get; set; } = "PROPOSED EVENT PRICING GUIDE";
+        public string HeaderTitle { get; set; } = "EVENT PRICING GUIDE";
         public string HeaderSubtitle { get; set; } = "Private Rentals • Member Pricing • Community Rates • Bar & Add-On Services";
 
         // Top 3 Tier Cards (Non-Members, Members, Non-Profits)
@@ -22,100 +22,121 @@ namespace GFC.Core.Models
 
         public static RentalPricingGuideModel CreateDefaultFromSettings(WebsiteSettings? settings)
         {
-            var model = new RentalPricingGuideModel();
+            var model = new RentalPricingGuideModel
+            {
+                HeaderTitle = "EVENT PRICING GUIDE",
+                HeaderSubtitle = "Private Rentals • Member Pricing • Community Rates • Bar & Add-On Services"
+            };
             
-            // Resolve active rooms
-            var rooms = settings?.GetRoomsList() ?? RentalPricingDefaults.GetDefaultRooms();
-            var stdRoom = rooms.FirstOrDefault(r => r.IsDefault || r.Name.Contains("Standard", StringComparison.OrdinalIgnoreCase) || r.Id == "room_fh") 
-                          ?? rooms.FirstOrDefault() 
-                          ?? new RentalRoomOption { Name = "Function Hall", NonMemberRate = 400, MemberRate = 300 };
-            
-            var crRoom = rooms.FirstOrDefault(r => r.Name.Contains("Coalition", StringComparison.OrdinalIgnoreCase) || r.Id == "room_cr")
-                         ?? (rooms.Count > 1 ? rooms[1] : new RentalRoomOption { Name = "Coalition Partner Rate", NonMemberRate = 200, MemberRate = 100 });
-                         
-            var yoRoom = rooms.FirstOrDefault(r => r.Name.Contains("Youth", StringComparison.OrdinalIgnoreCase) || r.Id == "room_yo")
-                         ?? (rooms.Count > 2 ? rooms[2] : new RentalRoomOption { Name = "Youth Organization Rate", NonMemberRate = 100, MemberRate = 100 });
+            // Resolve tier cards from Tier & Day Matrix Rate Configuration
+            var tierCards = settings?.GetTierCardsList() ?? PricingTierDefaults.GetDefaultTierCards();
 
-            // 1. Non-Members Card
-            model.TierCards.Add(new PricingGuideTierCard
+            var nonMemberCard = tierCards.FirstOrDefault(c => c.AssociatedRenterType == "Non-Member" || c.Title.Contains("Non-Member", StringComparison.OrdinalIgnoreCase)) 
+                                ?? (tierCards.Count > 0 ? tierCards[0] : null);
+                                
+            var memberCard = tierCards.FirstOrDefault(c => c.AssociatedRenterType == "Member" || (c.Title.Contains("Member", StringComparison.OrdinalIgnoreCase) && !c.Title.Contains("Non", StringComparison.OrdinalIgnoreCase))) 
+                             ?? (tierCards.Count > 1 ? tierCards[1] : null);
+                             
+            var nonProfitCard = tierCards.FirstOrDefault(c => c.AssociatedRenterType == "NonProfit" || c.Title.Contains("Non-Profit", StringComparison.OrdinalIgnoreCase) || c.Title.Contains("Charity", StringComparison.OrdinalIgnoreCase)) 
+                                ?? (tierCards.Count > 2 ? tierCards[2] : null);
+
+            // Populate Tier Cards (Top 3)
+            foreach (var card in tierCards.Take(3))
             {
-                Title = "NON-MEMBERS",
-                Subtitle = "Standard Private Event Rates",
-                ThemeColor = "primary",
-                Items = new List<PricingGuideItem>
+                var guideCard = new PricingGuideTierCard
                 {
-                    new PricingGuideItem { Label = "Mon - Thu", PriceText = $"${Math.Max(50, stdRoom.NonMemberRate - 50):N0}" },
-                    new PricingGuideItem { Label = "Friday", PriceText = $"${stdRoom.NonMemberRate:N0}" },
-                    new PricingGuideItem { Label = "Saturday", PriceText = $"${(stdRoom.NonMemberRate + 150):N0}" },
-                    new PricingGuideItem { Label = "Sunday", PriceText = $"${(stdRoom.NonMemberRate + 50):N0}" }
-                },
-                FooterNote = "Standard Booking T&C"
-            });
+                    Id = card.Id,
+                    Title = card.Title.ToUpperInvariant(),
+                    Subtitle = card.Subtitle,
+                    FooterNote = card.FooterNote,
+                    ThemeColor = GetThemeColorName(card.ThemeColor, card.AssociatedRenterType)
+                };
 
-            // 2. Members Card
-            decimal memberSavings = Math.Max(0, stdRoom.NonMemberRate - stdRoom.MemberRate);
-            string savingsText = memberSavings > 0 ? $"Member Discount (${memberSavings:N0} Savings)" : "Member Exclusive Rates";
-            model.TierCards.Add(new PricingGuideTierCard
-            {
-                Title = "MEMBERS",
-                Subtitle = savingsText,
-                ThemeColor = "success",
-                Items = new List<PricingGuideItem>
+                // Check if Mon-Thu rates are equal
+                bool monThuEqual = card.MondayRate == card.TuesdayRate && card.MondayRate == card.WednesdayRate && card.MondayRate == card.ThursdayRate;
+                
+                // Check if Fri-Sun rates are equal (common in Non-Profit tier)
+                bool friSunEqual = card.FridayRate == card.SaturdayRate && card.FridayRate == card.SundayRate;
+
+                if (monThuEqual)
                 {
-                    new PricingGuideItem { Label = "Mon - Thu", PriceText = $"${Math.Max(50, stdRoom.MemberRate - 50):N0}" },
-                    new PricingGuideItem { Label = "Friday", PriceText = $"${stdRoom.MemberRate:N0}" },
-                    new PricingGuideItem { Label = "Saturday", PriceText = $"${(stdRoom.MemberRate + 150):N0}" },
-                    new PricingGuideItem { Label = "Sunday", PriceText = $"${(stdRoom.MemberRate + 50):N0}" }
-                },
-                FooterNote = memberSavings > 0 ? $"Save ${memberSavings:N0} across every time slot" : "Standard Member Booking Terms"
-            });
-
-            // 3. Non-Profits / Community Card
-            model.TierCards.Add(new PricingGuideTierCard
-            {
-                Title = "NON-PROFITS",
-                Subtitle = "Charitable Causes & Community Groups",
-                ThemeColor = "warning",
-                Items = new List<PricingGuideItem>
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Mon - Thu", PriceText = $"${card.MondayRate:N0}" });
+                }
+                else
                 {
-                    new PricingGuideItem { Label = "Mon - Thu", PriceText = $"${yoRoom.NonMemberRate:N0}" },
-                    new PricingGuideItem { Label = "Fri - Sun", PriceText = $"${crRoom.NonMemberRate:N0}" },
-                    new PricingGuideItem { Label = "Youth Groups", PriceText = $"${yoRoom.MemberRate:N0}" },
-                    new PricingGuideItem { Label = "Local Causes", PriceText = "$0*" }
-                },
-                FooterNote = "*Fee waiver option for approved causes"
-            });
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Monday", PriceText = $"${card.MondayRate:N0}" });
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Tue - Thu", PriceText = $"${card.ThursdayRate:N0}" });
+                }
 
-            // Middle Comparison Chart
+                if (friSunEqual)
+                {
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Fri - Sun", PriceText = $"${card.FridayRate:N0}" });
+                }
+                else
+                {
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Friday", PriceText = $"${card.FridayRate:N0}" });
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Saturday", PriceText = $"${card.SaturdayRate:N0}" });
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Sunday", PriceText = $"${card.SundayRate:N0}" });
+                }
+
+                // Subgroups (e.g., Youth Groups, Local Causes)
+                if (card.SubGroups != null && card.SubGroups.Count > 0)
+                {
+                    foreach (var sg in card.SubGroups.Where(s => s.IsAvailable))
+                    {
+                        string priceTxt = sg.Rate == 0 ? "$0*" : $"${sg.Rate:N0}";
+                        guideCard.Items.Add(new PricingGuideItem { Label = sg.Name, PriceText = priceTxt });
+                    }
+                }
+
+                model.TierCards.Add(guideCard);
+            }
+
+            // Populate Middle Comparison Chart with real day-of-week rates
+            decimal nmMon = nonMemberCard?.MondayRate ?? 350;
+            decimal nmFri = nonMemberCard?.FridayRate ?? 400;
+            decimal nmSat = nonMemberCard?.SaturdayRate ?? 550;
+            decimal nmSun = nonMemberCard?.SundayRate ?? 450;
+
+            decimal mMon = memberCard?.MondayRate ?? 250;
+            decimal mFri = memberCard?.FridayRate ?? 300;
+            decimal mSat = memberCard?.SaturdayRate ?? 450;
+            decimal mSun = memberCard?.SundayRate ?? 350;
+
+            decimal npMon = nonProfitCard?.MondayRate ?? 100;
+            decimal npFri = nonProfitCard?.FridayRate ?? 200;
+            decimal npSat = nonProfitCard?.SaturdayRate ?? 200;
+            decimal npSun = nonProfitCard?.SundayRate ?? 200;
+
             model.ChartRows = new List<PricingComparisonRow>
             {
                 new PricingComparisonRow
                 {
                     DayLabel = "Mon - Thu",
-                    NonMemberAmount = Math.Max(50, stdRoom.NonMemberRate - 50),
-                    MemberAmount = Math.Max(50, stdRoom.MemberRate - 50),
-                    NonProfitAmount = yoRoom.NonMemberRate
+                    NonMemberAmount = nmMon,
+                    MemberAmount = mMon,
+                    NonProfitAmount = npMon
                 },
                 new PricingComparisonRow
                 {
                     DayLabel = "Friday",
-                    NonMemberAmount = stdRoom.NonMemberRate,
-                    MemberAmount = stdRoom.MemberRate,
-                    NonProfitAmount = crRoom.NonMemberRate
+                    NonMemberAmount = nmFri,
+                    MemberAmount = mFri,
+                    NonProfitAmount = npFri
                 },
                 new PricingComparisonRow
                 {
                     DayLabel = "Saturday (Peak)",
-                    NonMemberAmount = stdRoom.NonMemberRate + 150,
-                    MemberAmount = stdRoom.MemberRate + 150,
-                    NonProfitAmount = crRoom.NonMemberRate
+                    NonMemberAmount = nmSat,
+                    MemberAmount = mSat,
+                    NonProfitAmount = npSat
                 },
                 new PricingComparisonRow
                 {
                     DayLabel = "Sunday",
-                    NonMemberAmount = stdRoom.NonMemberRate + 50,
-                    MemberAmount = stdRoom.MemberRate + 50,
-                    NonProfitAmount = crRoom.NonMemberRate
+                    NonMemberAmount = nmSun,
+                    MemberAmount = mSun,
+                    NonProfitAmount = npSun
                 }
             };
 
@@ -186,6 +207,21 @@ namespace GFC.Core.Models
             };
 
             return model;
+        }
+
+        private static string GetThemeColorName(string? colorHexOrName, string? renterType)
+        {
+            if (!string.IsNullOrEmpty(colorHexOrName))
+            {
+                var lower = colorHexOrName.ToLowerInvariant();
+                if (lower.Contains("primary") || lower == "#0d6efd" || lower.Contains("0d6efd") || lower.Contains("blue")) return "primary";
+                if (lower.Contains("success") || lower == "#198754" || lower.Contains("198754") || lower.Contains("green")) return "success";
+                if (lower.Contains("warning") || lower == "#d97706" || lower.Contains("d97706") || lower.Contains("amber") || lower.Contains("gold") || lower.Contains("orange")) return "warning";
+            }
+            
+            if (renterType == "Member") return "success";
+            if (renterType == "NonProfit") return "warning";
+            return "primary";
         }
 
         public static RentalPricingGuideModel CreateSample2027Model()

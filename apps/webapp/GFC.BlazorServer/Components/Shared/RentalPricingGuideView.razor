@@ -3,9 +3,11 @@
 @using System.Text.Json
 @inject IJSRuntime JSRuntime
 @inject IToastService ToastService
+@inject NavigationManager Navigation
+@inject IWebsiteSettingsService WebsiteSettingsService
 
 <div class="pricing-guide-view-wrapper @(IsPrintMode ? "print-mode" : "")">
-    <!-- TOP TOOLBAR (Hidden during direct print) -->
+    <!-- TOP TOOLBAR (Hidden during direct print or when embedded) -->
     @if (!HideToolbar)
     {
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 p-3 bg-white rounded-4 border shadow-sm no-print">
@@ -67,6 +69,11 @@
                     </span>
                 }
 
+                <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 shadow-sm" @onclick="() => _showEmbedModal = true" title="Embed individual boxes or full guide on your website">
+                    <i class="bi bi-code-slash"></i>
+                    <span>Embed on Website</span>
+                </button>
+
                 <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 shadow-sm" @onclick="TriggerPrint">
                     <i class="bi bi-printer"></i>
                     <span>Print / Save PDF</span>
@@ -83,330 +90,583 @@
         </div>
     }
 
-    <!-- MAIN PRICING GUIDE CONTAINER (PIXEL-PERFECT RECREATION OF 1790348307839.png) -->
-    <div class="pricing-guide-sheet bg-white rounded-4 border p-4 shadow-sm mx-auto position-relative" style="max-width: 920px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #fafbfc;">
+    <!-- MAIN PRICING GUIDE CONTAINER -->
+    <div class="pricing-guide-sheet bg-white rounded-4 border @(IsSingleSectionMode ? "p-2" : "p-4") shadow-sm mx-auto position-relative" style="max-width: 920px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #fafbfc;">
         
         <!-- 1. LIGHT HEADER BANNER -->
-        <div class="guide-header text-center mb-4 p-3 rounded-4 border" style="background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-            @if (IsEditing && ActiveMode == "custom")
-            {
-                <div class="mb-2">
-                    <label class="form-label small text-muted mb-1 fw-bold">Guide Title</label>
-                    <input type="text" class="form-control form-control-lg text-center fw-bold text-dark border-primary" @bind="ActiveModel.HeaderTitle" placeholder="PROPOSED 2027 EVENT PRICING GUIDE" />
-                </div>
-                <div>
-                    <label class="form-label small text-muted mb-1 fw-bold">Subtitle Categories</label>
-                    <input type="text" class="form-control text-center text-muted border-primary" @bind="ActiveModel.HeaderSubtitle" placeholder="Private Rentals • Member Pricing • Community Rates • Bar & Add-On Services" />
-                </div>
-            }
-            else
-            {
-                <h3 class="fw-bolder mb-1 text-dark text-uppercase tracking-wider" style="letter-spacing: 0.06em; font-size: 1.35rem;">@ActiveModel.HeaderTitle</h3>
-                <div class="text-secondary small fw-medium" style="font-size: 0.85rem; letter-spacing: 0.02em;">@ActiveModel.HeaderSubtitle</div>
-            }
-        </div>
-
-        <!-- 2. TOP 3 TIER CARDS GRID -->
-        <div class="row g-3 mb-4">
-            @for (int i = 0; i < ActiveModel.TierCards.Count; i++)
-            {
-                var cardIndex = i;
-                var card = ActiveModel.TierCards[cardIndex];
-                var headerBg = card.ThemeColor switch
-                {
-                    "primary" => "background: #dbeafe; color: #1e40af; border-bottom: 1px solid #bfdbfe;",
-                    "success" => "background: #d1fae5; color: #065f46; border-bottom: 1px solid #a7f3d0;",
-                    "warning" => "background: #fef3c7; color: #92400e; border-bottom: 1px solid #fde68a;",
-                    _ => "background: #f1f5f9; color: #334155; border-bottom: 1px solid #e2e8f0;"
-                };
-                var priceColor = card.ThemeColor switch
-                {
-                    "primary" => "color: #2563eb;",
-                    "success" => "color: #059669;",
-                    "warning" => "color: #d97706;",
-                    _ => "color: #1e293b;"
-                };
-
-                <div class="col-md-4">
-                    <div class="card h-100 border rounded-4 shadow-sm overflow-hidden d-flex flex-column" style="background: #ffffff; border-color: #e2e8f0 !important;">
-                        <!-- Header -->
-                        <div class="p-3 text-center" style="@headerBg">
-                            @if (IsEditing && ActiveMode == "custom")
-                            {
-                                <input type="text" class="form-control form-control-sm text-center fw-bold mb-1" @bind="card.Title" placeholder="Card Title" />
-                                <input type="text" class="form-control form-control-sm text-center small text-muted" @bind="card.Subtitle" placeholder="Subtitle" />
-                            }
-                            else
-                            {
-                                <h6 class="fw-bolder mb-0 text-uppercase" style="letter-spacing: 0.05em; font-size: 0.95rem;">@card.Title</h6>
-                                <div class="small mt-1 text-muted" style="font-size: 0.78rem;">@card.Subtitle</div>
-                            }
-                        </div>
-
-                        <!-- Rows with distinct rounded pill boxes like image -->
-                        <div class="p-3 flex-grow-1 d-flex flex-column gap-2" style="background: #fafbfc;">
-                            @for (int j = 0; j < card.Items.Count; j++)
-                            {
-                                var itemIndex = j;
-                                var item = card.Items[itemIndex];
-                                <div class="d-flex justify-content-between align-items-center px-3 py-2 rounded-3 border bg-white shadow-xs" style="border-color: #e2e8f0 !important;">
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bold me-2 p-0" @bind="item.Label" placeholder="Day / Slot" />
-                                        <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bolder text-end p-0" style="max-width: 90px; @priceColor" @bind="item.PriceText" placeholder="$0" />
-                                    }
-                                    else
-                                    {
-                                        <span class="fw-bold text-dark" style="font-size: 0.88rem;">@item.Label</span>
-                                        <span class="fw-bolder fs-6" style="@priceColor">@item.PriceText</span>
-                                    }
-                                </div>
-                            }
-                        </div>
-
-                        <!-- Footer Note -->
-                        <div class="p-2 text-center border-top bg-white mt-auto" style="border-color: #f1f5f9 !important;">
-                            @if (IsEditing && ActiveMode == "custom")
-                            {
-                                <input type="text" class="form-control form-control-sm text-center text-muted" @bind="card.FooterNote" placeholder="Footer Note" />
-                            }
-                            else
-                            {
-                                <span class="text-muted small" style="font-size: 0.75rem;">@card.FooterNote</span>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-        </div>
-
-        <!-- 3. RATE COMPARISON HORIZONTAL BAR CHART (EXACT MATCH TO 1790348307839.png) -->
-        <div class="card border rounded-4 p-4 mb-4 shadow-sm bg-white" style="border-color: #e2e8f0 !important;">
-            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 border-bottom pb-2">
+        @if (ShouldShowSection("header"))
+        {
+            <div class="guide-header text-center mb-4 p-3 rounded-4 border" style="background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
                 @if (IsEditing && ActiveMode == "custom")
                 {
-                    <input type="text" class="form-control form-control-sm fw-bold text-dark border-primary" style="max-width: 420px;" @bind="ActiveModel.ChartTitle" placeholder="Chart Title" />
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1 fw-bold">Guide Title</label>
+                        <input type="text" class="form-control form-control-lg text-center fw-bold text-dark border-primary" @bind="ActiveModel.HeaderTitle" placeholder="EVENT PRICING GUIDE" />
+                    </div>
+                    <div>
+                        <label class="form-label small text-muted mb-1 fw-bold">Subtitle Categories</label>
+                        <input type="text" class="form-control text-center text-muted border-primary" @bind="ActiveModel.HeaderSubtitle" placeholder="Private Rentals • Member Pricing • Community Rates • Bar & Add-On Services" />
+                    </div>
                 }
                 else
                 {
-                    <h6 class="fw-bolder text-dark mb-0 text-uppercase" style="letter-spacing: 0.04em; font-size: 0.88rem;">@ActiveModel.ChartTitle</h6>
+                    <h3 class="fw-bolder mb-1 text-dark text-uppercase tracking-wider" style="letter-spacing: 0.06em; font-size: 1.35rem;">@ActiveModel.HeaderTitle</h3>
+                    <div class="text-secondary small fw-medium" style="font-size: 0.85rem; letter-spacing: 0.02em;">@ActiveModel.HeaderSubtitle</div>
                 }
-
-                <!-- Chart Legend (Blue, Green, Amber) -->
-                <div class="d-flex align-items-center gap-3">
-                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #2563eb; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Non-Member</span></span>
-                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #0f766e; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Member</span></span>
-                    <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #d97706; width: 14px; height: 10px;"></span> <span class="text-secondary small fw-semibold">Non-Profit</span></span>
-                </div>
             </div>
+        }
 
-            <!-- Comparison Chart with Grid Lines like Reference Picture -->
-            <div class="chart-comparison-wrapper position-relative py-2">
-                <div class="d-flex flex-column gap-3">
-                    @foreach (var row in ActiveModel.ChartRows)
+        <!-- 2. TOP 3 TIER CARDS GRID (Always 3 Columns Side-by-Side) -->
+        @if (ShouldShowSection("tiers"))
+        {
+            @if (!HideToolbar)
+            {
+                <div class="d-flex justify-content-between align-items-center mb-2 px-1 no-print">
+                    <span class="small fw-bold text-muted text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.04em;"><i class="bi bi-grid-3x3-gap-fill me-1 text-primary"></i>Top 3 Pricing Tier Cards</span>
+                    <button type="button" class="btn btn-xs btn-outline-secondary d-flex align-items-center gap-1 shadow-xs" style="font-size: 0.72rem;" @onclick='() => CopySectionEmbed("tiers")' title="Copy iframe embed code for Top 3 Tier Cards">
+                        <i class="bi bi-code-slash text-primary"></i>
+                        <span>Copy Embed (3 Tiers)</span>
+                    </button>
+                </div>
+            }
+
+            <div class="row g-2 mb-3 tier-cards-row">
+                @for (int i = 0; i < ActiveModel.TierCards.Count; i++)
+                {
+                    var cardIndex = i;
+                    var card = ActiveModel.TierCards[cardIndex];
+                    var headerBg = card.ThemeColor switch
                     {
-                        var maxVal = 700m;
-                        var nonMemberPct = Math.Min(100, Math.Max(2, (row.NonMemberAmount / maxVal) * 100));
-                        var memberPct = Math.Min(100, Math.Max(2, (row.MemberAmount / maxVal) * 100));
-                        var nonProfitPct = Math.Min(100, Math.Max(2, (row.NonProfitAmount / maxVal) * 100));
+                        "primary" => "background: #dbeafe; color: #1e40af; border-bottom: 1px solid #bfdbfe;",
+                        "success" => "background: #d1fae5; color: #065f46; border-bottom: 1px solid #a7f3d0;",
+                        "warning" => "background: #fef3c7; color: #92400e; border-bottom: 1px solid #fde68a;",
+                        _ => "background: #f1f5f9; color: #334155; border-bottom: 1px solid #e2e8f0;"
+                    };
+                    var priceColor = card.ThemeColor switch
+                    {
+                        "primary" => "color: #2563eb;",
+                        "success" => "color: #059669;",
+                        "warning" => "color: #d97706;",
+                        _ => "color: #1e293b;"
+                    };
 
-                        <div class="d-flex align-items-center">
-                            <!-- Y-Axis Label -->
-                            <div class="fw-bold text-dark" style="width: 140px; min-width: 140px; font-size: 0.88rem;">
+                    <div class="col-4 tier-card-col">
+                        <div class="card h-100 border rounded-3 shadow-sm overflow-hidden d-flex flex-column tier-card" style="background: #ffffff; border-color: #e2e8f0 !important;">
+                            <!-- Header -->
+                            <div class="p-2 text-center card-header-box" style="@headerBg">
                                 @if (IsEditing && ActiveMode == "custom")
                                 {
-                                    <input type="text" class="form-control form-control-sm" @bind="row.DayLabel" />
+                                    <input type="text" class="form-control form-control-sm text-center fw-bold mb-1" @bind="card.Title" placeholder="Card Title" />
+                                    <input type="text" class="form-control form-control-sm text-center small text-muted" @bind="card.Subtitle" placeholder="Subtitle" />
                                 }
                                 else
                                 {
-                                    <span>@row.DayLabel</span>
+                                    <h6 class="fw-bolder mb-0 text-uppercase tier-title" style="letter-spacing: 0.05em; font-size: 0.92rem;">@card.Title</h6>
+                                    <div class="small mt-1 text-muted tier-subtitle" style="font-size: 0.75rem;">@card.Subtitle</div>
                                 }
                             </div>
 
-                            <!-- Horizontal Grid Area with 3 Bars & Values placed outside bar -->
-                            <div class="flex-grow-1 position-relative" style="border-left: 2px solid #94a3b8; border-bottom: 1px solid #e2e8f0; padding: 4px 0 4px 6px;">
-                                <!-- Non-Member Bar -->
-                                <div class="d-flex align-items-center mb-1">
-                                    <div style="width: @nonMemberPct.ToString("F1")%; height: 14px; background: #2563eb; border-radius: 2px;"></div>
+                            <!-- Rows with distinct rounded pill boxes like image -->
+                            <div class="p-2 flex-grow-1 d-flex flex-column gap-2 card-body-box" style="background: #fafbfc;">
+                                @for (int j = 0; j < card.Items.Count; j++)
+                                {
+                                    var itemIndex = j;
+                                    var item = card.Items[itemIndex];
+                                    <div class="d-flex justify-content-between align-items-center px-2 py-1 rounded-2 border bg-white shadow-xs tier-item-pill" style="border-color: #e2e8f0 !important;">
+                                        @if (IsEditing && ActiveMode == "custom")
+                                        {
+                                            <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bold me-1 p-0" @bind="item.Label" placeholder="Day / Slot" />
+                                            <input type="text" class="form-control form-control-sm border-0 bg-transparent fw-bolder text-end p-0 me-1" style="max-width: 80px; @priceColor" @bind="item.PriceText" placeholder="$0" />
+                                            <button type="button" class="btn btn-link text-danger p-0 ms-1" style="font-size: 0.85rem; text-decoration: none;" @onclick="() => RemoveTierItem(card, item)" title="Remove Item">
+                                                <i class="bi bi-x-circle-fill"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-bold text-dark item-label" style="font-size: 0.84rem;">@item.Label</span>
+                                            <span class="fw-bolder item-price" style="@priceColor; font-size: 0.92rem;">@item.PriceText</span>
+                                        }
+                                    </div>
+                                }
+
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <button type="button" class="btn btn-xs btn-outline-primary w-100 py-1 d-flex align-items-center justify-content-center gap-1 mt-1 shadow-xs border-dashed" style="font-size: 0.72rem; border-style: dashed;" @onclick="() => AddTierItem(card)">
+                                        <i class="bi bi-plus-circle"></i>
+                                        <span>Add Rate / Slot</span>
+                                    </button>
+                                }
+                            </div>
+
+                            <!-- Footer Note -->
+                            <div class="p-1 text-center border-top bg-white mt-auto card-footer-box" style="border-color: #f1f5f9 !important;">
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <input type="text" class="form-control form-control-sm text-center text-muted" @bind="card.FooterNote" placeholder="Footer Note" />
+                                }
+                                else
+                                {
+                                    <span class="text-muted small card-footer-text" style="font-size: 0.72rem;">@card.FooterNote</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- 3. RATE COMPARISON HORIZONTAL BAR CHART (EXACT MATCH TO 1790348307839.png) -->
+        @if (ShouldShowSection("chart"))
+        {
+            <div class="card border rounded-3 p-3 mb-3 chart-card shadow-sm bg-white" style="border-color: #e2e8f0 !important;">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2 border-bottom pb-2 chart-header-row">
+                    @if (IsEditing && ActiveMode == "custom")
+                    {
+                        <input type="text" class="form-control form-control-sm fw-bold text-dark border-primary" style="max-width: 420px;" @bind="ActiveModel.ChartTitle" placeholder="Chart Title" />
+                    }
+                    else
+                    {
+                        <h6 class="fw-bolder text-dark mb-0 text-uppercase chart-main-title" style="letter-spacing: 0.04em; font-size: 0.85rem;">@ActiveModel.ChartTitle</h6>
+                    }
+
+                    <!-- Chart Legend & Embed -->
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="d-flex align-items-center gap-3 chart-legend-row">
+                            <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #2563eb; width: 12px; height: 9px;"></span> <span class="text-secondary small fw-semibold" style="font-size: 0.75rem;">Non-Member</span></span>
+                            <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #0f766e; width: 12px; height: 9px;"></span> <span class="text-secondary small fw-semibold" style="font-size: 0.75rem;">Member</span></span>
+                            <span class="d-flex align-items-center gap-1 small"><span class="d-inline-block rounded-1" style="background: #d97706; width: 12px; height: 9px;"></span> <span class="text-secondary small fw-semibold" style="font-size: 0.75rem;">Non-Profit</span></span>
+                        </div>
+                        @if (!HideToolbar)
+                        {
+                            <button type="button" class="btn btn-xs btn-outline-secondary d-flex align-items-center gap-1 shadow-xs no-print ms-2" style="font-size: 0.70rem;" @onclick='() => CopySectionEmbed("chart")' title="Copy embed code for Comparison Chart">
+                                <i class="bi bi-code-slash text-info"></i>
+                                <span>Copy Embed</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <!-- Comparison Chart with Grid Lines like Reference Picture -->
+                <div class="chart-comparison-wrapper position-relative py-1">
+                    <div class="d-flex flex-column gap-2 chart-rows-container">
+                        @{
+                            var maxVal = Math.Max(700m, ActiveModel.ChartRows.SelectMany(r => new[] { r.NonMemberAmount, r.MemberAmount, r.NonProfitAmount }).DefaultIfEmpty(700m).Max());
+                        }
+                        @foreach (var row in ActiveModel.ChartRows)
+                        {
+                            var nonMemberPct = Math.Min(100, Math.Max(2, (row.NonMemberAmount / maxVal) * 100));
+                            var memberPct = Math.Min(100, Math.Max(2, (row.MemberAmount / maxVal) * 100));
+                            var nonProfitPct = Math.Min(100, Math.Max(2, (row.NonProfitAmount / maxVal) * 100));
+
+                            <div class="d-flex align-items-center chart-day-row">
+                                <!-- Y-Axis Label -->
+                                <div class="fw-bold text-dark chart-y-label" style="width: 120px; min-width: 120px; font-size: 0.82rem;">
                                     @if (IsEditing && ActiveMode == "custom")
                                     {
-                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-primary fw-bold" style="width: 70px;" @bind="row.NonMemberAmount" />
+                                        <div class="d-flex align-items-center gap-1">
+                                            <input type="text" class="form-control form-control-sm" @bind="row.DayLabel" />
+                                            <button type="button" class="btn btn-link text-danger p-0" style="font-size: 0.85rem; text-decoration: none;" @onclick="() => RemoveChartRow(row)" title="Remove Chart Row">
+                                                <i class="bi bi-x-circle-fill"></i>
+                                            </button>
+                                        </div>
                                     }
                                     else
                                     {
-                                        <span class="ms-2 fw-bold small text-primary" style="font-size: 0.78rem;">$@row.NonMemberAmount:N0</span>
+                                        <span>@row.DayLabel</span>
                                     }
                                 </div>
 
-                                <!-- Member Bar -->
-                                <div class="d-flex align-items-center mb-1">
-                                    <div style="width: @memberPct.ToString("F1")%; height: 14px; background: #0f766e; border-radius: 2px;"></div>
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-success fw-bold" style="width: 70px;" @bind="row.MemberAmount" />
-                                    }
-                                    else
-                                    {
-                                        <span class="ms-2 fw-bold small" style="color: #0f766e; font-size: 0.78rem;">$@row.MemberAmount:N0</span>
-                                    }
-                                </div>
+                                <!-- Horizontal Grid Area with 3 Bars & Values placed outside bar -->
+                                <div class="flex-grow-1 position-relative chart-bars-box" style="border-left: 2px solid #94a3b8; border-bottom: 1px solid #e2e8f0; padding: 2px 0 2px 6px;">
+                                    <!-- Non-Member Bar -->
+                                    <div class="d-flex align-items-center mb-1 bar-item">
+                                        <div style="width: @nonMemberPct.ToString("F1")%; height: 12px; background: #2563eb; border-radius: 2px;"></div>
+                                        @if (IsEditing && ActiveMode == "custom")
+                                        {
+                                            <input type="number" class="form-control form-control-sm ms-2 p-0 text-primary fw-bold" style="width: 70px;" @bind="row.NonMemberAmount" />
+                                        }
+                                        else
+                                        {
+                                            <span class="ms-2 fw-bold text-primary bar-value" style="font-size: 0.74rem;">$@row.NonMemberAmount:N0</span>
+                                        }
+                                    </div>
 
-                                <!-- Non-Profit Bar -->
-                                <div class="d-flex align-items-center">
-                                    <div style="width: @nonProfitPct.ToString("F1")%; height: 14px; background: #d97706; border-radius: 2px;"></div>
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="number" class="form-control form-control-sm ms-2 p-0 text-warning-emphasis fw-bold" style="width: 70px;" @bind="row.NonProfitAmount" />
-                                    }
-                                    else
-                                    {
-                                        <span class="ms-2 fw-bold small" style="color: #d97706; font-size: 0.78rem;">$@row.NonProfitAmount:N0</span>
-                                    }
+                                    <!-- Member Bar -->
+                                    <div class="d-flex align-items-center mb-1 bar-item">
+                                        <div style="width: @memberPct.ToString("F1")%; height: 12px; background: #0f766e; border-radius: 2px;"></div>
+                                        @if (IsEditing && ActiveMode == "custom")
+                                        {
+                                            <input type="number" class="form-control form-control-sm ms-2 p-0 text-success fw-bold" style="width: 70px;" @bind="row.MemberAmount" />
+                                        }
+                                        else
+                                        {
+                                            <span class="ms-2 fw-bold bar-value" style="color: #0f766e; font-size: 0.74rem;">$@row.MemberAmount:N0</span>
+                                        }
+                                    </div>
+
+                                    <!-- Non-Profit Bar -->
+                                    <div class="d-flex align-items-center bar-item">
+                                        <div style="width: @nonProfitPct.ToString("F1")%; height: 12px; background: #d97706; border-radius: 2px;"></div>
+                                        @if (IsEditing && ActiveMode == "custom")
+                                        {
+                                            <input type="number" class="form-control form-control-sm ms-2 p-0 text-warning-emphasis fw-bold" style="width: 70px;" @bind="row.NonProfitAmount" />
+                                        }
+                                        else
+                                        {
+                                            <span class="ms-2 fw-bold bar-value" style="color: #d97706; font-size: 0.74rem;">$@row.NonProfitAmount:N0</span>
+                                        }
+                                    </div>
                                 </div>
                             </div>
+                        }
+                    </div>
+
+                    <!-- X-Axis Scale Baseline (0 - 700) -->
+                    <div class="d-flex justify-content-between mt-1 text-muted small chart-x-axis" style="margin-left: 120px; font-size: 0.70rem; padding-left: 6px;">
+                        <span>0</span>
+                        <span>100</span>
+                        <span>300</span>
+                        <span>500</span>
+                        <span>700</span>
+                    </div>
+
+                    @if (IsEditing && ActiveMode == "custom")
+                    {
+                        <div class="mt-2 text-end">
+                            <button type="button" class="btn btn-xs btn-outline-primary py-1 px-2 d-inline-flex align-items-center gap-1 shadow-xs border-dashed" style="font-size: 0.75rem; border-style: dashed;" @onclick="AddChartRow">
+                                <i class="bi bi-plus-circle"></i>
+                                <span>Add Chart Comparison Row</span>
+                            </button>
                         </div>
                     }
                 </div>
-
-                <!-- X-Axis Scale Baseline (0 - 700) -->
-                <div class="d-flex justify-content-between mt-1 text-muted small" style="margin-left: 140px; font-size: 0.72rem; padding-left: 6px;">
-                    <span>0</span>
-                    <span>100</span>
-                    <span>300</span>
-                    <span>500</span>
-                    <span>700</span>
-                </div>
             </div>
-        </div>
+        }
 
-        <!-- 4. BOTTOM ADDON SERVICES (2 COLUMNS MATCHING REFERENCE PICTURE) -->
-        <div class="row g-3">
-            <!-- Left: Bar Service Options (Soft Cream / Amber Accent) -->
-            <div class="col-md-6">
-                <div class="card h-100 border rounded-4 p-3 shadow-sm bg-white d-flex flex-column" style="border-color: #fde68a !important; background: #ffffff;">
-                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
-                        @if (IsEditing && ActiveMode == "custom")
-                        {
-                            <input type="text" class="form-control form-control-sm fw-bold text-danger" @bind="ActiveModel.BottomLeftSection.Title" placeholder="Section Title" />
-                        }
-                        else
-                        {
-                            <h6 class="fw-bolder mb-0 text-uppercase" style="color: #881337; letter-spacing: 0.04em; font-size: 0.85rem;">
-                                @ActiveModel.BottomLeftSection.Title
-                            </h6>
-                        }
+        <!-- 4. BOTTOM ADDON SERVICES (Always 2 Columns Side-by-Side or Individual) -->
+        @if (ShouldShowSection("bottom"))
+        {
+            <div class="row g-2 bottom-cards-row">
+                <!-- Left: Bar Service Options (Soft Cream / Amber Accent) -->
+                @if (ShouldShowSection("bar"))
+                {
+                    <div class="@(IsSingleSectionMode ? "col-12" : "col-6 bottom-card-col")">
+                        <div class="card h-100 border rounded-3 p-3 shadow-sm bg-white d-flex flex-column addon-card" style="border-color: #fde68a !important; background: #ffffff;">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom addon-header">
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <input type="text" class="form-control form-control-sm fw-bold text-danger" @bind="ActiveModel.BottomLeftSection.Title" placeholder="Section Title" />
+                                }
+                                else
+                                {
+                                    <h6 class="fw-bolder mb-0 text-uppercase addon-title" style="color: #881337; letter-spacing: 0.04em; font-size: 0.82rem;">
+                                        @ActiveModel.BottomLeftSection.Title
+                                    </h6>
+                                }
+                                @if (!HideToolbar)
+                                {
+                                    <button type="button" class="btn btn-xs btn-outline-secondary d-flex align-items-center gap-1 shadow-xs no-print" style="font-size: 0.70rem;" @onclick='() => CopySectionEmbed("bar")' title="Copy embed code for Bar Service Options">
+                                        <i class="bi bi-code-slash text-danger"></i>
+                                        <span>Copy Embed</span>
+                                    </button>
+                                }
+                            </div>
+
+                            <div class="d-flex flex-column gap-2 flex-grow-1 addon-items-list">
+                                @foreach (var item in ActiveModel.BottomLeftSection.Items)
+                                {
+                                    <div class="p-2 rounded-2 border d-flex justify-content-between align-items-center gap-2 addon-item-pill" style="background: #fffbeb; border-color: #fef3c7 !important;">
+                                        <div class="flex-grow-1">
+                                            @if (IsEditing && ActiveMode == "custom")
+                                            {
+                                                <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
+                                                <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
+                                            }
+                                            else
+                                            {
+                                                <div class="fw-bold text-dark addon-name" style="font-size: 0.80rem;">@item.Name</div>
+                                                <div class="text-muted small addon-desc" style="font-size: 0.70rem;">@item.Description</div>
+                                            }
+                                        </div>
+                                        <div class="text-end d-flex align-items-center gap-1" style="min-width: 90px;">
+                                            @if (IsEditing && ActiveMode == "custom")
+                                            {
+                                                <input type="text" class="form-control form-control-sm text-end fw-bold text-danger" @bind="item.FeeBadgeText" placeholder="Fee" />
+                                                <button type="button" class="btn btn-link text-danger p-0 ms-1" style="font-size: 0.85rem; text-decoration: none;" @onclick="() => RemoveServiceItem(ActiveModel.BottomLeftSection, item)" title="Remove Service">
+                                                    <i class="bi bi-x-circle-fill"></i>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="fw-bolder addon-fee" style="color: #b91c1c; font-size: 0.82rem;">@item.FeeBadgeText</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <button type="button" class="btn btn-xs btn-outline-danger w-100 py-1 d-flex align-items-center justify-content-center gap-1 mt-1 shadow-xs border-dashed" style="font-size: 0.72rem; border-style: dashed;" @onclick="() => AddServiceItem(ActiveModel.BottomLeftSection)">
+                                        <i class="bi bi-plus-circle"></i>
+                                        <span>Add Option / Service</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
                     </div>
+                }
 
-                    <div class="d-flex flex-column gap-2 flex-grow-1">
-                        @foreach (var item in ActiveModel.BottomLeftSection.Items)
-                        {
-                            <div class="p-2 rounded-3 border d-flex justify-content-between align-items-center gap-2" style="background: #fffbeb; border-color: #fef3c7 !important;">
-                                <div class="flex-grow-1">
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
-                                        <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
-                                    }
-                                    else
-                                    {
-                                        <div class="fw-bold text-dark" style="font-size: 0.82rem;">@item.Name</div>
-                                        <div class="text-muted small" style="font-size: 0.73rem;">@item.Description</div>
-                                    }
-                                </div>
-                                <div class="text-end" style="min-width: 95px;">
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="text" class="form-control form-control-sm text-end fw-bold text-danger" @bind="item.FeeBadgeText" placeholder="Fee" />
-                                    }
-                                    else
-                                    {
-                                        <span class="fw-bolder" style="color: #b91c1c; font-size: 0.85rem;">@item.FeeBadgeText</span>
-                                    }
+                <!-- Right: Additional Services (Soft Green / Mint Accent) -->
+                @if (ShouldShowSection("addons"))
+                {
+                    <div class="@(IsSingleSectionMode ? "col-12" : "col-6 bottom-card-col")">
+                        <div class="card h-100 border rounded-3 p-3 shadow-sm bg-white d-flex flex-column addon-card" style="border-color: #bbf7d0 !important; background: #ffffff;">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom addon-header">
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <input type="text" class="form-control form-control-sm fw-bold text-success" @bind="ActiveModel.BottomRightSection.Title" placeholder="Section Title" />
+                                }
+                                else
+                                {
+                                    <h6 class="fw-bolder mb-0 text-uppercase addon-title" style="color: #065f46; letter-spacing: 0.04em; font-size: 0.82rem;">
+                                        @ActiveModel.BottomRightSection.Title
+                                    </h6>
+                                }
+                                @if (!HideToolbar)
+                                {
+                                    <button type="button" class="btn btn-xs btn-outline-secondary d-flex align-items-center gap-1 shadow-xs no-print" style="font-size: 0.70rem;" @onclick='() => CopySectionEmbed("addons")' title="Copy embed code for Additional Services">
+                                        <i class="bi bi-code-slash text-success"></i>
+                                        <span>Copy Embed</span>
+                                    </button>
+                                }
+                            </div>
+
+                            <div class="d-flex flex-column gap-2 flex-grow-1 addon-items-list">
+                                @foreach (var item in ActiveModel.BottomRightSection.Items)
+                                {
+                                    <div class="p-2 rounded-2 border d-flex justify-content-between align-items-center gap-2 addon-item-pill" style="background: #f0fdf4; border-color: #dcfce7 !important;">
+                                        <div class="flex-grow-1">
+                                            @if (IsEditing && ActiveMode == "custom")
+                                            {
+                                                <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
+                                                <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
+                                            }
+                                            else
+                                            {
+                                                <div class="fw-bold text-dark addon-name" style="font-size: 0.80rem;">@item.Name</div>
+                                                <div class="text-muted small addon-desc" style="font-size: 0.70rem;">@item.Description</div>
+                                            }
+                                        </div>
+                                        <div class="text-end d-flex align-items-center gap-1" style="min-width: 90px;">
+                                            @if (IsEditing && ActiveMode == "custom")
+                                            {
+                                                <input type="text" class="form-control form-control-sm text-end fw-bold text-success" @bind="item.FeeBadgeText" placeholder="Fee" />
+                                                <button type="button" class="btn btn-link text-danger p-0 ms-1" style="font-size: 0.85rem; text-decoration: none;" @onclick="() => RemoveServiceItem(ActiveModel.BottomRightSection, item)" title="Remove Service">
+                                                    <i class="bi bi-x-circle-fill"></i>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="fw-bolder text-success addon-fee" style="font-size: 0.82rem;">@item.FeeBadgeText</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (IsEditing && ActiveMode == "custom")
+                                {
+                                    <button type="button" class="btn btn-xs btn-outline-success w-100 py-1 d-flex align-items-center justify-content-center gap-1 mt-1 shadow-xs border-dashed" style="font-size: 0.72rem; border-style: dashed;" @onclick="() => AddServiceItem(ActiveModel.BottomRightSection)">
+                                        <i class="bi bi-plus-circle"></i>
+                                        <span>Add Service / Amenity</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: EMBED CODE CHOOSER & GENERATOR -->
+<!-- ========================================================================= -->
+@if (_showEmbedModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content rounded-4 border shadow-lg overflow-hidden">
+                <div class="modal-header bg-light border-bottom py-3 px-4">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 rounded-3 bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-code-slash fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0">Website &amp; WordPress Embed Code</h5>
+                            <small class="text-muted">Select an individual box or the full guide to embed on your website</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showEmbedModal = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4 bg-white">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark mb-2">1. Choose Section / Widget to Embed:</label>
+                        <div class="row g-2">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card p-2 h-100 border @(_selectedEmbedTab == "tiers" ? "border-primary bg-primary bg-opacity-10 shadow-sm" : "bg-light")" style="cursor: pointer;" @onclick='() => _selectedEmbedTab = "tiers"'>
+                                    <div class="fw-bold small text-dark"><i class="bi bi-grid-3x3-gap-fill text-primary me-1"></i>Top 3 Tier Cards</div>
+                                    <div class="text-muted extra-small" style="font-size: 0.72rem;">Non-Members, Members &amp; Non-Profits (3 columns)</div>
                                 </div>
                             </div>
-                        }
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right: Additional Services (Soft Green / Mint Accent) -->
-            <div class="col-md-6">
-                <div class="card h-100 border rounded-4 p-3 shadow-sm bg-white d-flex flex-column" style="border-color: #bbf7d0 !important; background: #ffffff;">
-                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
-                        @if (IsEditing && ActiveMode == "custom")
-                        {
-                            <input type="text" class="form-control form-control-sm fw-bold text-success" @bind="ActiveModel.BottomRightSection.Title" placeholder="Section Title" />
-                        }
-                        else
-                        {
-                            <h6 class="fw-bolder mb-0 text-uppercase" style="color: #065f46; letter-spacing: 0.04em; font-size: 0.85rem;">
-                                @ActiveModel.BottomRightSection.Title
-                            </h6>
-                        }
-                    </div>
-
-                    <div class="d-flex flex-column gap-2 flex-grow-1">
-                        @foreach (var item in ActiveModel.BottomRightSection.Items)
-                        {
-                            <div class="p-2 rounded-3 border d-flex justify-content-between align-items-center gap-2" style="background: #f0fdf4; border-color: #dcfce7 !important;">
-                                <div class="flex-grow-1">
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="text" class="form-control form-control-sm fw-bold mb-1" @bind="item.Name" placeholder="Service Name" />
-                                        <input type="text" class="form-control form-control-sm small text-muted" @bind="item.Description" placeholder="Description" />
-                                    }
-                                    else
-                                    {
-                                        <div class="fw-bold text-dark" style="font-size: 0.82rem;">@item.Name</div>
-                                        <div class="text-muted small" style="font-size: 0.73rem;">@item.Description</div>
-                                    }
-                                </div>
-                                <div class="text-end" style="min-width: 95px;">
-                                    @if (IsEditing && ActiveMode == "custom")
-                                    {
-                                        <input type="text" class="form-control form-control-sm text-end fw-bold text-success" @bind="item.FeeBadgeText" placeholder="Fee" />
-                                    }
-                                    else
-                                    {
-                                        <span class="fw-bolder text-success" style="font-size: 0.85rem;">@item.FeeBadgeText</span>
-                                    }
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card p-2 h-100 border @(_selectedEmbedTab == "bar" ? "border-danger bg-danger bg-opacity-10 shadow-sm" : "bg-light")" style="cursor: pointer;" @onclick='() => _selectedEmbedTab = "bar"'>
+                                    <div class="fw-bold small text-dark"><i class="bi bi-cup-straw text-danger me-1"></i>Bar Service Options</div>
+                                    <div class="text-muted extra-small" style="font-size: 0.72rem;">Individual bottom box with bar packages &amp; fees</div>
                                 </div>
                             </div>
-                        }
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card p-2 h-100 border @(_selectedEmbedTab == "addons" ? "border-success bg-success bg-opacity-10 shadow-sm" : "bg-light")" style="cursor: pointer;" @onclick='() => _selectedEmbedTab = "addons"'>
+                                    <div class="fw-bold small text-dark"><i class="bi bi-plus-circle-fill text-success me-1"></i>Additional Services</div>
+                                    <div class="text-muted extra-small" style="font-size: 0.72rem;">Individual bottom box with kitchen, overtime &amp; A/V</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-6">
+                                <div class="card p-2 h-100 border @(_selectedEmbedTab == "chart" ? "border-info bg-info bg-opacity-10 shadow-sm" : "bg-light")" style="cursor: pointer;" @onclick='() => _selectedEmbedTab = "chart"'>
+                                    <div class="fw-bold small text-dark"><i class="bi bi-bar-chart-fill text-info me-1"></i>Rate Comparison Chart</div>
+                                    <div class="text-muted extra-small" style="font-size: 0.72rem;">Horizontal comparison bars for days of the week</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-6">
+                                <div class="card p-2 h-100 border @(_selectedEmbedTab == "all" ? "border-dark bg-dark bg-opacity-10 shadow-sm" : "bg-light")" style="cursor: pointer;" @onclick='() => _selectedEmbedTab = "all"'>
+                                    <div class="fw-bold small text-dark"><i class="bi bi-file-earmark-spreadsheet-fill text-dark me-1"></i>Full Pricing Guide Sheet</div>
+                                    <div class="text-muted extra-small" style="font-size: 0.72rem;">Complete layout with all top and bottom sections</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold small text-dark"><i class="bi bi-clipboard-code me-1 text-primary"></i>Generated HTML / iframe Embed Code:</span>
+                            <span class="badge bg-secondary">Target Mode: @(ActiveMode == "custom" ? "Custom / Proposal" : "Live Settings")</span>
+                        </div>
+                        <div class="position-relative">
+                            <textarea class="form-control font-monospace small bg-white text-dark" rows="3" readonly style="font-size: 0.8rem; resize: none;">@GetEmbedCodeForTab(_selectedEmbedTab)</textarea>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-info fs-5"></i>
+                        <div>
+                            <strong>WordPress / Website Tip:</strong> In WordPress, add a <strong>Custom HTML</strong> block and paste this iframe code. Any edits you make in GFC Studio update on your website automatically!
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _showEmbedModal = false">Close</button>
+                    <button type="button" class="btn btn-sm btn-primary px-3 fw-bold d-flex align-items-center gap-2 shadow-sm" @onclick="() => CopySectionEmbed(_selectedEmbedTab)">
+                        <i class="bi bi-clipboard-check"></i>
+                        <span>Copy Embed Code</span>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
-</div>
+}
 
 <style>
+    /* Strict layout control on screen & print */
+    .tier-cards-row {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 12px !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: 100% !important;
+    }
+    .tier-cards-row > .tier-card-col {
+        flex: 1 1 0% !important;
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+
+    .bottom-cards-row {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 12px !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: 100% !important;
+    }
+    .bottom-cards-row > .bottom-card-col {
+        flex: 1 1 0% !important;
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+
     @@page {
         size: letter portrait;
-        margin: 0.15in 0.25in;
+        margin: 0.25in 0.3in;
     }
 
     @@media print {
-        /* Hide everything by default in print */
-        body * {
+        /* Hide all outer application chrome */
+        header, nav, footer, .sidebar, .app-sidebar, .app-topbar, .sidebar-overlay,
+        .no-print, .page-header-card, .tabs-nav-card, .bottom-action-bar,
+        .modal-header, .modal-footer, .modal-backdrop, .btn-close, .btn {
+            display: none !important;
             visibility: hidden !important;
         }
 
-        /* Show ONLY the pricing sheet and all its descendants */
-        .pricing-guide-sheet,
-        .pricing-guide-sheet * {
-            visibility: visible !important;
+        html, body {
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-size: 9pt !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
         }
 
-        /* Position the pricing sheet at the absolute top-left of the printed page */
-        .pricing-guide-sheet {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+        /* Un-nest container constraints to prevent clipping or page breaks */
+        .standalone-pricing-guide-window,
+        .tab-pane-card,
+        .modal-dialog,
+        .modal-content,
+        .modal-body {
+            position: static !important;
+            display: block !important;
             width: 100% !important;
             max-width: 100% !important;
             margin: 0 !important;
-            padding: 8px 10px !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            overflow: visible !important;
+        }
+
+        .pricing-guide-view-wrapper {
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* Main printable sheet fills the page comfortably */
+        .pricing-guide-sheet {
+            box-sizing: border-box !important;
+            position: relative !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+            padding: 12px 14px !important;
             border: 1px solid #cbd5e1 !important;
             border-radius: 8px !important;
             box-shadow: none !important;
@@ -417,85 +677,171 @@
             break-after: avoid !important;
         }
 
-        /* Hide all outer containers, navigation, headers, footers, scrollbars, and toolbars */
-        .no-print,
-        .page-header-card,
-        .tabs-nav-card,
-        .bottom-action-bar,
-        .app-topbar,
-        .app-sidebar,
-        nav,
-        header,
-        footer,
-        .modal-header,
-        .modal-backdrop,
-        .btn-close,
-        .sidebar-overlay {
-            display: none !important;
-            visibility: hidden !important;
-        }
-
-        html, body {
-            background: #ffffff !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            height: auto !important;
-            overflow: visible !important;
-            font-size: 8pt !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
-
-        /* Compact sizing to guarantee everything fits on 1 page */
+        /* Header */
         .guide-header {
-            padding: 4px 8px !important;
-            margin-bottom: 6px !important;
+            padding: 8px 12px !important;
+            margin-bottom: 10px !important;
             border-radius: 6px !important;
             background: #ffffff !important;
+            box-shadow: none !important;
         }
-
         .guide-header h3 {
-            font-size: 1.1rem !important;
+            font-size: 1.22rem !important;
             margin-bottom: 2px !important;
         }
-
         .guide-header .text-secondary {
-            font-size: 0.75rem !important;
+            font-size: 0.82rem !important;
         }
 
-        .row.g-3 {
-            --bs-gutter-x: 0.35rem !important;
-            --bs-gutter-y: 0.35rem !important;
-            margin-bottom: 5px !important;
+        /* Tier Cards Row: 3 columns cleanly contained */
+        .tier-cards-row {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 10px !important;
+            margin-bottom: 10px !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
         }
-
-        .card {
+        .tier-cards-row > .tier-card-col {
+            flex: 1 1 0% !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+        }
+        .tier-card {
             border-radius: 6px !important;
             box-shadow: none !important;
         }
-
-        .p-3 {
-            padding: 4px 6px !important;
-        }
-
-        .p-4 {
+        .card-header-box {
             padding: 6px 8px !important;
         }
-
-        .p-2 {
-            padding: 3px 5px !important;
+        .tier-title {
+            font-size: 0.92rem !important;
+        }
+        .tier-subtitle {
+            font-size: 0.76rem !important;
+            margin-top: 1px !important;
+        }
+        .card-body-box {
+            padding: 6px 8px !important;
+            gap: 5px !important;
+        }
+        .tier-item-pill {
+            padding: 4px 8px !important;
+            border-radius: 4px !important;
+        }
+        .item-label {
+            font-size: 0.82rem !important;
+        }
+        .item-price {
+            font-size: 0.88rem !important;
+        }
+        .card-footer-box {
+            padding: 4px 6px !important;
+        }
+        .card-footer-text {
+            font-size: 0.72rem !important;
         }
 
-        .chart-comparison-wrapper {
-            padding: 2px 0 !important;
+        /* Rate Comparison Chart */
+        .chart-card {
+            padding: 8px 12px !important;
+            margin-bottom: 10px !important;
+            border-radius: 6px !important;
+            box-shadow: none !important;
+        }
+        .chart-header-row {
+            margin-bottom: 6px !important;
+            padding-bottom: 4px !important;
+        }
+        .chart-main-title {
+            font-size: 0.84rem !important;
+        }
+        .chart-legend-row {
+            gap: 10px !important;
+        }
+        .chart-legend-row span {
+            font-size: 0.74rem !important;
+        }
+        .chart-rows-container {
+            gap: 5px !important;
+        }
+        .chart-day-row {
+            margin-bottom: 2px !important;
+        }
+        .chart-y-label {
+            width: 120px !important;
+            min-width: 120px !important;
+            font-size: 0.80rem !important;
+        }
+        .chart-bars-box {
+            padding: 2px 0 2px 6px !important;
+        }
+        .bar-item {
+            margin-bottom: 2px !important;
+        }
+        .bar-item > div {
+            height: 13px !important;
+        }
+        .bar-value {
+            font-size: 0.75rem !important;
+            margin-left: 4px !important;
+        }
+        .chart-x-axis {
+            margin-left: 120px !important;
+            font-size: 0.70rem !important;
+            margin-top: 3px !important;
+            padding-left: 6px !important;
         }
 
-        .chart-comparison-wrapper .d-flex.flex-column.gap-3 {
-            gap: 3px !important;
+        /* Bottom Cards Row: 2 columns cleanly contained */
+        .bottom-cards-row {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 10px !important;
+            margin-bottom: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
         }
-
-        .chart-comparison-wrapper input {
-            display: none !important;
+        .bottom-cards-row > .bottom-card-col {
+            flex: 1 1 0% !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+        }
+        .addon-card {
+            padding: 8px 10px !important;
+            border-radius: 6px !important;
+            box-shadow: none !important;
+        }
+        .addon-header {
+            margin-bottom: 4px !important;
+            padding-bottom: 3px !important;
+        }
+        .addon-title {
+            font-size: 0.82rem !important;
+        }
+        .addon-items-list {
+            gap: 5px !important;
+        }
+        .addon-item-pill {
+            padding: 4px 8px !important;
+            border-radius: 4px !important;
+        }
+        .addon-name {
+            font-size: 0.78rem !important;
+        }
+        .addon-desc {
+            font-size: 0.68rem !important;
+        }
+        .addon-fee {
+            font-size: 0.80rem !important;
         }
     }
 </style>
@@ -504,25 +850,62 @@
     [Parameter] public WebsiteSettings? Settings { get; set; }
     [Parameter] public bool HideToolbar { get; set; } = false;
     [Parameter] public bool ShowFullPageLink { get; set; } = true;
+    [Parameter] public string? InitialSectionFilter { get; set; }
+    [Parameter] public string? InitialMode { get; set; }
     [Parameter] public EventCallback<RentalPricingGuideModel> OnCustomGuideSaved { get; set; }
 
     private string ActiveMode { get; set; } = "live";
     private bool IsEditing { get; set; } = false;
     private bool IsPrintMode { get; set; } = false;
     private bool _isSaving { get; set; } = false;
+    private string? _activeSectionFilter { get; set; } = null;
+
+    private bool _showEmbedModal = false;
+    private string _selectedEmbedTab = "tiers";
+
+    private bool IsSingleSectionMode => !string.IsNullOrEmpty(_activeSectionFilter) && _activeSectionFilter != "all";
 
     private RentalPricingGuideModel _liveModel = new();
     private RentalPricingGuideModel _customModel = new();
 
     private RentalPricingGuideModel ActiveModel => ActiveMode == "live" ? _liveModel : _customModel;
 
+    private string? _lastLoadedPricingGuideJson = null;
+
     protected override void OnParametersSet()
     {
-        RefreshModels();
+        if (!string.IsNullOrEmpty(InitialMode) && string.IsNullOrEmpty(_lastLoadedPricingGuideJson))
+        {
+            ActiveMode = InitialMode;
+        }
+
+        if (!string.IsNullOrEmpty(InitialSectionFilter))
+        {
+            _activeSectionFilter = InitialSectionFilter;
+        }
+
+        // Only reload if we are not actively editing and the JSON content has changed
+        if (!IsEditing && (_lastLoadedPricingGuideJson != Settings?.PricingGuideJson || _lastLoadedPricingGuideJson == null))
+        {
+            RefreshModels();
+        }
+    }
+
+    private bool ShouldShowSection(string section)
+    {
+        if (string.IsNullOrEmpty(_activeSectionFilter) || _activeSectionFilter == "all") return true;
+        if (section == "header") return _activeSectionFilter == "all";
+        if (section == "tiers") return _activeSectionFilter == "tiers";
+        if (section == "chart") return _activeSectionFilter == "chart";
+        if (section == "bottom") return _activeSectionFilter == "bar" || _activeSectionFilter == "addons";
+        if (section == "bar") return _activeSectionFilter == "bar" || _activeSectionFilter == "all";
+        if (section == "addons") return _activeSectionFilter == "addons" || _activeSectionFilter == "all";
+        return false;
     }
 
     private void RefreshModels()
     {
+        _lastLoadedPricingGuideJson = Settings?.PricingGuideJson;
         _liveModel = RentalPricingGuideModel.CreateDefaultFromSettings(Settings);
 
         if (!string.IsNullOrWhiteSpace(Settings?.PricingGuideJson))
@@ -573,10 +956,22 @@
         _isSaving = true;
         try
         {
+            var json = JsonSerializer.Serialize(_customModel);
+
             if (Settings != null)
             {
-                Settings.PricingGuideJson = JsonSerializer.Serialize(_customModel);
+                Settings.PricingGuideJson = json;
+                _lastLoadedPricingGuideJson = json;
+                await WebsiteSettingsService.UpdateWebsiteSettingsAsync(Settings);
             }
+            else
+            {
+                var current = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+                current.PricingGuideJson = json;
+                _lastLoadedPricingGuideJson = json;
+                await WebsiteSettingsService.UpdateWebsiteSettingsAsync(current);
+            }
+
             if (OnCustomGuideSaved.HasDelegate)
             {
                 await OnCustomGuideSaved.InvokeAsync(_customModel);
@@ -597,5 +992,83 @@
     private async Task TriggerPrint()
     {
         await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private async Task CopySectionEmbed(string sectionKey)
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var (name, height) = sectionKey switch
+        {
+            "tiers" => ("Top 3 Pricing Tier Cards", 450),
+            "bar" => ("Bar Service Options", 320),
+            "addons" => ("Additional Services", 320),
+            "chart" => ("Rate Comparison Chart", 400),
+            _ => ("Pricing Guide Sheet", 850)
+        };
+
+        var url = string.IsNullOrEmpty(sectionKey) || sectionKey == "all"
+            ? $"{baseUrl}/rentals/pricing-guide?mode={ActiveMode}&embed=true"
+            : $"{baseUrl}/rentals/pricing-guide?section={sectionKey}&mode={ActiveMode}&embed=true";
+
+        var code = $"<iframe src=\"{url}\" width=\"100%\" height=\"{height}\" frameborder=\"0\" style=\"border:none; width:100%; min-height:{height}px;\"></iframe>";
+        
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", code);
+            ToastService.ShowSuccess($"{name} embed code copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo($"Embed code for {name} is ready.");
+        }
+    }
+
+    private string GetEmbedCodeForTab(string tab)
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var height = tab switch
+        {
+            "tiers" => 450,
+            "bar" => 320,
+            "addons" => 320,
+            "chart" => 400,
+            _ => 850
+        };
+
+        var url = string.IsNullOrEmpty(tab) || tab == "all"
+            ? $"{baseUrl}/rentals/pricing-guide?mode={ActiveMode}&embed=true"
+            : $"{baseUrl}/rentals/pricing-guide?section={tab}&mode={ActiveMode}&embed=true";
+
+        return $"<iframe src=\"{url}\" width=\"100%\" height=\"{height}\" frameborder=\"0\" style=\"border:none; width:100%; min-height:{height}px;\"></iframe>";
+    }
+
+    private void AddTierItem(PricingGuideTierCard card)
+    {
+        card.Items.Add(new PricingGuideItem { Label = "New Slot", PriceText = "$0" });
+    }
+
+    private void RemoveTierItem(PricingGuideTierCard card, PricingGuideItem item)
+    {
+        card.Items.Remove(item);
+    }
+
+    private void AddChartRow()
+    {
+        ActiveModel.ChartRows.Add(new PricingComparisonRow { DayLabel = "New Time Slot", NonMemberAmount = 0, MemberAmount = 0, NonProfitAmount = 0 });
+    }
+
+    private void RemoveChartRow(PricingComparisonRow row)
+    {
+        ActiveModel.ChartRows.Remove(row);
+    }
+
+    private void AddServiceItem(PricingGuideSection section)
+    {
+        section.Items.Add(new PricingGuideServiceItem { Name = "New Service", Description = "Service description", FeeBadgeText = "$0 flat" });
+    }
+
+    private void RemoveServiceItem(PricingGuideSection section, PricingGuideServiceItem item)
+    {
+        section.Items.Remove(item);
     }
 }
