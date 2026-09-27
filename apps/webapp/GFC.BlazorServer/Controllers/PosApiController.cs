@@ -1236,6 +1236,250 @@ public class PosApiController : ControllerBase
         return Ok(lastZ == default ? DateTime.Today : lastZ);
     }
 
+    [HttpGet("shift-audit/{terminalName}")]
+    public async Task<ActionResult<ShiftAuditDto>> GetShiftAudit(string terminalName)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var lastZTime = await db.PosZReports
+                .Where(z => z.TerminalName == terminalName)
+                .OrderByDescending(z => z.Timestamp)
+                .Select(z => (DateTime?)z.Timestamp)
+                .FirstOrDefaultAsync();
+
+            var query = db.PosSales.AsNoTracking()
+                .Where(s => s.TerminalName == terminalName && !s.IsVoided);
+
+            if (lastZTime.HasValue)
+            {
+                query = query.Where(s => s.Timestamp > lastZTime.Value);
+            }
+
+            var sales = await query.OrderBy(s => s.Timestamp).ToListAsync();
+            var activeEvents = await db.ActiveEvents.AsNoTracking().ToListAsync();
+
+            var audit = new ShiftAuditDto();
+            var jsonOpts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var eventsWithExplicitInitialDeposit = new HashSet<int>();
+
+            foreach (var sale in sales)
+            {
+                var saleDto = new PosSaleDto
+                {
+                    Id = sale.Id,
+                    Timestamp = sale.Timestamp,
+                    TerminalName = sale.TerminalName,
+                    BartenderName = sale.BartenderName,
+                    TotalAmount = sale.TotalAmount,
+                    PaymentType = sale.PaymentType,
+                    ItemsJson = sale.ItemsJson,
+                    IsVoided = sale.IsVoided,
+                    IsCorrection = sale.IsCorrection,
+                    OriginalSaleId = sale.OriginalSaleId,
+                    AdjustmentReason = sale.AdjustmentReason,
+                    AmountReceived = sale.AmountReceived,
+                    ChangeDue = sale.ChangeDue,
+                    OriginalTotal = sale.OriginalTotal,
+                    ActiveEventId = sale.ActiveEventId
+                };
+
+                if (audit.LatestSale == null || sale.Timestamp > audit.LatestSale.Timestamp)
+                {
+                    audit.LatestSale = saleDto;
+                }
+
+                List<PosSaleItemInternalDto>? salesItems = null;
+                if (!string.IsNullOrEmpty(sale.ItemsJson))
+                {
+                    try
+                    {
+                        salesItems = JsonSerializer.Deserialize<List<PosSaleItemInternalDto>>(sale.ItemsJson, jsonOpts);
+                    }
+                    catch { }
+                }
+
+                if (sale.PaymentType == "PAYOUT")
+                {
+                    audit.PayoutTotal += sale.TotalAmount;
+                    audit.Payouts.Add(saleDto);
+                    if (salesItems != null && salesItems.Any())
+                    {
+                        var pItem = salesItems.First();
+                        var parts = pItem.Name.Split(':');
+                        var category = parts.Length > 1 ? parts[1] : "OTHER";
+                        var desc = parts.Length > 2 ? parts[2] : "";
+                        var cents = (int)(sale.TotalAmount * 100);
+                        var summaryKey = $"PAYOUT:{category}:{desc}:{cents}";
+
+                        if (!audit.ItemSummary.ContainsKey(summaryKey))
+                            audit.ItemSummary[summaryKey] = 0;
+                        audit.ItemSummary[summaryKey]++;
+
+                        if (!audit.RegularItemTotals.ContainsKey(summaryKey))
+                            audit.RegularItemTotals[summaryKey] = 0;
+                        audit.RegularItemTotals[summaryKey] += sale.TotalAmount;
+                    }
+                    continue;
+                }
+
+                if (salesItems != null)
+                {
+                    bool isDeposit = sale.ItemsJson.Contains("TAB DEPOSIT:") ||
+                                     sale.ItemsJson.Contains("INITIAL DEPOSIT:") ||
+                                     sale.ItemsJson.Contains("DEPOSIT CORRECTION:") ||
+                                     sale.ItemsJson.Contains("RETURNED FUNDS:");
+
+                    if (!isDeposit)
+                    {
+                        audit.GrossTotal += salesItems.Where(i => i.Price > 0 && !i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) && !string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Price * i.Quantity);
+                        audit.GrossTotal += salesItems.Where(i => !i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) && !string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Modifiers?.Where(m => m.Price > 0).Sum(m => m.Price * m.Quantity) ?? 0);
+
+                        audit.TokenCredits += salesItems.Where(i => i.Price < 0).Sum(i => Math.Abs(i.Price * i.Quantity));
+                    }
+
+                    if (sale.PaymentType == "CASH" || sale.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        audit.CashTotal += sale.TotalAmount;
+                    }
+                }
+
+                // Banquet Tracking
+                if (sale.ActiveEventId.HasValue)
+                {
+                    var banquet = audit.Banquets.FirstOrDefault(b => b.ActiveEventId == sale.ActiveEventId);
+                    if (banquet == null)
+                    {
+                        banquet = new BanquetShiftReportDto
+                        {
+                            ActiveEventId = sale.ActiveEventId,
+                            EventType = "RunningTab"
+                        };
+                        var activeEv = activeEvents.FirstOrDefault(e => e.Id == sale.ActiveEventId.Value);
+                        if (activeEv != null)
+                        {
+                            banquet.EventType = activeEv.Type.ToString();
+                            banquet.EventName = activeEv.Name;
+                        }
+                        audit.Banquets.Add(banquet);
+                    }
+
+                    if (salesItems != null)
+                    {
+                        var flatList = new List<PosSaleItemInternalDto>();
+                        foreach (var i in salesItems)
+                        {
+                            flatList.Add(i);
+                            if (i.Modifiers != null) flatList.AddRange(i.Modifiers);
+                        }
+
+                        foreach (var i in flatList)
+                        {
+                            if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:") || i.Name.StartsWith("RETURNED FUNDS:"))
+                            {
+                                banquet.Deposits.Add(i.Price);
+                                banquet.EventType = "PrePaid";
+                                if (i.Name.StartsWith("INITIAL DEPOSIT:") && sale.ActiveEventId.HasValue)
+                                {
+                                    eventsWithExplicitInitialDeposit.Add(sale.ActiveEventId.Value);
+                                }
+                                if (string.IsNullOrEmpty(banquet.EventName))
+                                {
+                                    banquet.EventName = i.Name
+                                        .Replace("TAB DEPOSIT: ", "")
+                                        .Replace("DEPOSIT CORRECTION: ", "")
+                                        .Replace("INITIAL DEPOSIT: ", "")
+                                        .Replace("RETURNED FUNDS: ", "");
+                                }
+                            }
+                            else if (sale.PaymentType == "TAB" || sale.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (!banquet.ItemSummary.ContainsKey(i.Name)) banquet.ItemSummary[i.Name] = 0;
+                                banquet.ItemSummary[i.Name] += i.Quantity;
+                                banquet.TotalSpent += (i.Price * i.Quantity);
+
+                                if (string.IsNullOrEmpty(banquet.EventName))
+                                    banquet.EventName = "Active Event";
+                            }
+                        }
+                    }
+                }
+
+                if (salesItems != null)
+                {
+                    var flatList = new List<PosSaleItemInternalDto>();
+                    foreach (var i in salesItems)
+                    {
+                        flatList.Add(i);
+                        if (i.Modifiers != null) flatList.AddRange(i.Modifiers);
+                    }
+
+                    foreach (var i in flatList)
+                    {
+                        decimal effectivePrice = (i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) || string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)) ? 0m : i.Price;
+                        if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
+                        if (!audit.ItemTotals.ContainsKey(i.Name)) audit.ItemTotals[i.Name] = 0;
+
+                        audit.ItemSummary[i.Name] += i.Quantity;
+                        audit.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
+
+                        if (sale.ActiveEventId.HasValue)
+                        {
+                            var b = audit.Banquets.FirstOrDefault(x => x.ActiveEventId == sale.ActiveEventId);
+                            if (b != null)
+                            {
+                                if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
+                                b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
+                            }
+                        }
+                        else
+                        {
+                            if (!audit.RegularItemSummary.ContainsKey(i.Name)) audit.RegularItemSummary[i.Name] = 0;
+                            if (!audit.RegularItemTotals.ContainsKey(i.Name)) audit.RegularItemTotals[i.Name] = 0;
+
+                            audit.RegularItemSummary[i.Name] += i.Quantity;
+                            audit.RegularItemTotals[i.Name] += (effectivePrice * i.Quantity);
+                        }
+                    }
+                }
+            }
+
+            // Seed deposits with initial prepaid amount if applicable
+            foreach (var banquet in audit.Banquets)
+            {
+                if (banquet.ActiveEventId.HasValue && banquet.EventType == "PrePaid")
+                {
+                    if (!eventsWithExplicitInitialDeposit.Contains(banquet.ActiveEventId.Value))
+                    {
+                        var activeEv = activeEvents.FirstOrDefault(e => e.Id == banquet.ActiveEventId.Value);
+                        if (activeEv != null && activeEv.InitialAmount > 0)
+                        {
+                            banquet.Deposits.Insert(0, activeEv.InitialAmount);
+                        }
+                    }
+                }
+            }
+
+            return Ok(audit);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compute shift audit for terminal {Terminal}", terminalName);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    private class PosSaleItemInternalDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public decimal Price { get; set; }
+        public int Quantity { get; set; }
+        public string Category { get; set; } = "";
+        public List<PosSaleItemInternalDto>? Modifiers { get; set; }
+    }
+
+
     [HttpGet("users")]
     public async Task<IActionResult> GetAuthorizedUsers()
     {

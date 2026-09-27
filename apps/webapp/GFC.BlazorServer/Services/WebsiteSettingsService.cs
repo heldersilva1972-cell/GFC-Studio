@@ -162,6 +162,9 @@ namespace GFC.BlazorServer.Services
                                 case "sendinquiryconfirmationemail": settings.SendInquiryConfirmationEmail = Convert.ToBoolean(val); break;
                                 case "inquiryconfirmationemailsubject": settings.InquiryConfirmationEmailSubject = val?.ToString() ?? "We received your inquiry - Gloucester Fraternity Club"; break;
                                 case "inquiryconfirmationemailbody": settings.InquiryConfirmationEmailBody = val?.ToString() ?? ""; break;
+                                case "enablerentalinboundwebhook": settings.EnableRentalInboundWebhook = Convert.ToBoolean(val); break;
+                                case "rentalinboundwebhooksecret": settings.RentalInboundWebhookSecret = val?.ToString() ?? Guid.NewGuid().ToString("N"); break;
+                                case "rentalinboundnotifystaff": settings.RentalInboundNotifyStaff = Convert.ToBoolean(val); break;
                                 case "seotitle": settings.SeoTitle = val?.ToString() ?? ""; break;
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
@@ -319,7 +322,10 @@ namespace GFC.BlazorServer.Services
                             [NotifyOnInquirySubmitted] = @p86,
                             [SendInquiryConfirmationEmail] = @p87,
                             [InquiryConfirmationEmailSubject] = @p88,
-                            [InquiryConfirmationEmailBody] = @p89
+                            [InquiryConfirmationEmailBody] = @p89,
+                            [EnableRentalInboundWebhook] = @p90,
+                            [RentalInboundWebhookSecret] = @p91,
+                            [RentalInboundNotifyStaff] = @p92
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -354,7 +360,8 @@ namespace GFC.BlazorServer.Services
                             [EnableInquiryForkBanner], [InquiryForkBannerTitle], [InquiryForkBannerSubtitle], [InquiryForkCardBookTitle],
                             [InquiryForkCardBookText], [InquiryForkCardAskTitle], [InquiryForkCardAskText], [EnableInquiryFloatingButton],
                             [InquiryFloatingButtonText], [NotifyOnInquirySubmitted], [SendInquiryConfirmationEmail],
-                            [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody]
+                            [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody],
+                            [EnableRentalInboundWebhook], [RentalInboundWebhookSecret], [RentalInboundNotifyStaff]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -366,7 +373,8 @@ namespace GFC.BlazorServer.Services
                             @p63, @p64, @p65,
                             @p68, @p69, @p70,
                             @p71, @p72, @p73, @p74, @p75, @p76,
-                            @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89
+                            @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89,
+                            @p90, @p91, @p92
                         );
                     END";
 
@@ -461,7 +469,10 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p86", System.Data.SqlDbType.Bit) { Value = settings.NotifyOnInquirySubmitted },
                     new Microsoft.Data.SqlClient.SqlParameter("@p87", System.Data.SqlDbType.Bit) { Value = settings.SendInquiryConfirmationEmail },
                     new Microsoft.Data.SqlClient.SqlParameter("@p88", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailSubject ?? "We received your inquiry - Gloucester Fraternity Club" },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p89", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailBody ?? DBNull.Value }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p89", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailBody ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p90", System.Data.SqlDbType.Bit) { Value = settings.EnableRentalInboundWebhook },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p91", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalInboundWebhookSecret ?? Guid.NewGuid().ToString("N") },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p92", System.Data.SqlDbType.Bit) { Value = settings.RentalInboundNotifyStaff }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -803,6 +814,15 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryConfirmationEmailBody')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryConfirmationEmailBody] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableRentalInboundWebhook')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableRentalInboundWebhook] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalInboundWebhookSecret')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalInboundWebhookSecret] NVARCHAR(100) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalInboundNotifyStaff')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalInboundNotifyStaff] BIT NOT NULL DEFAULT 1;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

@@ -74,11 +74,27 @@ self.onmessage = async (e) => {
             request.onsuccess = (e) => {
                 const cursor = e.target.result;
                 if (cursor) {
-                    all.push({ key: cursor.key, data: JSON.parse(cursor.value) });
+                    try {
+                        let parsedData = cursor.value;
+                        if (typeof cursor.value === "string") {
+                            try {
+                                parsedData = JSON.parse(cursor.value);
+                            } catch {
+                                parsedData = cursor.value;
+                            }
+                        }
+                        all.push({ key: cursor.key, data: parsedData });
+                    } catch (itemErr) {
+                        console.warn("[GFC POS WORKER] Failed to parse item", cursor.key, itemErr);
+                    }
                     cursor.continue();
                 } else {
                     self.postMessage({ action: "getAll_result", value: all });
                 }
+            };
+            request.onerror = (e) => {
+                console.error("[GFC POS WORKER] getAll cursor error:", e.target.error);
+                self.postMessage({ action: "getAll_result", value: all });
             };
             break;
         }

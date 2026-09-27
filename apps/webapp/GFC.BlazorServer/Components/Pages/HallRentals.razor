@@ -103,8 +103,8 @@
                     </span>
                     @if (GetInquiriesCount() > 0)
                     {
-                        <span class="badge bg-info-subtle text-info-emphasis border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer;" @onclick='() => _filterCategory = "INQUIRIES"' title="Filter by Pre-Booking Questions &amp; Inquiries">
-                            <i class="bi bi-question-diamond-fill me-1 text-info"></i>Inquiries: <strong>@GetInquiriesCount()</strong>
+                        <span class="badge px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer; background-color: #e0f2fe !important; color: #0369a1 !important; border: 1px solid #38bdf8 !important;" @onclick='() => _filterCategory = "INQUIRIES"' title="Filter by Pre-Booking Questions &amp; Inquiries">
+                            <i class="bi bi-question-diamond-fill me-1" style="color: #0284c7;"></i>Inquiries: <strong style="color: #0c4a6e;">@GetInquiriesCount()</strong>
                         </span>
                     }
                     <span class="badge bg-info text-dark border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm">
@@ -4848,9 +4848,16 @@
                     bool isInquiryReq = string.Equals(req.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(req.Status, "Responded", StringComparison.OrdinalIgnoreCase);
 
                     string statusPrefix = isApproved ? "" : (isInquiryReq ? "INQUIRY: " : "PENDING: ");
-                    string title = isInquiryReq 
-                        ? $"INQUIRY: {req.ApplicantName}" 
-                        : $"{statusPrefix}{req.ApplicantName} ({req.EventType ?? "Rental"})";
+                    string title;
+                    if (isInquiryReq)
+                    {
+                        title = $"INQUIRY: {req.ApplicantName}";
+                    }
+                    else
+                    {
+                        var (formattedTitle, _) = FormatGoogleEventDetails(req, false);
+                        title = isApproved ? formattedTitle.Replace("PENDING: ", "") : formattedTitle;
+                    }
 
                     // Check if already present in calendar events by date & name
                     string cleanApplicant = req.ApplicantName.Trim();
@@ -7499,38 +7506,59 @@ Warm regards,
         var data = new ParsedApplicationData();
         var desc = evt.Description;
 
-        // Default name and event type from title if available (e.g. "Helder Smith (Holiday Party)" or "Helder Smith - Business Meeting / Corporate Event")
+        // Default name, event type, and services from title if available (e.g. "Helder Silva | Birthday Party | Bar" or "Helder Smith (Holiday Party)")
         var cleanTitle = GetCleanTitle(evt);
         if (!string.IsNullOrEmpty(cleanTitle))
         {
-            var parenStart = cleanTitle.IndexOf('(');
-            var parenEnd = cleanTitle.LastIndexOf(')');
-            var dashIndex = cleanTitle.IndexOf(" - ");
-            if (parenStart > 0 && parenEnd > parenStart)
+            if (cleanTitle.Contains(" | "))
             {
-                data.ApplicantName = cleanTitle.Substring(0, parenStart).Trim();
-                var insideParen = cleanTitle.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
-                
-                if (insideParen.Equals("Bar", StringComparison.OrdinalIgnoreCase))
+                var segments = cleanTitle.Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+                if (segments.Count > 0)
                 {
-                    data.BarService = "Yes";
+                    data.ApplicantName = segments[0];
                 }
-                else if (string.IsNullOrEmpty(data.EventType))
+                if (segments.Count > 1)
                 {
-                    data.EventType = insideParen;
+                    data.EventType = segments[1];
                 }
-            }
-            else if (dashIndex > 0)
-            {
-                data.ApplicantName = cleanTitle.Substring(0, dashIndex).Trim();
-                if (string.IsNullOrEmpty(data.EventType))
+                if (segments.Count > 2)
                 {
-                    data.EventType = cleanTitle.Substring(dashIndex + 3).Trim();
+                    var rem = string.Join(", ", segments.Skip(2));
+                    if (rem.Contains("Bar", StringComparison.OrdinalIgnoreCase)) data.BarService = "Yes";
+                    if (rem.Contains("Kitchen", StringComparison.OrdinalIgnoreCase)) data.KitchenAccess = "Yes";
                 }
             }
             else
             {
-                data.ApplicantName = cleanTitle;
+                var parenStart = cleanTitle.IndexOf('(');
+                var parenEnd = cleanTitle.LastIndexOf(')');
+                var dashIndex = cleanTitle.IndexOf(" - ");
+                if (parenStart > 0 && parenEnd > parenStart)
+                {
+                    data.ApplicantName = cleanTitle.Substring(0, parenStart).Trim();
+                    var insideParen = cleanTitle.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
+                    
+                    if (insideParen.Equals("Bar", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data.BarService = "Yes";
+                    }
+                    else if (string.IsNullOrEmpty(data.EventType))
+                    {
+                        data.EventType = insideParen;
+                    }
+                }
+                else if (dashIndex > 0)
+                {
+                    data.ApplicantName = cleanTitle.Substring(0, dashIndex).Trim();
+                    if (string.IsNullOrEmpty(data.EventType))
+                    {
+                        data.EventType = cleanTitle.Substring(dashIndex + 3).Trim();
+                    }
+                }
+                else
+                {
+                    data.ApplicantName = cleanTitle;
+                }
             }
         }
 

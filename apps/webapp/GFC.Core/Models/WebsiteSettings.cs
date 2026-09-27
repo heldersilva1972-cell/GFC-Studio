@@ -267,6 +267,11 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public string RentalSenderName { get; set; } = "Gloucester Fraternity Club - Hall Rentals";
         public string? RentalEmailCc { get; set; }
 
+        // Inbound Email Webhook & Auto-Sync Configuration (Resend Inbound Webhooks)
+        public bool EnableRentalInboundWebhook { get; set; } = false;
+        public string RentalInboundWebhookSecret { get; set; } = Guid.NewGuid().ToString("N");
+        public bool RentalInboundNotifyStaff { get; set; } = true;
+
         // Customizable Outgoing Response / Auto-Responder Email (On Application Submission)
         public string ApplicantConfirmationEmailSubject { get; set; } = "Your Hall Rental Application Confirmation - {ClubName}";
         public string ApplicantConfirmationEmailBody { get; set; } = @"Hello {ApplicantName},

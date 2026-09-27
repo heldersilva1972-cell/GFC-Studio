@@ -93,6 +93,7 @@ namespace GFC.BlazorServer.Services
                 var fromAddress = string.IsNullOrWhiteSpace(settings.RentalSenderEmail) ? "rentals@gloucesterfraternityclub.com" : settings.RentalSenderEmail;
 
                 message.From.Add(new MailboxAddress(fromName, fromAddress));
+                message.ReplyTo.Add(new MailboxAddress(fromName, fromAddress));
                 message.To.Add(new MailboxAddress("", recipientEmail));
 
                 if (!string.IsNullOrWhiteSpace(ccEmail))

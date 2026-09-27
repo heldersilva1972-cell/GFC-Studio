@@ -74,7 +74,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         }
     }
 
-    public async Task<ShiftAuditDto> GetShiftAuditAsync()
+    public async Task<ShiftAuditDto> GetShiftAuditAsync(string? terminalName = null)
     {
         var audit = new ShiftAuditDto();
         try
@@ -349,6 +349,38 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             }
         }
         catch { }
+
+        // [RESILIENT AUDIT RECONCILIATION]
+        // If the local IndexedDB audit is empty ($0.00 / 0 items) or we can query the authoritative server audit,
+        // fetch from SQL Server database to ensure zero data loss and flawless reopen-shift support.
+        try
+        {
+            if (string.IsNullOrWhiteSpace(terminalName))
+            {
+                terminalName = await _stationSettings.GetTerminalNameAsync();
+                if (string.IsNullOrWhiteSpace(terminalName)) terminalName = "Downstairs Bar POS";
+            }
+
+            if (await _connectivity.GateAsync("GetShiftAudit"))
+            {
+                var serverAudit = await _http.GetFromJsonAsync<ShiftAuditDto>($"api/pos/shift-audit/{Uri.EscapeDataString(terminalName)}");
+                if (serverAudit != null)
+                {
+                    // If local IndexedDB is empty or missing sales compared to server, use the authoritative server audit
+                    if ((audit.GrossTotal == 0 && audit.CashTotal == 0 && !audit.ItemSummary.Any()) || 
+                        serverAudit.GrossTotal > audit.GrossTotal ||
+                        (serverAudit.GrossTotal == audit.GrossTotal && serverAudit.ItemSummary.Count >= audit.ItemSummary.Count))
+                    {
+                        return serverAudit;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Server shift audit reconciliation fallback notice: {ex.Message}");
+        }
+
         return audit;
     }
 

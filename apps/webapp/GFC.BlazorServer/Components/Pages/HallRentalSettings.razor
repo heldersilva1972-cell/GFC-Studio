@@ -2448,7 +2448,89 @@
                                             <input class="form-check-input" type="checkbox" role="switch" id="tNotifyPay" @bind="_webSettings.NotifyOnPaymentRecorded" />
                                             <label class="form-check-label fw-bold text-dark small" for="tNotifyPay">Payment &amp; Deposit Recorded Alerts</label>
                                         </div>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="tNotifyInboundReply" @bind="_webSettings.RentalInboundNotifyStaff" />
+                                            <label class="form-check-label fw-bold text-dark small" for="tNotifyInboundReply">Applicant Inbound Email Replies (Auto-Logged)</label>
+                                        </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FULL-WIDTH SECTION: INBOUND EMAIL REPLIES & RESEND WEBHOOK SYNC -->
+                    <div class="card border rounded-4 p-4 shadow-sm bg-white mb-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div>
+                                <h5 class="fw-bold text-dark mb-0">
+                                    <i class="bi bi-arrow-down-left-square-fill text-info me-2"></i>Inbound Email Reply Sync (Resend Webhook &amp; Mailbox Routing)
+                                </h5>
+                                <small class="text-muted">Allows applicant email responses to automatically attach to their hall rental record and update conversation history in real time</small>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="tInboundWebhook" @bind="_webSettings.EnableRentalInboundWebhook" />
+                                <label class="form-check-label fw-bold text-dark" for="tInboundWebhook">Enable Inbound Sync</label>
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded-3 mb-3 @(_webSettings.EnableRentalInboundWebhook ? "bg-info bg-opacity-10 border border-info" : "bg-light border text-muted")">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi @(_webSettings.EnableRentalInboundWebhook ? "bi-check-circle-fill text-info" : "bi-info-circle text-secondary") fs-5"></i>
+                                <span class="fw-bold small text-dark">
+                                    @(_webSettings.EnableRentalInboundWebhook ? "Inbound Reply Webhook is ACTIVE & LISTENING" : "Inbound Reply Webhook is DISABLED (Standard Mailbox Delivery Only)")
+                                </span>
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                @if (_webSettings.EnableRentalInboundWebhook)
+                                {
+                                    <span>When applicants reply to your emails, Resend forwards their response to this webhook endpoint, automatically logging the full conversation in the Hall Rental details.</span>
+                                }
+                                else
+                                {
+                                    <span>When disabled, applicants' replies will only land in your normal email inbox (<strong>@(_webSettings.RentalSenderEmail)</strong>) without automatically updating the web app history.</span>
+                                }
+                            </small>
+                        </div>
+
+                        @if (_webSettings.EnableRentalInboundWebhook)
+                        {
+                            <div class="row g-3">
+                                <div class="col-lg-7">
+                                    <label class="form-label small fw-bold text-dark mb-1">Your Inbound Webhook Endpoint URL</label>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control font-monospace bg-light fw-bold" readonly value="@GetInboundWebhookUrl()" />
+                                        <button type="button" class="btn btn-outline-secondary" @onclick="CopyInboundWebhookUrl" title="Copy URL">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                    <small class="text-muted d-block">
+                                        Paste this URL into your <strong>Resend Dashboard &rarr; Webhooks</strong> (select event: <code>email.received</code> or <code>inbound</code>).
+                                    </small>
+                                </div>
+
+                                <div class="col-lg-5">
+                                    <label class="form-label small fw-bold text-dark mb-1">Webhook Secret Token (Optional Verification)</label>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <input type="text" class="form-control font-monospace" placeholder="e.g. whsec_xxxxxxxxxx" @bind="_webSettings.RentalInboundWebhookSecret" />
+                                        <button type="button" class="btn btn-outline-secondary" @onclick="GenerateNewWebhookSecret" title="Generate New Token">
+                                            <i class="bi bi-arrow-repeat"></i>
+                                        </button>
+                                    </div>
+                                    <small class="text-muted d-block">Secures your webhook endpoint from unauthorized POST requests.</small>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="alert alert-light border rounded-3 p-3 mt-3 mb-0">
+                            <div class="d-flex align-items-start gap-2">
+                                <i class="bi bi-lightbulb-fill text-warning fs-5 mt-1"></i>
+                                <div class="small">
+                                    <strong>How Conversation Matching Works:</strong>
+                                    <ul class="mb-0 ps-3 mt-1 text-muted">
+                                        <li>Every outbound email sent from the Hall Rental module embeds a tracking token in the subject (e.g. <code>[GFC-INQ-104]</code> or <code>[GFC-RENT-205]</code>).</li>
+                                        <li>When the recipient replies, the webhook detects this tracking code and immediately attaches their response to the matching record.</li>
+                                        <li>If you do not use webhooks, you can still read and respond directly from your email client (e.g., Gmail/Outlook) at <strong>@(_webSettings.RentalSenderEmail)</strong>.</li>
+                                    </ul>
                                 </div>
                             </div>
                         </div>
@@ -4081,6 +4163,34 @@
     {
         _editableReasonPresets = WebsiteSettings.GetDefaultModificationReasonPresets();
         ToastService.ShowInfo("Reset to default preset reasons.");
+    }
+
+    private string GetInboundWebhookUrl()
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        return $"{baseUrl}/api/webhooks/resend-inbound";
+    }
+
+    private async Task CopyInboundWebhookUrl()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", GetInboundWebhookUrl());
+            ToastService.ShowSuccess("Webhook URL copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo("Webhook URL ready to copy.");
+        }
+    }
+
+    private void GenerateNewWebhookSecret()
+    {
+        if (_webSettings != null)
+        {
+            _webSettings.RentalInboundWebhookSecret = $"whsec_{Guid.NewGuid():N}";
+            ToastService.ShowSuccess("Generated new webhook secret token.");
+        }
     }
 
     private void GoBackToHallRentals()
