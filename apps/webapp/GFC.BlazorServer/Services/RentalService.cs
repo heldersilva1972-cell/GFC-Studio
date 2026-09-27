@@ -1003,6 +1003,104 @@ namespace GFC.BlazorServer.Services
             return request;
         }
 
+        public async Task<HallRentalRequest> SubmitGeneralInquiryAsync(HallRentalRequest inquiry, bool isTest = false)
+        {
+            await HealDatabaseAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var newInquiry = new HallRentalRequest
+            {
+                Id = 0,
+                IsTestRecord = isTest,
+                CreatedDate = DateTime.UtcNow,
+                RequestedDate = inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate : DateTime.UtcNow,
+                EventDate = inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate : DateTime.UtcNow,
+                Status = RentalStatus.Inquiry,
+                ApplicantName = !string.IsNullOrWhiteSpace(inquiry.ApplicantName) ? inquiry.ApplicantName : (inquiry.RequesterName ?? "General Inquiry"),
+                RequesterName = !string.IsNullOrWhiteSpace(inquiry.RequesterName) ? inquiry.RequesterName : inquiry.ApplicantName,
+                RequesterEmail = inquiry.RequesterEmail ?? "",
+                RequesterPhone = inquiry.RequesterPhone ?? "",
+                GuestCount = inquiry.GuestCount,
+                EventType = !string.IsNullOrWhiteSpace(inquiry.EventType) ? inquiry.EventType : "General Inquiry",
+                EventDescription = inquiry.EventDescription,
+                RoomSelected = inquiry.RoomSelected ?? "Function Hall",
+                TotalPrice = 0,
+                AmountPaid = 0,
+                SecurityDepositAmount = 0
+            };
+
+            context.HallRentalRequests.Add(newInquiry);
+            await context.SaveChangesAsync();
+            inquiry.Id = newInquiry.Id;
+
+            // Dispatch Notifications to Staff & Visitor (if configured)
+            try
+            {
+                var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                if (settings != null)
+                {
+                    // 1. Outgoing Confirmation Email to Visitor
+                    if (settings.SendInquiryConfirmationEmail && !string.IsNullOrWhiteSpace(inquiry.RequesterEmail))
+                    {
+                        string subject = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailSubject)
+                            ? settings.InquiryConfirmationEmailSubject
+                            : "We received your inquiry - Gloucester Fraternity Club";
+
+                        string rawBody = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailBody)
+                            ? settings.InquiryConfirmationEmailBody
+                            : "Dear {ApplicantName},\n\nThank you for reaching out to the Gloucester Fraternity Club!\n\nWe have received your question regarding hall rentals and our rental coordinator will review it and reply back to you shortly.\n\nYour Message / Question:\n\"{Question}\"\n\nGloucester Fraternity Club | {ClubPhone}";
+
+                        string renderedBody = rawBody
+                            .Replace("{ApplicantName}", inquiry.ApplicantName)
+                            .Replace("{EventDate}", inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("MMMM dd, yyyy") : "TBD")
+                            .Replace("{Question}", inquiry.EventDescription ?? "No message entered.")
+                            .Replace("{ClubPhone}", !string.IsNullOrWhiteSpace(settings.ClubPhone) ? settings.ClubPhone : "(978) 283-2889")
+                            .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                        await _emailDispatcher.SendRentalEmailAsync(settings, inquiry.RequesterEmail, subject, renderedBody);
+                    }
+
+                    // 2. Incoming Notification Alert to Staff Recipients
+                    if (settings.NotifyOnInquirySubmitted)
+                    {
+                        var recipients = settings.GetRecipientsList();
+                        if (recipients.Any())
+                        {
+                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] Question from {inquiry.ApplicantName}";
+                            string staffBody = $@"
+                                <div style='font-family: Arial, sans-serif; max-width: 600px;'>
+                                    <h3 style='color: #0d1b2a;'>New Pre-Booking Question / Inquiry Received</h3>
+                                    <p>A visitor submitted a general question on the Hall Rental page:</p>
+                                    <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
+                                        <tr><td style='padding: 6px; font-weight: bold; width: 35%; border-bottom: 1px solid #e2e8f0;'>Name:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.ApplicantName}</td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Email:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'><a href='mailto:{inquiry.RequesterEmail}'>{inquiry.RequesterEmail}</a></td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.RequesterPhone}</td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Target Date:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("dddd, MMMM dd, yyyy") : "Flexible / Not Specified")}</td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Event Type / Guest Est:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.EventType) ? "General Question" : inquiry.EventType)} {(inquiry.GuestCount > 0 ? $"({inquiry.GuestCount} guests)" : "")}</td></tr>
+                                    </table>
+                                    <div style='background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; margin-bottom: 20px;'>
+                                        <strong>Question / Message:</strong><br/>
+                                        <p style='margin-top: 6px; white-space: pre-wrap;'>{inquiry.EventDescription}</p>
+                                    </div>
+                                    <p><a href='/hall-rentals' style='display: inline-block; background-color: #0d1b2a; color: white; padding: 8px 16px; text-decoration: none; border-radius: 6px;'>View in GFC Studio Hall Rentals</a></p>
+                                </div>";
+
+                            foreach (var recipient in recipients)
+                            {
+                                await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry email delivery notice: {ex.Message}");
+            }
+
+            return inquiry;
+        }
+
         public async Task<(bool HasConflict, string? ConflictReason)> ValidateTimeSlotConflictAsync(DateTime date, string? startTime, string? endTime, string? roomName = null)
         {
             try

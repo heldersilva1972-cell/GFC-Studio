@@ -756,7 +756,11 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<HallRentalRequest>(entity =>
         {
             entity.ToTable("HallRentalRequests");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.AmountPaid).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.SecurityDepositAmount).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<StaffShift>(entity =>

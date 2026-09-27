@@ -149,6 +149,19 @@ namespace GFC.BlazorServer.Services
                                 case "webappkitchenusagedisplayname": settings.WebAppKitchenUsageDisplayName = val?.ToString() ?? "Kitchen Access"; break;
                                 case "webapppushavequipment": settings.WebAppPushAvEquipment = Convert.ToBoolean(val); break;
                                 case "webappavequipmentdisplayname": settings.WebAppAvEquipmentDisplayName = val?.ToString() ?? "A/V Equipment"; break;
+                                case "enableinquiryforkbanner": settings.EnableInquiryForkBanner = Convert.ToBoolean(val); break;
+                                case "inquiryforkbannertitle": settings.InquiryForkBannerTitle = val?.ToString() ?? "Planning an Event at the Gloucester Fraternity Club?"; break;
+                                case "inquiryforkbannersubtitle": settings.InquiryForkBannerSubtitle = val?.ToString() ?? "Choose whether you are ready to book a date or have questions for our rental team."; break;
+                                case "inquiryforkcardbooktitle": settings.InquiryForkCardBookTitle = val?.ToString() ?? "Ready to Book?"; break;
+                                case "inquiryforkcardbooktext": settings.InquiryForkCardBookText = val?.ToString() ?? "Select your date, room, and amenities to submit a formal rental application."; break;
+                                case "inquiryforkcardasktitle": settings.InquiryForkCardAskTitle = val?.ToString() ?? "Have Questions First?"; break;
+                                case "inquiryforkcardasktext": settings.InquiryForkCardAskText = val?.ToString() ?? "Ask about catering, rules, bar service, or date availability without filling out an entire contract."; break;
+                                case "enableinquiryfloatingbutton": settings.EnableInquiryFloatingButton = Convert.ToBoolean(val); break;
+                                case "inquiryfloatingbuttontext": settings.InquiryFloatingButtonText = val?.ToString() ?? "Have a Question?"; break;
+                                case "notifyoninquirysubmitted": settings.NotifyOnInquirySubmitted = Convert.ToBoolean(val); break;
+                                case "sendinquiryconfirmationemail": settings.SendInquiryConfirmationEmail = Convert.ToBoolean(val); break;
+                                case "inquiryconfirmationemailsubject": settings.InquiryConfirmationEmailSubject = val?.ToString() ?? "We received your inquiry - Gloucester Fraternity Club"; break;
+                                case "inquiryconfirmationemailbody": settings.InquiryConfirmationEmailBody = val?.ToString() ?? ""; break;
                                 case "seotitle": settings.SeoTitle = val?.ToString() ?? ""; break;
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
@@ -293,7 +306,20 @@ namespace GFC.BlazorServer.Services
                             [WebAppPushKitchenUsage] = @p73,
                             [WebAppKitchenUsageDisplayName] = @p74,
                             [WebAppPushAvEquipment] = @p75,
-                            [WebAppAvEquipmentDisplayName] = @p76
+                            [WebAppAvEquipmentDisplayName] = @p76,
+                            [EnableInquiryForkBanner] = @p77,
+                            [InquiryForkBannerTitle] = @p78,
+                            [InquiryForkBannerSubtitle] = @p79,
+                            [InquiryForkCardBookTitle] = @p80,
+                            [InquiryForkCardBookText] = @p81,
+                            [InquiryForkCardAskTitle] = @p82,
+                            [InquiryForkCardAskText] = @p83,
+                            [EnableInquiryFloatingButton] = @p84,
+                            [InquiryFloatingButtonText] = @p85,
+                            [NotifyOnInquirySubmitted] = @p86,
+                            [SendInquiryConfirmationEmail] = @p87,
+                            [InquiryConfirmationEmailSubject] = @p88,
+                            [InquiryConfirmationEmailBody] = @p89
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -324,7 +350,11 @@ namespace GFC.BlazorServer.Services
                             [PoliciesJson], [UseLegacyPricingEngine], [TierCardsJson],
                             [MonthCalendarDisplayMode], [MonthCalendarFieldsJson], [ScheduleListColumnsJson],
                             [WebAppPushBarService], [WebAppBarServiceDisplayName], [WebAppPushKitchenUsage], [WebAppKitchenUsageDisplayName],
-                            [WebAppPushAvEquipment], [WebAppAvEquipmentDisplayName]
+                            [WebAppPushAvEquipment], [WebAppAvEquipmentDisplayName],
+                            [EnableInquiryForkBanner], [InquiryForkBannerTitle], [InquiryForkBannerSubtitle], [InquiryForkCardBookTitle],
+                            [InquiryForkCardBookText], [InquiryForkCardAskTitle], [InquiryForkCardAskText], [EnableInquiryFloatingButton],
+                            [InquiryFloatingButtonText], [NotifyOnInquirySubmitted], [SendInquiryConfirmationEmail],
+                            [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -335,7 +365,8 @@ namespace GFC.BlazorServer.Services
                             @p58, @p59, @p60, @p61, @p62,
                             @p63, @p64, @p65,
                             @p68, @p69, @p70,
-                            @p71, @p72, @p73, @p74, @p75, @p76
+                            @p71, @p72, @p73, @p74, @p75, @p76,
+                            @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89
                         );
                     END";
 
@@ -417,7 +448,20 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p73", System.Data.SqlDbType.Bit) { Value = settings.WebAppPushKitchenUsage },
                     new Microsoft.Data.SqlClient.SqlParameter("@p74", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppKitchenUsageDisplayName ?? "Kitchen Access" },
                     new Microsoft.Data.SqlClient.SqlParameter("@p75", System.Data.SqlDbType.Bit) { Value = settings.WebAppPushAvEquipment },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p76", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppAvEquipmentDisplayName ?? "A/V Equipment" }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p76", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.WebAppAvEquipmentDisplayName ?? "A/V Equipment" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p77", System.Data.SqlDbType.Bit) { Value = settings.EnableInquiryForkBanner },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p78", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkBannerTitle ?? "Planning an Event at the Gloucester Fraternity Club?" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p79", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkBannerSubtitle ?? "Choose whether you are ready to book a date or have questions for our rental team." },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p80", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkCardBookTitle ?? "Ready to Book?" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p81", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkCardBookText ?? "Select your date, room, and amenities to submit a formal rental application." },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p82", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkCardAskTitle ?? "Have Questions First?" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p83", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryForkCardAskText ?? "Ask about catering, rules, bar service, or date availability without filling out an entire contract." },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p84", System.Data.SqlDbType.Bit) { Value = settings.EnableInquiryFloatingButton },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p85", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryFloatingButtonText ?? "Have a Question?" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p86", System.Data.SqlDbType.Bit) { Value = settings.NotifyOnInquirySubmitted },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p87", System.Data.SqlDbType.Bit) { Value = settings.SendInquiryConfirmationEmail },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p88", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailSubject ?? "We received your inquiry - Gloucester Fraternity Club" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p89", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailBody ?? DBNull.Value }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -720,6 +764,45 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'WebAppAvEquipmentDisplayName')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [WebAppAvEquipmentDisplayName] NVARCHAR(100) NOT NULL DEFAULT 'A/V Equipment';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableInquiryForkBanner')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableInquiryForkBanner] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkBannerTitle')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkBannerTitle] NVARCHAR(200) NOT NULL DEFAULT 'Planning an Event at the Gloucester Fraternity Club?';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkBannerSubtitle')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkBannerSubtitle] NVARCHAR(500) NOT NULL DEFAULT 'Choose whether you are ready to book a date or have questions for our rental team.';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkCardBookTitle')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkCardBookTitle] NVARCHAR(100) NOT NULL DEFAULT 'Ready to Book?';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkCardBookText')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkCardBookText] NVARCHAR(500) NOT NULL DEFAULT 'Select your date, room, and amenities to submit a formal rental application.';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkCardAskTitle')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkCardAskTitle] NVARCHAR(100) NOT NULL DEFAULT 'Have Questions First?';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkCardAskText')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkCardAskText] NVARCHAR(500) NOT NULL DEFAULT 'Ask about catering, rules, bar service, or date availability without filling out an entire contract.';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableInquiryFloatingButton')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableInquiryFloatingButton] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryFloatingButtonText')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryFloatingButtonText] NVARCHAR(100) NOT NULL DEFAULT 'Have a Question?';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'NotifyOnInquirySubmitted')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [NotifyOnInquirySubmitted] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SendInquiryConfirmationEmail')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [SendInquiryConfirmationEmail] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryConfirmationEmailSubject')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryConfirmationEmailSubject] NVARCHAR(300) NOT NULL DEFAULT 'We received your inquiry - Gloucester Fraternity Club';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryConfirmationEmailBody')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryConfirmationEmailBody] NVARCHAR(MAX) NULL;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

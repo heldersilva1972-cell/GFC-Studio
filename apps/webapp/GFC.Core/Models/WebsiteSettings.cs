@@ -118,6 +118,22 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public bool WebAppPushAvEquipment { get; set; } = true;
         public string? WebAppAvEquipmentDisplayName { get; set; } = "A/V Equipment";
 
+        // General Inquiry / Question Feature (Option A: Top Banner Fork & Option B: Floating Drawer)
+        public bool EnableInquiryForkBanner { get; set; } = true;
+        public string InquiryForkBannerTitle { get; set; } = "Planning an Event at the Gloucester Fraternity Club?";
+        public string InquiryForkBannerSubtitle { get; set; } = "Choose whether you are ready to book a date or have questions for our rental team.";
+        public string InquiryForkCardBookTitle { get; set; } = "Ready to Book?";
+        public string InquiryForkCardBookText { get; set; } = "Select your date, room, and amenities to submit a formal rental application.";
+        public string InquiryForkCardAskTitle { get; set; } = "Have Questions First?";
+        public string InquiryForkCardAskText { get; set; } = "Ask about catering, rules, bar service, or date availability without filling out an entire contract.";
+        
+        public bool EnableInquiryFloatingButton { get; set; } = true;
+        public string InquiryFloatingButtonText { get; set; } = "Have a Question?";
+        public bool NotifyOnInquirySubmitted { get; set; } = true;
+        public bool SendInquiryConfirmationEmail { get; set; } = true;
+        public string InquiryConfirmationEmailSubject { get; set; } = "We received your inquiry - Gloucester Fraternity Club";
+        public string InquiryConfirmationEmailBody { get; set; } = "Dear {ApplicantName},\n\nThank you for reaching out to the Gloucester Fraternity Club!\n\nWe have received your question regarding hall rentals and our rental coordinator will review it and reply back to you shortly.\n\nYour Message / Question:\n\"{Question}\"\n\nGloucester Fraternity Club | {ClubPhone}";
+
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public List<CalendarFieldDisplayConfig> MonthCalendarFields
         {

@@ -101,6 +101,12 @@
                     <span class="badge bg-warning text-dark border border-warning px-2.5 py-1 rounded-pill fw-bold shadow-sm">
                         <i class="bi bi-clock-history me-1"></i>Pending: <strong>@GetPendingCount()</strong>
                     </span>
+                    @if (GetInquiriesCount() > 0)
+                    {
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer;" @onclick='() => _filterCategory = "INQUIRIES"' title="Filter by Pre-Booking Questions &amp; Inquiries">
+                            <i class="bi bi-question-diamond-fill me-1 text-info"></i>Inquiries: <strong>@GetInquiriesCount()</strong>
+                        </span>
+                    }
                     <span class="badge bg-info text-dark border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm">
                         <i class="bi bi-layers-fill me-1"></i>Calendars: <strong>@(_settings.Feeds.Count(f => f.IsEnabled)) Active</strong>
                     </span>
@@ -162,6 +168,7 @@
                             <button class="btn @(_filterCategory == "PAID" ? "btn-success fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "PAID"'>Paid (@GetPaidEventsCount())</button>
                             <button class="btn @(_filterCategory == "UNPAID" ? "btn-danger fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "UNPAID"'>Unpaid</button>
                             <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications (@GetApplicationsCount())</button>
+                            <button class="btn @(_filterCategory == "INQUIRIES" ? "btn-info text-dark fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "INQUIRIES"'>Inquiries (@GetInquiriesCount())</button>
                             <button class="btn @(_filterCategory == "CANCELLED" ? "btn-danger fw-bold text-white" : "btn-outline-secondary")" @onclick='() => _filterCategory = "CANCELLED"'>Cancelled (@GetCancelledCount())</button>
                         </div>
 
@@ -410,12 +417,13 @@
                                     @foreach (var evt in filteredEvents)
                                     {
                                         var details = ParseApplicationDetails(evt);
+                                        var isInquiry = string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase);
                                         var isCancelled = string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase);
                                         var isPending = evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
                                         var isApproved = evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
                                         var paySummary = GetEventPaymentSummary(evt);
 
-                                        <tr class="@(isCancelled ? "table-danger bg-opacity-10" : "")">
+                                        <tr class="@(isInquiry ? "table-info bg-opacity-10" : (isCancelled ? "table-danger bg-opacity-10" : ""))">
                                             @foreach (var col in listColumns)
                                             {
                                                 switch (col.FieldKey)
@@ -441,7 +449,13 @@
 
                                                     case "event_status":
                                                         <td>
-                                                            @if (isCancelled)
+                                                            @if (isInquiry)
+                                                            {
+                                                                <span class="badge bg-info text-dark border border-info px-2 py-1 rounded-pill fw-bold shadow-sm">
+                                                                    <i class="bi bi-question-diamond-fill me-1 text-primary"></i>Inquiry
+                                                                </span>
+                                                            }
+                                                            else if (isCancelled)
                                                             {
                                                                 <span class="badge bg-danger text-white border border-danger px-2 py-1 rounded-pill fw-bold shadow-sm">
                                                                     <i class="bi bi-x-circle me-1"></i>Cancelled
@@ -638,6 +652,9 @@
                     _selectedEvent.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase);
     var isApproved = (_selectedRequest != null && string.Equals(_selectedRequest.Status, "Approved", StringComparison.OrdinalIgnoreCase)) ||
                      _selectedEvent.Title.Contains("APPROVED", StringComparison.OrdinalIgnoreCase);
+    var isInquiry = (_selectedRequest != null && (string.Equals(_selectedRequest.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(_selectedRequest.Status, "Responded", StringComparison.OrdinalIgnoreCase))) ||
+                    _selectedEvent.Title.Contains("INQUIRY", StringComparison.OrdinalIgnoreCase) ||
+                    _selectedEvent.Source == "General Inquiry";
     var isCancelled = (_selectedRequest != null && string.Equals(_selectedRequest.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) ||
                       _selectedEvent.Title.Contains("CANCELLED", StringComparison.OrdinalIgnoreCase);
 
@@ -684,13 +701,17 @@
                 <!-- Modal Header -->
                 <div class="modal-header bg-light border-bottom p-3 px-4">
                     <div class="d-flex align-items-center gap-3">
-                        <div class="p-2 rounded-3 @(isClub ? "bg-primary bg-opacity-10 text-primary" : (isPending ? "bg-warning bg-opacity-25 text-warning-emphasis" : (isCancelled ? "bg-danger bg-opacity-10 text-danger" : "bg-primary bg-opacity-10 text-primary")))">
-                            <i class="bi @(isClub ? "bi-shield-shaded" : (isPending ? "bi-hourglass-split" : (isCancelled ? "bi-x-circle-fill" : "bi-calendar-event-fill"))) fs-4"></i>
+                        <div class="p-2 rounded-3 @(isInquiry ? "bg-info bg-opacity-25 text-info-emphasis" : (isClub ? "bg-primary bg-opacity-10 text-primary" : (isPending ? "bg-warning bg-opacity-25 text-warning-emphasis" : (isCancelled ? "bg-danger bg-opacity-10 text-danger" : "bg-primary bg-opacity-10 text-primary"))))">
+                            <i class="bi @(isInquiry ? "bi-question-diamond-fill" : (isClub ? "bi-shield-shaded" : (isPending ? "bi-hourglass-split" : (isCancelled ? "bi-x-circle-fill" : "bi-calendar-event-fill")))) fs-4"></i>
                         </div>
                         <div>
                             <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                                 <h5 class="modal-title fw-bold mb-0 text-dark">@cleanTitle</h5>
-                                @if (isClub)
+                                @if (isInquiry)
+                                {
+                                    <span class="badge bg-info text-dark fw-bold"><i class="bi bi-question-diamond-fill me-1"></i>PRE-BOOKING QUESTION / INQUIRY</span>
+                                }
+                                else if (isClub)
                                 {
                                     <span class="badge bg-primary"><i class="bi bi-shield-shaded me-1"></i>CLUB EVENT</span>
                                 }
@@ -719,39 +740,54 @@
                         </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        @if (!isClub)
+                        @if (isInquiry)
+                        {
+                            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="SwitchToCalendarFromDetailsModal" title="Close and view on full Calendar Grid">
+                                <i class="bi bi-calendar3"></i>
+                                <span class="fw-semibold">View Calendar</span>
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1 fw-bold" @onclick="OpenReplyToInquiryModal" title="Compose and email reply directly to visitor">
+                                <i class="bi bi-reply-fill"></i>
+                                <span>Reply to Inquiry</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="PrintSelectedApplication" title="Print inquiry or save as PDF">
+                                <i class="bi bi-printer-fill text-primary"></i>
+                                <span class="fw-semibold">Print / PDF</span>
+                            </button>
+                        }
+                        else if (!isClub)
                         {
                             @if (!_isEditingBooking)
                             {
                                 <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="SwitchToCalendarFromDetailsModal" title="Close and view on full Calendar Grid">
-                                    <i class="bi bi-calendar3"></i>
-                                    <span class="fw-semibold">View Calendar</span>
-                                </button>
-                                <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="EnterBookingEditMode" title="Modify booking specs, room, services & prices">
-                                    <i class="bi bi-pencil-square"></i>
-                                    <span class="fw-semibold">Modify Booking &amp; Prices</span>
-                                </button>
-                                <button type="button" class="btn btn-outline-info text-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="OpenResendQuoteConfirmation" disabled="@_isResendingQuote" title="Email latest updated event details & quote to applicant">
-                                    <i class="bi bi-envelope-paper-fill text-primary"></i>
-                                    <span class="fw-semibold">Email Event / Quote</span>
-                                </button>
-                                <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="PrintSelectedApplication" title="Print application or save as PDF">
-                                    <i class="bi bi-printer-fill text-primary"></i>
-                                    <span class="fw-semibold">Print / PDF</span>
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm" @onclick="CancelBookingEditMode">
-                                    <i class="bi bi-x-lg me-1"></i>Cancel Edit
-                                </button>
-                                <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-bold" @onclick="InitiateSaveBookingChanges">
-                                    <i class="bi bi-check-lg me-1"></i>Review &amp; Save
-                                </button>
-                            }
+                                <i class="bi bi-calendar3"></i>
+                                <span class="fw-semibold">View Calendar</span>
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="EnterBookingEditMode" title="Modify booking specs, room, services & prices">
+                                <i class="bi bi-pencil-square"></i>
+                                <span class="fw-semibold">Modify Booking &amp; Prices</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-info text-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="OpenResendQuoteConfirmation" disabled="@_isResendingQuote" title="Email latest updated event details & quote to applicant">
+                                <i class="bi bi-envelope-paper-fill text-primary"></i>
+                                <span class="fw-semibold">Email Event / Quote</span>
+                            </button>
+                            <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="PrintSelectedApplication" title="Print application or save as PDF">
+                                <i class="bi bi-printer-fill text-primary"></i>
+                                <span class="fw-semibold">Print / PDF</span>
+                            </button>
                         }
                         else
                         {
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm" @onclick="CancelBookingEditMode">
+                                <i class="bi bi-x-lg me-1"></i>Cancel Edit
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-bold" @onclick="InitiateSaveBookingChanges">
+                                <i class="bi bi-check-lg me-1"></i>Review &amp; Save
+                            </button>
+                        }
+                    }
+                    else
+                    {
                             <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="SwitchToCalendarFromDetailsModal" title="Close and view on full Calendar Grid">
                                 <i class="bi bi-calendar3"></i>
                                 <span class="fw-semibold">View Calendar</span>
@@ -1063,7 +1099,120 @@
                             </div>
                         </div>
 
-                        @if (isClub)
+                        @if (isInquiry)
+                        {
+                            <!-- ========================================================= -->
+                            <!-- STREAMLINED INQUIRY / QUESTION VIEW -->
+                            <!-- ========================================================= -->
+                            <!-- Visitor Contact & Question Details Card -->
+                            <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                                <div class="card-header section-header-primary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-question-circle-fill text-info me-2 fs-5"></i>Pre-Booking Inquiry Details</span>
+                                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm fw-bold" @onclick="OpenReplyToInquiryModal">
+                                        <i class="bi bi-reply-fill me-1"></i>Reply to Visitor
+                                    </button>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Visitor Name</div>
+                                            <div class="fw-bold fs-6 text-dark mt-1">@effectiveName</div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Email Address</div>
+                                            <div class="mt-1">
+                                                @if (!string.IsNullOrWhiteSpace(effectiveEmail))
+                                                {
+                                                    <a href="mailto:@effectiveEmail" class="fw-semibold text-primary text-decoration-none">
+                                                        <i class="bi bi-envelope-fill me-1"></i>@effectiveEmail
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted fst-italic">None provided</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Contact Phone</div>
+                                            <div class="mt-1">
+                                                @if (!string.IsNullOrWhiteSpace(effectivePhone))
+                                                {
+                                                    <a href="tel:@effectivePhone" class="fw-semibold text-dark text-decoration-none">
+                                                        <i class="bi bi-telephone-fill text-secondary me-1"></i>@FormatPhoneNumber(effectivePhone)
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted fst-italic">None provided</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Target Event Date</div>
+                                            <div class="fw-semibold text-dark mt-1">
+                                                <i class="bi bi-calendar-check text-primary me-1"></i>
+                                                @(_selectedRequest != null && _selectedRequest.EventDate.Year > 2000 ? _selectedRequest.EventDate.ToString("MMMM dd, yyyy") : (_selectedEvent.Start.Year > 2000 ? _selectedEvent.Start.ToString("MMMM dd, yyyy") : "Unspecified"))
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Estimated Guest Count</div>
+                                            <div class="fw-semibold text-dark mt-1">
+                                                <i class="bi bi-people-fill text-secondary me-1"></i>
+                                                @(_selectedRequest?.GuestCount > 0 ? $"{_selectedRequest.GuestCount} Guests" : (!string.IsNullOrWhiteSpace(appDetails.GuestCount) ? $"{appDetails.GuestCount} Guests" : "Not specified"))
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="text-muted small">Inquiry Status</div>
+                                            <div class="mt-1">
+                                                <span class="badge @(_selectedRequest?.Status == "Responded" || _selectedEvent.Status == "RESPONDED" ? "bg-success" : "bg-info text-dark") fw-bold px-2 py-1">
+                                                    <i class="bi @(_selectedRequest?.Status == "Responded" || _selectedEvent.Status == "RESPONDED" ? "bi-check-all" : "bi-hourglass-split") me-1"></i>
+                                                    @(_selectedRequest?.Status ?? _selectedEvent.Status ?? "INQUIRY")
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Visitor Question / Message Card -->
+                            <div class="card border rounded-3 mb-3 shadow-none bg-white">
+                                <div class="card-header section-header-primary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-chat-left-text-fill text-primary me-2 fs-5"></i>Visitor Question &amp; Inquiry Message</span>
+                                </div>
+                                <div class="card-body p-3">
+                                    @{
+                                        string messageContent = !string.IsNullOrWhiteSpace(_selectedRequest?.EventDescription) 
+                                            ? _selectedRequest.EventDescription 
+                                            : (!string.IsNullOrWhiteSpace(appDetails.EventDescription) ? appDetails.EventDescription : _selectedEvent.Description ?? "No message text provided.");
+                                    }
+                                    <div class="bg-light p-3 rounded-3 border text-dark" style="white-space: pre-wrap; font-size: 0.95rem; line-height: 1.6;">
+                                        @messageContent
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Correspondence & Reply History Card -->
+                            <div class="card border rounded-3 shadow-none bg-white mb-3">
+                                <div class="card-header section-header-secondary py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-clock-history text-secondary me-2 fs-5"></i>Correspondence &amp; Reply History</span>
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Audit Trail</span>
+                                </div>
+                                <div class="card-body p-3">
+                                    @if (!string.IsNullOrWhiteSpace(_selectedRequest?.InternalNotes))
+                                    {
+                                        <div class="bg-light p-3 rounded-3 border font-monospace small" style="white-space: pre-wrap; font-size: 0.85rem; line-height: 1.5;">@_selectedRequest.InternalNotes</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-muted small py-2 text-center fst-italic">
+                                            <i class="bi bi-info-circle me-1"></i>No staff replies recorded yet for this inquiry.
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        else if (isClub)
                         {
                             <!-- ========================================================= -->
                             <!-- STREAMLINED CLUB EVENT VIEW -->
@@ -1815,7 +1964,16 @@
                         </button>
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
-                        @if (isClub)
+                        @if (isInquiry)
+                        {
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1 fw-bold" @onclick="OpenReplyToInquiryModal" title="Compose and email reply to visitor">
+                                <i class="bi bi-reply-fill"></i>
+                                <span>Reply to Inquiry</span>
+                            </button>
+                            <div class="vr mx-1 d-none d-sm-block" style="height: 24px;"></div>
+                            <button type="button" class="btn btn-secondary btn-sm rounded-pill px-4 shadow-sm" @onclick="CloseEventDetailsModal">Close</button>
+                        }
+                        else if (isClub)
                         {
                             <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="() => OpenEditEventModal(_selectedEvent)" title="Edit Club Event">
                                 <i class="bi bi-pencil-square"></i>
@@ -2332,6 +2490,99 @@
                     </button>
                     <button type="button" class="btn btn-sm btn-danger fw-bold" @onclick="ForceCloseEventDetails">
                         Discard &amp; Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- REPLY TO VISITOR INQUIRY MODAL -->
+<!-- ========================================================================= -->
+@if (_showReplyInquiryModal && _selectedEvent != null)
+{
+    var inqAppData = ParseApplicationDetails(_selectedEvent);
+    var inqName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (inqAppData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1060;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-primary text-white p-3 px-4">
+                    <h5 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-reply-all-fill"></i>
+                        <span>Reply to Inquiry - @inqName</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showReplyInquiryModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(_inquiryReplyError))
+                    {
+                        <div class="alert alert-danger py-2 px-3 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill text-danger flex-shrink-0"></i>
+                            <span>@_inquiryReplyError</span>
+                        </div>
+                    }
+
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-md-6 d-flex justify-content-between">
+                                <span class="text-muted">Visitor Name:</span>
+                                <span class="fw-bold text-dark">@inqName</span>
+                            </div>
+                            <div class="col-md-6 d-flex justify-content-between">
+                                <span class="text-muted">Inquiry ID:</span>
+                                <span class="fw-bold font-monospace text-primary">#@(_selectedRequest?.Id > 0 ? _selectedRequest.Id.ToString() : "New")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">To Email Address</label>
+                        <input type="email" class="form-control" placeholder="visitor@example.com" @bind="_inquiryReplyRecipient" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">Email Subject Line <span class="text-muted font-normal">(Includes tracking code)</span></label>
+                        <input type="text" class="form-control" @bind="_inquiryReplySubject" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">Quick Response Preset Template (Optional)</label>
+                        <select class="form-select form-select-sm" @onchange="OnInquiryReplyPresetSelected">
+                            <option value="">-- Select a response template or write custom below --</option>
+                            <option value="available">Date is Available &amp; Ready for Booking</option>
+                            <option value="unavailable">Date is Unavailable / Already Booked</option>
+                            <option value="pricing_info">Standard Rental Pricing &amp; Details</option>
+                            <option value="call_to_discuss">Request Phone Discussion</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-dark mb-1">Message Content / Email Body</label>
+                        <textarea class="form-control" rows="8" placeholder="Type your response to the visitor..." @bind="_inquiryReplyBody"></textarea>
+                    </div>
+
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-info-circle-fill text-info flex-shrink-0"></i>
+                        <span>This message will be emailed directly to the visitor and automatically logged to this inquiry's correspondence history.</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" @onclick="() => _showReplyInquiryModal = false" disabled="@_isSendingInquiryReply">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="SendInquiryReplyAsync" disabled="@_isSendingInquiryReply">
+                        @if (_isSendingInquiryReply)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Sending Reply...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-send-fill me-1"></i>
+                            <span>Send Email Reply</span>
+                        }
                     </button>
                 </div>
             </div>
@@ -4594,8 +4845,12 @@
                     if (string.Equals(req.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) continue;
 
                     bool isApproved = string.Equals(req.Status, "Approved", StringComparison.OrdinalIgnoreCase);
-                    string statusPrefix = isApproved ? "" : "PENDING: ";
-                    string title = $"{statusPrefix}{req.ApplicantName} ({req.EventType ?? "Rental"})";
+                    bool isInquiryReq = string.Equals(req.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(req.Status, "Responded", StringComparison.OrdinalIgnoreCase);
+
+                    string statusPrefix = isApproved ? "" : (isInquiryReq ? "INQUIRY: " : "PENDING: ");
+                    string title = isInquiryReq 
+                        ? $"INQUIRY: {req.ApplicantName}" 
+                        : $"{statusPrefix}{req.ApplicantName} ({req.EventType ?? "Rental"})";
 
                     // Check if already present in calendar events by date & name
                     string cleanApplicant = req.ApplicantName.Trim();
@@ -4610,7 +4865,7 @@
                     if (existing == null)
                     {
                         DateTime start = req.EventDate.Date.AddHours(12);
-                        DateTime end = req.EventDate.Date.AddHours(17);
+                        DateTime end = req.EventDate.Date.AddHours(isInquiryReq ? 13 : 17);
                         if (!string.IsNullOrWhiteSpace(req.StartTime) && DateTime.TryParse(req.StartTime, out var ps)) start = req.EventDate.Date.Add(ps.TimeOfDay);
                         if (!string.IsNullOrWhiteSpace(req.EndTime) && DateTime.TryParse(req.EndTime, out var pe)) end = req.EventDate.Date.Add(pe.TimeOfDay);
 
@@ -4620,16 +4875,20 @@
                         if (req.AvEquipmentUsage) svcsList.Add("A/V Equipment");
                         string svcsLine = svcsList.Any() ? $"\nRequested Services: {string.Join(", ", svcsList)}" : "";
 
+                        string eventDesc = isInquiryReq
+                            ? $"Inquiry From: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nPreferred Date: {req.EventDate:MM/dd/yyyy}\nInquiry / Question: {req.EventDescription ?? req.InternalNotes}"
+                            : $"Applicant: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nAddress: {req.RequesterAddress}\nRoom: {req.RoomSelected}\nGuests: {req.GuestCount}\nTotal: ${req.TotalPrice:N2}\nBar Service: {(req.BartenderRequested ? "Yes" : "No")}\nKitchen Access: {(req.KitchenUsage ? "Yes" : "No")}{svcsLine}";
+
                         calendarEvents.Add(new CalendarEventItem
                         {
                             Title = title,
                             Start = start,
                             End = end,
                             Location = req.RoomSelected ?? "Function Hall",
-                            Source = "Rental Booking",
-                            Status = req.Status?.ToUpperInvariant() ?? "PENDING",
-                            ColorCategory = isApproved ? "badge-success" : "badge-warning",
-                            Description = $"Applicant: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nAddress: {req.RequesterAddress}\nRoom: {req.RoomSelected}\nGuests: {req.GuestCount}\nTotal: ${req.TotalPrice:N2}\nBar Service: {(req.BartenderRequested ? "Yes" : "No")}\nKitchen Access: {(req.KitchenUsage ? "Yes" : "No")}{svcsLine}"
+                            Source = isInquiryReq ? "General Inquiry" : "Rental Booking",
+                            Status = req.Status?.ToUpperInvariant() ?? (isInquiryReq ? "INQUIRY" : "PENDING"),
+                            ColorCategory = isInquiryReq ? "badge-info" : (isApproved ? "badge-success" : "badge-warning"),
+                            Description = eventDesc
                         });
                     }
                 }
@@ -6182,6 +6441,144 @@
     private string _paymentReminderCustomNote = "";
     private string _resendQuoteCustomNote = "";
 
+    // Reply to Inquiry State
+    private bool _showReplyInquiryModal = false;
+    private bool _isSendingInquiryReply = false;
+    private string _inquiryReplyRecipient = "";
+    private string _inquiryReplySubject = "";
+    private string _inquiryReplyBody = "";
+    private string _inquiryReplyError = "";
+
+    private void OpenReplyToInquiryModal()
+    {
+        if (_selectedEvent == null) return;
+        var appData = ParseApplicationDetails(_selectedEvent);
+        _inquiryReplyRecipient = !string.IsNullOrWhiteSpace(_selectedRequest?.RequesterEmail) ? _selectedRequest.RequesterEmail : (appData.Email ?? "");
+        
+        int inqId = _selectedRequest?.Id ?? 0;
+        string applicantName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (appData.ApplicantName ?? GetCleanTitle(_selectedEvent));
+        string eventDateStr = _selectedRequest != null && _selectedRequest.EventDate.Year > 2000 
+            ? _selectedRequest.EventDate.ToString("MM/dd/yyyy") 
+            : (_selectedEvent.Start.Year > 2000 ? _selectedEvent.Start.ToString("MM/dd/yyyy") : (appData.PreferredEventDate ?? "Requested Date"));
+
+        string trackingCode = inqId > 0 ? $"[GFC-INQ-{inqId}] " : "";
+        _inquiryReplySubject = $"Re: {trackingCode}Hall Rental Inquiry - Gloucester Fraternity Club";
+        
+        _inquiryReplyBody = $"Dear {applicantName},\n\nThank you for reaching out to the Gloucester Fraternity Club regarding your hall rental inquiry for {eventDateStr}.\n\n";
+        _inquiryReplyError = "";
+        _showReplyInquiryModal = true;
+    }
+
+    private void OnInquiryReplyPresetSelected(ChangeEventArgs e)
+    {
+        var preset = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(preset)) return;
+
+        var appData = _selectedEvent != null ? ParseApplicationDetails(_selectedEvent) : new ParsedApplicationData();
+        string applicantName = !string.IsNullOrWhiteSpace(_selectedRequest?.ApplicantName) ? _selectedRequest.ApplicantName : (appData.ApplicantName ?? (_selectedEvent != null ? GetCleanTitle(_selectedEvent) : "Applicant"));
+        string eventDateStr = _selectedRequest != null && _selectedRequest.EventDate.Year > 2000 
+            ? _selectedRequest.EventDate.ToString("MMMM dd, yyyy") 
+            : (_selectedEvent != null && _selectedEvent.Start.Year > 2000 ? _selectedEvent.Start.ToString("MMMM dd, yyyy") : (appData.PreferredEventDate ?? "your requested date"));
+
+        switch (preset)
+        {
+            case "available":
+                _inquiryReplyBody = $"Dear {applicantName},\n\nThank you for contacting the Gloucester Fraternity Club. We are happy to let you know that our facility is currently AVAILABLE on {eventDateStr}!\n\nOur hall rental includes tables, chairs, and access to our amenities. If you would like to proceed with securing your date, please complete our online rental booking form or let us know a good time to schedule a walkthrough.\n\nWarm regards,\nGloucester Fraternity Club Hall Rental Committee";
+                break;
+            case "unavailable":
+                _inquiryReplyBody = $"Dear {applicantName},\n\nThank you for your interest in the Gloucester Fraternity Club. Unfortunately, our facility is already booked or unavailable on {eventDateStr}.\n\nIf you have alternate dates in mind, please let us know and we will be glad to check our schedule for you.\n\nWarm regards,\nGloucester Fraternity Club Hall Rental Committee";
+                break;
+            case "pricing_info":
+                _inquiryReplyBody = $"Dear {applicantName},\n\nThank you for inquiring about our hall rental options. Our Function Hall is available for member and non-member events.\n\nStandard rental pricing starts at $400 for non-members ($300 for club members) for a 5-hour window, with optional bar service and kitchen access available.\n\nPlease let us know if you have any questions or would like to schedule a time to view the hall.\n\nWarm regards,\nGloucester Fraternity Club Hall Rental Committee";
+                break;
+            case "call_to_discuss":
+                _inquiryReplyBody = $"Dear {applicantName},\n\nThank you for your inquiry. We would love to discuss the specific details of your event for {eventDateStr}. Please feel free to give us a call at (978) 283-2889 at your earliest convenience so we can assist you.\n\nWarm regards,\nGloucester Fraternity Club Hall Rental Committee";
+                break;
+        }
+    }
+
+    private async Task SendInquiryReplyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_inquiryReplyRecipient))
+        {
+            _inquiryReplyError = "Please enter a valid recipient email address.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_inquiryReplyBody))
+        {
+            _inquiryReplyError = "Please enter your message reply.";
+            return;
+        }
+
+        _isSendingInquiryReply = true;
+        _inquiryReplyError = "";
+
+        try
+        {
+            var settings = await WebsiteSettingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
+            string clubNameStr = string.IsNullOrWhiteSpace(settings.RentalFormSubtitle) ? "Gloucester Fraternity Club" : settings.RentalFormSubtitle;
+            string clubPhoneStr = string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone;
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            // Format message HTML
+            string formattedHtml = $"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>" +
+                $"<div style='border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px;'>" +
+                $"<h2 style='color: #0369a1; margin: 0;'>Hall Rental Inquiry Response</h2>" +
+                $"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>{clubNameStr} &bull; Inquiry Reference #{_selectedRequest?.Id}</p>" +
+                $"</div>" +
+                $"<div style='white-space: pre-line;'>{System.Net.WebUtility.HtmlEncode(_inquiryReplyBody)}</div>" +
+                $"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>" +
+                $"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; {clubPhoneStr}</small>" +
+                $"</div>";
+
+            var sendRes = await RentalEmailDispatcher.SendRentalEmailAsync(settings, _inquiryReplyRecipient, _inquiryReplySubject, formattedHtml, settings.RentalEmailCc);
+            if (sendRes.Success)
+            {
+                // Update request notes with conversation log and change status to Responded
+                if (_selectedRequest != null)
+                {
+                    _selectedRequest.Status = "Responded";
+                    _selectedRequest.StatusChangedBy = adminUser;
+                    _selectedRequest.StatusChangedDate = DateTime.UtcNow;
+
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+                    sb.AppendLine($"💬 Staff Reply Sent to {_inquiryReplyRecipient}");
+                    sb.AppendLine($"• Subject: {_inquiryReplySubject}");
+                    sb.AppendLine($"• Message: {_inquiryReplyBody.Trim()}");
+                    sb.AppendLine();
+
+                    _selectedRequest.InternalNotes = (sb.ToString() + (_selectedRequest.InternalNotes ?? "")).Trim();
+                    await RentalService.UpdateRentalRequestAsync(_selectedRequest);
+
+                    if (_selectedEvent != null)
+                    {
+                        _selectedEvent.Status = "RESPONDED";
+                    }
+                }
+
+                ToastService.ShowSuccess($"Reply successfully sent to {_inquiryReplyRecipient}!");
+                _showReplyInquiryModal = false;
+                await LoadAllRequestsAndPayments();
+            }
+            else
+            {
+                _inquiryReplyError = $"Failed to send email: {sendRes.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _inquiryReplyError = $"Error dispatching reply: {ex.Message}";
+        }
+        finally
+        {
+            _isSendingInquiryReply = false;
+        }
+    }
+
     private void OnModificationReasonPresetSelected(ChangeEventArgs e)
     {
         var selected = e.Value?.ToString();
@@ -6966,6 +7363,13 @@ Warm regards,
             bool isCanc = string.Equals(e.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || e.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase);
             if (!isCanc) return false;
         }
+        else if (_filterCategory == "INQUIRIES")
+        {
+            bool isInq = string.Equals(e.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || 
+                         e.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) ||
+                         e.Source == "General Inquiry";
+            if (!isInq) return false;
+        }
 
         if (!string.IsNullOrWhiteSpace(_searchTerm))
         {
@@ -7018,6 +7422,11 @@ Warm regards,
         return _cachedRentalRequests.Count(r => string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase));
     }
 
+    private int GetInquiriesCount()
+    {
+        return _cachedRentalRequests.Count(r => string.Equals(r.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(r.Status, "Responded", StringComparison.OrdinalIgnoreCase));
+    }
+
     private int GetApplicationsCount()
     {
         return _events.Count(e => !string.IsNullOrEmpty(e.Description) && 
@@ -7052,6 +7461,29 @@ Warm regards,
                     Status = "CANCELLED",
                     ColorCategory = "badge-danger",
                     Description = $"Applicant: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nAddress: {req.RequesterAddress}\nRoom: {req.RoomSelected}\nGuests: {req.GuestCount}\nTotal: ${req.TotalPrice:N2}"
+                });
+            }
+        }
+        else if (_filterCategory == "INQUIRIES")
+        {
+            var inquiryRequests = _cachedRentalRequests.Where(r => string.Equals(r.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(r.Status, "Responded", StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var req in inquiryRequests)
+            {
+                DateTime start = req.EventDate.Date.AddHours(12);
+                DateTime end = req.EventDate.Date.AddHours(13);
+                if (!string.IsNullOrWhiteSpace(req.StartTime) && DateTime.TryParse(req.StartTime, out var ps)) start = req.EventDate.Date.Add(ps.TimeOfDay);
+                if (!string.IsNullOrWhiteSpace(req.EndTime) && DateTime.TryParse(req.EndTime, out var pe)) end = req.EventDate.Date.Add(pe.TimeOfDay);
+
+                list.Add(new CalendarEventItem
+                {
+                    Title = $"INQUIRY: {req.ApplicantName}",
+                    Start = start,
+                    End = end,
+                    Location = req.RoomSelected ?? "Function Hall",
+                    Source = "General Inquiry",
+                    Status = req.Status?.ToUpperInvariant() ?? "INQUIRY",
+                    ColorCategory = "badge-info",
+                    Description = $"Inquiry From: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nPreferred Date: {req.EventDate:MM/dd/yyyy}\nInquiry / Question: {req.InternalNotes}"
                 });
             }
         }
