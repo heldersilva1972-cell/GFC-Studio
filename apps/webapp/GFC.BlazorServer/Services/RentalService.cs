@@ -1109,38 +1109,22 @@ namespace GFC.BlazorServer.Services
                 var dayConfigs = settings?.GetDaySchedulesList();
                 var dayConfig = dayConfigs?.FirstOrDefault(d => d.DayOfWeek == date.DayOfWeek);
 
-                // 1. Check if day of week is closed
-                if (settings?.UseLegacyPricingEngine == false)
-                {
-                    var tierCards = settings.GetTierCardsList();
-                    var dayOfWeek = date.DayOfWeek;
-                    bool isAnyTierAvailableOnDay = tierCards.Any(c => c.IsEnabled && (
-                        dayOfWeek == DayOfWeek.Monday ? c.MondayAvailable :
-                        dayOfWeek == DayOfWeek.Tuesday ? c.TuesdayAvailable :
-                        dayOfWeek == DayOfWeek.Wednesday ? c.WednesdayAvailable :
-                        dayOfWeek == DayOfWeek.Thursday ? c.ThursdayAvailable :
-                        dayOfWeek == DayOfWeek.Friday ? c.FridayAvailable :
-                        dayOfWeek == DayOfWeek.Saturday ? c.SaturdayAvailable :
-                        dayOfWeek == DayOfWeek.Sunday ? c.SundayAvailable : false
-                    ));
+                // 1. Check if day of week is closed in Matrix Tier Engine
+                var tierCards = settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards();
+                var dayOfWeek = date.DayOfWeek;
+                bool isAnyTierAvailableOnDay = tierCards.Any(c => c.IsEnabled && (
+                    dayOfWeek == DayOfWeek.Monday ? c.MondayAvailable :
+                    dayOfWeek == DayOfWeek.Tuesday ? c.TuesdayAvailable :
+                    dayOfWeek == DayOfWeek.Wednesday ? c.WednesdayAvailable :
+                    dayOfWeek == DayOfWeek.Thursday ? c.ThursdayAvailable :
+                    dayOfWeek == DayOfWeek.Friday ? c.FridayAvailable :
+                    dayOfWeek == DayOfWeek.Saturday ? c.SaturdayAvailable :
+                    dayOfWeek == DayOfWeek.Sunday ? c.SundayAvailable : false
+                ));
 
-                    if (!isAnyTierAvailableOnDay)
-                    {
-                        return (true, $"The club is closed / unavailable for private rentals on {date:dddd}s.");
-                    }
-                }
-                else if (dayConfig != null && !dayConfig.IsAvailable)
+                if (!isAnyTierAvailableOnDay)
                 {
                     return (true, $"The club is closed / unavailable for private rentals on {date:dddd}s.");
-                }
-
-                // 2. Check allowed rooms for day if roomName is provided
-                if (settings?.UseLegacyPricingEngine != false && !string.IsNullOrWhiteSpace(roomName) && dayConfig != null && dayConfig.AllowedRoomNames != null && dayConfig.AllowedRoomNames.Count > 0)
-                {
-                    if (dayConfig.AllowedRoomNames.Contains("__NONE__") || !dayConfig.AllowedRoomNames.Contains(roomName, StringComparer.OrdinalIgnoreCase))
-                    {
-                        return (true, $"The space '{roomName}' is not available for rental on {date:dddd}s.");
-                    }
                 }
 
                 // 3. Fetch unavailable dates from local database

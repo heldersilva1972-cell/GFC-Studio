@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using GFC.BlazorServer.Auth;
 using GFC.BlazorServer.Data;
+using GFC.Core.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,27 +31,172 @@ namespace GFC.BlazorServer.Controllers
         {
             var schemas = new
             {
-                version = "1.0",
-                description = "GFC-Studio WebApp Reporting Gateway for Tableau",
+                version = "2.0",
+                description = "GFC-Studio WebApp Reporting Gateway for Tableau & BI Tools",
                 availableEndpoints = new[]
                 {
-                    new { key = "pos-sales", endpoint = "/api/reporting/pos-sales", description = "Point of Sale transactions and category revenue" },
+                    new { key = "pos-sales-items", endpoint = "/api/reporting/pos-sales-items", description = "Line-item POS transaction details, items sold, quantities, unit prices, bartender, and shift" },
+                    new { key = "pos-sales", endpoint = "/api/reporting/pos-sales", description = "Point of Sale transactions, totals, and tender breakdowns" },
+                    new { key = "staff-shifts", endpoint = "/api/reporting/staff-shifts", description = "Staff shift records, employee names, roles, clock-in/out times, hours worked, hourly rates, and payroll totals" },
+                    new { key = "door-swipes", endpoint = "/api/reporting/door-swipes", description = "Debounced door access & entry events mapped to member IDs, names, status, and door locations" },
+                    new { key = "member-stats", endpoint = "/api/reporting/member-stats", description = "Master member directory, member IDs, full names, statuses, dues standing, and active keycards" },
                     new { key = "lottery-summary", endpoint = "/api/reporting/lottery-summary", description = "Pull-Tabs & Lottery machine shifts and collections" },
                     new { key = "bar-sales", endpoint = "/api/reporting/bar-sales", description = "Daily and shift-level bar sales" },
-                    new { key = "member-stats", endpoint = "/api/reporting/member-stats", description = "Member aggregates, demographics, and statuses" },
                     new { key = "hall-rentals", endpoint = "/api/reporting/hall-rentals", description = "Hall rental bookings, guest counts, and revenue" },
                     new { key = "bingo-sessions", endpoint = "/api/reporting/bingo-sessions", description = "Bingo game sessions, admissions, gross receipts, and prize payouts" },
                     new { key = "dues-payments", endpoint = "/api/reporting/dues-payments", description = "Member annual dues payment history and tender types" },
                     new { key = "finance-bills", endpoint = "/api/reporting/finance-bills", description = "Club bills, invoices, due dates, and payment balances" },
-                    new { key = "liquor-inventory", endpoint = "/api/reporting/liquor-inventory", description = "Liquor item catalog, bottle sizes, and vendor pricing" },
-                    new { key = "door-swipes", endpoint = "/api/reporting/door-swipes", description = "Key card swipe events, entry access history, and door logs" }
+                    new { key = "liquor-inventory", endpoint = "/api/reporting/liquor-inventory", description = "Liquor item catalog, bottle sizes, and vendor pricing" }
                 }
             };
             return Ok(schemas);
         }
 
         /// <summary>
-        /// Point of Sale (POS) sales data
+        /// Detailed Point of Sale Line Items & Quantities Sold
+        /// </summary>
+        [HttpGet("pos-sales-items")]
+        public async Task<IActionResult> GetPosSaleItems([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] int limit = 2000)
+        {
+            var query = _dbContext.PosSales.AsNoTracking().Where(s => !s.IsVoided).AsQueryable();
+
+            if (startDate.HasValue)
+                query = query.Where(s => s.Timestamp >= startDate.Value);
+            if (endDate.HasValue)
+                query = query.Where(s => s.Timestamp <= endDate.Value);
+
+            var sales = await query
+                .OrderByDescending(s => s.Timestamp)
+                .Take(Math.Clamp(limit, 1, 10000))
+                .ToListAsync();
+
+            var flatItems = new List<object>();
+
+            foreach (var sale in sales)
+            {
+                var hour = sale.Timestamp.Hour;
+                var shiftType = (hour >= 6 && hour < 17) ? "Day" : "Night";
+
+                if (!string.IsNullOrWhiteSpace(sale.ItemsJson) && sale.ItemsJson != "[]")
+                {
+                    try
+                    {
+                        var parsed = JsonSerializer.Deserialize<List<PosSaleItemDto>>(sale.ItemsJson);
+                        if (parsed != null && parsed.Count > 0)
+                        {
+                            foreach (var item in parsed)
+                            {
+                                flatItems.Add(new
+                                {
+                                    TransactionId = sale.Id,
+                                    Timestamp = sale.Timestamp,
+                                    Date = sale.Timestamp.ToString("yyyy-MM-dd"),
+                                    HourOfDay = sale.Timestamp.Hour,
+                                    DayOfWeek = sale.Timestamp.DayOfWeek.ToString(),
+                                    TerminalName = sale.TerminalName ?? "TERMINAL 1",
+                                    BartenderName = string.IsNullOrWhiteSpace(sale.BartenderName) ? "Staff" : sale.BartenderName,
+                                    Shift = shiftType,
+                                    PaymentType = sale.PaymentType ?? "CASH",
+                                    ItemId = item.Id,
+                                    ItemName = item.Name,
+                                    UnitPrice = item.Price,
+                                    Quantity = item.Quantity,
+                                    LineTotal = item.Price * item.Quantity,
+                                    ReceiptTotal = sale.TotalAmount
+                                });
+                            }
+                            continue;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Fallback for sales without parsed line item JSON
+                flatItems.Add(new
+                {
+                    TransactionId = sale.Id,
+                    Timestamp = sale.Timestamp,
+                    Date = sale.Timestamp.ToString("yyyy-MM-dd"),
+                    HourOfDay = sale.Timestamp.Hour,
+                    DayOfWeek = sale.Timestamp.DayOfWeek.ToString(),
+                    TerminalName = sale.TerminalName ?? "TERMINAL 1",
+                    BartenderName = string.IsNullOrWhiteSpace(sale.BartenderName) ? "Staff" : sale.BartenderName,
+                    Shift = shiftType,
+                    PaymentType = sale.PaymentType ?? "CASH",
+                    ItemId = 0,
+                    ItemName = "General Sale",
+                    UnitPrice = sale.TotalAmount,
+                    Quantity = 1,
+                    LineTotal = sale.TotalAmount,
+                    ReceiptTotal = sale.TotalAmount
+                });
+            }
+
+            HttpContext.Items["ReportingRecordCount"] = flatItems.Count;
+            return Ok(flatItems);
+        }
+
+        /// <summary>
+        /// Staff Shifts, Hours Worked, Hourly Rate, and Payroll Compensation
+        /// </summary>
+        [HttpGet("staff-shifts")]
+        public async Task<IActionResult> GetStaffShifts([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] int limit = 1000)
+        {
+            var query = _dbContext.StaffShifts.AsNoTracking().Include(s => s.StaffMember).AsQueryable();
+
+            if (startDate.HasValue)
+                query = query.Where(s => s.Date >= startDate.Value);
+            if (endDate.HasValue)
+                query = query.Where(s => s.Date <= endDate.Value);
+
+            var shifts = await query
+                .OrderByDescending(s => s.Date)
+                .Take(Math.Clamp(limit, 1, 5000))
+                .ToListAsync();
+
+            var results = shifts.Select(s =>
+            {
+                var staff = s.StaffMember;
+                var hourlyRate = staff?.HourlyRate ?? 0m;
+
+                var clockIn = s.ClockInTime ?? s.CustomStartTime;
+                var clockOut = s.ClockOutTime ?? s.CustomEndTime;
+
+                double hoursWorked = 0;
+                if (clockIn.HasValue && clockOut.HasValue)
+                {
+                    hoursWorked = Math.Max(0, (clockOut.Value - clockIn.Value).TotalHours);
+                }
+                else if (s.StartTime != default && s.EndTime != default)
+                {
+                    hoursWorked = Math.Max(0, (s.EndTime - s.StartTime).TotalHours);
+                }
+
+                decimal totalShiftPay = (decimal)hoursWorked * hourlyRate;
+
+                return new
+                {
+                    ShiftId = s.Id,
+                    ShiftDate = s.Date.ToString("yyyy-MM-dd"),
+                    StaffMemberId = s.StaffMemberId,
+                    StaffName = staff?.Name ?? s.StaffName ?? "Unknown Staff",
+                    Role = staff?.Role ?? "Staff",
+                    ShiftType = s.ShiftType == 1 ? "Day" : "Night",
+                    Status = s.Status ?? "Completed",
+                    ClockInTime = s.ClockInTime,
+                    ClockOutTime = s.ClockOutTime,
+                    TotalHoursWorked = Math.Round(hoursWorked, 2),
+                    HourlyRate = hourlyRate,
+                    TotalShiftPay = Math.Round(totalShiftPay, 2)
+                };
+            }).ToList();
+
+            HttpContext.Items["ReportingRecordCount"] = results.Count;
+            return Ok(results);
+        }
+
+        /// <summary>
+        /// Point of Sale (POS) sales summary
         /// </summary>
         [HttpGet("pos-sales")]
         public async Task<IActionResult> GetPosSales([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] int limit = 1000)
@@ -81,6 +228,148 @@ namespace GFC.BlazorServer.Controllers
 
             HttpContext.Items["ReportingRecordCount"] = items.Count;
             return Ok(items);
+        }
+
+        /// <summary>
+        /// Door access / controller swipe events with Member info & 6-second de-bounce
+        /// </summary>
+        [HttpGet("door-swipes")]
+        public async Task<IActionResult> GetDoorSwipes([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] bool deduplicate = true, [FromQuery] int limit = 1000)
+        {
+            var query = _dbContext.ControllerEvents.AsNoTracking().Include(c => c.Door).AsQueryable();
+
+            if (startDate.HasValue)
+                query = query.Where(e => e.TimestampUtc >= startDate.Value.ToUniversalTime());
+            if (endDate.HasValue)
+                query = query.Where(e => e.TimestampUtc <= endDate.Value.ToUniversalTime());
+
+            var events = await query
+                .OrderBy(e => e.TimestampUtc)
+                .Take(Math.Clamp(limit, 1, 10000))
+                .ToListAsync();
+
+            // Load Card to Member mappings
+            var activeKeyCards = await _dbContext.KeyCards.AsNoTracking().Where(k => k.IsActive).ToListAsync();
+            var memberIds = activeKeyCards.Select(k => k.MemberId).Distinct().ToList();
+            var members = await _dbContext.Members.AsNoTracking().Where(m => memberIds.Contains(m.MemberID)).ToDictionaryAsync(m => m.MemberID);
+
+            var cardMap = new Dictionary<string, (int MemberId, string FullName, string Status)>();
+            foreach (var card in activeKeyCards)
+            {
+                if (!string.IsNullOrWhiteSpace(card.CardNumber))
+                {
+                    if (members.TryGetValue(card.MemberId, out var m))
+                    {
+                        var name = $"{m.FirstName} {m.LastName}".Trim();
+                        cardMap[card.CardNumber.Trim()] = (m.MemberID, name, m.Status ?? "ACTIVE");
+                    }
+                }
+            }
+
+            var results = new List<object>();
+            var lastEventPerKey = new Dictionary<string, DateTime>();
+
+            foreach (var e in events)
+            {
+                var cardNumberStr = e.CardNumber.ToString();
+                var doorKey = $"{e.CardNumber}_{e.DoorId}_{e.EventType}";
+                bool isDoubleSwipe = false;
+
+                if (lastEventPerKey.TryGetValue(doorKey, out var lastTime))
+                {
+                    if ((e.TimestampUtc - lastTime).TotalSeconds < 6)
+                    {
+                        isDoubleSwipe = true;
+                    }
+                }
+
+                if (!isDoubleSwipe)
+                {
+                    lastEventPerKey[doorKey] = e.TimestampUtc;
+                }
+
+                if (deduplicate && isDoubleSwipe)
+                {
+                    continue; // Skip double burst
+                }
+
+                int? memberId = null;
+                string memberName = "Unknown / Guest";
+                string memberStatus = "UNKNOWN";
+
+                if (e.CardNumber == 1)
+                {
+                    memberName = "Buzzed In / Guest Entry";
+                    memberStatus = "GUEST";
+                }
+                else if (cardMap.TryGetValue(cardNumberStr, out var info))
+                {
+                    memberId = info.MemberId;
+                    memberName = info.FullName;
+                    memberStatus = info.Status;
+                }
+
+                results.Add(new
+                {
+                    e.Id,
+                    TimestampUtc = e.TimestampUtc,
+                    LocalTime = e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    MemberId = memberId,
+                    MemberName = memberName,
+                    MemberStatus = memberStatus,
+                    DoorName = e.Door != null ? e.Door.Name : $"Door #{e.DoorOrReader}",
+                    CardNumber = e.CardNumber,
+                    EventType = e.EventType,
+                    AccessGranted = e.EventType == 1,
+                    IsDoubleSwipe = isDoubleSwipe,
+                    IsByCard = e.IsByCard,
+                    IsByButton = e.IsByButton
+                });
+            }
+
+            // Return latest first
+            results.Reverse();
+
+            HttpContext.Items["ReportingRecordCount"] = results.Count;
+            return Ok(results);
+        }
+
+        /// <summary>
+        /// Master Member Directory (Includes MemberID, Name, Status, City, PostalCode, Active Cards)
+        /// </summary>
+        [HttpGet("member-stats")]
+        public async Task<IActionResult> GetMemberStats([FromQuery] int limit = 2000)
+        {
+            var keyCards = await _dbContext.KeyCards.AsNoTracking().Where(k => k.IsActive).ToListAsync();
+            var cardLookup = keyCards.GroupBy(k => k.MemberId).ToDictionary(g => g.Key, g => g.Select(c => c.CardNumber).ToList());
+
+            var items = await _dbContext.Members
+                .AsNoTracking()
+                .OrderBy(m => m.LastName)
+                .ThenBy(m => m.FirstName)
+                .Take(Math.Clamp(limit, 1, 10000))
+                .ToListAsync();
+
+            var results = items.Select(m => new
+            {
+                m.MemberID,
+                FullName = $"{m.FirstName} {m.LastName}".Trim(),
+                FirstName = m.FirstName,
+                LastName = m.LastName,
+                Status = m.Status ?? "REGULAR",
+                m.City,
+                m.State,
+                m.PostalCode,
+                m.ApplicationDate,
+                m.AcceptedDate,
+                IsDeceased = m.DateOfDeath != null,
+                IsLifeEligible = m.LifeEligibleDate != null,
+                ActiveCardCount = cardLookup.TryGetValue(m.MemberID, out var cards) ? cards.Count : 0,
+                ActiveCardNumbers = cardLookup.TryGetValue(m.MemberID, out var list) ? string.Join(", ", list) : ""
+            }).ToList();
+
+            HttpContext.Items["ReportingRecordCount"] = results.Count;
+            return Ok(results);
         }
 
         /// <summary>
@@ -121,35 +410,6 @@ namespace GFC.BlazorServer.Controllers
             var items = await query
                 .OrderByDescending(b => b.SaleDate)
                 .Take(Math.Clamp(limit, 1, 5000))
-                .ToListAsync();
-
-            HttpContext.Items["ReportingRecordCount"] = items.Count;
-            return Ok(items);
-        }
-
-        /// <summary>
-        /// High-level Member demographics (sanitized, no sensitive PII/secrets)
-        /// </summary>
-        [HttpGet("member-stats")]
-        public async Task<IActionResult> GetMemberStats([FromQuery] int limit = 1000)
-        {
-            var items = await _dbContext.Members
-                .AsNoTracking()
-                .OrderBy(m => m.LastName)
-                .ThenBy(m => m.FirstName)
-                .Take(Math.Clamp(limit, 1, 5000))
-                .Select(m => new
-                {
-                    m.MemberID,
-                    m.Status,
-                    m.ApplicationDate,
-                    m.AcceptedDate,
-                    m.City,
-                    m.State,
-                    m.PostalCode,
-                    IsDeceased = m.DateOfDeath != null,
-                    IsLifeEligible = m.LifeEligibleDate != null
-                })
                 .ToListAsync();
 
             HttpContext.Items["ReportingRecordCount"] = items.Count;
@@ -299,40 +559,6 @@ namespace GFC.BlazorServer.Controllers
                     l.BottleSize,
                     l.CurrentPrice,
                     l.UpcCode
-                })
-                .ToListAsync();
-
-            HttpContext.Items["ReportingRecordCount"] = items.Count;
-            return Ok(items);
-        }
-
-        /// <summary>
-        /// Door access / controller swipe events
-        /// </summary>
-        [HttpGet("door-swipes")]
-        public async Task<IActionResult> GetDoorSwipes([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] int limit = 1000)
-        {
-            var query = _dbContext.ControllerEvents.AsNoTracking().Include(c => c.Door).AsQueryable();
-
-            if (startDate.HasValue)
-                query = query.Where(e => e.TimestampUtc >= startDate.Value.ToUniversalTime());
-            if (endDate.HasValue)
-                query = query.Where(e => e.TimestampUtc <= endDate.Value.ToUniversalTime());
-
-            var items = await query
-                .OrderByDescending(e => e.TimestampUtc)
-                .Take(Math.Clamp(limit, 1, 5000))
-                .Select(e => new
-                {
-                    e.Id,
-                    e.TimestampUtc,
-                    e.ControllerEventTime,
-                    DoorName = e.Door != null ? e.Door.Name : $"Door #{e.DoorOrReader}",
-                    e.CardNumber,
-                    e.EventType,
-                    e.ReasonCode,
-                    e.IsByCard,
-                    e.IsByButton
                 })
                 .ToListAsync();
 

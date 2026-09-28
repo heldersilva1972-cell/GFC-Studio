@@ -172,6 +172,9 @@
                                     <td class="text-end">
                                         @if (key.IsActive)
                                         {
+                                            <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenEditPermissionsModal(key)">
+                                                <i class="bi bi-sliders me-1"></i> Datasets
+                                            </button>
                                             <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeKey(key.Id)">
                                                 <i class="bi bi-slash-circle me-1"></i> Revoke
                                             </button>
@@ -456,6 +459,64 @@ else if (_activeTab == "endpoints")
     </div>
 }
 
+<!-- EDIT PERMISSIONS / DATASETS MODAL -->
+@if (_showEditPermissionsModal && _editingKey != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">
+                        <i class="bi bi-sliders text-primary me-2"></i>Edit Dataset Permissions
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showEditPermissionsModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label text-muted small text-uppercase fw-bold">Key Label</label>
+                        <div class="fw-semibold fs-5 text-dark">@_editingKey.Label</div>
+                        <small class="text-muted">Key Prefix: <code>@_editingKey.KeyPrefix...</code> (Secret key remains unchanged)</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold d-flex justify-content-between align-items-center">
+                            <span>Select Accessible Datasets</span>
+                            <span class="small">
+                                <a href="javascript:void(0)" class="text-decoration-none me-2" @onclick="SelectAllEditDatasets">Select All</a> | 
+                                <a href="javascript:void(0)" class="text-decoration-none ms-2" @onclick="ClearEditDatasets">Clear All</a>
+                            </span>
+                        </label>
+                        <div class="border rounded p-3 bg-light" style="max-height: 250px; overflow-y: auto;">
+                            <div class="row g-2">
+                                @foreach (var dataset in _allDatasets)
+                                {
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="edit_ds_@dataset.Key" 
+                                                   checked="@_editingSelectedDatasets.Contains(dataset.Key)" 
+                                                   @onchange="(e) => ToggleEditDataset(dataset.Key, e.Value)" />
+                                            <label class="form-check-label small" for="edit_ds_@dataset.Key">
+                                                <strong>@dataset.Name</strong>
+                                                <div class="text-muted" style="font-size: 0.75rem;">/api/reporting/@dataset.Key</div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showEditPermissionsModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4 fw-bold" @onclick="SaveEditedPermissions" disabled="@(_editingSelectedDatasets.Count == 0)">
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private string _activeTab = "keys";
     private bool _isLoading = true;
@@ -463,6 +524,11 @@ else if (_activeTab == "endpoints")
     private List<ReportingApiLog> _logs = new();
     private string? _successMessage;
     private string? _errorMessage;
+
+    // Edit permissions modal state
+    private bool _showEditPermissionsModal;
+    private ReportingApiKey? _editingKey;
+    private HashSet<string> _editingSelectedDatasets = new();
 
     // Modal state
     private bool _showCreateModal;
@@ -485,16 +551,18 @@ else if (_activeTab == "endpoints")
 
     private readonly List<DatasetItem> _allDatasets = new()
     {
+        new("pos-sales-items", "POS Line Items & Categories", "Detailed receipt line items, product category, quantity, unit price, bartender, and shift"),
         new("pos-sales", "POS Sales & Receipts", "Point of Sale transactions, taxes, payment breakdown"),
+        new("staff-shifts", "Staff Shifts & Payroll Hours", "Bartender / staff shifts, clock in/out times, hours worked, hourly rate, and shift compensation"),
+        new("door-swipes", "Door Access & Member Visits", "Debounced key card visits mapped to member profiles and status"),
+        new("member-stats", "Master Member Directory", "Full member demographics, statuses, numbers, and active keycards"),
         new("lottery-summary", "Lottery & Pull-Tabs", "Pull-tabs & Lottery machine shift collections & statistics"),
         new("bar-sales", "Bar Sales (Daily/Shift)", "Daily and shift-level bar sales totals"),
-        new("member-stats", "Member Demographics", "Active memberships, demographics, and statuses"),
         new("hall-rentals", "Hall Rentals", "Hall rental bookings, guest counts, and revenue"),
         new("bingo-sessions", "Bingo Sessions", "Bingo game sessions, admissions, gross receipts, and prize payouts"),
         new("dues-payments", "Dues Payments", "Member annual dues payment history and tender types"),
         new("finance-bills", "Bills & Invoices", "Club bills, invoices, due dates, and payment balances"),
-        new("liquor-inventory", "Liquor Inventory", "Liquor item catalog, bottle sizes, and vendor pricing"),
-        new("door-swipes", "Door Access & Key Swipes", "Key card swipe events, entry access history, and door logs")
+        new("liquor-inventory", "Liquor Inventory", "Liquor item catalog, bottle sizes, and vendor pricing")
     };
 
     private record WorkstationItem(string Name, string? IpAddress, string LastActive);
@@ -760,6 +828,62 @@ else if (_activeTab == "endpoints")
             await DbContext.SaveChangesAsync();
             _successMessage = "Key deleted.";
             await LoadKeysAsync();
+        }
+    }
+
+    private void OpenEditPermissionsModal(ReportingApiKey key)
+    {
+        _editingKey = key;
+        if (string.IsNullOrWhiteSpace(key.AllowedDatasets) || key.AllowedDatasets.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            _editingSelectedDatasets = _allDatasets.Select(d => d.Key).ToHashSet();
+        }
+        else
+        {
+            _editingSelectedDatasets = key.AllowedDatasets
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        _showEditPermissionsModal = true;
+    }
+
+    private void SelectAllEditDatasets()
+    {
+        _editingSelectedDatasets = _allDatasets.Select(d => d.Key).ToHashSet();
+    }
+
+    private void ClearEditDatasets()
+    {
+        _editingSelectedDatasets.Clear();
+    }
+
+    private void ToggleEditDataset(string key, object? isChecked)
+    {
+        if (isChecked is bool b && b)
+            _editingSelectedDatasets.Add(key);
+        else
+            _editingSelectedDatasets.Remove(key);
+    }
+
+    private async Task SaveEditedPermissions()
+    {
+        if (_editingKey == null || _editingSelectedDatasets.Count == 0) return;
+        try
+        {
+            var dbRecord = await DbContext.ReportingApiKeys.FindAsync(_editingKey.Id);
+            if (dbRecord != null)
+            {
+                var allowedStr = _editingSelectedDatasets.Count == _allDatasets.Count ? "ALL" : string.Join(",", _editingSelectedDatasets);
+                dbRecord.AllowedDatasets = allowedStr;
+                await DbContext.SaveChangesAsync();
+                _successMessage = $"Dataset permissions updated for '{dbRecord.Label}'.";
+                _showEditPermissionsModal = false;
+                await LoadKeysAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to update permissions: {ex.Message}";
         }
     }
 

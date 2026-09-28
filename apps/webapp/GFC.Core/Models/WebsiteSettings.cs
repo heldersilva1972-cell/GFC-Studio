@@ -42,7 +42,7 @@ namespace GFC.Core.Models
         public string? PricingGuideJson { get; set; }
 
         // Master Engine Mode (True = Legacy, False = Matrix Tier Engine)
-        public bool UseLegacyPricingEngine { get; set; } = true;
+        public bool UseLegacyPricingEngine { get; set; } = false;
         public string? TierCardsJson { get; set; }
 
         // Form Customization & Content
@@ -152,16 +152,29 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
 
         public List<CalendarFieldDisplayConfig> GetMonthCalendarFieldsList()
         {
+            var defaults = GetDefaultMonthCalendarFields();
             if (!string.IsNullOrWhiteSpace(MonthCalendarFieldsJson))
             {
                 try
                 {
                     var items = JsonSerializer.Deserialize<List<CalendarFieldDisplayConfig>>(MonthCalendarFieldsJson);
-                    if (items != null && items.Any()) return items;
+                    if (items != null && items.Any())
+                    {
+                        // Merge any missing fields that exist in defaults but not in saved items
+                        foreach (var def in defaults)
+                        {
+                            if (!items.Any(i => i.FieldKey == def.FieldKey))
+                            {
+                                def.Order = items.Count + 1;
+                                items.Add(def);
+                            }
+                        }
+                        return items;
+                    }
                 }
                 catch { }
             }
-            return GetDefaultMonthCalendarFields();
+            return defaults;
         }
 
         public void SetMonthCalendarFieldsList(IEnumerable<CalendarFieldDisplayConfig> list)
@@ -176,16 +189,29 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
 
         public List<CalendarFieldDisplayConfig> GetScheduleListColumnsList()
         {
+            var defaults = GetDefaultScheduleListColumns();
             if (!string.IsNullOrWhiteSpace(ScheduleListColumnsJson))
             {
                 try
                 {
                     var items = JsonSerializer.Deserialize<List<CalendarFieldDisplayConfig>>(ScheduleListColumnsJson);
-                    if (items != null && items.Any()) return items;
+                    if (items != null && items.Any())
+                    {
+                        // Merge any missing columns that exist in defaults but not in saved items
+                        foreach (var def in defaults)
+                        {
+                            if (!items.Any(i => i.FieldKey == def.FieldKey))
+                            {
+                                def.Order = items.Count + 1;
+                                items.Add(def);
+                            }
+                        }
+                        return items;
+                    }
                 }
                 catch { }
             }
-            return GetDefaultScheduleListColumns();
+            return defaults;
         }
 
         public void SetScheduleListColumnsList(IEnumerable<CalendarFieldDisplayConfig> list)
@@ -203,16 +229,17 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
             return new List<CalendarFieldDisplayConfig>
             {
                 new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time badge", IsEnabled = true, Order = 1 },
-                new() { FieldKey = "payment_status", Label = "Payment Status Badge", Description = "Badge (PAID, DEP PAID, UNPAID)", IsEnabled = true, Order = 2 },
-                new() { FieldKey = "submission_age", Label = "Submission Age / Payment Window", Description = "Remaining time or overdue indicator for pending applications", IsEnabled = true, Order = 3 },
-                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 4 },
-                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 5 },
-                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Selected rental room or hall space", IsEnabled = true, Order = 6 },
-                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services (Bar, Kitchen, A/V)", IsEnabled = true, Order = 7 },
-                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Number of anticipated attendees", IsEnabled = false, Order = 8 },
-                new() { FieldKey = "pricing_quote", Label = "Total Price / Financial Quote", Description = "Total rental price quote ($)", IsEnabled = false, Order = 9 },
-                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 10 },
-                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 11 }
+                new() { FieldKey = "event_status", Label = "Approval Status Badge", Description = "Pending, Confirmed, Cancelled badge", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "payment_status", Label = "Payment Status Badge", Description = "Badge (PAID, DEP PAID, UNPAID)", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "submission_age", Label = "Submission Age / Payment Window", Description = "Remaining time or overdue indicator for pending applications", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 6 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Selected rental room or hall space", IsEnabled = true, Order = 7 },
+                new() { FieldKey = "services", Label = "Add-on Services & Amenities", Description = "Requested services (Bar, Kitchen, A/V)", IsEnabled = true, Order = 8 },
+                new() { FieldKey = "guest_count", Label = "Guest Attendance Count", Description = "Number of anticipated attendees", IsEnabled = false, Order = 9 },
+                new() { FieldKey = "pricing_quote", Label = "Total Price / Financial Quote", Description = "Total rental price quote ($)", IsEnabled = false, Order = 10 },
+                new() { FieldKey = "contact_phone", Label = "Contact Phone Number", Description = "Applicant telephone number", IsEnabled = false, Order = 11 },
+                new() { FieldKey = "contact_email", Label = "Contact Email Address", Description = "Applicant email address", IsEnabled = false, Order = 12 }
             };
         }
 
@@ -574,6 +601,8 @@ Warm regards,
             }
             return RentalPricingGuideModel.CreateDefaultFromSettings(this);
         }
+
+        public static List<PricingTierCardConfig> GetDefaultTierCards() => PricingTierDefaults.GetDefaultTierCards();
 
         public List<PricingTierCardConfig> GetTierCardsList()
         {

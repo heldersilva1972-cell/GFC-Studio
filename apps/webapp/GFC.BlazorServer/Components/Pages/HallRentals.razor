@@ -110,6 +110,18 @@
                     <span class="badge bg-info text-dark border border-info px-2.5 py-1 rounded-pill fw-bold shadow-sm">
                         <i class="bi bi-layers-fill me-1"></i>Calendars: <strong>@(_settings.Feeds.Count(f => f.IsEnabled)) Active</strong>
                     </span>
+                    @if (_settings.LastSyncedAt.HasValue)
+                    {
+                        <span class="badge bg-light text-secondary border px-2.5 py-1 rounded-pill fw-semibold shadow-sm" title="Last Synchronized with Google Calendar">
+                            <i class="bi bi-arrow-repeat me-1 text-primary"></i>Last Synced: @(_settings.LastSyncedAt.Value.Date == DateTime.Today ? $"Today at {_settings.LastSyncedAt.Value:h:mm tt}" : _settings.LastSyncedAt.Value.ToString("MMM dd, h:mm tt"))
+                        </span>
+                    }
+                    @if (GetArchivedInquiriesCount() > 0)
+                    {
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer;" @onclick='() => _filterCategory = "ARCHIVED_INQUIRIES"' title="View Archived Inquiries for FAQ Preparation">
+                            <i class="bi bi-archive-fill me-1 text-secondary"></i>FAQ / Archived: <strong>@GetArchivedInquiriesCount()</strong>
+                        </span>
+                    }
                     @if (GetCancelledCount() > 0)
                     {
                         <span class="badge bg-danger-subtle text-danger border border-danger px-2.5 py-1 rounded-pill fw-bold shadow-sm" style="cursor: pointer;" @onclick='() => _filterCategory = "CANCELLED"' title="Filter by Cancelled Bookings">
@@ -169,6 +181,12 @@
                             <button class="btn @(_filterCategory == "UNPAID" ? "btn-danger fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "UNPAID"'>Unpaid</button>
                             <button class="btn @(_filterCategory == "APPLICATIONS" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "APPLICATIONS"'>Applications (@GetApplicationsCount())</button>
                             <button class="btn @(_filterCategory == "INQUIRIES" ? "btn-info text-dark fw-bold" : "btn-outline-secondary")" @onclick='() => _filterCategory = "INQUIRIES"'>Inquiries (@GetInquiriesCount())</button>
+                            @if (GetArchivedInquiriesCount() > 0)
+                            {
+                                <button class="btn @(_filterCategory == "ARCHIVED_INQUIRIES" ? "btn-secondary fw-bold text-white" : "btn-outline-secondary")" @onclick='() => _filterCategory = "ARCHIVED_INQUIRIES"' title="Browse archived inquiries for FAQ creation">
+                                    <i class="bi bi-archive me-1"></i>Archived FAQ (@GetArchivedInquiriesCount())
+                                </button>
+                            }
                             <button class="btn @(_filterCategory == "CANCELLED" ? "btn-danger fw-bold text-white" : "btn-outline-secondary")" @onclick='() => _filterCategory = "CANCELLED"'>Cancelled (@GetCancelledCount())</button>
                         </div>
 
@@ -302,7 +320,42 @@
                                                     var fieldVal = GetMonthGridFieldValue(evt, field.FieldKey, appData, payStatus);
                                                     if (!string.IsNullOrWhiteSpace(fieldVal))
                                                     {
-                                                        if (field.FieldKey == "payment_status")
+                                                        if (field.FieldKey == "event_status")
+                                                        {
+                                                            <div class="card-row-item">
+                                                                @if (fieldVal == "Pending")
+                                                                {
+                                                                    <span class="badge py-0 px-1 fw-bold" style="font-size: 0.65rem; background-color: #fef3c7 !important; color: #78350f !important; border: 1px solid #d97706 !important;">
+                                                                        <i class="bi bi-hourglass-split me-1 text-warning"></i>PENDING
+                                                                    </span>
+                                                                }
+                                                                else if (fieldVal == "Approved")
+                                                                {
+                                                                    <span class="badge bg-success-subtle text-success border border-success py-0 px-1 fw-bold" style="font-size: 0.65rem;">
+                                                                        <i class="bi bi-check-circle-fill me-1"></i>APPROVED
+                                                                    </span>
+                                                                }
+                                                                else if (fieldVal == "Inquiry")
+                                                                {
+                                                                    <span class="badge bg-info text-dark border border-info py-0 px-1 fw-bold" style="font-size: 0.65rem;">
+                                                                        <i class="bi bi-question-diamond-fill me-1 text-primary"></i>INQUIRY
+                                                                    </span>
+                                                                }
+                                                                else if (fieldVal == "Cancelled")
+                                                                {
+                                                                    <span class="badge bg-danger text-white border border-danger py-0 px-1 fw-bold" style="font-size: 0.65rem;">
+                                                                        <i class="bi bi-x-circle me-1"></i>CANCELLED
+                                                                    </span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle py-0 px-1 fw-semibold" style="font-size: 0.65rem;">
+                                                                        @fieldVal.ToUpper()
+                                                                    </span>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else if (field.FieldKey == "payment_status")
                                                         {
                                                             <div class="card-row-item">
                                                                 @if (payStatus == "Paid")
@@ -470,7 +523,14 @@
 
                                                     case "time_window":
                                                         <td class="text-muted small">
-                                                            @(evt.IsAllDay ? "All-Day Event" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}")
+                                                            @if (isInquiry)
+                                                            {
+                                                                <span class="text-muted small">—</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                @(evt.IsAllDay ? "All-Day Event" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}")
+                                                            }
                                                         </td>
                                                         break;
 
@@ -511,7 +571,11 @@
 
                                                     case "payment_status":
                                                         <td>
-                                                            @if (paySummary.Status == "Paid")
+                                                            @if (isInquiry)
+                                                            {
+                                                                <span class="text-muted small">—</span>
+                                                            }
+                                                            else if (paySummary.Status == "Paid")
                                                             {
                                                                 <span class="badge bg-success text-white px-2 py-1 rounded-pill fw-bold shadow-sm">
                                                                     <i class="bi bi-check-circle-fill me-1"></i>Paid Full
@@ -2026,6 +2090,23 @@
                     <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
                         @if (isInquiry)
                         {
+                            @if (_selectedRequest != null)
+                            {
+                                @if (_selectedRequest.Status == "Archived")
+                                {
+                                    <button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="() => UnarchiveInquiryAsync(_selectedRequest)" title="Restore inquiry to active inquiries list">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                        <span>Restore Inquiry</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" @onclick="() => ArchiveInquiryAsync(_selectedRequest)" title="Archive inquiry and save to FAQ review pool">
+                                        <i class="bi bi-archive-fill text-muted"></i>
+                                        <span>Archive Inquiry (FAQ Review)</span>
+                                    </button>
+                                }
+                            }
                             <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1 fw-bold" @onclick="OpenReplyToInquiryModal" title="Compose and email reply to visitor">
                                 <i class="bi bi-reply-fill"></i>
                                 <span>Reply to Inquiry</span>
@@ -4959,6 +5040,13 @@
                             CreatedDate = req.CreatedDate != default ? req.CreatedDate : (req.RequestedDate != default ? req.RequestedDate : null)
                         });
                     }
+                    else
+                    {
+                        if (existing.CreatedDate == null)
+                        {
+                            existing.CreatedDate = req.CreatedDate != default ? req.CreatedDate : (req.RequestedDate != default ? req.RequestedDate : null);
+                        }
+                    }
                 }
             }
             catch (Exception dbEx)
@@ -6647,6 +6735,57 @@
         }
     }
 
+    private async Task ArchiveInquiryAsync(HallRentalRequest req)
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            req.Status = "Archived";
+            req.StatusChangedBy = adminUser;
+            req.StatusChangedDate = DateTime.UtcNow;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by {adminUser}]");
+            sb.AppendLine("📁 Inquiry archived for FAQ & knowledgebase review.");
+            sb.AppendLine();
+            req.InternalNotes = (sb.ToString() + (req.InternalNotes ?? "")).Trim();
+
+            await RentalService.UpdateRentalRequestAsync(req);
+            ToastService.ShowSuccess("Inquiry archived. Saved to FAQ Review list.");
+            CloseEventDetailsModal();
+            await LoadSettingsAndEvents();
+            await LoadAllRequestsAndPayments();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error archiving inquiry: {ex.Message}");
+        }
+    }
+
+    private async Task UnarchiveInquiryAsync(HallRentalRequest req)
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string adminUser = authState.User.Identity?.Name ?? "Admin";
+
+            req.Status = "Inquiry";
+            req.StatusChangedBy = adminUser;
+            req.StatusChangedDate = DateTime.UtcNow;
+
+            await RentalService.UpdateRentalRequestAsync(req);
+            ToastService.ShowSuccess("Inquiry restored to active inquiries list.");
+            await LoadSettingsAndEvents();
+            await LoadAllRequestsAndPayments();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error restoring inquiry: {ex.Message}");
+        }
+    }
+
     private void OnModificationReasonPresetSelected(ChangeEventArgs e)
     {
         var selected = e.Value?.ToString();
@@ -7434,9 +7573,16 @@ Warm regards,
         else if (_filterCategory == "INQUIRIES")
         {
             bool isInq = string.Equals(e.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || 
+                         string.Equals(e.Status, "RESPONDED", StringComparison.OrdinalIgnoreCase) ||
                          e.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) ||
                          e.Source == "General Inquiry";
             if (!isInq) return false;
+        }
+        else if (_filterCategory == "ARCHIVED_INQUIRIES")
+        {
+            bool isArchived = string.Equals(e.Status, "ARCHIVED", StringComparison.OrdinalIgnoreCase) ||
+                              e.Title.StartsWith("ARCHIVED INQUIRY", StringComparison.OrdinalIgnoreCase);
+            if (!isArchived) return false;
         }
 
         if (!string.IsNullOrWhiteSpace(_searchTerm))
@@ -7493,6 +7639,11 @@ Warm regards,
     private int GetInquiriesCount()
     {
         return _cachedRentalRequests.Count(r => string.Equals(r.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) || string.Equals(r.Status, "Responded", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private int GetArchivedInquiriesCount()
+    {
+        return _cachedRentalRequests.Count(r => string.Equals(r.Status, "Archived", StringComparison.OrdinalIgnoreCase));
     }
 
     private int GetApplicationsCount()
@@ -7552,6 +7703,29 @@ Warm regards,
                     Status = req.Status?.ToUpperInvariant() ?? "INQUIRY",
                     ColorCategory = "badge-info",
                     Description = $"Inquiry From: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nPreferred Date: {req.EventDate:MM/dd/yyyy}\nInquiry / Question: {req.InternalNotes}"
+                });
+            }
+        }
+        else if (_filterCategory == "ARCHIVED_INQUIRIES")
+        {
+            var archivedInquiries = _cachedRentalRequests.Where(r => string.Equals(r.Status, "Archived", StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var req in archivedInquiries)
+            {
+                DateTime start = req.EventDate.Date.AddHours(12);
+                DateTime end = req.EventDate.Date.AddHours(13);
+                if (!string.IsNullOrWhiteSpace(req.StartTime) && DateTime.TryParse(req.StartTime, out var ps)) start = req.EventDate.Date.Add(ps.TimeOfDay);
+                if (!string.IsNullOrWhiteSpace(req.EndTime) && DateTime.TryParse(req.EndTime, out var pe)) end = req.EventDate.Date.Add(pe.TimeOfDay);
+
+                list.Add(new CalendarEventItem
+                {
+                    Title = $"ARCHIVED INQUIRY: {req.ApplicantName}",
+                    Start = start,
+                    End = end,
+                    Location = req.RoomSelected ?? "Function Hall",
+                    Source = "Archived Inquiry (FAQ)",
+                    Status = "ARCHIVED",
+                    ColorCategory = "badge-secondary",
+                    Description = $"Inquiry From: {req.ApplicantName}\nPhone: {req.RequesterPhone}\nEmail: {req.RequesterEmail}\nPreferred Date: {req.EventDate:MM/dd/yyyy}\nInquiry / Question & Log:\n{req.InternalNotes}"
                 });
             }
         }
@@ -8506,7 +8680,11 @@ Warm regards,
             return (null, "", "", false);
         }
 
-        // Check if event is approved, confirmed, or paid in full / deposit paid - if so, tracking is not needed / removed
+        // Check if event is inquiry, approved, confirmed, or paid in full / deposit paid - if so, tracking is not needed / removed
+        bool isInquiry = string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || 
+                         string.Equals(evt.Status, "RESPONDED", StringComparison.OrdinalIgnoreCase) ||
+                         evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) ||
+                         evt.Source == "General Inquiry";
         bool isApproved = evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || 
                           string.Equals(evt.Status, "APPROVED", StringComparison.OrdinalIgnoreCase) ||
                           string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase);
@@ -8514,7 +8692,7 @@ Warm regards,
         bool isCancelled = evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase) || 
                            string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase);
 
-        if (isApproved || isPaid || isCancelled)
+        if (isInquiry || isApproved || isPaid || isCancelled)
         {
             return (null, "", "", false);
         }
@@ -8532,6 +8710,14 @@ Warm regards,
             if (DateTime.TryParse(appData.CreatedTimestamp, out var parsedTs2))
             {
                 submittedDate = parsedTs2;
+            }
+        }
+        if (!submittedDate.HasValue && !string.IsNullOrWhiteSpace(evt.Description))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(evt.Description, @"(?:Timestamp|Submitted|Created):\s*([^\r\n]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success && DateTime.TryParse(match.Groups[1].Value.Trim(), out var parsedDescDate))
+            {
+                submittedDate = parsedDescDate;
             }
         }
 
@@ -8620,8 +8806,23 @@ Warm regards,
             case "time_window":
                 return evt.IsAllDay ? "All-day" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}";
 
+            case "event_status":
+                if (evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase))
+                    return "Pending";
+                if (evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                    return "Approved";
+                if (evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || evt.Source == "General Inquiry")
+                    return "Inquiry";
+                if (evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                    return "Cancelled";
+                return evt.Status ?? "Confirmed";
+
             case "payment_status":
-                return payStatus;
+                bool isEvtInquiry = string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || 
+                                    string.Equals(evt.Status, "RESPONDED", StringComparison.OrdinalIgnoreCase) ||
+                                    evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) ||
+                                    evt.Source == "General Inquiry";
+                return isEvtInquiry ? null : payStatus;
 
             case "submission_age":
                 var ageInfo = GetSubmissionAgeInfo(evt, appData, payStatus);
