@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GFC.BlazorServer.Services
 {
-    public class GoogleCalendarService : IGoogleCalendarService
+    public partial class GoogleCalendarService : IGoogleCalendarService
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IWebHostEnvironment _env;
@@ -76,6 +76,25 @@ namespace GFC.BlazorServer.Services
         {
             var allEvents = new List<CalendarEventItem>();
 
+            // 1. Direct Live Google API Fetch (Zero-delay, bypasses iCal cache)
+            bool apiFetched = false;
+            if (settings.EnableWriteApi && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId))
+            {
+                try
+                {
+                    var apiEvents = await FetchEventsFromApiAsync(settings.PrimaryGoogleCalendarId, settings, settings.CalendarName ?? "Google Calendar", "#C49A49");
+                    if (apiEvents != null && apiEvents.Count > 0)
+                    {
+                        allEvents.AddRange(apiEvents);
+                        apiFetched = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Live API fetch failed, falling back to URL feeds.");
+                }
+            }
+
             // Ensure backward compatibility if Feeds is empty but PublicCalendarUrl is set
             if ((settings.Feeds == null || settings.Feeds.Count == 0) && !string.IsNullOrWhiteSpace(settings.PublicCalendarUrl))
             {
@@ -97,6 +116,10 @@ namespace GFC.BlazorServer.Services
             foreach (var feed in settings.Feeds)
             {
                 if (!feed.IsEnabled || string.IsNullOrWhiteSpace(feed.Url))
+                    continue;
+
+                // If we already fetched from the primary API and this feed represents the same calendar, skip to avoid duplicates
+                if (apiFetched && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId) && feed.Url.Contains(settings.PrimaryGoogleCalendarId, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 try
@@ -124,6 +147,7 @@ namespace GFC.BlazorServer.Services
 
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (compatible; GFC-System/2.0; +https://gloucesterfisherman.com)");
+            client.DefaultRequestHeaders.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true, NoStore = true };
             client.Timeout = TimeSpan.FromSeconds(25);
 
             // Handle webcal:// links by replacing with https://
@@ -132,7 +156,11 @@ namespace GFC.BlazorServer.Services
                 icalUrl = "https://" + icalUrl.Substring(9);
             }
 
-            var response = await client.GetAsync(icalUrl);
+            // Cache-busting timestamp parameter to prevent intermediary CDN caching
+            var separator = icalUrl.Contains('?') ? "&" : "?";
+            var cacheBustedUrl = $"{icalUrl}{separator}_cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+
+            var response = await client.GetAsync(cacheBustedUrl);
             response.EnsureSuccessStatusCode();
 
             var icsContent = await response.Content.ReadAsStringAsync();

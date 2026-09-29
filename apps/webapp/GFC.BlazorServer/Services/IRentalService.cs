@@ -44,6 +44,10 @@ namespace GFC.BlazorServer.Services
         Task<HallRentalRequest> SubmitPublicRentalRequestAsync(HallRentalRequest request, bool isTest = false);
         Task<HallRentalRequest> SubmitGeneralInquiryAsync(HallRentalRequest inquiry, bool isTest = false);
         Task<(bool HasConflict, string? ConflictReason)> ValidateTimeSlotConflictAsync(DateTime date, string? startTime, string? endTime, string? roomName = null);
+
+        // Real-Time Calendar Change Notifications
+        event System.Action? OnCalendarUpdated;
+        void NotifyCalendarUpdated();
     }
 }
 

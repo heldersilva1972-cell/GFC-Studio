@@ -5000,15 +5000,21 @@
                         title = isApproved ? formattedTitle.Replace("PENDING: ", "") : formattedTitle;
                     }
 
-                    // Check if already present in calendar events by date & name
+                    // Check if already present in calendar events by ID, date & name, or title
                     string cleanApplicant = req.ApplicantName.Trim();
                     int parenIdx = cleanApplicant.IndexOf('(');
                     if (parenIdx > 0) cleanApplicant = cleanApplicant.Substring(0, parenIdx).Trim();
 
                     var existing = calendarEvents.FirstOrDefault(e => 
-                        e.Start.Date == req.EventDate.Date && 
-                        (e.Title.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase) || 
-                         (!string.IsNullOrWhiteSpace(req.RequesterName) && e.Title.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase))));
+                        (!string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId == $"db-rental-{req.Id}") ||
+                        (
+                            e.Start.Date == req.EventDate.Date && 
+                            (
+                                (!string.IsNullOrWhiteSpace(cleanApplicant) && e.Title.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase)) || 
+                                (!string.IsNullOrWhiteSpace(req.RequesterName) && e.Title.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase)) ||
+                                (!string.IsNullOrWhiteSpace(req.EventType) && e.Title.Contains(req.EventType, StringComparison.OrdinalIgnoreCase))
+                            )
+                        ));
 
                     if (existing == null)
                     {
@@ -5029,6 +5035,7 @@
 
                         calendarEvents.Add(new CalendarEventItem
                         {
+                            GoogleEventId = $"db-rental-{req.Id}",
                             Title = title,
                             Start = start,
                             End = end,
@@ -5054,7 +5061,59 @@
                 System.Diagnostics.Debug.WriteLine($"Notice: Database rental request merge warning: {dbEx.Message}");
             }
 
-            _events = calendarEvents;
+            // Global deduplication pass across merged feeds and database items
+            var distinctList = new List<CalendarEventItem>();
+            foreach (var evt in calendarEvents)
+            {
+                string cleanEvtTitle = (evt.Title ?? "")
+                    .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("APPROVED:", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                bool isDup = distinctList.Any(d =>
+                {
+                    if (d.Start.Date != evt.Start.Date) return false;
+
+                    // Match same Google Event ID
+                    if (!string.IsNullOrWhiteSpace(d.GoogleEventId) && !string.IsNullOrWhiteSpace(evt.GoogleEventId) && d.GoogleEventId == evt.GoogleEventId)
+                        return true;
+
+                    string cleanDTitle = (d.Title ?? "")
+                        .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
+                        .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
+                        .Replace("APPROVED:", "", StringComparison.OrdinalIgnoreCase)
+                        .Trim();
+
+                    // Match same Clean Title / Name on same date
+                    if (!string.IsNullOrWhiteSpace(cleanDTitle) && !string.IsNullOrWhiteSpace(cleanEvtTitle) &&
+                        (string.Equals(cleanDTitle, cleanEvtTitle, StringComparison.OrdinalIgnoreCase) ||
+                         cleanDTitle.Contains(cleanEvtTitle, StringComparison.OrdinalIgnoreCase) ||
+                         cleanEvtTitle.Contains(cleanDTitle, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return true;
+                    }
+
+                    // Overlapping time window on same date with matching or empty room
+                    if (Math.Abs((d.Start - evt.Start).TotalMinutes) <= 60)
+                    {
+                        if (string.Equals(d.Location, evt.Location, StringComparison.OrdinalIgnoreCase) ||
+                            string.IsNullOrWhiteSpace(d.Location) || string.IsNullOrWhiteSpace(evt.Location))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
+
+                if (!isDup)
+                {
+                    distinctList.Add(evt);
+                }
+            }
+
+            _events = distinctList;
         }
         catch (Exception ex)
         {

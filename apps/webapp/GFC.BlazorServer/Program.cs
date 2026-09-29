@@ -226,6 +226,10 @@ public class Program
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
 
+        // Calendar & Pricing services
+        builder.Services.AddScoped<GFC.BlazorServer.Services.CalendarSettingsService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.MemberPricingStrategy>();
+
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
         builder.Services.AddScoped<IUserSessionService, UserSessionService>();

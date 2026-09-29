@@ -1,0 +1,396 @@
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@inject IGoogleCalendarService CalendarService
+@inject IRentalService RentalService
+@inject CalendarSettingsService SettingsService
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div class="gfc-calendar-wrap position-relative">
+
+    @* Loading overlay *@
+    <div id="@(_containerId + "-loading")"
+         style="display:@(_isLoading ? "flex" : "none"); position:absolute; inset:0; background:rgba(20,20,35,0.7);
+                z-index:10; align-items:center; justify-content:center; border-radius:12px; flex-direction:column; gap:12px;">
+        <div class="spinner-border" style="color:#C49A49; width:2.5rem; height:2.5rem;" role="status"></div>
+        <span style="color:#C49A49; font-weight:600; font-size:0.9rem; letter-spacing:0.05em;">Loading Events…</span>
+    </div>
+
+    @* FullCalendar mount point *@
+    <div id="@_containerId" style="min-height:580px;"></div>
+
+    @* Error banner *@
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-warning mt-2 d-flex align-items-center gap-2 small" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@_errorMessage</span>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// When true the component manages its own settings/event fetch (public calendar mode).
+    /// When false the parent supplies Settings and Events directly (preview mode).
+    /// </summary>
+    [Parameter] public bool Standalone { get; set; } = true;
+
+    /// <summary>Injected from parent when Standalone=false.</summary>
+    [Parameter] public CalendarSettings? Settings { get; set; }
+
+    /// <summary>Injected from parent when Standalone=false.</summary>
+    [Parameter] public List<CalendarEventItem>? Events { get; set; }
+
+    /// <summary>How often (ms) to auto-refresh. Default 5 minutes. Set 0 to disable.</summary>
+    [Parameter] public int RefreshIntervalMs { get; set; } = 5 * 60 * 1000;
+
+    private string _containerId = "gfc-cal-" + Guid.NewGuid().ToString("N")[..8];
+    private DotNetObjectReference<FullCalendarWrapper>? _dotNetRef;
+
+    private CalendarSettings _settings = new();
+    private List<CalendarEventItem> _events = new();
+    private bool _isLoading = true;
+    private bool _initialised = false;
+    private string? _errorMessage;
+
+    protected override void OnInitialized()
+    {
+        RentalService.OnCalendarUpdated += OnDataChanged;
+    }
+
+    private async void OnDataChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadDataAsync();
+                await UpdateCalendarAsync();
+                StateHasChanged();
+            });
+        }
+        catch { }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+            if (Settings != null)
+                _settings = Settings;
+
+            if (Events != null && Events.Count > 0)
+            {
+                _events = Events;
+                _isLoading = false;
+            }
+            else
+            {
+                await LoadDataAsync();
+            }
+
+            await RenderCalendarAsync();
+            _initialised = true;
+        }
+        else if (_initialised)
+        {
+            if (Settings != null)
+                _settings = Settings;
+
+            if (Events != null && Events.Count > 0)
+                _events = Events;
+
+            await UpdateCalendarAsync();
+        }
+    }
+
+    /// <summary>Called by the JS auto-refresh timer.</summary>
+    [JSInvokable]
+    public async Task AutoRefresh()
+    {
+        await LoadDataAsync();
+        await UpdateCalendarAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            if (Settings != null)
+                _settings = Settings;
+            else
+                _settings = await SettingsService.GetAsync();
+
+            var calSettings = await CalendarService.GetSettingsAsync();
+            var calendarEvents = new List<CalendarEventItem>();
+
+            // 1. Fetch live Google Calendar / iCal feeds
+            try
+            {
+                var fetched = await CalendarService.FetchAllFeedsAsync(calSettings);
+                if (fetched != null) calendarEvents.AddRange(fetched);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FullCalendarWrapper] FetchAllFeeds warning: {ex.Message}");
+            }
+
+            // 2. Merge database rental requests & remove cancelled/deleted ones
+            try
+            {
+                var dbRequests = await RentalService.GetRentalRequestsAsync();
+                
+                // Exclude cancelled/denied requests from calendar
+                var cancelledRequests = dbRequests.Where(r => 
+                    string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase) || 
+                    string.Equals(r.Status, "Denied", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                foreach (var cancelled in cancelledRequests)
+                {
+                    string cleanCancelledName = (cancelled.ApplicantName ?? "").Trim();
+                    int parenIdx = cleanCancelledName.IndexOf('(');
+                    if (parenIdx > 0) cleanCancelledName = cleanCancelledName.Substring(0, parenIdx).Trim();
+
+                    calendarEvents.RemoveAll(e => 
+                        e.Start.Date == cancelled.EventDate.Date && 
+                        (
+                            (!string.IsNullOrWhiteSpace(cleanCancelledName) && e.Title.Contains(cleanCancelledName, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrWhiteSpace(cancelled.RequesterName) && e.Title.Contains(cancelled.RequesterName, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrWhiteSpace(cancelled.EventType) && e.Title.Contains(cancelled.EventType, StringComparison.OrdinalIgnoreCase))
+                        ));
+                }
+
+                // Merge approved / booked rentals from database
+                foreach (var req in dbRequests.Where(r => string.Equals(r.Status, "Approved", StringComparison.OrdinalIgnoreCase)))
+                {
+                    string cleanApplicant = req.ApplicantName?.Trim() ?? "";
+                    int parenIdx = cleanApplicant.IndexOf('(');
+                    if (parenIdx > 0) cleanApplicant = cleanApplicant.Substring(0, parenIdx).Trim();
+
+                    // Check if already present on calendar by Date + (Name OR Event Type OR Matching Time Window)
+                    var existing = calendarEvents.FirstOrDefault(e => 
+                        e.Start.Date == req.EventDate.Date && 
+                        (
+                            (!string.IsNullOrWhiteSpace(cleanApplicant) && e.Title.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrWhiteSpace(req.RequesterName) && e.Title.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrWhiteSpace(req.EventType) && e.Title.Contains(req.EventType, StringComparison.OrdinalIgnoreCase)) ||
+                            (e.Start.Date == req.EventDate.Date && !string.IsNullOrWhiteSpace(req.RoomSelected) && string.Equals(e.Location, req.RoomSelected, StringComparison.OrdinalIgnoreCase))
+                        ));
+
+                    if (existing == null)
+                    {
+                        DateTime start = req.EventDate.Date.AddHours(12);
+                        DateTime end = req.EventDate.Date.AddHours(17);
+                        if (!string.IsNullOrWhiteSpace(req.StartTime) && DateTime.TryParse(req.StartTime, out var ps)) start = req.EventDate.Date.Add(ps.TimeOfDay);
+                        if (!string.IsNullOrWhiteSpace(req.EndTime) && DateTime.TryParse(req.EndTime, out var pe)) end = req.EventDate.Date.Add(pe.TimeOfDay);
+
+                        calendarEvents.Add(new CalendarEventItem
+                        {
+                            GoogleEventId = $"db-rental-{req.Id}",
+                            Title = !string.IsNullOrWhiteSpace(req.EventType) ? req.EventType : "Hall Rental",
+                            Start = start,
+                            End = end,
+                            Location = req.RoomSelected ?? "Main Function Hall",
+                            Source = "Rental Booking",
+                            Status = "Approved",
+                            Description = $"Reserved: {req.RoomSelected ?? "Main Function Hall"}"
+                        });
+                    }
+                    else
+                    {
+                        if (string.IsNullOrWhiteSpace(existing.Location) && !string.IsNullOrWhiteSpace(req.RoomSelected))
+                        {
+                            existing.Location = req.RoomSelected;
+                        }
+                    }
+                }
+            }
+            catch (Exception dbEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FullCalendarWrapper] DB merge warning: {dbEx.Message}");
+            }
+
+            // 3. Robust Deduplication: Merge any items on the exact same date with overlapping time / identical title
+            var distinctEvents = new List<CalendarEventItem>();
+            foreach (var evt in calendarEvents)
+            {
+                string cleanEvtTitle = (evt.Title ?? "")
+                    .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                bool isDup = distinctEvents.Any(d =>
+                {
+                    if (d.Start.Date != evt.Start.Date) return false;
+
+                    // Match same Google Event ID
+                    if (!string.IsNullOrWhiteSpace(d.GoogleEventId) && !string.IsNullOrWhiteSpace(evt.GoogleEventId) && d.GoogleEventId == evt.GoogleEventId)
+                        return true;
+
+                    string cleanDTitle = (d.Title ?? "")
+                        .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
+                        .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
+                        .Trim();
+
+                    // Same Title on same date
+                    if (!string.IsNullOrWhiteSpace(cleanDTitle) && !string.IsNullOrWhiteSpace(cleanEvtTitle) &&
+                        string.Equals(cleanDTitle, cleanEvtTitle, StringComparison.OrdinalIgnoreCase))
+                        return true;
+
+                    // Overlapping or near-identical time on same date
+                    bool timeOverlap = Math.Abs((d.Start - evt.Start).TotalMinutes) <= 60;
+                    if (timeOverlap)
+                    {
+                        if (string.Equals(d.Location, evt.Location, StringComparison.OrdinalIgnoreCase) ||
+                            string.IsNullOrWhiteSpace(d.Location) || string.IsNullOrWhiteSpace(evt.Location))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
+
+                if (!isDup)
+                {
+                    distinctEvents.Add(evt);
+                }
+            }
+
+            _events = distinctEvents;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Could not load calendar events — please try again shortly.";
+            System.Diagnostics.Debug.WriteLine($"[FullCalendarWrapper] LoadDataAsync error: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RenderCalendarAsync()
+    {
+        try
+        {
+            var payload = BuildPayload(includeAutoRefresh: Standalone && RefreshIntervalMs > 0);
+            await JSRuntime.InvokeVoidAsync("GfcFullCalendar.init", _containerId, payload);
+        }
+        catch { /* JS not loaded yet — graceful degradation */ }
+    }
+
+    private async Task UpdateCalendarAsync()
+    {
+        try
+        {
+            var payload = BuildPayload(includeAutoRefresh: false);
+            await JSRuntime.InvokeVoidAsync("GfcFullCalendar.update", _containerId, payload);
+        }
+        catch { }
+    }
+
+    private object BuildPayload(bool includeAutoRefresh)
+    {
+        var rawEvents = _events ?? new List<CalendarEventItem>();
+
+        var filteredEvents = rawEvents.Where(e =>
+        {
+            if (!_settings.ShowPendingApplications)
+            {
+                bool isPendingOrInquiry = (e.Status != null && (string.Equals(e.Status, "Pending", StringComparison.OrdinalIgnoreCase) || string.Equals(e.Status, "Inquiry", StringComparison.OrdinalIgnoreCase))) ||
+                                          (e.Title != null && (e.Title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase) || e.Title.StartsWith("INQUIRY:", StringComparison.OrdinalIgnoreCase)));
+                if (isPendingOrInquiry) return false;
+            }
+            return true;
+        }).ToList();
+
+        return new
+        {
+            defaultView        = _settings.DefaultView,
+            primaryColor       = _settings.PrimaryColor,
+            textColor          = _settings.TextColor,
+            monthDisplayMode   = _settings.MonthDisplayMode ?? "multiline",
+            monthFields        = (_settings.MonthCalendarFields ?? CalendarSettings.GetDefaultPublicMonthCalendarFields())
+                                    .Where(f => f.IsEnabled)
+                                    .OrderBy(f => f.Order)
+                                    .Select(f => new { key = f.FieldKey, label = f.Label, order = f.Order })
+                                    .ToArray(),
+            pendingBadgeText   = _settings.PendingBadgeText ?? "PENDING",
+            approvedBadgeText  = _settings.ApprovedBadgeText ?? "RESERVED",
+            showPendingBadge   = _settings.ShowPendingBadge,
+            showApprovedBadge  = _settings.ShowApprovedBadge,
+            
+            // Modal detail preferences
+            showEventModal     = _settings.ShowEventModal,
+            showModalTitle     = _settings.ShowModalTitle,
+            showModalTime      = _settings.ShowModalTime,
+            showModalLoc       = _settings.ShowModalLocation,
+            showModalStatus    = _settings.ShowModalStatus,
+            showModalDesc      = _settings.ShowModalDescription,
+            showModalSource    = _settings.ShowModalSource,
+
+            // Independent Modal action buttons
+            showModalBookButton     = _settings.ShowModalBookButton,
+            modalBookButtonText     = _settings.ModalBookButtonText ?? "Book this Hall",
+            modalBookButtonUrl      = _settings.ModalBookButtonUrl ?? "/rentals/apply",
+            showModalQuestionButton = _settings.ShowModalQuestionButton,
+            modalQuestionButtonText = _settings.ModalQuestionButtonText ?? "Ask a Question",
+            // Mobile Preferences
+            mobileDisplayMode              = _settings.MobileDisplayMode ?? "drawer",
+            mobileShowBookAvailableSlot    = _settings.MobileShowBookAvailableSlot,
+            mobileBookAvailableSlotText    = _settings.MobileBookAvailableSlotText ?? "Book Available Slot",
+            mobileShowQuestionAvailableSlot= _settings.MobileShowQuestionAvailableSlot,
+            mobileQuestionAvailableSlotText= _settings.MobileQuestionAvailableSlotText ?? "Ask a Question",
+            mobileOpenSlotMessage          = _settings.MobileOpenSlotMessage ?? "Remaining time slot(s) are available for booking on this date!",
+
+            refreshMs          = includeAutoRefresh ? RefreshIntervalMs : 0,
+            dotNetRef          = includeAutoRefresh ? _dotNetRef : null,
+            events             = filteredEvents.Select(e =>
+            {
+                string rawTitle = e.Title ?? "(No Title)";
+                string status = e.Status ?? "Approved";
+                if (rawTitle.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+                {
+                    status = "Pending";
+                    rawTitle = rawTitle.Substring(8).Trim();
+                }
+                else if (rawTitle.StartsWith("INQUIRY:", StringComparison.OrdinalIgnoreCase))
+                {
+                    status = "Inquiry";
+                    rawTitle = rawTitle.Substring(8).Trim();
+                }
+
+                return new
+                {
+                    id          = e.GoogleEventId ?? Guid.NewGuid().ToString("N"),
+                    title       = rawTitle,
+                    status      = status,
+                    start       = e.Start.ToString("o"),
+                    end         = e.End != default ? e.End.ToString("o") : (string?)null,
+                    allDay      = e.IsAllDay,
+                    description = e.Description,
+                    location    = e.Location,
+                    source      = e.Source
+                };
+            }).ToArray()
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        RentalService.OnCalendarUpdated -= OnDataChanged;
+        try { await JSRuntime.InvokeVoidAsync("GfcFullCalendar.destroy", _containerId); }
+        catch { }
+        _dotNetRef?.Dispose();
+    }
+}

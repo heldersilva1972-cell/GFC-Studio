@@ -37,6 +37,22 @@ namespace GFC.BlazorServer.Services
             _googleCalendarService = googleCalendarService;
         }
 
+        public static event Action? OnGlobalCalendarUpdated;
+        public event Action? OnCalendarUpdated
+        {
+            add => OnGlobalCalendarUpdated += value;
+            remove => OnGlobalCalendarUpdated -= value;
+        }
+
+        public void NotifyCalendarUpdated()
+        {
+            try
+            {
+                OnGlobalCalendarUpdated?.Invoke();
+            }
+            catch { }
+        }
+
         public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
         {
             try
@@ -148,6 +164,7 @@ namespace GFC.BlazorServer.Services
             // Fire and forget email notification
             _ = _notificationService.SendRentalConfirmationEmailAsync(request);
 
+            NotifyCalendarUpdated();
             return true;
         }
 
@@ -172,6 +189,7 @@ namespace GFC.BlazorServer.Services
             // Fire and forget email notification
             _ = _notificationService.SendRentalDenialEmailAsync(request, "Request denied by administrator");
 
+            NotifyCalendarUpdated();
             return true;
         }
 
@@ -181,8 +199,12 @@ namespace GFC.BlazorServer.Services
             var request = await context.HallRentalRequests.FindAsync(id);
             if (request != null)
             {
+                // Clean up availability calendar entry so the date is available again
+                await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Available");
+
                 context.HallRentalRequests.Remove(request);
                 await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
             }
         }
 
@@ -191,6 +213,7 @@ namespace GFC.BlazorServer.Services
             await using var context = await _contextFactory.CreateDbContextAsync();
             await UpdateCalendarAvailabilityInternalAsync(context, date, status, description, startTime, endTime);
             await context.SaveChangesAsync();
+            NotifyCalendarUpdated();
         }
 
         private async Task UpdateCalendarAvailabilityInternalAsync(GfcDbContext context, DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null)
