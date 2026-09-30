@@ -156,8 +156,12 @@ namespace GFC.BlazorServer.Services
                                 case "inquiryforkcardbooktext": settings.InquiryForkCardBookText = val?.ToString() ?? "Select your date, room, and amenities to submit a formal rental application."; break;
                                 case "inquiryforkcardasktitle": settings.InquiryForkCardAskTitle = val?.ToString() ?? "Have Questions First?"; break;
                                 case "inquiryforkcardasktext": settings.InquiryForkCardAskText = val?.ToString() ?? "Ask about catering, rules, bar service, or date availability without filling out an entire contract."; break;
+                                case "inquiryforkshowtargetdate": settings.InquiryForkShowTargetDate = Convert.ToBoolean(val); break;
+                                case "inquiryforkshowoccasion": settings.InquiryForkShowOccasion = Convert.ToBoolean(val); break;
                                 case "enableinquiryfloatingbutton": settings.EnableInquiryFloatingButton = Convert.ToBoolean(val); break;
                                 case "inquiryfloatingbuttontext": settings.InquiryFloatingButtonText = val?.ToString() ?? "Have a Question?"; break;
+                                case "inquiryfloatshowestimateddate": settings.InquiryFloatShowEstimatedDate = Convert.ToBoolean(val); break;
+                                case "inquiryfloatshowguestestimate": settings.InquiryFloatShowGuestEstimate = Convert.ToBoolean(val); break;
                                 case "notifyoninquirysubmitted": settings.NotifyOnInquirySubmitted = Convert.ToBoolean(val); break;
                                 case "sendinquiryconfirmationemail": settings.SendInquiryConfirmationEmail = Convert.ToBoolean(val); break;
                                 case "inquiryconfirmationemailsubject": settings.InquiryConfirmationEmailSubject = val?.ToString() ?? "We received your inquiry - Gloucester Fraternity Club"; break;
@@ -168,6 +172,7 @@ namespace GFC.BlazorServer.Services
                                 case "seotitle": settings.SeoTitle = val?.ToString() ?? ""; break;
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
+                                case "eventtypelistsjson": settings.EventTypeListsJson = val?.ToString(); break;
                             }
                         }
                     }
@@ -325,7 +330,12 @@ namespace GFC.BlazorServer.Services
                             [InquiryConfirmationEmailBody] = @p89,
                             [EnableRentalInboundWebhook] = @p90,
                             [RentalInboundWebhookSecret] = @p91,
-                            [RentalInboundNotifyStaff] = @p92
+                            [RentalInboundNotifyStaff] = @p92,
+                            [InquiryForkShowTargetDate] = @p93,
+                            [InquiryForkShowOccasion] = @p94,
+                            [InquiryFloatShowEstimatedDate] = @p95,
+                            [InquiryFloatShowGuestEstimate] = @p96,
+                            [EventTypeListsJson] = @p97
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -361,7 +371,9 @@ namespace GFC.BlazorServer.Services
                             [InquiryForkCardBookText], [InquiryForkCardAskTitle], [InquiryForkCardAskText], [EnableInquiryFloatingButton],
                             [InquiryFloatingButtonText], [NotifyOnInquirySubmitted], [SendInquiryConfirmationEmail],
                             [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody],
-                            [EnableRentalInboundWebhook], [RentalInboundWebhookSecret], [RentalInboundNotifyStaff]
+                            [EnableRentalInboundWebhook], [RentalInboundWebhookSecret], [RentalInboundNotifyStaff],
+                            [InquiryForkShowTargetDate], [InquiryForkShowOccasion], [InquiryFloatShowEstimatedDate], [InquiryFloatShowGuestEstimate],
+                            [EventTypeListsJson]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -374,7 +386,9 @@ namespace GFC.BlazorServer.Services
                             @p68, @p69, @p70,
                             @p71, @p72, @p73, @p74, @p75, @p76,
                             @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89,
-                            @p90, @p91, @p92
+                            @p90, @p91, @p92,
+                            @p93, @p94, @p95, @p96,
+                            @p97
                         );
                     END";
 
@@ -472,7 +486,12 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p89", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryConfirmationEmailBody ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p90", System.Data.SqlDbType.Bit) { Value = settings.EnableRentalInboundWebhook },
                     new Microsoft.Data.SqlClient.SqlParameter("@p91", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalInboundWebhookSecret ?? Guid.NewGuid().ToString("N") },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p92", System.Data.SqlDbType.Bit) { Value = settings.RentalInboundNotifyStaff }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p92", System.Data.SqlDbType.Bit) { Value = settings.RentalInboundNotifyStaff },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p93", System.Data.SqlDbType.Bit) { Value = settings.InquiryForkShowTargetDate },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p94", System.Data.SqlDbType.Bit) { Value = settings.InquiryForkShowOccasion },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p95", System.Data.SqlDbType.Bit) { Value = settings.InquiryFloatShowEstimatedDate },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p96", System.Data.SqlDbType.Bit) { Value = settings.InquiryFloatShowGuestEstimate },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p97", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.EventTypeListsJson ?? DBNull.Value }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -823,6 +842,21 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalInboundNotifyStaff')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalInboundNotifyStaff] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkShowTargetDate')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkShowTargetDate] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkShowOccasion')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkShowOccasion] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryFloatShowEstimatedDate')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryFloatShowEstimatedDate] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryFloatShowGuestEstimate')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryFloatShowGuestEstimate] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EventTypeListsJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [EventTypeListsJson] NVARCHAR(MAX) NULL;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

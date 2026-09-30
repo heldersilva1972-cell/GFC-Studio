@@ -40,7 +40,7 @@ namespace GFC.Core.Models
             var nonProfitCard = tierCards.FirstOrDefault(c => c.AssociatedRenterType == "NonProfit" || c.Title.Contains("Non-Profit", StringComparison.OrdinalIgnoreCase) || c.Title.Contains("Charity", StringComparison.OrdinalIgnoreCase)) 
                                 ?? (tierCards.Count > 2 ? tierCards[2] : null);
 
-            // Populate Tier Cards (Top 3)
+            // Populate Tier Cards (Top 3) matching Matrix Cards day-by-day
             foreach (var card in tierCards.Take(3))
             {
                 var guideCard = new PricingGuideTierCard
@@ -52,32 +52,41 @@ namespace GFC.Core.Models
                     ThemeColor = GetThemeColorName(card.ThemeColor, card.AssociatedRenterType)
                 };
 
-                // Check if Mon-Thu rates are equal
-                bool monThuEqual = card.MondayRate == card.TuesdayRate && card.MondayRate == card.WednesdayRate && card.MondayRate == card.ThursdayRate;
-                
-                // Check if Fri-Sun rates are equal (common in Non-Profit tier)
-                bool friSunEqual = card.FridayRate == card.SaturdayRate && card.FridayRate == card.SundayRate;
-
-                if (monThuEqual)
-                {
-                    guideCard.Items.Add(new PricingGuideItem { Label = "Mon - Thu", PriceText = $"${card.MondayRate:N0}" });
-                }
-                else
-                {
+                // Add individual days of the week matching the Matrix setup
+                if (card.MondayAvailable || card.MondayRate > 0)
                     guideCard.Items.Add(new PricingGuideItem { Label = "Monday", PriceText = $"${card.MondayRate:N0}" });
-                    guideCard.Items.Add(new PricingGuideItem { Label = "Tue - Thu", PriceText = $"${card.ThursdayRate:N0}" });
-                }
+                else if (card.AssociatedRenterType != "NonProfit" || card.MondayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Monday", PriceText = $"${card.MondayRate:N0}" });
 
-                if (friSunEqual)
-                {
-                    guideCard.Items.Add(new PricingGuideItem { Label = "Fri - Sun", PriceText = $"${card.FridayRate:N0}" });
-                }
-                else
-                {
+                if (card.TuesdayAvailable || card.TuesdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Tuesday", PriceText = $"${card.TuesdayRate:N0}" });
+                else if (card.AssociatedRenterType != "NonProfit" || card.TuesdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Tuesday", PriceText = $"${card.TuesdayRate:N0}" });
+
+                if (card.WednesdayAvailable || card.WednesdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Wednesday", PriceText = $"${card.WednesdayRate:N0}" });
+                else if (card.AssociatedRenterType != "NonProfit" || card.WednesdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Wednesday", PriceText = $"${card.WednesdayRate:N0}" });
+
+                if (card.ThursdayAvailable || card.ThursdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Thursday", PriceText = $"${card.ThursdayRate:N0}" });
+                else if (card.AssociatedRenterType != "NonProfit" || card.ThursdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Thursday", PriceText = $"${card.ThursdayRate:N0}" });
+
+                if (card.FridayAvailable || card.FridayRate > 0)
                     guideCard.Items.Add(new PricingGuideItem { Label = "Friday", PriceText = $"${card.FridayRate:N0}" });
+                else if (card.AssociatedRenterType != "NonProfit" || card.FridayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Friday", PriceText = $"${card.FridayRate:N0}" });
+
+                if (card.SaturdayAvailable || card.SaturdayRate > 0)
                     guideCard.Items.Add(new PricingGuideItem { Label = "Saturday", PriceText = $"${card.SaturdayRate:N0}" });
+                else if (card.AssociatedRenterType != "NonProfit" || card.SaturdayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Saturday", PriceText = $"${card.SaturdayRate:N0}" });
+
+                if (card.SundayAvailable || card.SundayRate > 0)
                     guideCard.Items.Add(new PricingGuideItem { Label = "Sunday", PriceText = $"${card.SundayRate:N0}" });
-                }
+                else if (card.AssociatedRenterType != "NonProfit" || card.SundayRate > 0)
+                    guideCard.Items.Add(new PricingGuideItem { Label = "Sunday", PriceText = $"${card.SundayRate:N0}" });
 
                 // Subgroups (e.g., Youth Groups, Local Causes)
                 if (card.SubGroups != null && card.SubGroups.Count > 0)
@@ -92,21 +101,21 @@ namespace GFC.Core.Models
                 model.TierCards.Add(guideCard);
             }
 
-            // Populate Middle Comparison Chart with real day-of-week rates
+            // Populate Middle Comparison Chart with real day-of-week rates from the 3 Tier Cards
             decimal nmMon = nonMemberCard?.MondayRate ?? 350;
-            decimal nmFri = nonMemberCard?.FridayRate ?? 400;
-            decimal nmSat = nonMemberCard?.SaturdayRate ?? 550;
+            decimal nmFri = nonMemberCard?.FridayRate ?? 500;
+            decimal nmSat = nonMemberCard?.SaturdayRate ?? 650;
             decimal nmSun = nonMemberCard?.SundayRate ?? 450;
 
             decimal mMon = memberCard?.MondayRate ?? 250;
-            decimal mFri = memberCard?.FridayRate ?? 300;
-            decimal mSat = memberCard?.SaturdayRate ?? 450;
+            decimal mFri = memberCard?.FridayRate ?? 400;
+            decimal mSat = memberCard?.SaturdayRate ?? 550;
             decimal mSun = memberCard?.SundayRate ?? 350;
 
             decimal npMon = nonProfitCard?.MondayRate ?? 100;
-            decimal npFri = nonProfitCard?.FridayRate ?? 200;
-            decimal npSat = nonProfitCard?.SaturdayRate ?? 200;
-            decimal npSun = nonProfitCard?.SundayRate ?? 200;
+            decimal npFri = (nonProfitCard != null && (nonProfitCard.FridayAvailable || nonProfitCard.FridayRate > 0)) ? nonProfitCard.FridayRate : 0;
+            decimal npSat = (nonProfitCard != null && (nonProfitCard.SaturdayAvailable || nonProfitCard.SaturdayRate > 0)) ? nonProfitCard.SaturdayRate : 0;
+            decimal npSun = (nonProfitCard != null && (nonProfitCard.SundayAvailable || nonProfitCard.SundayRate > 0)) ? nonProfitCard.SundayRate : 0;
 
             model.ChartRows = new List<PricingComparisonRow>
             {
@@ -126,7 +135,7 @@ namespace GFC.Core.Models
                 },
                 new PricingComparisonRow
                 {
-                    DayLabel = "Saturday (Peak)",
+                    DayLabel = "Saturday",
                     NonMemberAmount = nmSat,
                     MemberAmount = mSat,
                     NonProfitAmount = npSat

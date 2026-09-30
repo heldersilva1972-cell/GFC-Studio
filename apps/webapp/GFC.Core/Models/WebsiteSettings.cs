@@ -129,8 +129,17 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public string InquiryForkCardAskTitle { get; set; } = "Have Questions First?";
         public string InquiryForkCardAskText { get; set; } = "Ask about catering, rules, bar service, or date availability without filling out an entire contract.";
         
+        // Field Visibility for Pre-Booking Inquiry (Option A)
+        public bool InquiryForkShowTargetDate { get; set; } = true;
+        public bool InquiryForkShowOccasion { get; set; } = true;
+
         public bool EnableInquiryFloatingButton { get; set; } = true;
         public string InquiryFloatingButtonText { get; set; } = "Have a Question?";
+
+        // Field Visibility for Floating Question Drawer (Option B)
+        public bool InquiryFloatShowEstimatedDate { get; set; } = true;
+        public bool InquiryFloatShowGuestEstimate { get; set; } = false;
+
         public bool NotifyOnInquirySubmitted { get; set; } = true;
         public bool SendInquiryConfirmationEmail { get; set; } = true;
         public string InquiryConfirmationEmailSubject { get; set; } = "We received your inquiry - Gloucester Fraternity Club";
@@ -617,6 +626,89 @@ Warm regards,
             }
             return PricingTierDefaults.GetDefaultTierCards();
         }
+
+        // Event Type / Occasion Presets Lists (JSON)
+        public string? EventTypeListsJson { get; set; }
+
+        public List<EventTypeListPreset> GetEventTypeLists()
+        {
+            if (!string.IsNullOrWhiteSpace(EventTypeListsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<EventTypeListPreset>>(EventTypeListsJson);
+                    if (items != null && items.Count > 0) return items;
+                }
+                catch { }
+            }
+
+            return GetDefaultEventTypeLists();
+        }
+
+        public void SetEventTypeLists(IEnumerable<EventTypeListPreset> lists)
+        {
+            if (lists == null)
+            {
+                EventTypeListsJson = null;
+                return;
+            }
+            EventTypeListsJson = JsonSerializer.Serialize(lists);
+        }
+
+        public static List<EventTypeListPreset> GetDefaultEventTypeLists()
+        {
+            return new List<EventTypeListPreset>
+            {
+                new()
+                {
+                    Id = "standard_events",
+                    Name = "Standard Celebrations & Social Events",
+                    Description = "Default list of personal, social, and family celebrations.",
+                    IsDefault = true,
+                    Options = new List<string>
+                    {
+                        "Birthday Party",
+                        "Wedding",
+                        "Anniversary Party",
+                        "Bereavement / Memorial / Collation",
+                        "Business Meeting / Corporate Event",
+                        "Fundraiser / Charity Event",
+                        "Holiday Party",
+                        "Baby / Bridal Shower",
+                        "Christening / Baptism",
+                        "Graduation Party",
+                        "Retirement Party",
+                        "Reunion",
+                        "Other Celebration / Event"
+                    }
+                },
+                new()
+                {
+                    Id = "charitable_community_events",
+                    Name = "Charitable Causes & Community Groups",
+                    Description = "Specialized list for non-profits, fundraisers, schools, civic groups, and relief benefits.",
+                    IsDefault = false,
+                    Options = new List<string>
+                    {
+                        "Charity Gala / Annual Fundraiser",
+                        "Benefit Dinner / Fundraiser Night (Pasta dinner, trivia, dance)",
+                        "Medical / Family Crisis Benefit (Fire relief, memorial, illness)",
+                        "Youth Sports Banquet / Awards Ceremony",
+                        "School / PTO / Youth Booster Event",
+                        "Scout Gathering / Ceremony",
+                        "Board / Annual General Meeting (AGM)",
+                        "Monthly Membership / Association Meeting",
+                        "Public Forum / Town Hall / Civic Meeting",
+                        "Educational Workshop / Volunteer Training",
+                        "Health Fair / Blood Drive / Wellness Clinic",
+                        "Community Craft Fair / Artisan Market",
+                        "Donation / Supply / Food Drive Distribution",
+                        "Volunteer Appreciation Social",
+                        "Other Non-Profit Event"
+                    }
+                }
+            };
+        }
     }
 
     public class PricingTierCardConfig
@@ -680,8 +772,20 @@ Warm regards,
         public List<TierSubGroupItem> SubGroups { get; set; } = new();
         public string FooterNote { get; set; } = "Standard Booking T&C";
 
+        // Assigned Event Type / Occasion List ID (null or empty means use the default list)
+        public string? EventTypeListId { get; set; }
+
         // Qualification Questionnaire ("Do I Qualify?") Configuration
         public TierQualificationConfig Qualification { get; set; } = new();
+    }
+
+    public class EventTypeListPreset
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Name { get; set; } = "New Event Type List";
+        public string Description { get; set; } = string.Empty;
+        public bool IsDefault { get; set; } = false;
+        public List<string> Options { get; set; } = new();
     }
 
     public class TierSubGroupItem
@@ -882,6 +986,7 @@ Warm regards,
                         new() { Name = "Local Causes", Rate = 0, Note = "*Fee waiver option", IsAvailable = true }
                     },
                     FooterNote = "*Fee waiver option for approved causes",
+                    EventTypeListId = "charitable_community_events",
                     Qualification = TierQualificationConfig.CreateDefaultNonProfitQualification()
                 }
             };

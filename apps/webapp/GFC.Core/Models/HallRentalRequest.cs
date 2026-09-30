@@ -29,7 +29,7 @@ namespace GFC.Core.Models
         public string? EndTime { get; set; } // e.g., "10:00 PM"
         public string RenterType { get; set; } = "Non-Member"; // Member, Non-Member, Non-Profit
         public bool MemberStatus { get; set; }
-        public int GuestCount { get; set; }
+        public int? GuestCount { get; set; }
         public bool RulesAgreed { get; set; }
         public bool TermsAgreed { get; set; }
         public bool CancellationPolicyAgreed { get; set; }
