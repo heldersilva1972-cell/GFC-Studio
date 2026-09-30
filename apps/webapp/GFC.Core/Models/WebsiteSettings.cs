@@ -679,6 +679,9 @@ Warm regards,
         // Subgroups / Special flat lines
         public List<TierSubGroupItem> SubGroups { get; set; } = new();
         public string FooterNote { get; set; } = "Standard Booking T&C";
+
+        // Qualification Questionnaire ("Do I Qualify?") Configuration
+        public TierQualificationConfig Qualification { get; set; } = new();
     }
 
     public class TierSubGroupItem
@@ -688,6 +691,116 @@ Warm regards,
         public decimal Rate { get; set; } = 50;
         public string? Note { get; set; }
         public bool IsAvailable { get; set; } = true;
+    }
+
+    public class TierQualificationConfig
+    {
+        public bool IsEnabled { get; set; } = false;
+        public string ModalTitle { get; set; } = "Do I Qualify for Non-Profit / Community Rates?";
+        public string Description { get; set; } = "To qualify, an applicant must answer YES to at least one category in Section 1, and YES to all criteria in Section 2.";
+        public string PassBadgeText { get; set; } = "You Qualify for this Rate";
+        public string FailBadgeText { get; set; } = "Does Not Meet Rate Qualification";
+
+        // Section 1: Qualifying Categories / Causes (OR Logic: Need at least MinRequiredYes answers, default 1)
+        public string Section1Title { get; set; } = "Section 1: Qualifying Entity or Cause (Check all that apply)";
+        public string Section1Subtitle { get; set; } = "Answering YES to at least one category satisfies the organizational criteria:";
+        public int Section1MinRequiredYes { get; set; } = 1;
+        public List<QualificationQuestionItem> Section1Questions { get; set; } = new();
+
+        // Section 2: Integrity & Terms Criteria (AND Logic: Must answer YES to ALL questions)
+        public string Section2Title { get; set; } = "Section 2: Event Integrity & Terms (All must be YES)";
+        public string Section2Subtitle { get; set; } = "All criteria below must be acknowledged and answered YES:";
+        public List<QualificationQuestionItem> Section2Questions { get; set; } = new();
+
+        public static TierQualificationConfig CreateDefaultNonProfitQualification()
+        {
+            return new TierQualificationConfig
+            {
+                IsEnabled = true,
+                ModalTitle = "Do I Qualify for Non-Profit / Community Rates?",
+                Description = "To qualify, an applicant must answer YES to at least one category in Section 1, and YES to all criteria in Section 2.",
+                Section1Title = "Section 1: Qualifying Entity or Cause (Check all that apply)",
+                Section1Subtitle = "Answering YES to at least one category satisfies the organizational criteria:",
+                Section1MinRequiredYes = 1,
+                Section1Questions = new List<QualificationQuestionItem>
+                {
+                    new()
+                    {
+                        Id = "np_q1",
+                        Title = "Registered Non-Profit / Civic Entity",
+                        Description = "The booking is made on behalf of an IRS-recognized tax-exempt organization (501(c)(3), 501(c)(4), 501(c)(7), 501(c)(19), etc.).",
+                        RequiredAttachmentNote = "Attach: IRS Determination Letter or state non-profit certificate.",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "np_q2",
+                        Title = "School or Youth Program",
+                        Description = "The event represents an accredited school, PTO/PTA, scouts troop, or non-profit youth sports organization.",
+                        RequiredAttachmentNote = "Attach: Letter on official school or league letterhead.",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "np_q3",
+                        Title = "Local Civic or Community Group",
+                        Description = "The booking is for an official meeting, assembly, or function of a recognized neighborhood council, civic association, or volunteer service club.",
+                        RequiredAttachmentNote = "Attach: Officer contact information and meeting announcement/flyer.",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "np_q4",
+                        Title = "Charitable Benefit / Relief Drive",
+                        Description = "The event is a direct fundraiser or supply drive for a specific individual, family, or disaster relief effort (e.g., medical fundraiser, memorial benefit).",
+                        RequiredAttachmentNote = "Attach: Summary of the beneficiary, cause, and fund distribution method.",
+                        IsActive = true
+                    }
+                },
+                Section2Title = "Section 2: Event Integrity & Terms (All must be YES)",
+                Section2Subtitle = "All criteria below must be acknowledged and answered YES:",
+                Section2Questions = new List<QualificationQuestionItem>
+                {
+                    new()
+                    {
+                        Id = "terms_q1",
+                        Title = "Dedicated Purpose",
+                        Description = "The hall will be used solely for an official meeting, community program, or charitable fundraiser, and not for a personal social celebration (e.g., birthday, wedding, anniversary, graduation).",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "terms_q2",
+                        Title = "No Private Profit",
+                        Description = "100% of event proceeds (ticket sales, donations, raffles) will go directly to the named organization or beneficiary, with zero personal or commercial profit.",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "terms_q3",
+                        Title = "Organizational Payment",
+                        Description = "Contract execution and rental payments will be issued directly from the organization's account or the dedicated fundraiser fund.",
+                        IsActive = true
+                    },
+                    new()
+                    {
+                        Id = "terms_q4",
+                        Title = "Standard Deposit Terms",
+                        Description = "The applicant acknowledges that the discount applies solely to the base hall rental rate; standard security deposits, cleaning fees, and rental rules remain fully payable and enforceable.",
+                        IsActive = true
+                    }
+                }
+            };
+        }
+    }
+
+    public class QualificationQuestionItem
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string RequiredAttachmentNote { get; set; } = string.Empty;
+        public bool IsActive { get; set; } = true;
     }
 
     public static class PricingTierDefaults
@@ -768,7 +881,8 @@ Warm regards,
                         new() { Name = "Youth Groups", Rate = 50, IsAvailable = true },
                         new() { Name = "Local Causes", Rate = 0, Note = "*Fee waiver option", IsAvailable = true }
                     },
-                    FooterNote = "*Fee waiver option for approved causes"
+                    FooterNote = "*Fee waiver option for approved causes",
+                    Qualification = TierQualificationConfig.CreateDefaultNonProfitQualification()
                 }
             };
         }

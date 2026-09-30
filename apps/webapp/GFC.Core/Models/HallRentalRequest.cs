@@ -11,6 +11,8 @@ namespace GFC.Core.Models
         public string RequesterName { get; set; } = string.Empty;
         public string RequesterEmail { get; set; } = string.Empty;
         public string RequesterPhone { get; set; } = string.Empty;
+        public bool RequestPhoneCall { get; set; } = false;
+        public string? PreferredContactMethod { get; set; } // "Phone" or "Email"
         public string? RequesterAddress { get; set; }
         public string? RequesterCity { get; set; }
         public string? RequesterState { get; set; }
@@ -65,5 +67,8 @@ namespace GFC.Core.Models
 
         // Accepted Terms and Policies Details (JSON list of agreed policy items or titles)
         public string? AgreedPoliciesJson { get; set; }
+
+        // Qualification Questionnaire Submission Answers (JSON)
+        public string? QualificationAnswersJson { get; set; }
     }
 }

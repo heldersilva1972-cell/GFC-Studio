@@ -410,6 +410,29 @@
                                     </div>
                                 </div>
 
+                                <!-- Top Notice & Guidance Banner (Configured Independently) -->
+                                <div class="p-3 bg-light rounded-3 border mb-3">
+                                    <strong class="small text-dark d-block mb-1"><i class="bi bi-info-circle text-primary me-1"></i>Top Notice &amp; Guidance Banner:</strong>
+                                    <small class="text-muted d-block mb-2">Display a customized greeting, booking instructions, or announcement banner at the top of the public calendar.</small>
+
+                                    <div class="p-2.5 bg-white rounded-3 border">
+                                        <div class="form-check form-switch mb-2">
+                                            <input class="form-check-input" type="checkbox" id="showNoticeBannerToggle" @bind="_calendarSettings.ShowHeaderNoticeBanner" />
+                                            <label class="form-check-label small fw-bold text-dark" for="showNoticeBannerToggle">
+                                                Enable Top Notice Banner
+                                            </label>
+                                        </div>
+                                        @if (_calendarSettings.ShowHeaderNoticeBanner)
+                                        {
+                                            <div>
+                                                <label class="form-label small text-muted mb-1" style="font-size:0.75rem;">Notice Message Text (Supports multi-line formatting)</label>
+                                                <textarea class="form-control form-control-sm" rows="3" @bind="_calendarSettings.HeaderNoticeBannerText" placeholder="Thank you for visiting our Calendar of Events..."></textarea>
+                                                <small class="text-muted" style="font-size:0.72rem;">Shown prominently above the calendar on both desktop and mobile devices.</small>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
                                 <!-- Header Action Buttons (Configured Independently) -->
                                 <div class="p-3 bg-light rounded-3 border mb-3">
                                     <strong class="small text-dark d-block mb-2"><i class="bi bi-window-dock text-primary me-1"></i>Calendar Header Buttons (Top of Page):</strong>
@@ -672,8 +695,22 @@
                         else
                         {
                             <!-- Desktop Full Container -->
-                            <div class="rounded-4 overflow-hidden shadow-sm" style="border:1px solid rgba(196,154,73,0.25); min-height:620px;">
-                                <FullCalendarWrapper Standalone="true" Settings="_calendarSettings" />
+                            <div class="rounded-4 overflow-hidden shadow-sm" style="border:1px solid rgba(196,154,73,0.25); min-height:620px; background:#fff;">
+                                @if (_calendarSettings.ShowHeaderNoticeBanner && !string.IsNullOrWhiteSpace(_calendarSettings.HeaderNoticeBannerText))
+                                {
+                                    <div style="background:#fffbf2; border-bottom:1px solid #e8d9b0; padding:12px 20px; display:flex; align-items:flex-start; gap:12px;">
+                                        <i class="bi bi-info-circle-fill" style="color:#C49A49; font-size:1.2rem; margin-top:2px;"></i>
+                                        <div style="font-size:0.86rem; line-height:1.45; color:#634b17; font-weight:500;">
+                                            @foreach (var line in _calendarSettings.HeaderNoticeBannerText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                                            {
+                                                <p class="mb-1" style="margin-bottom:2px !important;">@line</p>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                <div class="p-3">
+                                    <FullCalendarWrapper Standalone="true" Settings="_calendarSettings" />
+                                </div>
                             </div>
                         }
                     </div>
@@ -757,12 +794,24 @@
                                 </div>
                                 <p class="text-muted small mb-0 mt-1">Configure pricing tiers (Non-Members, Members, Non-Profits), per-day rental rates, and renter-type associations matching the Pricing Guide Chart.</p>
                             </div>
-                            <div class="d-flex gap-2">
+                            <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <button type="button" class="btn btn-sm btn-outline-secondary shadow-sm" @onclick="ResetTierCardsToDefault">
-                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Standard 3-Column Preset
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to 3-Column Preset
                                 </button>
-                                <button type="button" class="btn btn-sm btn-primary shadow-sm" @onclick="AddNewTierCard">
+                                <button type="button" class="btn btn-sm btn-outline-primary shadow-sm" @onclick="AddNewTierCard">
                                     <i class="bi bi-plus-circle me-1"></i>Add Pricing Tier Card
+                                </button>
+                                <button type="button" class="btn btn-sm btn-success shadow-sm fw-bold px-3 d-flex align-items-center gap-1" @onclick="SaveAllSettings" disabled="@_isSaving">
+                                    @if (_isSaving)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Saving...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-check2-circle"></i>
+                                        <span>Save Matrix &amp; Tier Pricing</span>
+                                    }
                                 </button>
                             </div>
                         </div>
@@ -955,59 +1004,28 @@
                                                 </div>
                                             }
 
-                                            <!-- Dedicated Time Slot Blocks for this Tier (Optional) -->
-                                            <div class="pt-2 border-top">
+                                            <!-- Qualification Wizard ("Do I Qualify?") Setup -->
+                                            <div class="pt-2 border-top mt-2">
                                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                                    <span class="small fw-bold text-muted" style="font-size: 0.7rem;"><i class="bi bi-clock-history me-1 text-primary"></i>TIME SLOT PERIODS</span>
-                                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small" style="font-size: 0.72rem;" @onclick="() => AddSlotToTierCard(currentCard)">
-                                                        <i class="bi bi-plus-circle me-1"></i>Add Slot
+                                                    <span class="small fw-bold text-dark" style="font-size: 0.72rem;">
+                                                        <i class="bi bi-patch-question-fill text-warning me-1"></i>"DO I QUALIFY?" RULES
+                                                    </span>
+                                                    <div class="form-check form-switch mb-0">
+                                                        <input class="form-check-input" type="checkbox" role="switch" id="@($"qualToggle_{currentCard.Id}")" @bind="currentCard.Qualification.IsEnabled" />
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <small class="text-muted" style="font-size: 0.7rem;">
+                                                        @(currentCard.Qualification.IsEnabled ? $"Active ({currentCard.Qualification.Section1Questions.Count + currentCard.Qualification.Section2Questions.Count} criteria)" : "Disabled")
+                                                    </small>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 fw-semibold" style="font-size: 0.72rem;" @onclick="() => OpenQualificationEditor(currentCard)">
+                                                        <i class="bi bi-pencil-square me-1"></i>Configure Rules
                                                     </button>
                                                 </div>
-                                                @if (currentCard.TimeSlots.Count == 0)
-                                                {
-                                                    <div class="p-2 rounded bg-light border text-muted small" style="font-size: 0.72rem;">
-                                                        <i class="bi bi-info-circle me-1"></i>Standard duration booking (no fixed slots). Click +Add Slot to define specific blocks (e.g. 12pm-5pm).
-                                                    </div>
-                                                }
-                                                else
-                                                {
-                                                    <div class="d-flex flex-column gap-1">
-                                                        @for (int slotIdx = 0; slotIdx < currentCard.TimeSlots.Count; slotIdx++)
-                                                        {
-                                                            var s = currentCard.TimeSlots[slotIdx];
-                                                            var idx = slotIdx;
-                                                            <div class="d-flex align-items-center gap-1 p-1 bg-light rounded border">
-                                                                <input type="text" class="form-control form-control-sm p-1 fw-semibold" style="font-size: 0.75rem; min-width: 80px;" placeholder="Label" @bind="s.Label" />
-                                                                <select class="form-select form-select-sm p-1" style="font-size: 0.72rem; width: 95px;" @bind="s.StartTime">
-                                                                    @foreach (var t in _timeOptions)
-                                                                    {
-                                                                        <option value="@t">@t</option>
-                                                                    }
-                                                                </select>
-                                                                <span class="text-muted small" style="font-size: 0.7rem;">-</span>
-                                                                <select class="form-select form-select-sm p-1" style="font-size: 0.72rem; width: 95px;" @bind="s.EndTime">
-                                                                    @foreach (var t in _timeOptions)
-                                                                    {
-                                                                        <option value="@t">@t</option>
-                                                                    }
-                                                                </select>
-                                                                <button type="button" class="btn btn-outline-danger btn-sm p-0 rounded-circle ms-auto" style="width: 20px; height: 20px; line-height: 1;" title="Remove Slot" @onclick="() => currentCard.TimeSlots.RemoveAt(idx)">
-                                                                    <i class="bi bi-x" style="font-size: 0.75rem;"></i>
-                                                                </button>
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-                                            </div>
-
-                                            <div class="mt-1">
-                                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small" style="font-size: 0.75rem;" @onclick="() => AddSubGroupToCard(currentCard)">
-                                                    <i class="bi bi-plus-circle me-1"></i>Add Special Sub-Group
-                                                </button>
                                             </div>
 
                                             <!-- Footer Note -->
-                                            <div class="pt-2 border-top mt-1">
+                                            <div class="pt-2 border-top mt-2">
                                                 <label class="form-label small text-muted mb-1" style="font-size: 0.7rem;">FOOTER / TERMS CAPTION</label>
                                                 <input type="text" class="form-control form-control-sm text-center text-muted small" @bind="currentCard.FooterNote" placeholder="e.g. Standard Booking T&C" />
                                             </div>
@@ -1015,6 +1033,123 @@
                                     </div>
                                 </div>
                             }
+                        </div>
+
+                        <!-- Daily Time Slot Periods Configuration (by Day of the Week) -->
+                        <div class="card border rounded-4 p-4 mb-4 bg-white shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-0"><i class="bi bi-clock-history text-primary me-2"></i>Daily Time Slot Periods (By Day of Week)</h5>
+                                    <small class="text-muted">Define fixed booking blocks (e.g. Afternoon 12pm-5pm, Evening 6pm-11pm) for each day of the week, or allow custom duration.</small>
+                                </div>
+                                <button type="button" class="btn btn-outline-secondary btn-sm px-3 shadow-sm d-flex align-items-center gap-1" @onclick="ResetDaySchedulesToDefault">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    <span>Reset to Default Slots</span>
+                                </button>
+                            </div>
+
+                            <div class="row g-3">
+                                @foreach (var day in _editableDaySchedules)
+                                {
+                                    var dayName = day.Day.ToString();
+                                    var isWeekend = day.Day == DayOfWeek.Friday || day.Day == DayOfWeek.Saturday || day.Day == DayOfWeek.Sunday;
+                                    var warning = GetSlotValidationWarning(day);
+
+                                    <div class="col-lg-6">
+                                        <div class="card border rounded-4 p-3 h-100 shadow-sm @(day.IsAvailable ? "bg-white" : "bg-light opacity-75 border-secondary-subtle")">
+                                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2 pb-2 border-bottom">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge @(day.IsAvailable ? "bg-primary text-white" : "bg-secondary text-white") px-2.5 py-1 fw-bold fs-7">@dayName.ToUpper()</span>
+                                                    <span class="small fw-semibold @(day.IsAvailable ? "text-secondary" : "text-danger")">
+                                                        @if (!day.IsAvailable)
+                                                        {
+                                                            <span>🚫 Day Disabled (No Bookings)</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span>@(day.Slots.Count == 0 ? "Flexible Hours" : $"{day.Slots.Count} Fixed Block{(day.Slots.Count == 1 ? "" : "s")}")</span>
+                                                        }
+                                                    </span>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <div class="form-check form-switch mb-0" title="@(day.IsAvailable ? "Click to disable bookings on this day" : "Click to enable bookings on this day")">
+                                                        <input class="form-check-input" type="checkbox" role="switch" id="@($"toggleDay_{dayName}")" @bind="day.IsAvailable" />
+                                                        <label class="form-check-label small fw-bold @(day.IsAvailable ? "text-success" : "text-muted")" for="@($"toggleDay_{dayName}")">
+                                                            @(day.IsAvailable ? "Enabled" : "Disabled")
+                                                        </label>
+                                                    </div>
+                                                    @if (day.IsAvailable)
+                                                    {
+                                                        <button type="button" class="btn btn-primary btn-sm py-1 px-2 d-flex align-items-center gap-1" style="font-size: 0.76rem;" @onclick="() => AddSlotToDay(day)">
+                                                            <i class="bi bi-plus-circle-fill"></i>
+                                                            <span>Add Block</span>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+
+                                            @if (!day.IsAvailable)
+                                            {
+                                                <div class="p-3 text-center rounded-3 bg-secondary bg-opacity-10 border border-secondary border-opacity-25 text-muted small my-auto">
+                                                    <i class="bi bi-calendar-x-fill text-secondary d-block mb-1 fs-5"></i>
+                                                    <span class="fw-semibold">This day is completely disabled. Applicants will not be able to book on @dayName.</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @if (warning != null)
+                                                {
+                                                    <div class="alert alert-warning py-1 px-2 small mb-2 d-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                        <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                                                        <span>@warning</span>
+                                                    </div>
+                                                }
+
+                                                @if (day.Slots.Count == 0)
+                                                {
+                                                    <div class="p-3 text-center rounded-3 bg-light border text-muted small">
+                                                        <i class="bi bi-clock text-secondary d-block mb-1 fs-5"></i>
+                                                        <span>No fixed blocks configured. Applicants select custom start &amp; end times.</span>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex flex-column gap-2">
+                                                        @for (int slotIdx = 0; slotIdx < day.Slots.Count; slotIdx++)
+                                                        {
+                                                            var s = day.Slots[slotIdx];
+                                                            var currentSlotIdx = slotIdx;
+                                                            <div class="d-flex align-items-center gap-2 p-2 bg-white rounded-3 border shadow-sm flex-wrap">
+                                                                <div class="flex-grow-1" style="min-width: 120px;">
+                                                                    <input type="text" class="form-control form-control-sm fw-bold" placeholder="Slot Name (e.g. Afternoon Block)" @bind="s.Label" />
+                                                                </div>
+                                                                <div class="d-flex align-items-center gap-1">
+                                                                    <select class="form-select form-select-sm" style="width: 105px;" @bind="s.StartTime">
+                                                                        @foreach (var t in _timeOptions)
+                                                                        {
+                                                                            <option value="@t">@t</option>
+                                                                        }
+                                                                    </select>
+                                                                    <span class="text-muted small">to</span>
+                                                                    <select class="form-select form-select-sm" style="width: 105px;" @bind="s.EndTime">
+                                                                        @foreach (var t in _timeOptions)
+                                                                        {
+                                                                            <option value="@t">@t</option>
+                                                                        }
+                                                                    </select>
+                                                                </div>
+                                                                <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-0 ms-auto" style="width: 26px; height: 26px; line-height: 1;" title="Remove Slot" @onclick="() => RemoveSlotFromDay(day, currentSlotIdx)">
+                                                                    <i class="bi bi-x-lg" style="font-size: 0.75rem;"></i>
+                                                                </button>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
                         </div>
 
                         <!-- Base Duration & Overtime Rules in Matrix Mode -->
@@ -1135,6 +1270,21 @@
                                     </div>
                                 }
                             </div>
+                        </div>
+
+                        <div class="d-flex justify-content-end p-3 bg-white rounded-4 border shadow-sm mb-4">
+                            <button type="button" class="btn btn-success px-4 py-2 shadow-sm fw-bold d-flex align-items-center gap-2" @onclick="SaveAllSettings" disabled="@_isSaving">
+                                @if (_isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Saving All Settings...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check2-circle fs-5"></i>
+                                    <span>Save Matrix &amp; Tier Pricing</span>
+                                }
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -3267,6 +3417,220 @@
 }
 </style>
 
+<!-- ========================================================================= -->
+<!-- MODAL: QUALIFICATION WIZARD & CRITERIA QUESTIONNAIRE EDITOR -->
+<!-- ========================================================================= -->
+@if (_showQualificationEditorModal && _editingQualificationCard != null)
+{
+    var qConfig = _editingQualificationCard.Qualification;
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.75); z-index: 1065;" role="dialog">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-white border-bottom p-3 px-4">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 rounded-3 bg-warning bg-opacity-10 text-dark border border-warning border-opacity-25">
+                            <i class="bi bi-patch-question-fill text-warning fs-4"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0">"Do I Qualify?" Questionnaire &amp; Rules Editor</h5>
+                            <small class="text-muted">Configuring qualification criteria for tier: <strong class="text-dark">@_editingQualificationCard.Title</strong></small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showQualificationEditorModal = false"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <!-- Global Questionnaire Switch & General Text -->
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge @(qConfig.IsEnabled ? "bg-success" : "bg-secondary") px-2.5 py-1">
+                                    @(qConfig.IsEnabled ? "ACTIVE & ENFORCED" : "DISABLED")
+                                </span>
+                                <strong class="text-dark">Require Qualification Wizard on Public Application</strong>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="qualModalEnabledSw" @bind="qConfig.IsEnabled" />
+                                <label class="form-check-label small fw-bold text-dark ms-1" for="qualModalEnabledSw">
+                                    @(qConfig.IsEnabled ? "Enabled" : "Disabled")
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Questionnaire Modal Title</label>
+                                <input type="text" class="form-control form-control-sm fw-bold" placeholder="e.g. Do I Qualify for Non-Profit / Community Rates?" @bind="qConfig.ModalTitle" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Description / Summary Instruction</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="e.g. To qualify, an applicant must answer YES to at least one category in Section 1, and YES to all criteria in Section 2." @bind="qConfig.Description" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Passing Success Badge Text</label>
+                                <input type="text" class="form-control form-control-sm text-success fw-semibold" placeholder="e.g. You Qualify for this Rate" @bind="qConfig.PassBadgeText" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold text-dark mb-1">Failing / Incomplete Badge Text</label>
+                                <input type="text" class="form-control form-control-sm text-danger fw-semibold" placeholder="e.g. Does Not Meet Rate Qualification" @bind="qConfig.FailBadgeText" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 1: QUALIFYING ENTITIES / CAUSES (ANY OR LOGIC) -->
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom flex-wrap gap-2">
+                            <div>
+                                <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                    <span class="badge bg-primary text-white rounded-circle p-1" style="width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;">1</span>
+                                    <span>Section 1: Qualifying Entity or Cause (Categories)</span>
+                                </h6>
+                                <small class="text-muted">Applicant must answer YES to at least the required minimum number of categories below.</small>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="small fw-bold text-muted">Min YES Required:</span>
+                                    <input type="number" class="form-control form-control-sm text-center fw-bold" style="width: 60px;" min="1" max="10" @bind="qConfig.Section1MinRequiredYes" />
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary fw-semibold" @onclick="() => AddQuestionToSection(qConfig.Section1Questions)">
+                                    <i class="bi bi-plus-circle me-1"></i>Add Category Question
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Section 1 Header Title</label>
+                                <input type="text" class="form-control form-control-sm" @bind="qConfig.Section1Title" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Section 1 Subtitle / Instruction</label>
+                                <input type="text" class="form-control form-control-sm" @bind="qConfig.Section1Subtitle" />
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-column gap-3">
+                            @if (qConfig.Section1Questions.Count == 0)
+                            {
+                                <div class="p-3 text-center rounded-3 bg-light border text-muted small">
+                                    No category questions configured. Click "Add Category Question" to create one.
+                                </div>
+                            }
+                            @for (int i = 0; i < qConfig.Section1Questions.Count; i++)
+                            {
+                                var q = qConfig.Section1Questions[i];
+                                var idx = i;
+                                <div class="p-3 rounded-3 border @(q.IsActive ? "bg-light" : "bg-light opacity-75 border-secondary-subtle")">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 me-2">
+                                            <span class="badge bg-secondary text-white rounded-pill px-2">#@(idx + 1)</span>
+                                            <input type="text" class="form-control form-control-sm fw-bold" placeholder="Category Title (e.g. Registered Non-Profit / Civic Entity)" @bind="q.Title" />
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="@($"q1_sw_{q.Id}")" @bind="q.IsActive" />
+                                                <label class="form-check-label small fw-semibold text-dark" for="@($"q1_sw_{q.Id}")">
+                                                    @(q.IsActive ? "Active" : "Disabled")
+                                                </label>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-1" style="width: 28px; height: 28px;" title="Delete Question" @onclick="() => qConfig.Section1Questions.Remove(q)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-7">
+                                            <label class="form-label small text-muted mb-0">Description / Criteria Explanation</label>
+                                            <textarea class="form-control form-control-sm" rows="2" placeholder="Explain what constitutes qualification for this category..." @bind="q.Description"></textarea>
+                                        </div>
+                                        <div class="col-md-5">
+                                            <label class="form-label small text-muted mb-0">Required Attachment / Proof Note</label>
+                                            <textarea class="form-control form-control-sm" rows="2" placeholder="e.g. Attach: IRS Determination Letter or state non-profit certificate." @bind="q.RequiredAttachmentNote"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: INTEGRITY & TERMS CRITERIA (ALL YES LOGIC) -->
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom flex-wrap gap-2">
+                            <div>
+                                <h6 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                    <span class="badge bg-success text-white rounded-circle p-1" style="width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;">2</span>
+                                    <span>Section 2: Event Integrity &amp; Terms (Mandatory Criteria)</span>
+                                </h6>
+                                <small class="text-muted">Applicant must answer <strong class="text-dark">YES to ALL</strong> criteria in this section to qualify.</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success fw-semibold" @onclick="() => AddQuestionToSection(qConfig.Section2Questions)">
+                                <i class="bi bi-plus-circle me-1"></i>Add Term / Integrity Criterion
+                            </button>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Section 2 Header Title</label>
+                                <input type="text" class="form-control form-control-sm" @bind="qConfig.Section2Title" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Section 2 Subtitle / Instruction</label>
+                                <input type="text" class="form-control form-control-sm" @bind="qConfig.Section2Subtitle" />
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-column gap-3">
+                            @if (qConfig.Section2Questions.Count == 0)
+                            {
+                                <div class="p-3 text-center rounded-3 bg-light border text-muted small">
+                                    No integrity terms configured. Click "Add Term / Integrity Criterion" to create one.
+                                </div>
+                            }
+                            @for (int i = 0; i < qConfig.Section2Questions.Count; i++)
+                            {
+                                var q = qConfig.Section2Questions[i];
+                                var idx = i;
+                                <div class="p-3 rounded-3 border @(q.IsActive ? "bg-light" : "bg-light opacity-75 border-secondary-subtle")">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 me-2">
+                                            <span class="badge bg-secondary text-white rounded-pill px-2">#@(idx + 1)</span>
+                                            <input type="text" class="form-control form-control-sm fw-bold" placeholder="Criterion Title (e.g. Dedicated Purpose, No Private Profit)" @bind="q.Title" />
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="@($"q2_sw_{q.Id}")" @bind="q.IsActive" />
+                                                <label class="form-check-label small fw-semibold text-dark" for="@($"q2_sw_{q.Id}")">
+                                                    @(q.IsActive ? "Active" : "Disabled")
+                                                </label>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-circle p-1" style="width: 28px; height: 28px;" title="Delete Criterion" @onclick="() => qConfig.Section2Questions.Remove(q)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <label class="form-label small text-muted mb-0">Criterion Description &amp; Agreement Terms</label>
+                                            <textarea class="form-control form-control-sm" rows="2" placeholder="Specify the integrity rule or compliance requirement..." @bind="q.Description"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-4" @onclick="() => _showQualificationEditorModal = false">
+                        Done Editing
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" @onclick="() => _showQualificationEditorModal = false">
+                        <i class="bi bi-check2-circle me-1"></i>Apply &amp; Return to Matrix
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [SupplyParameterFromQuery(Name = "tab")]
     public string? UrlTab { get; set; }
@@ -3296,7 +3660,11 @@
                 Addons = _editableAddons,
                 Schedules = _editableDaySchedules,
                 Policies = _editablePolicies,
-                Recipients = _editableRecipients
+                Recipients = _editableRecipients,
+                TierCards = _editableTierCards,
+                ReasonPresets = _editableReasonPresets,
+                MonthFields = _editableMonthFields,
+                ListColumns = _editableListColumns
             };
             return System.Text.Json.JsonSerializer.Serialize(data);
         }
@@ -3370,6 +3738,33 @@
     private List<string> _editableRecipients = new();
     private List<PricingTierCardConfig> _editableTierCards = new();
     private List<string> _editableReasonPresets = new();
+
+    // Qualification Wizard Editor State
+    private bool _showQualificationEditorModal = false;
+    private PricingTierCardConfig? _editingQualificationCard;
+
+    private void OpenQualificationEditor(PricingTierCardConfig card)
+    {
+        _editingQualificationCard = card;
+        if (_editingQualificationCard.Qualification == null)
+        {
+            _editingQualificationCard.Qualification = new TierQualificationConfig();
+        }
+        _showQualificationEditorModal = true;
+        StateHasChanged();
+    }
+
+    private void AddQuestionToSection(List<QualificationQuestionItem> list)
+    {
+        list.Add(new QualificationQuestionItem
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Title = "New Criterion / Question",
+            Description = "Enter criteria description here...",
+            IsActive = true
+        });
+        StateHasChanged();
+    }
 
     // Web App Calendar & List View Configurable Display Lists
     private List<CalendarFieldDisplayConfig> _editableMonthFields = new();

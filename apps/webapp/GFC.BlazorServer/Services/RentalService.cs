@@ -715,6 +715,15 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'AgreedPoliciesJson')
                         ALTER TABLE [dbo].[HallRentalRequests] ADD [AgreedPoliciesJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequestPhoneCall')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequestPhoneCall] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'PreferredContactMethod')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [PreferredContactMethod] NVARCHAR(50) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'QualificationAnswersJson')
+                        ALTER TABLE [dbo].[HallRentalRequests] ADD [QualificationAnswersJson] NVARCHAR(MAX) NULL;
                 ";
                 await context.Database.ExecuteSqlRawAsync(sql);
             }
@@ -1043,6 +1052,8 @@ namespace GFC.BlazorServer.Services
                 RequesterName = !string.IsNullOrWhiteSpace(inquiry.RequesterName) ? inquiry.RequesterName : inquiry.ApplicantName,
                 RequesterEmail = inquiry.RequesterEmail ?? "",
                 RequesterPhone = inquiry.RequesterPhone ?? "",
+                RequestPhoneCall = inquiry.RequestPhoneCall,
+                PreferredContactMethod = inquiry.RequestPhoneCall ? "Phone" : "Email",
                 GuestCount = inquiry.GuestCount,
                 EventType = !string.IsNullOrWhiteSpace(inquiry.EventType) ? inquiry.EventType : "General Inquiry",
                 EventDescription = inquiry.EventDescription,
@@ -1089,15 +1100,20 @@ namespace GFC.BlazorServer.Services
                         var recipients = settings.GetRecipientsList();
                         if (recipients.Any())
                         {
-                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] Question from {inquiry.ApplicantName}";
+                            string phonePreferenceBadge = inquiry.RequestPhoneCall
+                                ? "<span style='background-color:#16a34a; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>📞 Phone Call Requested</span>"
+                                : "<span style='background-color:#64748b; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>✉️ Email Preferred</span>";
+
+                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] {(inquiry.RequestPhoneCall ? "[PHONE CALLBACK REQUESTED] " : "")}Question from {inquiry.ApplicantName}";
                             string staffBody = $@"
                                 <div style='font-family: Arial, sans-serif; max-width: 600px;'>
                                     <h3 style='color: #0d1b2a;'>New Pre-Booking Question / Inquiry Received</h3>
+                                    {(inquiry.RequestPhoneCall ? "<div style='background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:10px 14px; border-radius:6px; margin-bottom:16px; font-weight:bold; color:#15803d;'>📞 The visitor has requested a phone callback.</div>" : "")}
                                     <p>A visitor submitted a general question on the Hall Rental page:</p>
                                     <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
                                         <tr><td style='padding: 6px; font-weight: bold; width: 35%; border-bottom: 1px solid #e2e8f0;'>Name:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.ApplicantName}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Email:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'><a href='mailto:{inquiry.RequesterEmail}'>{inquiry.RequesterEmail}</a></td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.RequesterPhone}</td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Contact Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.RequesterPhone} {phonePreferenceBadge}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Target Date:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("dddd, MMMM dd, yyyy") : "Flexible / Not Specified")}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Event Type / Guest Est:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.EventType) ? "General Question" : inquiry.EventType)} {(inquiry.GuestCount > 0 ? $"({inquiry.GuestCount} guests)" : "")}</td></tr>
                                     </table>

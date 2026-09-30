@@ -85,10 +85,26 @@
                 </div>
                 <h3 class="fw-bold text-dark mb-2">Question Received!</h3>
                 <p class="text-muted mb-4 lead">
-                    Thank you, <strong>@_inquiryModel.ApplicantName</strong>. Our rental team has received your message and will review it and get back to you directly at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.
+                    Thank you, <strong>@_inquiryModel.ApplicantName</strong>. Our rental team has received your message and will review it and get back to you directly 
+                    @if (_inquiryModel.RequestPhoneCall && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterPhone))
+                    {
+                        <span>by phone at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong> (or email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>)</span>
+                    }
+                    else
+                    {
+                        <span>at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong></span>
+                    }.
                 </p>
                 <div class="summary-box p-4 bg-light rounded-4 text-start mx-auto mb-4 border" style="max-width: 580px;">
-                    <h6 class="fw-bold text-dark mb-2 border-bottom pb-2"><i class="bi bi-chat-left-text me-2 text-primary"></i>Your Question</h6>
+                    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                        <h6 class="fw-bold text-dark mb-0"><i class="bi bi-chat-left-text me-2 text-primary"></i>Your Question</h6>
+                        @if (_inquiryModel.RequestPhoneCall)
+                        {
+                            <span class="badge bg-success-subtle text-success border border-success px-2 py-1 rounded-pill small">
+                                <i class="bi bi-telephone-fill me-1"></i>Phone Callback Requested
+                            </span>
+                        }
+                    </div>
                     <p class="small text-dark mb-0 font-monospace" style="white-space: pre-wrap;">@_inquiryModel.EventDescription</p>
                 </div>
                 <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
@@ -347,6 +363,7 @@
                                             {
                                                 var isAvailableOnDay = IsCardAvailableForDate(card, _request.EventDate);
                                                 var isCardSelected = _selectedTierCardId == card.Id;
+                                                bool hasQual = card.Qualification != null && card.Qualification.IsEnabled;
                                                 <div class="col-12 col-md-4">
                                                     <div class="p-3 rounded-3 border h-100 position-relative @(!isAvailableOnDay ? "bg-light opacity-75 border-secondary-subtle" : isCardSelected ? "border-primary bg-primary-subtle bg-opacity-25 shadow-sm ring-selected" : "bg-white border")"
                                                          style="@(isAvailableOnDay ? "cursor: pointer;" : "cursor: not-allowed;") transition: all 0.2s ease; border-top: 4px solid @(isAvailableOnDay ? card.ThemeColor : "#adb5bd") !important;"
@@ -368,6 +385,30 @@
                                                             }
                                                         </div>
                                                         <div class="small text-muted" style="font-size: 0.78rem;">@card.Subtitle</div>
+                                                        @if (hasQual && isAvailableOnDay)
+                                                        {
+                                                            bool isCardQualified = _qualificationAnswers.ContainsKey(card.Id);
+                                                            <div class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between">
+                                                                @if (isCardQualified)
+                                                                {
+                                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5" style="font-size: 0.68rem;">
+                                                                        <i class="bi bi-patch-check-fill me-1"></i>Qualified
+                                                                    </span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 rounded-pill px-2 py-0.5" style="font-size: 0.68rem;">
+                                                                        <i class="bi bi-patch-question-fill me-1"></i>Qualification Required
+                                                                    </span>
+                                                                }
+                                                                @if (isCardQualified)
+                                                                {
+                                                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary" style="font-size: 0.72rem;" @onclick:stopPropagation="true" @onclick="() => ReopenQualificationModal(card)">
+                                                                        <i class="bi bi-pencil me-1"></i>Edit Answers
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
                                                         @if (!isAvailableOnDay)
                                                         {
                                                             <div class="pt-2 border-top mt-2">
@@ -430,11 +471,20 @@
 
                                 @if (IsCurrentCategoryUnavailableOnDay())
                                 {
+                                    var dayConfig = GetCurrentDayConfig();
+                                    var isDayDisabled = dayConfig != null && !dayConfig.IsAvailable;
                                     <div class="col-12">
                                         <div class="alert alert-warning d-flex align-items-center gap-2 mb-0 shadow-sm border-warning">
                                             <i class="bi bi-calendar-x-fill text-warning-emphasis fs-5 flex-shrink-0"></i>
                                             <div>
-                                                <strong>Not Available for Selected Category:</strong> Bookings for this category are unavailable on <strong>@(_request.EventDate.ToString("dddd"))s</strong>. Please pick a different date.
+                                                @if (isDayDisabled)
+                                                {
+                                                    <span><strong>Day Not Available for Bookings:</strong> The hall is closed for rental bookings on <strong>@(_request.EventDate.ToString("dddd"))s</strong>. Please select a different date.</span>
+                                                }
+                                                else
+                                                {
+                                                    <span><strong>Not Available for Selected Category:</strong> Bookings for this category are unavailable on <strong>@(_request.EventDate.ToString("dddd"))s</strong>. Please pick a different date.</span>
+                                                }
                                             </div>
                                         </div>
                                     </div>
@@ -1059,6 +1109,286 @@
     </div>
 }
 
+<!-- ========================================================================= -->
+<!-- DO I QUALIFY? QUESTIONNAIRE POPUP MODAL -->
+<!-- ========================================================================= -->
+@if (_showQualificationModal && _evaluatingTierCard != null && _evaluatingTierCard.Qualification != null)
+{
+    var qualConfig = _evaluatingTierCard.Qualification;
+    var activeSec1 = qualConfig.Section1Questions.Where(q => q.IsActive).ToList();
+    var activeSec2 = qualConfig.Section2Questions.Where(q => q.IsActive).ToList();
+    int minSec1Yes = qualConfig.Section1MinRequiredYes > 0 ? qualConfig.Section1MinRequiredYes : 1;
+    int sec1YesCount = activeSec1.Count(q => _tempQualificationAnswers.TryGetValue(q.Id, out var ans) && ans == true);
+    bool isSec1Passing = sec1YesCount >= minSec1Yes;
+    bool isSec2Passing = activeSec2.All(q => _tempQualificationAnswers.TryGetValue(q.Id, out var ans) && ans == true);
+    bool isOverallPassing = isSec1Passing && isSec2Passing;
+
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.75); z-index: 1055; backdrop-filter: blur(4px);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable" role="document">
+            <div class="modal-content border-0 shadow-2xl rounded-4 overflow-hidden">
+                <div class="modal-header bg-white border-bottom p-3 px-4">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="rounded-circle bg-primary bg-opacity-10 p-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                            <i class="bi bi-patch-question-fill fs-5 text-primary"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0">@(string.IsNullOrWhiteSpace(qualConfig.ModalTitle) ? $"Do I Qualify for {_evaluatingTierCard.Title} Rates?" : qualConfig.ModalTitle)</h5>
+                            <small class="text-muted">@_evaluatingTierCard.Title Qualification Wizard</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CancelQualificationModal"></button>
+                </div>
+
+                <div class="modal-body p-4 bg-light">
+                    @if (!string.IsNullOrWhiteSpace(qualConfig.Description))
+                    {
+                        <div class="alert alert-info border-info border-opacity-25 bg-info bg-opacity-10 py-2.5 px-3 rounded-3 small mb-3 text-dark d-flex align-items-center gap-2">
+                            <i class="bi bi-info-circle-fill text-info fs-5 flex-shrink-0"></i>
+                            <span class="fw-semibold">@qualConfig.Description</span>
+                        </div>
+                    }
+
+                    <!-- SECTION 1: Qualifying Entity or Cause -->
+                    @if (activeSec1.Count > 0)
+                    {
+                        var firstYesQuestion = activeSec1.FirstOrDefault(q => _tempQualificationAnswers.TryGetValue(q.Id, out var a) && a == true);
+                        bool isSingleRequirementMet = minSec1Yes == 1 && firstYesQuestion != null && !_isEditingSection1;
+
+                        <div class="card border rounded-3 p-3 shadow-sm bg-white mb-3">
+                            <div class="d-flex align-items-center justify-content-between mb-1 pb-2 border-bottom">
+                                <div>
+                                    <span class="fw-bold text-dark fs-6 d-block">@qualConfig.Section1Title</span>
+                                    <small class="text-muted">@qualConfig.Section1Subtitle</small>
+                                </div>
+                                <span class="badge @(isSec1Passing ? "bg-success" : "bg-warning text-dark") px-2.5 py-1">
+                                    @(isSec1Passing ? "Satisfied (Qualifying Cause Met)" : $"Need at least {minSec1Yes} YES")
+                                </span>
+                            </div>
+
+                            @if (isSingleRequirementMet)
+                            {
+                                <!-- Collapsed Satisfied Confirmation View -->
+                                <div class="mt-2 p-3 rounded-3 bg-success bg-opacity-10 border border-success border-opacity-25">
+                                    <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                                        <div class="d-flex align-items-start gap-2.5">
+                                            <div class="rounded-circle bg-success text-white p-1 d-flex align-items-center justify-content-center flex-shrink-0 mt-0.5" style="width: 24px; height: 24px;">
+                                                <i class="bi bi-check-lg" style="font-size: 0.9rem;"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold text-dark mb-0.5">@firstYesQuestion!.Title</div>
+                                                <div class="small text-success fw-semibold">
+                                                    <i class="bi bi-patch-check-fill me-1"></i>Qualifying Entity Criteria Confirmed
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(firstYesQuestion.RequiredAttachmentNote))
+                                                {
+                                                    <div class="badge bg-white text-secondary border mt-1.5" style="font-size: 0.72rem;">
+                                                        <i class="bi bi-paperclip me-1"></i>@firstYesQuestion.RequiredAttachmentNote
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm bg-white shadow-sm" @onclick="() => _isEditingSection1 = true">
+                                            <i class="bi bi-pencil me-1"></i>Change Category
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                @if (minSec1Yes == 1 && firstYesQuestion != null)
+                                {
+                                    <div class="d-flex justify-content-end mt-1">
+                                        <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" @onclick="() => _isEditingSection1 = false">
+                                            <i class="bi bi-check-circle me-1"></i>Keep "@firstYesQuestion.Title"
+                                        </button>
+                                    </div>
+                                }
+                                <div class="d-flex flex-column gap-2 mt-2">
+                                    @foreach (var q in activeSec1)
+                                    {
+                                        bool hasAnswer = _tempQualificationAnswers.TryGetValue(q.Id, out var ans);
+                                        bool isYes = hasAnswer && ans == true;
+                                        bool isNo = hasAnswer && ans == false;
+
+                                        <div class="p-3 rounded-3 border @(isYes ? "bg-success bg-opacity-10 border-success-subtle" : isNo ? "bg-light border-secondary-subtle" : "bg-white") transition-all">
+                                            <div class="d-flex align-items-start justify-content-between gap-3">
+                                                <div class="flex-grow-1">
+                                                    <div class="fw-bold text-dark mb-1">@q.Title</div>
+                                                    @if (!string.IsNullOrWhiteSpace(q.Description))
+                                                    {
+                                                        <div class="small text-muted mb-1" style="font-size: 0.82rem; line-height: 1.4;">@q.Description</div>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(q.RequiredAttachmentNote))
+                                                    {
+                                                        <div class="badge bg-light text-secondary border mt-1" style="font-size: 0.72rem;">
+                                                            <i class="bi bi-paperclip me-1"></i>@q.RequiredAttachmentNote
+                                                        </div>
+                                                    }
+                                                </div>
+                                                <div class="btn-group btn-group-sm flex-shrink-0" role="group">
+                                                    <button type="button" class="btn fw-bold px-3 @(isYes ? "qual-btn-yes-selected" : "qual-btn-yes-unselected")" @onclick="() => SetTempAnswer(q.Id, true, isSection1: true)">
+                                                        <i class="bi @(isYes ? "bi-check-circle-fill" : "bi-circle") me-1"></i>YES
+                                                    </button>
+                                                    <button type="button" class="btn fw-bold px-3 @(isNo ? "qual-btn-no-selected" : "qual-btn-no-unselected")" @onclick="() => SetTempAnswer(q.Id, false, isSection1: true)">
+                                                        <i class="bi @(isNo ? "bi-x-circle-fill" : "bi-circle") me-1"></i>NO
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <!-- SECTION 2: Event Integrity & Terms (All Must Be YES) - ONLY SHOWN IF SECTION 1 IS SATISFIED -->
+                    @if (isSec1Passing && activeSec2.Count > 0)
+                    {
+                        <div class="card border rounded-3 p-3 shadow-sm bg-white mb-3">
+                            <div class="d-flex align-items-center justify-content-between mb-1 pb-2 border-bottom">
+                                <div>
+                                    <span class="fw-bold text-dark fs-6 d-block">@qualConfig.Section2Title</span>
+                                    <small class="text-muted">@qualConfig.Section2Subtitle</small>
+                                </div>
+                                <span class="badge @(isSec2Passing ? "bg-success" : "bg-danger") px-2.5 py-1">
+                                    @(isSec2Passing ? "All Criteria Confirmed" : "All Must Be YES")
+                                </span>
+                            </div>
+
+                            <div class="d-flex flex-column gap-2 mt-2">
+                                @foreach (var q in activeSec2)
+                                {
+                                    bool hasAnswer = _tempQualificationAnswers.TryGetValue(q.Id, out var ans);
+                                    bool isYes = hasAnswer && ans == true;
+                                    bool isNo = hasAnswer && ans == false;
+
+                                    <div class="p-3 rounded-3 border @(isYes ? "bg-success bg-opacity-10 border-success-subtle" : isNo ? "bg-danger bg-opacity-10 border-danger-subtle" : "bg-white") transition-all">
+                                        <div class="d-flex align-items-start justify-content-between gap-3">
+                                            <div class="flex-grow-1">
+                                                <div class="fw-bold text-dark mb-1">@q.Title</div>
+                                                @if (!string.IsNullOrWhiteSpace(q.Description))
+                                                {
+                                                    <div class="small text-muted mb-1" style="font-size: 0.82rem; line-height: 1.4;">@q.Description</div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(q.RequiredAttachmentNote))
+                                                {
+                                                    <div class="badge bg-light text-secondary border mt-1" style="font-size: 0.72rem;">
+                                                        <i class="bi bi-paperclip me-1"></i>@q.RequiredAttachmentNote
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="btn-group btn-group-sm flex-shrink-0" role="group">
+                                                <button type="button" class="btn fw-bold px-3 @(isYes ? "qual-btn-yes-selected" : "qual-btn-yes-unselected")" @onclick="() => SetTempAnswer(q.Id, true)">
+                                                    <i class="bi @(isYes ? "bi-check-circle-fill" : "bi-circle") me-1"></i>YES
+                                                </button>
+                                                <button type="button" class="btn fw-bold px-3 @(isNo ? "qual-btn-no-selected" : "qual-btn-no-unselected")" @onclick="() => SetTempAnswer(q.Id, false)">
+                                                    <i class="bi @(isNo ? "bi-x-circle-fill" : "bi-circle") me-1"></i>NO
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Real-time Status Card & Fallback Options -->
+                    @{
+                        bool hasAnyAnswer = _tempQualificationAnswers.Values.Any(v => v == true || v == false);
+                        bool isExplicitlyFailed = (activeSec1.Count > 0 && activeSec1.All(q => _tempQualificationAnswers.TryGetValue(q.Id, out var ans) && ans == false))
+                                               || (isSec1Passing && activeSec2.Any(q => _tempQualificationAnswers.TryGetValue(q.Id, out var ans) && ans == false));
+                    }
+
+                    <div class="p-3 rounded-3 border @(isOverallPassing ? "bg-success bg-opacity-10 border-success" : isExplicitlyFailed ? "bg-danger bg-opacity-10 border-danger" : "bg-white border-secondary-subtle") d-flex flex-column gap-3 shadow-sm">
+                        <div class="d-flex align-items-center justify-content-between gap-3">
+                            <div class="d-flex align-items-center gap-2.5">
+                                @if (isOverallPassing)
+                                {
+                                    <div class="rounded-circle bg-success text-white p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                                        <i class="bi bi-patch-check-fill fs-5"></i>
+                                    </div>
+                                    <div>
+                                        <strong class="d-block text-success fs-6">
+                                            @(string.IsNullOrWhiteSpace(qualConfig.PassBadgeText) ? "You Qualify for this Rate" : qualConfig.PassBadgeText)
+                                        </strong>
+                                        <small class="text-muted">All criteria and terms have been satisfied.</small>
+                                    </div>
+                                }
+                                else if (isExplicitlyFailed)
+                                {
+                                    <div class="rounded-circle bg-danger text-white p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                                        <i class="bi bi-x-circle-fill fs-5"></i>
+                                    </div>
+                                    <div>
+                                        <strong class="d-block text-danger fs-6">
+                                            @(string.IsNullOrWhiteSpace(qualConfig.FailBadgeText) ? "Does Not Meet Rate Qualification" : qualConfig.FailBadgeText)
+                                        </strong>
+                                        <small class="text-muted">
+                                            @if (!isSec1Passing)
+                                            {
+                                                <span>A qualifying cause is required in Section 1. You may book under the standard Non-Member rate.</span>
+                                            }
+                                            else
+                                            {
+                                                <span>All event terms and integrity criteria must be confirmed with YES.</span>
+                                            }
+                                        </small>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                                        <i class="bi bi-info-circle-fill fs-5"></i>
+                                    </div>
+                                    <div>
+                                        <strong class="d-block text-dark fs-6">Qualification Review Pending</strong>
+                                        <small class="text-muted">Please review the criteria above to verify eligibility for this rate tier.</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @if (!isOverallPassing)
+                        {
+                            <div class="p-3 rounded-3 bg-light border border-slate-200 d-flex align-items-center justify-content-between gap-3 flex-wrap">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-people-fill text-secondary fs-5"></i>
+                                    <div>
+                                        <div class="fw-bold text-dark small mb-0">Book under Standard Non-Member Rate</div>
+                                        <div class="text-muted" style="font-size: 0.78rem;">No non-profit or civic qualification questions required.</div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm fw-bold px-3 py-1.5 shadow-sm d-flex align-items-center gap-2 rounded-2" @onclick="SwitchToNonMemberTier">
+                                    <span>Select Non-Member Rate</span>
+                                    <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-white p-3 border-top d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelQualificationModal">
+                        Cancel
+                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                        @if (!isOverallPassing)
+                        {
+                            <button type="button" class="btn btn-outline-primary btn-sm fw-semibold" @onclick="SwitchToNonMemberTier">
+                                <i class="bi bi-arrow-right-circle me-1"></i>Switch to Non-Member Rate
+                            </button>
+                        }
+                        <button type="button" class="btn @(isOverallPassing ? "btn-success" : "btn-secondary") btn-sm px-4 fw-bold shadow-sm d-flex align-items-center gap-1.5" disabled="@(!isOverallPassing)" @onclick="ConfirmQualificationAndSelectRate">
+                            <i class="bi bi-arrow-right-circle-fill"></i>
+                            <span>Continue to Application</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .gfc-public-rental-page {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1221,6 +1551,40 @@
     .active-inquiry .gfc-fork-chevron {
         color: #d97706;
     }
+
+    /* QUALIFICATION WIZARD YES / NO BUTTON CONTRAST FIX */
+    .qual-btn-yes-unselected {
+        background-color: #ffffff !important;
+        color: #198754 !important;
+        border: 1.5px solid #198754 !important;
+    }
+    .qual-btn-yes-unselected:hover {
+        background-color: #198754 !important;
+        color: #ffffff !important;
+    }
+    .qual-btn-yes-selected {
+        background-color: #198754 !important;
+        color: #ffffff !important;
+        border: 1.5px solid #198754 !important;
+        box-shadow: 0 2px 6px rgba(25, 135, 84, 0.35) !important;
+    }
+
+    .qual-btn-no-unselected {
+        background-color: #ffffff !important;
+        color: #64748b !important;
+        border: 1.5px solid #cbd5e1 !important;
+    }
+    .qual-btn-no-unselected:hover {
+        background-color: #dc3545 !important;
+        color: #ffffff !important;
+        border-color: #dc3545 !important;
+    }
+    .qual-btn-no-selected {
+        background-color: #dc3545 !important;
+        color: #ffffff !important;
+        border: 1.5px solid #dc3545 !important;
+        box-shadow: 0 2px 6px rgba(220, 53, 69, 0.35) !important;
+    }
 </style>
 
 @code {
@@ -1288,6 +1652,13 @@
     private string? _selectedTierCardId;
     private string? _selectedSubGroupId;
 
+    // Do I Qualify? Modal & Verification State
+    private bool _showQualificationModal = false;
+    private PricingTierCardConfig? _evaluatingTierCard;
+    private Dictionary<string, bool> _tempQualificationAnswers = new();
+    private Dictionary<string, Dictionary<string, bool>> _qualificationAnswers = new(); // CardId -> (QuestionId -> Bool)
+    private bool _isEditingSection1 = false;
+
     private bool _isEmbedded = false;
     private bool _isSubmitting = false;
     private bool _isSubmitted = false;
@@ -1300,6 +1671,24 @@
         if (query.TryGetValue("embed", out var embedVal) && embedVal == "true")
         {
             _isEmbedded = true;
+        }
+
+        if (query.TryGetValue("mode", out var modeVal) && !string.IsNullOrWhiteSpace(modeVal))
+        {
+            if (string.Equals(modeVal, "inquiry", StringComparison.OrdinalIgnoreCase))
+            {
+                _activeFormMode = "inquiry";
+            }
+            else
+            {
+                _activeFormMode = "book";
+            }
+        }
+
+        if (query.TryGetValue("date", out var dateVal) && DateTime.TryParse(dateVal, out var parsedDate))
+        {
+            _request.EventDate = parsedDate;
+            _inquiryModel.EventDate = parsedDate;
         }
 
         try
@@ -1316,6 +1705,19 @@
             catch (Exception)
             {
                 _unavailableDates = new List<UnavailableDateDto>();
+            }
+
+            // If a valid category/tier card is available for this date, pre-select the first available one that DOES NOT require qualification
+            var activeTierCards = (_settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards()).Where(c => c.IsEnabled).ToList();
+            if (activeTierCards.Count > 0 && string.IsNullOrEmpty(_selectedTierCardId))
+            {
+                var availableCard = activeTierCards.FirstOrDefault(c => IsCardAvailableForDate(c, _request.EventDate) && (c.Qualification == null || !c.Qualification.IsEnabled))
+                                 ?? activeTierCards.FirstOrDefault(c => c.Qualification == null || !c.Qualification.IsEnabled)
+                                 ?? activeTierCards.FirstOrDefault();
+                if (availableCard != null && (availableCard.Qualification == null || !availableCard.Qualification.IsEnabled))
+                {
+                    ApplyTierCardSelection(availableCard);
+                }
             }
 
             var displayed = GetDisplayedRooms();
@@ -1428,17 +1830,10 @@
 
     private List<DayScheduleSlotConfig> GetActiveTimeSlots()
     {
-        if (string.IsNullOrEmpty(_selectedTierCardId))
+        var dayConfig = GetCurrentDayConfig();
+        if (dayConfig != null && dayConfig.Slots != null && dayConfig.Slots.Count > 0)
         {
-            return new List<DayScheduleSlotConfig>();
-        }
-
-        var tierCards = _settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards();
-        var card = tierCards.FirstOrDefault(c => c.Id == _selectedTierCardId);
-
-        if (card != null && card.TimeSlots.Count > 0)
-        {
-            return card.TimeSlots.Where(s => s.IsActive).ToList();
+            return dayConfig.Slots.Where(s => s.IsActive).ToList();
         }
         return new List<DayScheduleSlotConfig>();
     }
@@ -1524,6 +1919,98 @@
 
     private void SelectTierCard(PricingTierCardConfig card)
     {
+        // If this tier card requires qualification and has not been qualified yet, pop up the qualification questionnaire modal
+        if (card.Qualification != null && card.Qualification.IsEnabled)
+        {
+            if (!_qualificationAnswers.ContainsKey(card.Id))
+            {
+                _evaluatingTierCard = card;
+                _tempQualificationAnswers = new Dictionary<string, bool>();
+                _isEditingSection1 = false;
+                _showQualificationModal = true;
+                StateHasChanged();
+                return;
+            }
+        }
+
+        ApplyTierCardSelection(card);
+    }
+
+    private void ReopenQualificationModal(PricingTierCardConfig card)
+    {
+        _evaluatingTierCard = card;
+        _tempQualificationAnswers = _qualificationAnswers.TryGetValue(card.Id, out var existing)
+            ? new Dictionary<string, bool>(existing)
+            : new Dictionary<string, bool>();
+        _isEditingSection1 = false;
+        _showQualificationModal = true;
+        StateHasChanged();
+    }
+
+    private void SetTempAnswer(string questionId, bool isYes, bool isSection1 = false)
+    {
+        if (isSection1 && isYes && _evaluatingTierCard?.Qualification != null)
+        {
+            int minSec1Yes = _evaluatingTierCard.Qualification.Section1MinRequiredYes > 0 ? _evaluatingTierCard.Qualification.Section1MinRequiredYes : 1;
+            if (minSec1Yes == 1)
+            {
+                // If only 1 is required, clear other Section 1 YES answers to focus on the selected one
+                var sec1Ids = _evaluatingTierCard.Qualification.Section1Questions.Select(q => q.Id).ToHashSet();
+                foreach (var id in sec1Ids)
+                {
+                    if (id != questionId)
+                    {
+                        _tempQualificationAnswers[id] = false;
+                    }
+                }
+                _isEditingSection1 = false;
+            }
+        }
+
+        _tempQualificationAnswers[questionId] = isYes;
+        StateHasChanged();
+    }
+
+    private void CancelQualificationModal()
+    {
+        _showQualificationModal = false;
+        _evaluatingTierCard = null;
+        StateHasChanged();
+    }
+
+    private void ConfirmQualificationAndSelectRate()
+    {
+        if (_evaluatingTierCard == null) return;
+
+        _qualificationAnswers[_evaluatingTierCard.Id] = new Dictionary<string, bool>(_tempQualificationAnswers);
+        _showQualificationModal = false;
+        ApplyTierCardSelection(_evaluatingTierCard);
+        _evaluatingTierCard = null;
+        StateHasChanged();
+    }
+
+    private void SwitchToNonMemberTier()
+    {
+        _showQualificationModal = false;
+        _evaluatingTierCard = null;
+
+        var tierCards = _settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards();
+        // Look for Non-Member tier card first, or the first card that does not require qualification
+        var nonMemberCard = tierCards.FirstOrDefault(c => 
+            (c.AssociatedRenterType != null && c.AssociatedRenterType.Contains("Non", StringComparison.OrdinalIgnoreCase)) ||
+            (c.Title != null && c.Title.Contains("Non", StringComparison.OrdinalIgnoreCase)))
+            ?? tierCards.FirstOrDefault(c => c.Qualification == null || !c.Qualification.IsEnabled)
+            ?? tierCards.FirstOrDefault();
+
+        if (nonMemberCard != null)
+        {
+            ApplyTierCardSelection(nonMemberCard);
+        }
+        StateHasChanged();
+    }
+
+    private void ApplyTierCardSelection(PricingTierCardConfig card)
+    {
         _selectedTierCardId = card.Id;
         _selectedSubGroupId = null; // reset sub group when changing card
         _request.RenterType = card.AssociatedRenterType ?? card.Title;
@@ -1539,6 +2026,9 @@
 
     private bool IsCurrentCategoryUnavailableOnDay()
     {
+        var dayConfig = GetCurrentDayConfig();
+        if (dayConfig != null && !dayConfig.IsAvailable) return true;
+
         if (string.IsNullOrEmpty(_selectedTierCardId)) return false;
         var currentCard = (_settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards()).FirstOrDefault(c => c.Id == _selectedTierCardId);
         return currentCard != null && !IsCardAvailableForDate(currentCard, _request.EventDate);
@@ -2074,6 +2564,32 @@
             }
             _request.AgreedPoliciesJson = System.Text.Json.JsonSerializer.Serialize(agreedList);
 
+            // Serialize Qualification answers if this rate card had a qualification questionnaire completed
+            if (!string.IsNullOrEmpty(_selectedTierCardId) && _qualificationAnswers.TryGetValue(_selectedTierCardId, out var qualAnsDict))
+            {
+                var currentCard = (_settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards()).FirstOrDefault(c => c.Id == _selectedTierCardId);
+                var qualRecord = new
+                {
+                    TierCardId = _selectedTierCardId,
+                    TierCardTitle = currentCard?.Title ?? _request.RenterType,
+                    VerifiedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    Section1Answers = currentCard?.Qualification?.Section1Questions?.Where(q => qualAnsDict.ContainsKey(q.Id)).Select(q => new
+                    {
+                        q.Id,
+                        q.Title,
+                        Answer = qualAnsDict[q.Id] ? "YES" : "NO",
+                        q.RequiredAttachmentNote
+                    }).ToList(),
+                    Section2Answers = currentCard?.Qualification?.Section2Questions?.Where(q => qualAnsDict.ContainsKey(q.Id)).Select(q => new
+                    {
+                        q.Id,
+                        q.Title,
+                        Answer = qualAnsDict[q.Id] ? "YES" : "NO"
+                    }).ToList()
+                };
+                _request.QualificationAnswersJson = System.Text.Json.JsonSerializer.Serialize(qualRecord);
+            }
+
             bool isTest = (_settings?.EnableSandboxMode == true) || (_settings?.FormIngestionMode == "Simulation");
 
             // Server-side conflict verification before saving
@@ -2206,6 +2722,8 @@
         {
             bool isTest = (_settings?.EnableSandboxMode == true) || (_settings?.FormIngestionMode == "Simulation");
             _inquiryModel.RequesterName = _inquiryModel.ApplicantName;
+            _inquiryModel.RequestPhoneCall = _inquiryRequestPhoneCall;
+            _inquiryModel.PreferredContactMethod = _inquiryRequestPhoneCall ? "Phone" : "Email";
 
             await RentalService.SubmitGeneralInquiryAsync(_inquiryModel, isTest);
             _isInquirySubmitted = true;

@@ -72,6 +72,19 @@ namespace GFC.BlazorServer.Models
         /// </summary>
         public bool ShowApprovedBadge { get; set; } = true;
 
+        /* ── Header Top Notice Banner (Configured Independently) ──────────── */
+        /// <summary>
+        /// Whether to show the introductory notification/notice banner at the top of the calendar.
+        /// </summary>
+        public bool ShowHeaderNoticeBanner { get; set; } = true;
+
+        /// <summary>
+        /// The message text displayed in the header notice banner at the top of the calendar.
+        /// </summary>
+        public string HeaderNoticeBannerText { get; set; } =
+            "Thank you for visiting our Calendar of Events. You can view from this calendar which dates are potentially available for your event.\n" +
+            "If you see an available date that fits your needs, please fill out an online application and someone will get back to you to confirm the date.";
+
         /* ── Header Top Buttons (Configured Independently) ─────────────────── */
         /// <summary>
         /// Whether to show the Book the Hall CTA button in the header at the top of the calendar.
