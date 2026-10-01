@@ -368,7 +368,8 @@ window.GfcFullCalendar = (function () {
         let rowsHtml = '';
 
         // Status Badge Row
-        if (config.showModalStatus !== false) {
+        const isClub = event.extendedProps?.isClubEvent === true;
+        if (config.showModalStatus !== false && !isClub) {
             let statusBadge = '';
             if (status === 'pending') {
                 const label = config.pendingBadgeText || 'PENDING';
@@ -448,9 +449,9 @@ window.GfcFullCalendar = (function () {
 
         const activeSlots = (dayConfig && dayConfig.slots) ? dayConfig.slots.filter(s => s.isActive !== false) : [];
 
-        // Check if any all-day booking exists
-        const hasAllDay = events.some(e => e.allDay);
-        if (hasAllDay) {
+        // Check if any all-day booking or blackout event exists
+        const hasAllDayOrBlackout = events.some(e => e.allDay || e.isBlackoutBlocked || (e.extendedProps && e.extendedProps.isBlackoutBlocked));
+        if (hasAllDayOrBlackout) {
             return { isFullyBooked: true, reason: 'allday', remainingCount: 0 };
         }
 
@@ -519,11 +520,14 @@ window.GfcFullCalendar = (function () {
                 };
 
                 let timeDisplay = isAllDay ? 'All-Day Booking' : `${formatT(e.start)} - ${formatT(e.end)}`;
-                let badge = isPending 
-                    ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
-                    : (isInquiry 
-                        ? `<span class="gfc-fc-badge gfc-fc-badge-inquiry">INQUIRY</span>`
-                        : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`);
+                let badge = '';
+                if (!e.isClubEvent) {
+                    badge = isPending 
+                        ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
+                        : (isInquiry 
+                            ? `<span class="gfc-fc-badge gfc-fc-badge-inquiry">INQUIRY</span>`
+                            : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`);
+                }
 
                 eventsHtml += `
                     <div style="background:#fdfbf7; border:1px solid #e8e3d8; border-left:4px solid ${isPending ? '#d97706' : (isInquiry ? '#0284c7' : '#166534')}; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
@@ -532,7 +536,8 @@ window.GfcFullCalendar = (function () {
                             ${badge}
                         </div>
                         <div style="font-size:0.82rem; color:#666; margin-bottom:2px;"><i class="bi bi-clock me-1"></i>${timeDisplay}</div>
-                        ${e.location ? `<div style="font-size:0.80rem; color:#777;"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : ''}
+                        ${e.location ? `<div style="font-size:0.80rem; color:#777; margin-bottom:2px;"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : ''}
+                        ${e.description ? `<div style="font-size:0.78rem; color:#555; background:#fff; border:1px solid #eee; border-radius:4px; padding:4px 8px; margin-top:4px;"><i class="bi bi-card-text me-1 text-muted"></i>${e.description}</div>` : ''}
                     </div>`;
             });
         } else {
@@ -550,8 +555,8 @@ window.GfcFullCalendar = (function () {
 
         if (availInfo.isFullyBooked) {
             actionsHtml += `
-                <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:14px 16px; margin-top:12px; text-align:center;">
-                    <div style="font-size:0.90rem; font-weight:700; color:#991b1b; margin-bottom:2px;">🚫 Date is Fully Booked</div>
+                <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:14px 16px; margin-top:14px; text-align:center;">
+                    <div style="font-size:0.92rem; font-weight:700; color:#991b1b; margin-bottom:2px;">🚫 Date is Fully Booked</div>
                     <div style="font-size:0.82rem; color:#b91c1c;">All available time slots for this date are currently reserved or pending. Please select another date.</div>
                 </div>`;
         } else {
@@ -562,14 +567,22 @@ window.GfcFullCalendar = (function () {
                 const hasPartial = events.length > 0;
                 const openMsg = hasPartial 
                     ? (config.mobileOpenSlotMessage || 'Remaining time slot(s) are available for booking on this date!')
-                    : 'Choose an option below to request a booking or ask a question for this date:';
+                    : 'This date is open and available for hall rental reservations!';
 
                 actionsHtml += `
-                    <div style="background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:12px 14px; margin-top:12px;">
-                        <div style="font-size:0.82rem; font-weight:600; color:#334155; margin-bottom:10px; text-align:center;">✨ ${openMsg}</div>
+                    <div style="background:linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border:2px solid #86efac; border-radius:12px; padding:16px; margin-top:14px; box-shadow:0 4px 12px rgba(22,101,52,0.08);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <span style="font-size:0.75rem; font-weight:800; background:#16a34a; color:#ffffff; padding:2px 8px; border-radius:20px; text-transform:uppercase; letter-spacing:0.04em;">
+                                <i class="bi bi-check-circle-fill me-1"></i>Slots Available
+                            </span>
+                            <span style="font-size:0.75rem; font-weight:700; color:#15803d;">Reserve Today</span>
+                        </div>
+                        <div style="font-size:0.90rem; font-weight:700; color:#14532d; margin-bottom:12px; line-height:1.35;">
+                            ✨ ${openMsg}
+                        </div>
                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                            ${showBook ? `<a href="/rentals/apply?date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1; min-width:140px; margin-top:0;">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
-                            ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1; min-width:140px; margin-top:0; background:#fff; color:#7a5c1e; border:1px solid #C49A49; box-shadow:none;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</a>` : ''}
+                            ${showBook ? `<a href="/rentals/apply?date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3);">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
+                            ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</a>` : ''}
                         </div>
                     </div>`;
             }
@@ -642,18 +655,21 @@ window.GfcFullCalendar = (function () {
         }
 
         // Determine badge label and visibility
+        const isClub = event.extendedProps?.isClubEvent === true;
         let badgeHtml = '';
-        if (status === 'pending') {
-            if (config.showPendingBadge !== false) {
-                const label = config.pendingBadgeText || 'PENDING';
-                badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-pending">${label}</span>`;
-            }
-        } else if (status === 'inquiry') {
-            badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-inquiry">INQUIRY</span>`;
-        } else {
-            if (config.showApprovedBadge !== false) {
-                const label = config.approvedBadgeText || 'RESERVED';
-                badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-booked">${label}</span>`;
+        if (!isClub) {
+            if (status === 'pending') {
+                if (config.showPendingBadge !== false) {
+                    const label = config.pendingBadgeText || 'PENDING';
+                    badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-pending">${label}</span>`;
+                }
+            } else if (status === 'inquiry') {
+                badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-inquiry">INQUIRY</span>`;
+            } else {
+                if (config.showApprovedBadge !== false) {
+                    const label = config.approvedBadgeText || 'RESERVED';
+                    badgeHtml = `<span class="gfc-fc-badge gfc-fc-badge-booked">${label}</span>`;
+                }
             }
         }
 
@@ -762,9 +778,12 @@ window.GfcFullCalendar = (function () {
                 };
 
                 let timeDisplay = isAllDay ? 'All-Day Booking' : `${formatT(e.start)} - ${formatT(e.end)}`;
-                let badge = isPending 
-                    ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
-                    : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`;
+                let badge = '';
+                if (!e.isClubEvent) {
+                    badge = isPending 
+                        ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
+                        : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`;
+                }
 
                 content += `<div class="gfc-mobile-event-card ${isPending ? 'pending' : ''}">
                               <div class="d-flex align-items-center justify-content-between mb-1">
@@ -798,13 +817,18 @@ window.GfcFullCalendar = (function () {
                 const hasPartial = events.length > 0;
                 const openMsg = hasPartial 
                     ? (config.mobileOpenSlotMessage || 'Remaining time slot(s) are available for booking on this date!')
-                    : 'This entire date is currently open for booking!';
+                    : 'This entire date is open and available for booking!';
 
-                content += `<div class="gfc-mobile-open-banner">
-                              <div class="small fw-semibold text-success mb-2">✨ ${openMsg}</div>
-                              <div class="gfc-mobile-action-btns">
-                                ${showBook ? `<a href="/rentals/apply?date=${dateStr}" class="gfc-mobile-action-btn gfc-mobile-btn-book">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
-                                ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" class="gfc-mobile-action-btn gfc-mobile-btn-inquiry">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</a>` : ''}
+                content += `<div class="gfc-mobile-open-banner" style="background:linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border:2px solid #86efac; border-radius:12px; padding:14px; margin-top:12px; box-shadow:0 3px 10px rgba(22,101,52,0.08);">
+                              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                                <span style="font-size:0.72rem; font-weight:800; background:#16a34a; color:#ffffff; padding:2px 8px; border-radius:20px; text-transform:uppercase;">
+                                  <i class="bi bi-check-circle-fill me-1"></i>Available
+                                </span>
+                              </div>
+                              <div class="small fw-bold text-success mb-2" style="font-size:0.88rem; color:#14532d !important; text-align:left;">✨ ${openMsg}</div>
+                              <div class="gfc-mobile-action-btns" style="margin-top:10px;">
+                                ${showBook ? `<a href="/rentals/apply?date=${dateStr}" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
+                                ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</a>` : ''}
                               </div>
                             </div>`;
             }
@@ -832,10 +856,12 @@ window.GfcFullCalendar = (function () {
             borderColor:     primaryColor || '#C49A49',
             textColor:       textColor    || '#FFFFFF',
             extendedProps:   {
-                status:      e.status      || e.extendedProps?.status || 'Approved',
-                description: e.description || e.extendedProps?.description,
-                location:    e.location    || e.extendedProps?.location,
-                source:      e.source
+                status:            e.status            || e.extendedProps?.status || 'Approved',
+                isClubEvent:       e.isClubEvent       || e.extendedProps?.isClubEvent || false,
+                isBlackoutBlocked: e.isBlackoutBlocked || e.extendedProps?.isBlackoutBlocked || false,
+                description:       e.description       || e.extendedProps?.description,
+                location:          e.location          || e.extendedProps?.location,
+                source:            e.source
             }
         }));
     }
@@ -878,8 +904,8 @@ window.GfcFullCalendar = (function () {
                 eventClick:   info => {
                     info.jsEvent.preventDefault();
                     info.jsEvent.stopPropagation();
+                    const dStr = info.event.startStr ? info.event.startStr.substring(0, 10) : '';
                     if (isMobileViewport(containerId) && payload.mobileDisplayMode !== 'standard') {
-                        const dStr = info.event.startStr ? info.event.startStr.substring(0, 10) : '';
                         if (dStr) {
                             // Find and highlight matching day element
                             document.querySelectorAll('.gfc-mobile-selected-day').forEach(d => d.classList.remove('gfc-mobile-selected-day'));
@@ -888,7 +914,11 @@ window.GfcFullCalendar = (function () {
                             renderMobileDayDrawer(dStr, containerId);
                         }
                     } else {
-                        openModal(info.event, containerId);
+                        if (dStr) {
+                            openDateModal(dStr, containerId);
+                        } else {
+                            openModal(info.event, containerId);
+                        }
                     }
                 },
                 dateClick:    info => {

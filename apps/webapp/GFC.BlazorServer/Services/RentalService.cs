@@ -724,6 +724,12 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'QualificationAnswersJson')
                         ALTER TABLE [dbo].[HallRentalRequests] ADD [QualificationAnswersJson] NVARCHAR(MAX) NULL;
+
+                    -- Ensure GuestCount allows NULL or has a default of 0
+                    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'GuestCount' AND is_nullable = 0)
+                    BEGIN
+                        ALTER TABLE [dbo].[HallRentalRequests] ALTER COLUMN [GuestCount] INT NULL;
+                    END
                 ";
                 await context.Database.ExecuteSqlRawAsync(sql);
             }
@@ -1054,7 +1060,7 @@ namespace GFC.BlazorServer.Services
                 RequesterPhone = inquiry.RequesterPhone ?? "",
                 RequestPhoneCall = inquiry.RequestPhoneCall,
                 PreferredContactMethod = inquiry.RequestPhoneCall ? "Phone" : "Email",
-                GuestCount = inquiry.GuestCount,
+                GuestCount = inquiry.GuestCount ?? 0,
                 EventType = !string.IsNullOrWhiteSpace(inquiry.EventType) ? inquiry.EventType : "General Inquiry",
                 EventDescription = inquiry.EventDescription,
                 RoomSelected = inquiry.RoomSelected ?? "Function Hall",

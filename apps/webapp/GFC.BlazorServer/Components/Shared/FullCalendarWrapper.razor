@@ -304,6 +304,65 @@
         catch { }
     }
 
+    private bool IsClubEvent(CalendarEventItem? evt)
+    {
+        if (evt == null) return false;
+        var desc = evt.Description ?? string.Empty;
+
+        // If explicitly tagged as Club Event
+        if (desc.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // If it possesses hall rental / application structure, it is a rental
+        if (desc.Contains("Preferred Event Date:", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Hall Rental Application", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Full Name (Applicant):", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Contact Phone Number:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Check if calendar feed source is specifically a Rental Calendar
+        if (!string.IsNullOrEmpty(evt.Source) && evt.Source.Contains("Rental", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Check title convention
+        var title = evt.Title ?? string.Empty;
+        if (title.StartsWith("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
+            title.StartsWith("PENDING -", StringComparison.OrdinalIgnoreCase) ||
+            title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private string CleanPublicDescription(string? desc, bool isClub)
+    {
+        if (string.IsNullOrWhiteSpace(desc)) return string.Empty;
+        if (!isClub) return desc;
+
+        var lines = desc.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None)
+            .Where(l => !l.StartsWith("Category:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Event Category:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Block Out Rental Slots:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Created By:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Created:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Modified By:", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Modified:", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l.StartsWith("Notes:", StringComparison.OrdinalIgnoreCase) ? l.Substring(6).Trim() : l)
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+
+        return string.Join("\n", lines).Trim();
+    }
+
     private object BuildPayload(bool includeAutoRefresh)
     {
         var rawEvents = _events ?? new List<CalendarEventItem>();
@@ -377,6 +436,10 @@
             {
                 string rawTitle = e.Title ?? "(No Title)";
                 string status = e.Status ?? "Approved";
+                bool isClub = IsClubEvent(e);
+                bool isBlackout = isClub && e.Description != null && e.Description.Contains("Block Out Rental Slots: Yes", StringComparison.OrdinalIgnoreCase);
+                string publicDesc = CleanPublicDescription(e.Description, isClub);
+
                 if (rawTitle.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
                 {
                     status = "Pending";
@@ -390,15 +453,17 @@
 
                 return new
                 {
-                    id          = e.GoogleEventId ?? Guid.NewGuid().ToString("N"),
-                    title       = rawTitle,
-                    status      = status,
-                    start       = e.Start.ToString("o"),
-                    end         = e.End != default ? e.End.ToString("o") : (string?)null,
-                    allDay      = e.IsAllDay,
-                    description = e.Description,
-                    location    = e.Location,
-                    source      = e.Source
+                    id                = e.GoogleEventId ?? Guid.NewGuid().ToString("N"),
+                    title             = rawTitle,
+                    status            = status,
+                    isClubEvent       = isClub,
+                    isBlackoutBlocked = isBlackout,
+                    start             = e.Start.ToString("o"),
+                    end               = e.End != default ? e.End.ToString("o") : (string?)null,
+                    allDay            = e.IsAllDay,
+                    description       = publicDesc,
+                    location          = e.Location,
+                    source            = e.Source
                 };
             }).ToArray()
         };
