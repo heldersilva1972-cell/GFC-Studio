@@ -219,6 +219,39 @@ window.GfcFullCalendar = (function () {
                 color: #0369a1;
             }
 
+            /* Partial Day Availability Indicator Pill */
+            .gfc-fc-partial-avail-pill {
+                margin: 4px 4px 2px;
+                padding: 3px 6px;
+                background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                border: 1px dashed #86efac;
+                border-radius: 6px;
+                color: #15803d;
+                font-size: 0.70rem;
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                cursor: pointer;
+                transition: all 0.15s ease;
+                box-shadow: 0 1px 3px rgba(22,101,52,0.06);
+            }
+            .gfc-fc-partial-avail-pill:hover {
+                background: #bbf7d0;
+                border-color: #4ade80;
+                color: #14532d;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 6px rgba(22,101,52,0.15);
+            }
+            .gfc-fc-partial-avail-dot {
+                width: 6px;
+                height: 6px;
+                background-color: #16a34a;
+                border-radius: 50%;
+                display: inline-block;
+                flex-shrink: 0;
+            }
+
             /* Mobile Day Drawer & Dot Indicators */
             .gfc-mobile-dot-wrap {
                 display: flex;
@@ -458,6 +491,7 @@ window.GfcFullCalendar = (function () {
         if (activeSlots.length > 0) {
             // Count how many configured slots have overlapping bookings
             let bookedSlotsCount = 0;
+            const openSlots = [];
             activeSlots.forEach(slot => {
                 const sStart = parseTimeToMinutes(slot.startTime);
                 const sEnd = parseTimeToMinutes(slot.endTime);
@@ -471,21 +505,35 @@ window.GfcFullCalendar = (function () {
                     return (sStart < eEnd && sEnd > eStart);
                 });
 
-                if (isSlotTaken) bookedSlotsCount++;
+                if (isSlotTaken) {
+                    bookedSlotsCount++;
+                } else {
+                    openSlots.push({
+                        label: slot.label || `${slot.startTime} - ${slot.endTime}`,
+                        startTime: slot.startTime,
+                        endTime: slot.endTime
+                    });
+                }
             });
 
             if (bookedSlotsCount >= activeSlots.length) {
-                return { isFullyBooked: true, reason: 'all_slots_taken', remainingCount: 0, totalSlots: activeSlots.length };
+                return { isFullyBooked: true, reason: 'all_slots_taken', remainingCount: 0, totalSlots: activeSlots.length, openSlots: [] };
             }
-            return { isFullyBooked: false, reason: 'partial', remainingCount: activeSlots.length - bookedSlotsCount, totalSlots: activeSlots.length };
+            return {
+                isFullyBooked: false,
+                reason: 'partial',
+                remainingCount: activeSlots.length - bookedSlotsCount,
+                totalSlots: activeSlots.length,
+                openSlots: openSlots
+            };
         }
 
         // Flexible hours: if 2 or more events exist or total duration >= 10 hours, treat as fully booked
         if (events.length >= 2) {
-            return { isFullyBooked: true, reason: 'capacity', remainingCount: 0 };
+            return { isFullyBooked: true, reason: 'capacity', remainingCount: 0, openSlots: [] };
         }
 
-        return { isFullyBooked: false, reason: events.length > 0 ? 'partial' : 'empty', remainingCount: 1 };
+        return { isFullyBooked: false, reason: events.length > 0 ? 'partial' : 'empty', remainingCount: 1, openSlots: [] };
     }
 
     function openDateModal(dateStr, containerId) {
@@ -520,8 +568,16 @@ window.GfcFullCalendar = (function () {
                 };
 
                 let timeDisplay = isAllDay ? 'All-Day Booking' : `${formatT(e.start)} - ${formatT(e.end)}`;
+                
+                const showTitle = config.showModalTitle !== false;
+                const showStatus = config.showModalStatus !== false;
+                const showTime = config.showModalTime !== false;
+                const showLoc = config.showModalLoc !== false;
+                const showDesc = config.showModalDesc !== false;
+                const showSource = config.showModalSource !== false;
+
                 let badge = '';
-                if (!e.isClubEvent) {
+                if (showStatus && !e.isClubEvent) {
                     badge = isPending 
                         ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
                         : (isInquiry 
@@ -529,15 +585,23 @@ window.GfcFullCalendar = (function () {
                             : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`);
                 }
 
+                const titleHtml = showTitle ? `<span style="font-weight:700; color:#1a1a1a; font-size:0.92rem;">${cleanTitle}</span>` : '';
+                const timeHtml = (showTime && timeDisplay) ? `<div style="font-size:0.82rem; color:#666; margin-bottom:2px;"><i class="bi bi-clock me-1"></i>${timeDisplay}</div>` : '';
+                const locHtml = (showLoc && e.location) ? `<div style="font-size:0.80rem; color:#777; margin-bottom:2px;"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : '';
+                const descHtml = (showDesc && e.description) ? `<div style="font-size:0.78rem; color:#555; background:#fff; border:1px solid #eee; border-radius:4px; padding:4px 8px; margin-top:4px;"><i class="bi bi-card-text me-1 text-muted"></i>${e.description}</div>` : '';
+                const sourceHtml = (showSource && e.source) ? `<div style="font-size:0.72rem; color:#888; margin-top:3px;"><i class="bi bi-info-circle me-1"></i>Source: ${e.source}</div>` : '';
+
                 eventsHtml += `
                     <div style="background:#fdfbf7; border:1px solid #e8e3d8; border-left:4px solid ${isPending ? '#d97706' : (isInquiry ? '#0284c7' : '#166534')}; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-                            <span style="font-weight:700; color:#1a1a1a; font-size:0.92rem;">${cleanTitle}</span>
+                        ${(titleHtml || badge) ? `
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; flex-wrap:wrap; gap:4px;">
+                            ${titleHtml}
                             ${badge}
-                        </div>
-                        <div style="font-size:0.82rem; color:#666; margin-bottom:2px;"><i class="bi bi-clock me-1"></i>${timeDisplay}</div>
-                        ${e.location ? `<div style="font-size:0.80rem; color:#777; margin-bottom:2px;"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : ''}
-                        ${e.description ? `<div style="font-size:0.78rem; color:#555; background:#fff; border:1px solid #eee; border-radius:4px; padding:4px 8px; margin-top:4px;"><i class="bi bi-card-text me-1 text-muted"></i>${e.description}</div>` : ''}
+                        </div>` : ''}
+                        ${timeHtml}
+                        ${locHtml}
+                        ${descHtml}
+                        ${sourceHtml}
                     </div>`;
             });
         } else {
@@ -778,20 +842,37 @@ window.GfcFullCalendar = (function () {
                 };
 
                 let timeDisplay = isAllDay ? 'All-Day Booking' : `${formatT(e.start)} - ${formatT(e.end)}`;
+                
+                const showTitle = config.showModalTitle !== false;
+                const showStatus = config.showModalStatus !== false;
+                const showTime = config.showModalTime !== false;
+                const showLoc = config.showModalLoc !== false;
+                const showDesc = config.showModalDesc !== false;
+                const showSource = config.showModalSource !== false;
+
                 let badge = '';
-                if (!e.isClubEvent) {
+                if (showStatus && !e.isClubEvent) {
                     badge = isPending 
                         ? `<span class="gfc-fc-badge gfc-fc-badge-pending">${config.pendingBadgeText || 'PENDING'}</span>`
                         : `<span class="gfc-fc-badge gfc-fc-badge-booked">${config.approvedBadgeText || 'RESERVED'}</span>`;
                 }
 
+                const titleHtml = showTitle ? `<span class="fw-bold small text-dark">${cleanTitle}</span>` : '';
+                const timeHtml = (showTime && timeDisplay) ? `<div class="small text-muted mb-1"><i class="bi bi-clock me-1"></i>${timeDisplay}</div>` : '';
+                const locHtml = (showLoc && e.location) ? `<div class="small text-secondary mb-1"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : '';
+                const descHtml = (showDesc && e.description) ? `<div class="small text-muted p-1 bg-white rounded border mb-1" style="font-size:0.75rem;"><i class="bi bi-card-text me-1"></i>${e.description}</div>` : '';
+                const sourceHtml = (showSource && e.source) ? `<div class="small text-muted" style="font-size:0.70rem;"><i class="bi bi-info-circle me-1"></i>Source: ${e.source}</div>` : '';
+
                 content += `<div class="gfc-mobile-event-card ${isPending ? 'pending' : ''}">
+                              ${(titleHtml || badge) ? `
                               <div class="d-flex align-items-center justify-content-between mb-1">
-                                <span class="fw-bold small text-dark">${cleanTitle}</span>
+                                ${titleHtml}
                                 ${badge}
-                              </div>
-                              <div class="small text-muted mb-1"><i class="bi bi-clock me-1"></i>${timeDisplay}</div>
-                              ${e.location ? `<div class="small text-secondary"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : ''}
+                              </div>` : ''}
+                              ${timeHtml}
+                              ${locHtml}
+                              ${descHtml}
+                              ${sourceHtml}
                             </div>`;
             });
         } else {
@@ -845,25 +926,53 @@ window.GfcFullCalendar = (function () {
     }
 
     /* ── Build event array ───────────────────────────────────────────── */
-    function buildEvents(events, primaryColor, textColor) {
-        return (events || []).map(e => ({
-            id:              e.id || e.googleEventId,
-            title:           e.title || '(No Title)',
-            start:           e.start,
-            end:             e.end   || undefined,
-            allDay:          e.allDay,
-            backgroundColor: primaryColor || '#C49A49',
-            borderColor:     primaryColor || '#C49A49',
-            textColor:       textColor    || '#FFFFFF',
-            extendedProps:   {
-                status:            e.status            || e.extendedProps?.status || 'Approved',
-                isClubEvent:       e.isClubEvent       || e.extendedProps?.isClubEvent || false,
-                isBlackoutBlocked: e.isBlackoutBlocked || e.extendedProps?.isBlackoutBlocked || false,
-                description:       e.description       || e.extendedProps?.description,
-                location:          e.location          || e.extendedProps?.location,
-                source:            e.source
+    function buildEvents(events, config) {
+        config = config || {};
+        const defaultBg = config.primaryColor || '#C49A49';
+        const defaultText = config.textColor || '#FFFFFF';
+        const colorCodeClub = config.colorCodeClubEvents !== false; // default true
+        const clubBg = config.clubEventColor || '#7c3aed';
+        const clubText = config.clubEventTextColor || '#FFFFFF';
+        const secBg = config.secondarySpaceEventColor || '#0284c7';
+        const secText = config.secondarySpaceEventTextColor || '#FFFFFF';
+
+        return (events || []).map(e => {
+            const isClub = e.isClubEvent || e.extendedProps?.isClubEvent || false;
+            const isSec = e.isSecondarySpace || e.extendedProps?.isSecondarySpace || false;
+
+            let bg = defaultBg;
+            let fg = defaultText;
+
+            if (colorCodeClub && isClub) {
+                if (isSec) {
+                    bg = secBg;
+                    fg = secText;
+                } else {
+                    bg = clubBg;
+                    fg = clubText;
+                }
             }
-        }));
+
+            return {
+                id:              e.id || e.googleEventId,
+                title:           e.title || '(No Title)',
+                start:           e.start,
+                end:             e.end   || undefined,
+                allDay:          e.allDay,
+                backgroundColor: bg,
+                borderColor:     bg,
+                textColor:       fg,
+                extendedProps:   {
+                    status:            e.status            || e.extendedProps?.status || 'Approved',
+                    isClubEvent:       isClub,
+                    isSecondarySpace:  isSec,
+                    isBlackoutBlocked: e.isBlackoutBlocked || e.extendedProps?.isBlackoutBlocked || false,
+                    description:       e.description       || e.extendedProps?.description,
+                    location:          e.location          || e.extendedProps?.location,
+                    source:            e.source
+                }
+            };
+        });
     }
 
     /* ── Public API ──────────────────────────────────────────────────── */
@@ -899,8 +1008,22 @@ window.GfcFullCalendar = (function () {
                 },
                 height:       'auto',
                 nowIndicator: true,
-                events:       buildEvents(payload.events, payload.primaryColor, payload.textColor),
+                events:       buildEvents(payload.events, payload),
                 eventContent: info => renderEventContent(info, containerId),
+                eventDidMount: function(info) {
+                    if (info.el && info.event) {
+                        const bg = info.event.backgroundColor;
+                        const text = info.event.textColor;
+                        if (bg) {
+                            info.el.style.setProperty('background-color', bg, 'important');
+                            info.el.style.setProperty('border-color', bg, 'important');
+                            info.el.style.setProperty('box-shadow', '0 1px 3px rgba(0,0,0,0.06)', 'important');
+                        }
+                        if (text) {
+                            info.el.style.setProperty('color', text, 'important');
+                        }
+                    }
+                },
                 eventClick:   info => {
                     info.jsEvent.preventDefault();
                     info.jsEvent.stopPropagation();
@@ -929,6 +1052,50 @@ window.GfcFullCalendar = (function () {
                         renderMobileDayDrawer(info.dateStr, containerId);
                     } else {
                         openDateModal(info.dateStr, containerId);
+                    }
+                },
+                dayCellDidMount: info => {
+                    const config = _configs[containerId] || {};
+                    if (config.showPartialAvailabilityBadge === false) return;
+                    if (isMobileViewport(containerId) && config.mobileDisplayMode !== 'standard') return;
+
+                    const dateStr = info.date ? info.date.toISOString().substring(0, 10) : '';
+                    if (!dateStr) return;
+
+                    const dayEvents = (config.events || []).filter(e => {
+                        const startD = e.start ? e.start.substring(0, 10) : '';
+                        return startD === dateStr;
+                    });
+
+                    // ONLY display on days that have at least 1 booking AND at least 1 remaining open slot
+                    if (dayEvents.length === 0) return;
+
+                    const avail = checkDateAvailability(dateStr, dayEvents, config);
+                    if (!avail.isFullyBooked && avail.reason === 'partial' && avail.remainingCount > 0) {
+                        const pill = document.createElement('div');
+                        pill.className = 'gfc-fc-partial-avail-pill';
+                        
+                        const count = avail.remainingCount || 1;
+                        let badgeLabel = count === 1 
+                            ? `${count} Slot Open` 
+                            : `${count} Slots Open`;
+
+                        if (config.partialAvailabilityBadgeText && config.partialAvailabilityBadgeText.trim() !== '' && config.partialAvailabilityBadgeText !== 'Slot Open') {
+                            badgeLabel = config.partialAvailabilityBadgeText.replace('{count}', count);
+                        }
+
+                        pill.innerHTML = `<span class="gfc-fc-partial-avail-dot"></span><span class="text-truncate">${badgeLabel}</span>`;
+                        pill.title = `Partial day availability: ${avail.remainingCount} slot(s) open for booking. Click to view schedule or book.`;
+                        
+                        pill.addEventListener('click', (ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            openDateModal(dateStr, containerId);
+                        });
+
+                        // Append to day cell frame
+                        const frame = info.el.querySelector('.fc-daygrid-day-frame') || info.el;
+                        frame.appendChild(pill);
                     }
                 },
                 loading:      isLoading => {
@@ -965,7 +1132,7 @@ window.GfcFullCalendar = (function () {
             if (!cal) { this.init(containerId, payload); return; }
             if (payload.defaultView && cal.view.type !== payload.defaultView) cal.changeView(payload.defaultView);
             cal.removeAllEvents();
-            buildEvents(payload.events, payload.primaryColor, payload.textColor).forEach(e => cal.addEvent(e));
+            buildEvents(payload.events, payload).forEach(e => cal.addEvent(e));
             cal.render();
 
             if (isMobileViewport(containerId) && payload.mobileDisplayMode !== 'standard') {

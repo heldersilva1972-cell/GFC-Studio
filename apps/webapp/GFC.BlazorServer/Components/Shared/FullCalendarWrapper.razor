@@ -309,9 +309,11 @@
         if (evt == null) return false;
         var desc = evt.Description ?? string.Empty;
 
-        // If explicitly tagged as Club Event
+        // If explicitly tagged as Club Event or Secondary Space Meeting / Internal
         if (desc.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
-            desc.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase))
+            desc.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Meeting / Internal", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Category: Meeting", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -329,6 +331,14 @@
         if (!string.IsNullOrEmpty(evt.Source) && evt.Source.Contains("Rental", StringComparison.OrdinalIgnoreCase))
         {
             return false;
+        }
+
+        // Check room location: if in secondary space (e.g. Office, Directors Room) and not a rental application, treat as internal meeting
+        var evtRoomNorm = NormalizeRoomName(evt.Location);
+        var managedLocNorm = NormalizeRoomName(_webSettings?.ManagedRentalLocation ?? "Function Hall");
+        if (evtRoomNorm != managedLocNorm && evtRoomNorm != "entire facility")
+        {
+            return true;
         }
 
         // Check title convention
@@ -363,9 +373,20 @@
         return string.Join("\n", lines).Trim();
     }
 
+    private static string NormalizeRoomName(string? room)
+    {
+        if (string.IsNullOrWhiteSpace(room)) return "function hall";
+        var r = room.Trim().ToLowerInvariant();
+        if (r.Contains("hall") || r.Contains("function")) return "function hall";
+        if (r.Contains("office")) return "office";
+        if (r.Contains("entire") || r.Contains("facility")) return "entire facility";
+        return r;
+    }
+
     private object BuildPayload(bool includeAutoRefresh)
     {
         var rawEvents = _events ?? new List<CalendarEventItem>();
+        var managedLocNorm = NormalizeRoomName(_webSettings?.ManagedRentalLocation ?? "Function Hall");
 
         var filteredEvents = rawEvents.Where(e =>
         {
@@ -375,6 +396,16 @@
                                           (e.Title != null && (e.Title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase) || e.Title.StartsWith("INQUIRY:", StringComparison.OrdinalIgnoreCase)));
                 if (isPendingOrInquiry) return false;
             }
+
+            // If event is in a secondary flexible space (e.g. Office), only display on public calendar if explicitly flagged
+            var evtLocNorm = NormalizeRoomName(e.Location);
+            bool isSecondarySpace = evtLocNorm != managedLocNorm && evtLocNorm != "entire facility";
+            if (isSecondarySpace)
+            {
+                bool showOnPublic = e.Description != null && e.Description.Contains("Show on Public Calendar: Yes", StringComparison.OrdinalIgnoreCase);
+                if (!showOnPublic) return false;
+            }
+
             return true;
         }).ToList();
 
@@ -383,6 +414,11 @@
             defaultView        = _settings.DefaultView,
             primaryColor       = _settings.PrimaryColor,
             textColor          = _settings.TextColor,
+            colorCodeClubEvents        = _settings.ColorCodeClubEvents,
+            clubEventColor             = _settings.ClubEventColor,
+            clubEventTextColor         = _settings.ClubEventTextColor,
+            secondarySpaceEventColor   = _settings.SecondarySpaceEventColor,
+            secondarySpaceEventTextColor = _settings.SecondarySpaceEventTextColor,
             monthDisplayMode   = _settings.MonthDisplayMode ?? "multiline",
             monthFields        = (_settings.MonthCalendarFields ?? CalendarSettings.GetDefaultPublicMonthCalendarFields())
                                     .Where(f => f.IsEnabled)
@@ -393,6 +429,8 @@
             approvedBadgeText  = _settings.ApprovedBadgeText ?? "RESERVED",
             showPendingBadge   = _settings.ShowPendingBadge,
             showApprovedBadge  = _settings.ShowApprovedBadge,
+            showPartialAvailabilityBadge = _settings.ShowPartialAvailabilityBadge,
+            partialAvailabilityBadgeText = _settings.PartialAvailabilityBadgeText ?? "Slot Open",
             
             // Modal detail preferences
             showEventModal     = _settings.ShowEventModal,
@@ -437,6 +475,8 @@
                 string rawTitle = e.Title ?? "(No Title)";
                 string status = e.Status ?? "Approved";
                 bool isClub = IsClubEvent(e);
+                var eLocNorm = NormalizeRoomName(e.Location);
+                bool isSecSpace = eLocNorm != managedLocNorm && eLocNorm != "entire facility";
                 bool isBlackout = isClub && e.Description != null && e.Description.Contains("Block Out Rental Slots: Yes", StringComparison.OrdinalIgnoreCase);
                 string publicDesc = CleanPublicDescription(e.Description, isClub);
 
@@ -457,6 +497,7 @@
                     title             = rawTitle,
                     status            = status,
                     isClubEvent       = isClub,
+                    isSecondarySpace  = isSecSpace,
                     isBlackoutBlocked = isBlackout,
                     start             = e.Start.ToString("o"),
                     end               = e.End != default ? e.End.ToString("o") : (string?)null,

@@ -15,16 +15,42 @@ namespace GFC.BlazorServer.Models
         public int Id { get; set; } = 1;
 
         /// <summary>
-        /// Primary colour (hex) used for event backgrounds and buttons (default: GFC Gold).
+        /// Primary colour (hex) used for standard rental event backgrounds and primary calendar accents (default: GFC Gold).
         /// </summary>
         [Required]
         public string PrimaryColor { get; set; } = "#C49A49";
 
         /// <summary>
-        /// Text colour (hex) for event titles.
+        /// Text colour (hex) for standard rental event titles and cards.
         /// </summary>
         [Required]
         public string TextColor { get; set; } = "#FFFFFF";
+
+        /* ── Event Color Coding Rules ────────────────────────────────────── */
+        /// <summary>
+        /// Whether to enable distinct custom colors for internal Club Events and Secondary Space meetings on the public calendar.
+        /// </summary>
+        public bool ColorCodeClubEvents { get; set; } = true;
+
+        /// <summary>
+        /// Background color for internal Club Events (Function Hall).
+        /// </summary>
+        public string ClubEventColor { get; set; } = "#7c3aed";
+
+        /// <summary>
+        /// Text color for internal Club Events.
+        /// </summary>
+        public string ClubEventTextColor { get; set; } = "#FFFFFF";
+
+        /// <summary>
+        /// Background color for Secondary Space meetings/events (e.g. Office, Directors Room).
+        /// </summary>
+        public string SecondarySpaceEventColor { get; set; } = "#0284c7";
+
+        /// <summary>
+        /// Text color for Secondary Space meetings/events.
+        /// </summary>
+        public string SecondarySpaceEventTextColor { get; set; } = "#FFFFFF";
 
         /// <summary>
         /// Default view: "dayGridMonth", "listMonth".
@@ -72,6 +98,17 @@ namespace GFC.BlazorServer.Models
         /// </summary>
         public bool ShowApprovedBadge { get; set; } = true;
 
+        /* ── Partial Day Availability Pill Settings ──────────────────────── */
+        /// <summary>
+        /// Whether to show a green "Slot Open" / "Partial Day Available" pill on dates with existing bookings that still have open rental slots.
+        /// </summary>
+        public bool ShowPartialAvailabilityBadge { get; set; } = true;
+
+        /// <summary>
+        /// Custom text template for the partial availability badge (e.g. "Slot Open" or "{count} Slot Open").
+        /// </summary>
+        public string PartialAvailabilityBadgeText { get; set; } = "Slot Open";
+
         /* ── Header Top Notice Banner (Configured Independently) ──────────── */
         /// <summary>
         /// Whether to show the introductory notification/notice banner at the top of the calendar.
@@ -86,6 +123,18 @@ namespace GFC.BlazorServer.Models
             "If you see an available date that fits your needs, please fill out an online application and someone will get back to you to confirm the date.";
 
         /* ── Header Top Buttons (Configured Independently) ─────────────────── */
+        /// <summary>
+        /// Whether to show the GFC Home button in the header at the top of the calendar.
+        /// </summary>
+        public bool ShowHeaderHomeButton { get; set; } = true;
+        public string HeaderHomeButtonText { get; set; } = "GFC Home";
+        public string HeaderHomeButtonUrl { get; set; } = "https://gloucesterfraternityclub.com";
+
+        /// <summary>
+        /// Whether to show the Home button on mobile view / phone preview bar.
+        /// </summary>
+        public bool ShowMobileHomeButton { get; set; } = true;
+
         /// <summary>
         /// Whether to show the Book the Hall CTA button in the header at the top of the calendar.
         /// </summary>
@@ -178,6 +227,112 @@ namespace GFC.BlazorServer.Models
                 new() { FieldKey = "booking_status", Label = "Booking Status Badge (Pending / Reserved)", Description = "Dynamic PENDING / RESERVED status pill", IsEnabled = true, Order = 4 },
                 new() { FieldKey = "public_notes", Label = "Public Description / Note", Description = "Event details or public summary", IsEnabled = false, Order = 5 }
             };
+        }
+
+        public static List<CalendarColorPreset> GetDefaultColorPresets()
+        {
+            return new List<CalendarColorPreset>
+            {
+                new("Warm Gold, Soft Lilac & Sky Mist", "#FEF3C7", "#92400E", "#F3E8FF", "#6B21A8", "#E0F2FE", "#0369A1", "Soft Gold tint, Translucent Lilac, Light Sky Blue"),
+                new("Cream Amber, Lavender & Mint", "#FFFBEB", "#B45309", "#EDE9FE", "#5B21B6", "#D1FAE5", "#065F46", "Cream Amber, Soft Lavender, Gentle Mint Green"),
+                new("Peach Blossom & Ice Blue", "#FFEDD5", "#9A3412", "#E0E7FF", "#3730A3", "#CFFAFE", "#155E75", "Translucent Peach, Light Periwinkle, Ice Cyan"),
+                new("Soft Rose, Orchid & Cloud Blue", "#FFE4E6", "#9F1239", "#FAE8FF", "#86198F", "#E0F2FE", "#075985", "Soft Rose tint, Light Orchid, Clear Cloud Blue"),
+                new("Buttercup Gold & Soft Slate", "#FEF9C3", "#854D0E", "#F1F5F9", "#334155", "#DBEAFE", "#1E40AF", "Light Buttercup, Clean Slate, Soft Azure"),
+                new("Seafoam Teal, Cotton Candy & Honey", "#CCFBF1", "#115E59", "#FCE7F3", "#9D174D", "#FEF3C7", "#92400E", "Soft Seafoam, Light Pastel Pink, Gentle Honey"),
+                new("Translucent Sage & Soft Violet", "#DCFCE7", "#166534", "#F3E8FF", "#7E22CE", "#E0F2FE", "#0284C7", "Translucent Sage Green, Soft Violet, Crisp Light Sky"),
+                new("Apricot Glow & Soft Indigo", "#FFEDD5", "#C2410C", "#EEF2FF", "#4338CA", "#E0F2FE", "#0369A1", "Light Apricot, Translucent Indigo, Cool Blue"),
+                new("Muted Champagne & Heather Purple", "#F5EFE6", "#7A5C1E", "#F5F3FF", "#6D28D9", "#E0F2FE", "#0284C7", "Champagne Gold, Soft Heather Purple, Light Azure"),
+                new("Clean Sky Cyan & Soft Blush", "#E0F2FE", "#0369A1", "#FCE7F3", "#BE185D", "#FEF9C3", "#854D0E", "Translucent Sky Cyan, Soft Blush, Light Honey")
+            };
+        }
+
+        public static List<ColorSwatchItem> GetStandardRentalSwatches()
+        {
+            return new List<ColorSwatchItem>
+            {
+                new("Translucent Gold", "#FEF3C7", "#92400E"),
+                new("Cream Amber", "#FFFBEB", "#B45309"),
+                new("Soft Champagne", "#F5EFE6", "#7A5C1E"),
+                new("Light Buttercup", "#FEF9C3", "#854D0E"),
+                new("Translucent Sky", "#E0F2FE", "#0369A1"),
+                new("Soft Ice Cyan", "#CFFAFE", "#155E75"),
+                new("Light Seafoam", "#CCFBF1", "#115E59"),
+                new("Translucent Sage", "#DCFCE7", "#166534"),
+                new("Soft Peach", "#FFEDD5", "#9A3412"),
+                new("Clean Slate Tint", "#F1F5F9", "#334155")
+            };
+        }
+
+        public static List<ColorSwatchItem> GetClubEventSwatches()
+        {
+            return new List<ColorSwatchItem>
+            {
+                new("Translucent Lilac", "#F3E8FF", "#6B21A8"),
+                new("Soft Lavender", "#EDE9FE", "#5B21B6"),
+                new("Light Orchid", "#FAE8FF", "#86198F"),
+                new("Pastel Violet", "#F5F3FF", "#6D28D9"),
+                new("Soft Blush Pink", "#FCE7F3", "#9D174D"),
+                new("Translucent Rose", "#FFE4E6", "#9F1239"),
+                new("Light Amber Glow", "#FEF3C7", "#B45309"),
+                new("Soft Periwinkle", "#E0E7FF", "#3730A3"),
+                new("Light Emerald Tint", "#D1FAE5", "#065F46"),
+                new("Pale Coral", "#FFEDD5", "#C2410C")
+            };
+        }
+
+        public static List<ColorSwatchItem> GetSecondarySpaceSwatches()
+        {
+            return new List<ColorSwatchItem>
+            {
+                new("Translucent Sky Blue", "#E0F2FE", "#0369A1"),
+                new("Light Ice Cyan", "#CFFAFE", "#155E75"),
+                new("Soft Seafoam", "#CCFBF1", "#115E59"),
+                new("Light Mint Green", "#D1FAE5", "#065F46"),
+                new("Soft Indigo Tint", "#EEF2FF", "#4338CA"),
+                new("Periwinkle Mist", "#E0E7FF", "#3730A3"),
+                new("Clean Light Slate", "#F1F5F9", "#334155"),
+                new("Light Cream Tint", "#FFFBEB", "#92400E"),
+                new("Soft Lilac Tint", "#F3E8FF", "#7E22CE"),
+                new("Gentle Sage Tint", "#DCFCE7", "#166534")
+            };
+        }
+    }
+
+    public class ColorSwatchItem
+    {
+        public string Name { get; set; }
+        public string BackgroundColor { get; set; }
+        public string TextColor { get; set; }
+
+        public ColorSwatchItem(string name, string bg, string text)
+        {
+            Name = name;
+            BackgroundColor = bg;
+            TextColor = text;
+        }
+    }
+
+    public class CalendarColorPreset
+    {
+        public string Name { get; set; }
+        public string PrimaryColor { get; set; }
+        public string TextColor { get; set; }
+        public string ClubColor { get; set; }
+        public string ClubTextColor { get; set; }
+        public string SecondaryColor { get; set; }
+        public string SecondaryTextColor { get; set; }
+        public string Description { get; set; }
+
+        public CalendarColorPreset(string name, string primary, string text, string club, string clubText, string secondary, string secondaryText, string desc)
+        {
+            Name = name;
+            PrimaryColor = primary;
+            TextColor = text;
+            ClubColor = club;
+            ClubTextColor = clubText;
+            SecondaryColor = secondary;
+            SecondaryTextColor = secondaryText;
+            Description = desc;
         }
     }
 }

@@ -159,6 +159,9 @@ namespace GFC.BlazorServer.Services
                                 case "inquiryforkshowtargetdate": settings.InquiryForkShowTargetDate = Convert.ToBoolean(val); break;
                                 case "inquiryforkshowoccasion": settings.InquiryForkShowOccasion = Convert.ToBoolean(val); break;
                                 case "enableinquiryfloatingbutton": settings.EnableInquiryFloatingButton = Convert.ToBoolean(val); break;
+                                case "hideinquiryfloatingbuttononmobile": settings.HideInquiryFloatingButtonOnMobile = Convert.ToBoolean(val); break;
+                                case "showhomebutton": settings.ShowHomeButton = Convert.ToBoolean(val); break;
+                                case "showmobilehomebutton": settings.ShowMobileHomeButton = Convert.ToBoolean(val); break;
                                 case "inquiryfloatingbuttontext": settings.InquiryFloatingButtonText = val?.ToString() ?? "Have a Question?"; break;
                                 case "inquiryfloatshowestimateddate": settings.InquiryFloatShowEstimatedDate = Convert.ToBoolean(val); break;
                                 case "inquiryfloatshowguestestimate": settings.InquiryFloatShowGuestEstimate = Convert.ToBoolean(val); break;
@@ -173,6 +176,8 @@ namespace GFC.BlazorServer.Services
                                 case "seodescription": settings.SeoDescription = val?.ToString() ?? ""; break;
                                 case "seokeywords": settings.SeoKeywords = val?.ToString() ?? ""; break;
                                 case "eventtypelistsjson": settings.EventTypeListsJson = val?.ToString(); break;
+                                case "managedrentallocation": settings.ManagedRentalLocation = val?.ToString() ?? "Function Hall"; break;
+                                case "secondaryflexiblelocation": settings.SecondaryFlexibleLocation = val?.ToString() ?? "Office"; break;
                             }
                         }
                     }
@@ -323,6 +328,7 @@ namespace GFC.BlazorServer.Services
                             [InquiryForkCardAskTitle] = @p82,
                             [InquiryForkCardAskText] = @p83,
                             [EnableInquiryFloatingButton] = @p84,
+                            [HideInquiryFloatingButtonOnMobile] = @p100,
                             [InquiryFloatingButtonText] = @p85,
                             [NotifyOnInquirySubmitted] = @p86,
                             [SendInquiryConfirmationEmail] = @p87,
@@ -333,9 +339,12 @@ namespace GFC.BlazorServer.Services
                             [RentalInboundNotifyStaff] = @p92,
                             [InquiryForkShowTargetDate] = @p93,
                             [InquiryForkShowOccasion] = @p94,
-                            [InquiryFloatShowEstimatedDate] = @p95,
                             [InquiryFloatShowGuestEstimate] = @p96,
-                            [EventTypeListsJson] = @p97
+                            [EventTypeListsJson] = @p97,
+                            [ManagedRentalLocation] = @p98,
+                            [SecondaryFlexibleLocation] = @p99,
+                            [ShowHomeButton] = @p101,
+                            [ShowMobileHomeButton] = @p102
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -373,7 +382,9 @@ namespace GFC.BlazorServer.Services
                             [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody],
                             [EnableRentalInboundWebhook], [RentalInboundWebhookSecret], [RentalInboundNotifyStaff],
                             [InquiryForkShowTargetDate], [InquiryForkShowOccasion], [InquiryFloatShowEstimatedDate], [InquiryFloatShowGuestEstimate],
-                            [EventTypeListsJson]
+                            [EventTypeListsJson], [ManagedRentalLocation], [SecondaryFlexibleLocation],
+                            [HideInquiryFloatingButtonOnMobile],
+                            [ShowHomeButton], [ShowMobileHomeButton]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -388,7 +399,9 @@ namespace GFC.BlazorServer.Services
                             @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89,
                             @p90, @p91, @p92,
                             @p93, @p94, @p95, @p96,
-                            @p97
+                            @p97, @p98, @p99,
+                            @p100,
+                            @p101, @p102
                         );
                     END";
 
@@ -491,7 +504,12 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p94", System.Data.SqlDbType.Bit) { Value = settings.InquiryForkShowOccasion },
                     new Microsoft.Data.SqlClient.SqlParameter("@p95", System.Data.SqlDbType.Bit) { Value = settings.InquiryFloatShowEstimatedDate },
                     new Microsoft.Data.SqlClient.SqlParameter("@p96", System.Data.SqlDbType.Bit) { Value = settings.InquiryFloatShowGuestEstimate },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p97", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.EventTypeListsJson ?? DBNull.Value }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p97", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.EventTypeListsJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p98", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.ManagedRentalLocation ?? "Function Hall" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p99", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.SecondaryFlexibleLocation ?? "Office" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p100", System.Data.SqlDbType.Bit) { Value = settings.HideInquiryFloatingButtonOnMobile },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p101", System.Data.SqlDbType.Bit) { Value = settings.ShowHomeButton },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p102", System.Data.SqlDbType.Bit) { Value = settings.ShowMobileHomeButton }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -525,6 +543,12 @@ namespace GFC.BlazorServer.Services
             {
                 await using var _context = await _contextFactory.CreateDbContextAsync();
                 var schemaMigrationSql = @"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ManagedRentalLocation')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ManagedRentalLocation] NVARCHAR(100) NOT NULL DEFAULT 'Function Hall';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SecondaryFlexibleLocation')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [SecondaryFlexibleLocation] NVARCHAR(100) NOT NULL DEFAULT 'Office';
+
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PoliciesJson')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [PoliciesJson] NVARCHAR(MAX) NULL;
 
@@ -857,6 +881,15 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EventTypeListsJson')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [EventTypeListsJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'HideInquiryFloatingButtonOnMobile')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [HideInquiryFloatingButtonOnMobile] BIT NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ShowHomeButton')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ShowHomeButton] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ShowMobileHomeButton')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ShowMobileHomeButton] BIT NOT NULL DEFAULT 1;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

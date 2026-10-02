@@ -41,6 +41,8 @@ namespace GFC.Core.Models
         public bool? EnableOnlineRentalsPayment { get; set; }
         public string? PaymentGatewayUrl { get; set; }
         public string? PaymentGatewayApiKey { get; set; }
+        public string ManagedRentalLocation { get; set; } = "Function Hall";
+        public string SecondaryFlexibleLocation { get; set; } = "Office";
         
         // System Settings
         public string PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue

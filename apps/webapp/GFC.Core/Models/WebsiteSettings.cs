@@ -45,6 +45,12 @@ namespace GFC.Core.Models
         public bool UseLegacyPricingEngine { get; set; } = false;
         public string? TierCardsJson { get; set; }
 
+        // Primary Managed Rental Location that enforces Time Slot Schedules, Matrix rules & Rental forms
+        public string ManagedRentalLocation { get; set; } = "Function Hall";
+
+        // Secondary / Flexible Location for meetings, office reservations, etc.
+        public string SecondaryFlexibleLocation { get; set; } = "Office";
+
         // Form Customization & Content
         public string RentalFormTitle { get; set; } = "Hall Rental Application";
         public string RentalFormSubtitle { get; set; } = "Gloucester Fraternity Club";
@@ -134,7 +140,12 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         public bool InquiryForkShowOccasion { get; set; } = true;
 
         public bool EnableInquiryFloatingButton { get; set; } = true;
+        public bool HideInquiryFloatingButtonOnMobile { get; set; } = false;
         public string InquiryFloatingButtonText { get; set; } = "Have a Question?";
+
+        // Header / Navigation Home Button
+        public bool ShowHomeButton { get; set; } = true;
+        public bool ShowMobileHomeButton { get; set; } = true;
 
         // Field Visibility for Floating Question Drawer (Option B)
         public bool InquiryFloatShowEstimatedDate { get; set; } = true;
