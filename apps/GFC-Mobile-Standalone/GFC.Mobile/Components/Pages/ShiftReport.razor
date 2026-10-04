@@ -726,24 +726,27 @@
                                         </div>
 
                                         <!-- NET DUE -->
-                                        <div class='input-group-modern @(_activeField == "LottoNetDue" ? "focused" : (LottoNetDue != null && LottoNetDue != 0 && _lottoSignConfirmed ? "active" : (_showValidation ? "validation-pulse" : "")))' @onclick='() => ActivateField("LottoNetDue")' style="height: 60px;">
-                                            <div class="d-flex align-items-center justify-content-between w-100">
-                                                <div class="d-flex flex-column">
-                                                    <span class='fw-black text-primary text-uppercase @(_activeField == "LottoNetDue" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Net Due</span>
-                                                    <span class="text-primary fw-bold small opacity-75" style="font-size: 0.55rem;">(FROM REPORT 50)</span>
-                                                </div>
-                                                <div class="d-flex align-items-center">
-                                                    @if (_activeField == "LottoNetDue")
-                                                    {
-                                                        <button type="button" class="btn-sign-toggle @(_lottoSign < 0 ? "is-negative" : "") me-2" @onclick:stopPropagation="true" @onclick="ToggleLottoSignInline">
-                                                            @(_lottoSign < 0 ? "-" : "+")
-                                                        </button>
-                                                    }
-                                                    <span class="input-addon text-primary opacity-50 me-2" style="font-size: 1rem;">$</span>
-                                                    <div class="form-input-modern text-end pe-1 @(LottoNetDue < 0 ? "text-danger" : LottoNetDue > 0 ? "text-success" : "")">@GetInputDisplay("LottoNetDue")</div>
+                                        @if (_collectNetDueEnabled)
+                                        {
+                                            <div class='input-group-modern @(_activeField == "LottoNetDue" ? "focused" : (LottoNetDue != null && LottoNetDue != 0 && _lottoSignConfirmed ? "active" : (_showValidation ? "validation-pulse" : "")))' @onclick='() => ActivateField("LottoNetDue")' style="height: 60px;">
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <span class='fw-black text-primary text-uppercase @(_activeField == "LottoNetDue" ? "focused-label" : "")' style="font-size: 0.75rem; line-height: 1.1;">Net Due</span>
+                                                        <span class="text-primary fw-bold small opacity-75" style="font-size: 0.55rem;">(FROM REPORT 50)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        @if (_activeField == "LottoNetDue")
+                                                        {
+                                                            <button type="button" class="btn-sign-toggle @(_lottoSign < 0 ? "is-negative" : "") me-2" @onclick:stopPropagation="true" @onclick="ToggleLottoSignInline">
+                                                                @(_lottoSign < 0 ? "-" : "+")
+                                                            </button>
+                                                        }
+                                                        <span class="input-addon text-primary opacity-50 me-2" style="font-size: 1rem;">$</span>
+                                                        <div class="form-input-modern text-end pe-1 @(LottoNetDue < 0 ? "text-danger" : LottoNetDue > 0 ? "text-success" : "")">@GetInputDisplay("LottoNetDue")</div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
+                                        }
 
                                         <!-- TICKETS -->
                                         <div class='input-group-modern @(_activeField == "LottoInstantTickets" ? "focused" : (LottoInstantTickets != null && LottoInstantTickets != 0 ? "active" : (_showValidation ? "validation-pulse" : "")))' @onclick='() => ActivateField("LottoInstantTickets")' style="height: 60px;">
@@ -2017,6 +2020,7 @@
     private bool IsNightLocked => _nightMainSubmitted && CurrentUser != null && !CurrentUser.IsAdmin && !string.Equals(_nightCloser, CurrentUser.Username, StringComparison.OrdinalIgnoreCase);
     private bool IsHallLocked => _hallSubmitted && CurrentUser != null && !CurrentUser.IsAdmin && !string.Equals(_hallCloser, CurrentUser.Username, StringComparison.OrdinalIgnoreCase);
     private bool _collectDataEnabled = true;
+    private bool _collectNetDueEnabled = true;
     private bool IsFormComplete => (IsRentalHall) ? (!_collectDataEnabled || (BarSales ?? 0) > 0) :
         ((!_collectDataEnabled || ((BarSales ?? 0) > 0 && (TotalHours ?? 0) > 0)) && LottoSales != null && LottoCashes != null && (LottoCashCounted ?? 0) > 0);
     private bool IsReadyToSubmit => IsFormComplete;
@@ -2074,8 +2078,8 @@
 
     private bool ShouldShowSignConfirmation {
         get {
-            // Only show for Net Due if it's currently being edited and hasn't been signed off yet
-            if (_activeField != "LottoNetDue" || _lottoSignConfirmed) return false;
+            // Only show for Net Due if enabled, currently being edited, and hasn't been signed off yet
+            if (!_collectNetDueEnabled || _activeField != "LottoNetDue" || _lottoSignConfirmed) return false;
             
             // Only show if there's actually a non-zero value to "sign"
             if (string.IsNullOrEmpty(_currentBuffer)) return false;
@@ -2343,11 +2347,24 @@
         // [EXTREME PERFORMANCE] Sync to local storage on exit
         _ = MirrorToLocalStorage();
 
-        var fields = IsRentalHall 
-            ? new[] { "BarSales" }
-            : ( _collectDataEnabled 
-                ? new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" }
-                : new[] { "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" } );
+        var fieldList = new List<string>();
+        if (IsRentalHall) {
+            if (_collectDataEnabled) fieldList.Add("Hours");
+            fieldList.Add("BarSales");
+        } else {
+            if (_collectDataEnabled) {
+                fieldList.Add("Hours");
+                fieldList.Add("BarSales");
+            }
+            fieldList.Add("LottoOpeningCash");
+            fieldList.Add("LottoSales");
+            fieldList.Add("LottoCashes");
+            if (_collectNetDueEnabled) fieldList.Add("LottoNetDue");
+            fieldList.Add("LottoInstantTickets");
+            fieldList.Add("LottoBackupBag");
+            fieldList.Add("LottoCashCounted");
+        }
+        var fields = fieldList.ToArray();
             
         var idx = Array.IndexOf(fields, _activeField);
         if (idx < fields.Length - 1) {
@@ -2361,11 +2378,24 @@
     }
     
     private void PrevField() {
-        var fields = IsRentalHall 
-            ? ( _collectDataEnabled ? new[] { "Hours", "BarSales" } : new[] { "BarSales" } )
-            : ( _collectDataEnabled 
-                ? new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" }
-                : new[] { "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" } );
+        var fieldList = new List<string>();
+        if (IsRentalHall) {
+            if (_collectDataEnabled) fieldList.Add("Hours");
+            fieldList.Add("BarSales");
+        } else {
+            if (_collectDataEnabled) {
+                fieldList.Add("Hours");
+                fieldList.Add("BarSales");
+            }
+            fieldList.Add("LottoOpeningCash");
+            fieldList.Add("LottoSales");
+            fieldList.Add("LottoCashes");
+            if (_collectNetDueEnabled) fieldList.Add("LottoNetDue");
+            fieldList.Add("LottoInstantTickets");
+            fieldList.Add("LottoBackupBag");
+            fieldList.Add("LottoCashCounted");
+        }
+        var fields = fieldList.ToArray();
             
         var idx = Array.IndexOf(fields, _activeField);
         if (idx > 0) ActivateField(fields[idx - 1]);
@@ -2641,7 +2671,7 @@
         bool lottoIncomplete = !IsRentalHall && (
             LottoSales == null || 
             LottoCashes == null || 
-            LottoNetDue == null || 
+            (_collectNetDueEnabled && LottoNetDue == null) || 
             LottoInstantTickets == null ||
             LottoOpeningCash == null || LottoOpeningCash <= 0 ||
             LottoCashCounted == null || LottoCashCounted <= 0
@@ -2662,7 +2692,7 @@
                 if (LottoOpeningCash == null || LottoOpeningCash <= 0) ActivateField("LottoOpeningCash");
                 else if (LottoSales == null) ActivateField("LottoSales");
                 else if (LottoCashes == null) ActivateField("LottoCashes");
-                else if (LottoNetDue == null) ActivateField("LottoNetDue");
+                else if (_collectNetDueEnabled && LottoNetDue == null) ActivateField("LottoNetDue");
                 else if (LottoInstantTickets == null) ActivateField("LottoInstantTickets");
                 else if (LottoCashCounted == null || LottoCashCounted <= 0) ActivateField("LottoCashCounted");
             }
@@ -2707,7 +2737,7 @@
         if (!IsRentalHall) {
             if ((LottoSales ?? 0) == 0) zeros.Add(("LottoSales", "Net Sales"));
             if ((LottoCashes ?? 0) == 0) zeros.Add(("LottoCashes", "Cashes"));
-            if ((LottoNetDue ?? 0) == 0) zeros.Add(("LottoNetDue", "Net Due"));
+            if (_collectNetDueEnabled && (LottoNetDue ?? 0) == 0) zeros.Add(("LottoNetDue", "Net Due"));
             if ((LottoInstantTickets ?? 0) == 0) zeros.Add(("LottoInstantTickets", "Instant Tickets"));
         }
         
@@ -2920,6 +2950,13 @@
                         _collectDataEnabled = !oldVal;
                     }
                 }
+
+                var netDuePref = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_mobile_collect_net_due");
+                if (netDuePref != null && bool.TryParse(netDuePref, out bool ndVal))
+                {
+                    _collectNetDueEnabled = ndVal;
+                }
+
                 StateHasChanged();
             }
             catch { }

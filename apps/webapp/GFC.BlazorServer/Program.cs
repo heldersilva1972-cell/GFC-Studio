@@ -1710,12 +1710,76 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                             INSERT INTO [dbo].[AppPages] ([PageName], [PageRoute], [Description], [Category], [RequiresAdmin], [IsActive], [DisplayOrder])
                             VALUES ('Reporting & Tableau API', '/admin/reporting-api', 'Manage external reporting keys and Tableau connection logs', 'ADMINISTRATION', 1, 1, 16);
                         END
+
+                        -- Auto-register Sal-ibration (Mobile) in AppPages
+                        IF NOT EXISTS (SELECT 1 FROM [dbo].[AppPages] WHERE [PageRoute] = '/mobile/salibration' OR [PageName] = 'Sal-ibration (Mobile)')
+                        BEGIN
+                            INSERT INTO [dbo].[AppPages] ([PageName], [PageRoute], [Description], [Category], [RequiresAdmin], [IsActive], [DisplayOrder])
+                            VALUES ('Sal-ibration (Mobile)', '/mobile/salibration', 'Raffle ticket registration, auto-advancing tiles & winner lookup', 'Mobile', 0, 1, 140);
+                        END
                     ";
                     db.Database.ExecuteSqlRaw(reportingTablesSql);
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error auto-creating Reporting API tables: {ex.Message}");
+                }
+
+                // [AUTO-FIX 15] Auto-create Salibration tables if missing
+                try
+                {
+                    var salibrationTablesSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SalibrationParticipants')
+                        BEGIN
+                            CREATE TABLE [dbo].[SalibrationParticipants] (
+                                [Id] INT PRIMARY KEY IDENTITY(1,1),
+                                [FullName] NVARCHAR(200) NOT NULL,
+                                [PhoneNumber] NVARCHAR(50) NOT NULL,
+                                [Email] NVARCHAR(200) NULL,
+                                [Notes] NVARCHAR(MAX) NULL,
+                                [CreatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+                                [CreatedBy] NVARCHAR(100) NULL
+                            );
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SalibrationTickets')
+                        BEGIN
+                            CREATE TABLE [dbo].[SalibrationTickets] (
+                                [Id] INT PRIMARY KEY IDENTITY(1,1),
+                                [ParticipantId] INT NOT NULL,
+                                [TicketNumber] NVARCHAR(50) NOT NULL,
+                                [CreatedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+                                [IsWinner] BIT NOT NULL DEFAULT 0,
+                                [WonAt] DATETIME NULL,
+                                CONSTRAINT FK_SalibrationTickets_Participant FOREIGN KEY ([ParticipantId]) REFERENCES [dbo].[SalibrationParticipants]([Id]) ON DELETE CASCADE
+                            );
+                            CREATE INDEX IX_SalibrationTickets_TicketNumber ON [dbo].[SalibrationTickets]([TicketNumber]);
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SalibrationSettings')
+                        BEGIN
+                            CREATE TABLE [dbo].[SalibrationSettings] (
+                                [Id] INT PRIMARY KEY IDENTITY(1,1),
+                                [PageTitle] NVARCHAR(100) NOT NULL DEFAULT 'Sal-ibration',
+                                [TicketPrefix] NVARCHAR(50) NOT NULL DEFAULT '1987',
+                                [VariableDigitCount] INT NOT NULL DEFAULT 3,
+                                [ThankYouMessage] NVARCHAR(MAX) NOT NULL DEFAULT 'Thank you so much for your generosity and incredible support! Your contribution makes a real difference in our community fundraiser. We’ve saved your numbers — good luck in the drawing! 🌟',
+                                [ThankYouDisplaySeconds] INT NOT NULL DEFAULT 5,
+                                [UpdatedAt] DATETIME NOT NULL DEFAULT GETDATE()
+                            );
+                            INSERT INTO [dbo].[SalibrationSettings] ([PageTitle], [TicketPrefix], [VariableDigitCount], [ThankYouMessage], [ThankYouDisplaySeconds])
+                            VALUES ('Sal-ibration', '1987', 3, 'Thank you so much for your generosity and incredible support! Your contribution makes a real difference in our community fundraiser. We’ve saved your numbers — good luck in the drawing! 🌟', 5);
+                        END
+                        ELSE IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SalibrationSettings') AND name = 'ThankYouDisplaySeconds')
+                        BEGIN
+                            ALTER TABLE [dbo].[SalibrationSettings] ADD [ThankYouDisplaySeconds] INT NOT NULL DEFAULT 5;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(salibrationTablesSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error auto-creating Salibration tables: {ex.Message}");
                 }
             }
             catch (Exception ex)

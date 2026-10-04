@@ -1,0 +1,3230 @@
+@page "/mobile/salibration"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@using System.Text.RegularExpressions
+@attribute [Authorize]
+@inject ISalibrationService SalibrationService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ICustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
+
+<PageTitle>@_settings.PageTitle | GFC Mobile</PageTitle>
+
+<div class="sal-page-container">
+    <!-- CLEAN MINIMAL TOP APP HEADER (HIDDEN IN REGISTER KIOSK MODE) -->
+    @if (_activeTab != "entry")
+    {
+        <header class="sal-header animate-entrance">
+            <div class="container-fluid px-3 py-2 d-flex align-items-center justify-content-between">
+                <div>
+                    @if (_activeTab == "main")
+                    {
+                        <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-bold d-flex align-items-center gap-1" @onclick='() => Navigation.NavigateTo("/mobile")' aria-label="Exit to Mobile App Main Page">
+                            <i class="bi bi-box-arrow-left fs-6"></i>
+                            <span>Exit to Mobile App</span>
+                        </button>
+                    }
+                </div>
+                
+                <div class="sal-title-container text-center">
+                    <h5 class="mb-0 fw-bold sal-brand-title">
+                        <span class="sal-highlight">SAL</span>@GetFormattedTitleRest()
+                    </h5>
+                    <span class="sal-subtitle">@( _activeTab == "roster" ? "Saved Ticket Entries" : "Raffle Management Hub" )</span>
+                </div>
+
+                <div style="min-width: 100px;" class="text-end">
+                    @if (_activeTab == "roster")
+                    {
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold d-flex align-items-center gap-1 ms-auto" @onclick="ExitToMainHub" title="Close and return to Main Menu">
+                            <i class="bi bi-x-circle me-1"></i> Close
+                        </button>
+                    }
+                </div>
+            </div>
+        </header>
+    }
+
+    <!-- MAIN SCROLLABLE AREA -->
+    <main class="sal-main-content">
+        <div class="container-fluid px-3 py-2">
+            @if (_isLoading)
+            {
+                <div class="d-flex justify-content-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            }
+            else if (_activeTab == "main")
+            {
+                <!-- ==================================================== -->
+                <!-- MAIN MANAGEMENT HUB SCREEN                           -->
+                <!-- ==================================================== -->
+                <div class="sal-hub-container animate-entrance my-2">
+                    <!-- EVENT BANNER -->
+                    <div class="sal-hub-hero text-center p-4 mb-4 rounded-4 shadow-sm bg-white border">
+                        <div class="sal-hub-badge mx-auto mb-3">
+                            <i class="bi bi-ticket-detailed-fill text-primary"></i>
+                        </div>
+                        <h2 class="fw-bolder text-dark mb-1">@_settings.PageTitle</h2>
+                        <p class="text-muted mb-0">Select an action below to manage raffle entries, start the donor kiosk, or draw winning tickets.</p>
+                    </div>
+
+                    <!-- ACTION CARDS GRID -->
+                    <div class="row g-3 mb-4">
+                        <!-- 1. REGISTER / START KIOSK -->
+                        <div class="col-12 col-md-6">
+                            <div class="sal-hub-card hub-card-primary shadow-sm h-100" @onclick="StartKioskRegistration">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="hub-card-icon bg-primary text-white">
+                                        <i class="bi bi-person-fill-add"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="fw-bold mb-1 text-dark">Register Tickets</h5>
+                                        <p class="text-muted small mb-0">Launch the dedicated donor registration kiosk for attendee entry.</p>
+                                    </div>
+                                    <i class="bi bi-chevron-right fs-4 text-primary opacity-50"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. SAVED ENTRIES ROSTER -->
+                        <div class="col-12 col-md-6">
+                            <div class="sal-hub-card shadow-sm h-100" @onclick='() => SetTab("roster")'>
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="hub-card-icon bg-success bg-opacity-10 text-success">
+                                        <i class="bi bi-collection-fill"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <h5 class="fw-bold mb-1 text-dark">Saved Entries</h5>
+                                            <span class="badge bg-success rounded-pill">@_participants.Count</span>
+                                        </div>
+                                        <p class="text-muted small mb-0">View registered participants and all @_totalTicketsRegistered tickets.</p>
+                                    </div>
+                                    <i class="bi bi-chevron-right fs-4 text-muted opacity-50"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. CHECK WINNER -->
+                        <div class="col-12 col-md-6">
+                            <div class="sal-hub-card shadow-sm h-100" @onclick="OpenWinnerModal">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="hub-card-icon bg-warning bg-opacity-15 text-warning-emphasis">
+                                        <i class="bi bi-trophy-fill"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="fw-bold mb-1 text-dark">Check Winner</h5>
+                                        <p class="text-muted small mb-0">Look up drawn raffle ticket numbers to find winning donors.</p>
+                                    </div>
+                                    <i class="bi bi-chevron-right fs-4 text-muted opacity-50"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. SETTINGS -->
+                        <div class="col-12 col-md-6">
+                            <div class="sal-hub-card shadow-sm h-100" @onclick="OpenSettingsModal">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="hub-card-icon bg-secondary bg-opacity-10 text-secondary">
+                                        <i class="bi bi-gear-fill"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h5 class="fw-bold mb-1 text-dark">Event Settings</h5>
+                                        <p class="text-muted small mb-0">Configure title, ticket prefix, digits, and thank you message.</p>
+                                    </div>
+                                    <i class="bi bi-chevron-right fs-4 text-muted opacity-50"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (_activeTab == "entry")
+            {
+                <!-- ==================================================== -->
+                <!-- STAGE 1: WELCOME / START SCREEN                      -->
+                <!-- ==================================================== -->
+                @if (_entryStep == EntryStep.Welcome)
+                {
+                    <div class="sal-welcome-hero animate-scale-up text-center my-auto py-5 px-3">
+                        <div class="d-flex justify-content-end px-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" @onclick="ExitToMainHub" title="Exit and return to Sal-ibration Main Screen">
+                                <i class="bi bi-arrow-left-circle me-1"></i> Return to Main Screen
+                            </button>
+                        </div>
+                        <div class="sal-hero-icon-wrapper mb-4 mx-auto">
+                            <i class="bi bi-ticket-perforated-fill text-primary"></i>
+                        </div>
+                        <h2 class="fw-bolder text-dark mb-2">Welcome to the Sal-ibration Raffle!</h2>
+                        <p class="text-muted fs-5 mb-4 mx-auto" style="max-width: 540px;">
+                            Tap the button below to register your contact information and enter your raffle tickets.
+                        </p>
+                        <div class="d-inline-block">
+                            <button type="button" class="btn btn-hero-start shadow-lg" @onclick="StartNewEntry">
+                                <i class="bi bi-person-fill-add me-2"></i> Enter My Information & Tickets
+                            </button>
+                        </div>
+                        @if (_participants.Count > 0)
+                        {
+                            <div class="mt-4 pt-3 text-muted small">
+                                <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill">
+                                    <i class="bi bi-check2-circle text-success me-1"></i> @_participants.Count entries recorded so far
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+                <!-- ==================================================== -->
+                <!-- STAGE 2: PARTICIPANT INFORMATION SCREEN               -->
+                <!-- ==================================================== -->
+                else if (_entryStep == EntryStep.ParticipantInfo)
+                {
+                    <div class="row justify-content-center animate-entrance">
+                        <div class="col-12 col-md-9 col-lg-7">
+                            <div class="sal-card shadow-sm mb-0">
+                                <div class="sal-card-header d-flex align-items-center justify-content-between">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="sal-badge-icon"><i class="bi bi-person-fill-add"></i></span>
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">Step 1 of 2: Participant Information</h6>
+                                            <small class="text-muted">Enter your name, phone number, and optional email</small>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" @onclick="CancelToWelcome">
+                                        <i class="bi bi-x-lg me-1"></i> Cancel
+                                    </button>
+                                </div>
+
+                                <div class="sal-card-body p-4">
+                                    @if (_nameError || _phoneError || _emailError)
+                                    {
+                                        <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-3 rounded-3 shadow-sm border-danger animate-shake">
+                                            <i class="bi bi-exclamation-triangle-fill fs-5 text-danger flex-shrink-0"></i>
+                                            <div class="small fw-bold">
+                                                @if (_nameError)
+                                                {
+                                                    <div>• Participant Full Name is required.</div>
+                                                }
+                                                @if (_phoneError)
+                                                {
+                                                    <div>• @(_phoneErrorMessage ?? "A valid 10-digit phone number with area code is required.")</div>
+                                                }
+                                                @if (_emailError)
+                                                {
+                                                    <div>• @(_emailErrorMessage ?? "Please enter a valid email address (e.g. name@domain.com).")</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Full Name Input -->
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <label class="form-label required-label mb-0">Full Name</label>
+                                            @if (!string.IsNullOrEmpty(_fullName))
+                                            {
+                                                <button type="button" class="btn btn-field-clear-pill" @onclick='() => _fullName = ""'>
+                                                    <i class="bi bi-x-circle-fill me-1"></i>Clear
+                                                </button>
+                                            }
+                                        </div>
+                                        <div class="input-group-modern @(_nameError ? "input-group-error animate-shake" : (_activeField == "name" ? "focused-field" : ""))" @onclick='() => SetActiveField("name")'>
+                                            <span class="input-icon"><i class="bi bi-person-fill @(_nameError ? "text-danger" : "text-primary")"></i></span>
+                                            <input type="text" id="participant-name-input" class="form-control-modern" 
+                                                   placeholder="e.g. John Doe" @bind="_fullName" @bind:event="oninput" @onfocus='() => SetActiveField("name")' />
+                                            @if (_nameError)
+                                            {
+                                                <i class="bi bi-exclamation-circle-fill text-danger ms-2" title="Name is required"></i>
+                                            }
+                                        </div>
+                                        @if (_nameError)
+                                        {
+                                            <div class="field-error-msg fw-bold text-danger mt-1">
+                                                <i class="bi bi-arrow-return-right me-1"></i> Full Name is required
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Phone & Email Inputs -->
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-12 col-md-6">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label required-label mb-0">Phone Number (Area Code + Number)</label>
+                                                @if (!string.IsNullOrEmpty(_phoneNumber))
+                                                {
+                                                    <button type="button" class="btn btn-field-clear-pill" @onclick='() => _phoneNumber = ""'>
+                                                        <i class="bi bi-x-circle-fill me-1"></i>Clear
+                                                    </button>
+                                                }
+                                            </div>
+                                            <div class="input-group-modern @(_phoneError ? "input-group-error animate-shake" : (_activeField == "phone" ? "focused-field" : ""))" @onclick='() => SetActiveField("phone")'>
+                                                <span class="input-icon"><i class="bi bi-telephone-fill @(_phoneError ? "text-danger" : "text-primary")"></i></span>
+                                                <input type="tel" class="form-control-modern" 
+                                                       placeholder="e.g. (555) 123-4567" @bind="_phoneNumber" @bind:event="oninput" @onfocus='() => SetActiveField("phone")' />
+                                                @if (_phoneError)
+                                                {
+                                                    <i class="bi bi-exclamation-circle-fill text-danger ms-2" title="Phone error"></i>
+                                                }
+                                            </div>
+                                            @if (_phoneError)
+                                            {
+                                                <div class="field-error-msg fw-bold text-danger mt-1">
+                                                    <i class="bi bi-arrow-return-right me-1"></i> @(_phoneErrorMessage ?? "10-digit phone number with area code required (e.g. 555-123-4567)")
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="col-12 col-md-6">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label optional-label mb-0">Email Address <span class="badge-optional">Optional</span></label>
+                                                @if (!string.IsNullOrEmpty(_email))
+                                                {
+                                                    <button type="button" class="btn btn-field-clear-pill" @onclick='() => _email = ""'>
+                                                        <i class="bi bi-x-circle-fill me-1"></i>Clear
+                                                    </button>
+                                                }
+                                            </div>
+                                            <div class="input-group-modern @(_emailError ? "input-group-error animate-shake" : (_activeField == "email" ? "focused-field" : ""))" @onclick='() => SetActiveField("email")'>
+                                                <span class="input-icon"><i class="bi bi-envelope-fill @(_emailError ? "text-danger" : "text-primary")"></i></span>
+                                                <input type="email" class="form-control-modern" 
+                                                       placeholder="e.g. john@example.com" @bind="_email" @bind:event="oninput" @onfocus='() => SetActiveField("email")' />
+                                                @if (_emailError)
+                                                {
+                                                    <i class="bi bi-exclamation-circle-fill text-danger ms-2" title="Email error"></i>
+                                                }
+                                            </div>
+                                            @if (_emailError)
+                                            {
+                                                <div class="field-error-msg fw-bold text-danger mt-1">
+                                                    <i class="bi bi-arrow-return-right me-1"></i> @(_emailErrorMessage ?? "Invalid email format (e.g. name@domain.com)")
+                                                </div>
+                                            }
+                                            <div class="quick-domain-pills mt-1 d-flex gap-1 flex-wrap">
+                                                <button type="button" class="btn btn-xs-domain" @onclick="AppendGmail">gmail.com</button>
+                                                <button type="button" class="btn btn-xs-domain" @onclick="AppendYahoo">yahoo.com</button>
+                                                <button type="button" class="btn btn-xs-domain" @onclick="AppendHotmail">hotmail.com</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Next button -->
+                                    <div class="mt-4 pt-2">
+                                        <button type="button" class="btn btn-sal-finish w-100 shadow-sm" @onclick="ProceedToTickets">
+                                            <span>Save My Information & Enter Ticket Numbers</span>
+                                            <i class="bi bi-arrow-right-circle-fill ms-2 fs-5"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                <!-- ==================================================== -->
+                <!-- STAGE 3: TICKET NUMBERS ENTRY & KEYPAD SCREEN         -->
+                <!-- ==================================================== -->
+                else if (_entryStep == EntryStep.TicketEntry)
+                {
+                    <div class="row g-3 animate-entrance">
+                        <!-- LEFT COLUMN: ENTERED TICKET NUMBERS LIST -->
+                        <div class="col-12 col-md-5 col-lg-5 order-2 order-md-1">
+                            <div class="sal-card h-100 mb-0 shadow-sm d-flex flex-column">
+                                <div class="sal-card-header d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="sal-badge-icon bg-primary text-white">
+                                            <i class="bi bi-collection-fill"></i>
+                                        </span>
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">Entered Tickets</h6>
+                                            <small class="text-muted">For @_fullName</small>
+                                        </div>
+                                    </div>
+                                    <span class="badge bg-success rounded-pill px-2 py-1 fs-6 shadow-sm">
+                                        <i class="bi bi-check-all me-1"></i> @_enteredTickets.Count @(_enteredTickets.Count == 1 ? "Ticket" : "Tickets")
+                                    </span>
+                                </div>
+
+                                <div class="sal-card-body flex-grow-1 d-flex flex-column p-3">
+                                    @if (_enteredTickets.Count > 0)
+                                    {
+                                        <div class="large-ticket-list flex-grow-1" style="max-height: 520px; overflow-y: auto;">
+                                            @for (int i = 0; i < _enteredTickets.Count; i++)
+                                            {
+                                                var idx = i;
+                                                var t = _enteredTickets[idx];
+                                                <div class="large-ticket-row animate-scale-up mb-2">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="ticket-index-badge">#@(idx + 1)</div>
+                                                        <div class="large-ticket-number">
+                                                            <i class="bi bi-ticket-perforated-fill text-primary me-1"></i>@t
+                                                        </div>
+                                                    </div>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <button type="button" class="btn btn-edit-ticket-large" @onclick="() => EditTicket(t)" title="Edit ticket number">
+                                                            <i class="bi bi-pencil-square"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-delete-ticket-large" @onclick="() => RemoveTicket(t)" title="Remove ticket number">
+                                                            <i class="bi bi-trash3-fill"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-center py-5 my-auto text-muted">
+                                            <i class="bi bi-ticket-perforated display-4 text-muted opacity-25 d-block mb-2"></i>
+                                            <p class="fw-bold mb-1">No tickets entered yet</p>
+                                            <small class="text-muted">Use the digit tiles and keypad on the right to enter each raffle ticket number.</small>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: DIGIT TILES & TOUCH KEYPAD -->
+                        <div class="col-12 col-md-7 col-lg-7 order-1 order-md-2">
+                            <div class="sal-card mb-0 shadow-sm">
+                                <div class="sal-card-header d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="sal-badge-icon"><i class="bi bi-ticket-perforated-fill"></i></span>
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">Step 2 of 2: Enter Ticket Numbers</h6>
+                                            <small class="text-muted">Participant: <strong>@_fullName</strong> (@_phoneNumber)</small>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" @onclick="BackToParticipantInfo">
+                                        <i class="bi bi-arrow-left me-1"></i> Edit Info
+                                    </button>
+                                </div>
+
+                                <div class="sal-card-body p-3">
+                                    @if (!string.IsNullOrEmpty(_ticketInputError))
+                                    {
+                                        <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-3 rounded-3 shadow-sm border-danger animate-shake">
+                                            <i class="bi bi-exclamation-triangle-fill fs-5 text-danger flex-shrink-0"></i>
+                                            <div class="small fw-bold">@_ticketInputError</div>
+                                        </div>
+                                    }
+
+                                    <!-- TICKET NUMBERS HEADER -->
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div>
+                                            <label class="form-label mb-0 fw-bold">Raffle Ticket Numbers</label>
+                                            <div class="text-muted extra-small">Type digits into the tiles to add each ticket</div>
+                                        </div>
+                                        <span class="badge rounded-pill bg-primary bg-opacity-10 text-primary fw-bold px-3 py-1">
+                                            @_enteredTickets.Count @(_enteredTickets.Count == 1 ? "Ticket" : "Tickets")
+                                        </span>
+                                    </div>
+
+                                    <!-- DIGIT TILES ENTRY ROW -->
+                                    <div class="sal-tile-entry-box mb-3">
+                                        <div class="tile-row-wrapper">
+                                            <!-- Prefix locked tiles -->
+                                            @if (!string.IsNullOrEmpty(_settings.TicketPrefix))
+                                            {
+                                                <div class="prefix-tiles-group" title="Fixed Roll Prefix">
+                                                    @foreach (var ch in _settings.TicketPrefix)
+                                                    {
+                                                        <div class="digit-tile locked-tile">@ch</div>
+                                                    }
+                                                </div>
+                                                <div class="tile-separator">-</div>
+                                            }
+
+                                            <!-- Variable Digit Input Tiles -->
+                                            <div class="active-tiles-group">
+                                                @for (int i = 0; i < _settings.VariableDigitCount; i++)
+                                                {
+                                                    var idx = i;
+                                                    <input type="tel" 
+                                                           id="@($"tile-input-{idx}")"
+                                                           class="digit-tile editable-tile" 
+                                                           maxlength="1" 
+                                                           value="@GetDigitAt(idx)"
+                                                           @oninput="@((e) => OnDigitInput(idx, e))"
+                                                           @onkeydown="@((e) => OnTileKeyDown(idx, e))"
+                                                           autocomplete="off"
+                                                           inputmode="numeric" />
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- ON-SCREEN TABLET KEYPAD -->
+                                    <div class="tablet-keypad-container mb-3 animate-fade-in">
+                                        <div class="keypad-grid">
+                                            @for (int n = 1; n <= 9; n++)
+                                            {
+                                                var numStr = n.ToString();
+                                                <button type="button" class="btn btn-keypad-digit" @onclick="() => OnKeypadPress(numStr)">
+                                                    @numStr
+                                                </button>
+                                            }
+                                            <button type="button" class="btn btn-keypad-action btn-keypad-clear" @onclick="OnKeypadClear">
+                                                <i class="bi bi-trash"></i> Clear
+                                            </button>
+                                            <button type="button" class="btn btn-keypad-digit" @onclick='() => OnKeypadPress("0")'>
+                                                0
+                                            </button>
+                                            <button type="button" class="btn btn-keypad-action btn-keypad-backspace" @onclick="OnKeypadBackspace">
+                                                <i class="bi bi-backspace-fill"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- SAVE ALL ACTION BUTTON -->
+                                    <div class="mt-4 pt-2">
+                                        <button class="btn btn-sal-finish w-100 shadow-sm" @onclick="HandleFinishEntry" disabled="@_isSaving">
+                                            @if (_isSaving)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                                <span>Saving Entry...</span>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-check2-circle me-2 fs-5"></i>
+                                                <span>I Have Finished / Save My Entry</span>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+            else if (_activeTab == "roster")
+            {
+                <!-- SAVED RAFFLE TICKET ENTRIES VIEW -->
+                <div class="roster-dashboard animate-entrance">
+                    <!-- SUMMARY METRIC STATS -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-4">
+                            <div class="roster-stat-card shadow-sm">
+                                <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                                    <i class="bi bi-people-fill"></i>
+                                </div>
+                                <div>
+                                    <span class="stat-label">Total Saved Entries</span>
+                                    <h4 class="stat-value text-dark mb-0">@_participants.Count</h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <div class="roster-stat-card shadow-sm">
+                                <div class="stat-icon bg-success bg-opacity-10 text-success">
+                                    <i class="bi bi-ticket-perforated-fill"></i>
+                                </div>
+                                <div>
+                                    <span class="stat-label">Total Tickets Sold</span>
+                                    <h4 class="stat-value text-success mb-0">@_totalTicketsRegistered</h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <div class="roster-stat-card shadow-sm">
+                                <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                                    <i class="bi bi-trophy-fill"></i>
+                                </div>
+                                <div>
+                                    <span class="stat-label">Average / Person</span>
+                                    <h4 class="stat-value text-dark mb-0">
+                                        @(_participants.Count > 0 ? (_totalTicketsRegistered / (double)_participants.Count).ToString("0.0") : "0")
+                                    </h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MAIN SAVED RAFFLE TICKET ENTRIES CARD -->
+                    <div class="sal-card shadow-sm">
+                        <div class="sal-card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="sal-badge-icon bg-primary text-white"><i class="bi bi-collection-fill"></i></span>
+                                <div>
+                                    <h6 class="mb-0 fw-bold">Saved Raffle Ticket Entries</h6>
+                                    <small class="text-muted">Live participant list & ticket allocations</small>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" @onclick="LoadSettingsAndData" title="Refresh List">
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                                </button>
+                                <button class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" @onclick="StartKioskRegistration">
+                                    <i class="bi bi-person-plus-fill me-1"></i> Register Entry
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="p-3">
+                            <!-- SEARCH & FILTER BAR -->
+                            <div class="search-box-wrapper mb-3">
+                                <span class="search-box-icon"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control-search" 
+                                       placeholder="Search participant name, phone number or ticket #..." 
+                                       @bind="_searchTerm" @bind:event="oninput" />
+                                @if (!string.IsNullOrEmpty(_searchTerm))
+                                {
+                                    <button class="btn-clear-search" @onclick='() => _searchTerm = ""'>
+                                        <i class="bi bi-x-circle-fill"></i>
+                                    </button>
+                                }
+                            </div>
+
+                            @if (FilteredParticipants.Count == 0)
+                            {
+                                <div class="text-center py-5 text-muted">
+                                    <div class="empty-roster-illustration mb-3">
+                                        <i class="bi bi-person-vcard display-3 text-muted opacity-25"></i>
+                                    </div>
+                                    <h5 class="fw-bold mb-1 text-dark">No Saved Entries Found</h5>
+                                    <p class="text-muted small mb-3">
+                                        @(string.IsNullOrEmpty(_searchTerm) ? "No ticket entries have been saved for this event yet." : "No saved entries match your search criteria.")
+                                    </p>
+                                    @if (string.IsNullOrEmpty(_searchTerm))
+                                    {
+                                        <button class="btn btn-primary rounded-pill px-4" @onclick="StartKioskRegistration">
+                                            <i class="bi bi-plus-lg me-1"></i> Register First Entry
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="roster-grid">
+                                    @foreach (var p in FilteredParticipants)
+                                    {
+                                        <div class="roster-attendee-card animate-scale-up py-2 px-3">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <div class="attendee-avatar sm-avatar">
+                                                        @(string.IsNullOrWhiteSpace(p.FullName) ? "G" : p.FullName.Substring(0, 1).ToUpper())
+                                                    </div>
+                                                    <div>
+                                                        <h6 class="fw-bold mb-0 text-dark attendee-name" style="font-size: 0.98rem;">@p.FullName</h6>
+                                                        <div class="d-flex flex-wrap align-items-center gap-2 mt-0">
+                                                            <span class="attendee-contact-pill py-0 px-2">
+                                                                <i class="bi bi-telephone-fill text-muted me-1"></i> @FormatPhoneNumber(p.PhoneNumber)
+                                                            </span>
+                                                            @if (!string.IsNullOrEmpty(p.Email))
+                                                            {
+                                                                <span class="attendee-contact-pill py-0 px-2">
+                                                                    <i class="bi bi-envelope-fill text-muted me-1"></i> @p.Email
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="attendee-ticket-counter py-1 px-2">
+                                                        <i class="bi bi-ticket-perforated-fill text-primary me-1"></i>
+                                                        <strong>@p.Tickets.Count</strong> @(p.Tickets.Count == 1 ? "Ticket" : "Tickets")
+                                                    </span>
+                                                    <button class="btn btn-delete-attendee" @onclick="() => ConfirmDeleteParticipant(p)" title="Delete Participant">
+                                                        <i class="bi bi-trash3-fill"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="roster-tickets-container pt-1 mt-1">
+                                                <div class="roster-tickets-pills-list">
+                                                    @foreach (var tk in p.Tickets)
+                                                    {
+                                                        <span class="modern-ticket-badge d-inline-flex align-items-center gap-1">
+                                                            <i class="bi bi-ticket-fill me-1 text-primary"></i>#@tk.TicketNumber
+                                                            <button type="button" class="btn btn-xs-pill-action text-primary ms-1" @onclick="() => OpenEditTicketModal(p, tk)" title="Correct this ticket number">
+                                                                <i class="bi bi-pencil-square"></i>
+                                                            </button>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </main>
+</div>
+
+<!-- ========================================================== -->
+<!-- 1. CHECK FOR WINNER MODAL -->
+<!-- ========================================================== -->
+@if (_showWinnerModal)
+{
+    <div class="sal-modal-backdrop animate-fade-in" @onclick="CloseWinnerModal">
+        <div class="sal-modal-dialog animate-scale-up" @onclick:stopPropagation="true">
+            <div class="sal-modal-header">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="winner-trophy-badge"><i class="bi bi-trophy-fill"></i></span>
+                    <div>
+                        <h6 class="mb-0 fw-bold">Check Winning Ticket</h6>
+                        <small class="text-muted">Enter drawn raffle number</small>
+                    </div>
+                </div>
+                <button class="btn btn-close-modal" @onclick="CloseWinnerModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="sal-modal-body">
+                <!-- WINNER LOOKUP DIGIT TILES -->
+                <div class="mb-3 text-center">
+                    <label class="form-label fw-bold mb-2">Enter Drawn Ticket Number</label>
+                    
+                    <div class="sal-tile-entry-box d-flex justify-content-center mb-3">
+                        <div class="tile-row-wrapper justify-content-center">
+                            @if (!string.IsNullOrEmpty(_settings.TicketPrefix))
+                            {
+                                <div class="prefix-tiles-group" title="Fixed Prefix">
+                                    @foreach (var ch in _settings.TicketPrefix)
+                                    {
+                                        <div class="digit-tile locked-tile">@ch</div>
+                                    }
+                                </div>
+                                <div class="tile-separator">-</div>
+                            }
+
+                            <!-- Variable Tiles for Winner Lookup -->
+                            <div class="active-tiles-group">
+                                @for (int i = 0; i < _settings.VariableDigitCount; i++)
+                                {
+                                    var idx = i;
+                                    <input type="tel" 
+                                           id="@($"winner-tile-input-{idx}")"
+                                           class="digit-tile editable-tile" 
+                                           maxlength="1" 
+                                           value="@GetWinnerDigitAt(idx)"
+                                           @oninput="@((e) => OnWinnerDigitInput(idx, e))"
+                                           @onkeydown="@((e) => OnWinnerTileKeyDown(idx, e))"
+                                           autocomplete="off"
+                                           inputmode="numeric" />
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ON-SCREEN TABLET TOUCH KEYPAD FOR WINNER LOOKUP -->
+                    <div class="tablet-keypad-container mb-3 animate-fade-in" style="max-width: 320px;">
+                        <div class="keypad-grid">
+                            @for (int n = 1; n <= 9; n++)
+                            {
+                                var numStr = n.ToString();
+                                <button type="button" class="btn btn-keypad-digit" @onclick="() => OnWinnerKeypadPress(numStr)">
+                                    @numStr
+                                </button>
+                            }
+                            <button type="button" class="btn btn-keypad-action btn-keypad-clear" @onclick="ClearWinnerTiles">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                            <button type="button" class="btn btn-keypad-digit" @onclick='() => OnWinnerKeypadPress("0")'>
+                                0
+                            </button>
+                            <button type="button" class="btn btn-keypad-action btn-keypad-backspace" @onclick="OnWinnerKeypadBackspace">
+                                <i class="bi bi-backspace-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-center gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold" @onclick="ClearWinnerTiles">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+                        </button>
+                        <button type="button" class="btn btn-lg btn-primary rounded-pill px-5 py-2 fw-bold shadow flex-grow-1" style="font-size: 1.15rem;" @onclick="ExecuteWinnerSearch">
+                            <i class="bi bi-search me-2"></i> Check Ticket
+                        </button>
+                    </div>
+                </div>
+
+                @if (_hasSearchedWinner)
+                {
+                    @if (_winnerResult != null && _winnerResult.Found && _winnerResult.Participant != null)
+                    {
+                        <div class="winner-found-card animate-scale-up">
+                            <div class="confetti-icon-strip">🎉 🏆 ✨ 🏆 🎉</div>
+                            <h5 class="fw-black text-success mb-1">WINNER FOUND!</h5>
+                            <div class="winner-ticket-display mb-3">Ticket #@_winnerResult.TicketNumber</div>
+
+                            <!-- WINNER PARTICIPANT DETAILS (NO CALL BUTTONS) -->
+                            <div class="winner-details-box bg-white p-3 rounded-3 border text-start shadow-sm">
+                                <div class="d-flex align-items-center gap-2 mb-2 pb-2 border-bottom">
+                                    <i class="bi bi-person-circle text-success fs-4"></i>
+                                    <div>
+                                        <h5 class="fw-bold mb-0 text-dark">@_winnerResult.Participant.FullName</h5>
+                                        <small class="text-muted">Registered Participant</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="row g-2 pt-1">
+                                    <div class="col-12">
+                                        <div class="d-flex align-items-center gap-2 text-dark">
+                                            <i class="bi bi-telephone-fill text-muted"></i>
+                                            <span class="fw-bold">@_winnerResult.Participant.PhoneNumber</span>
+                                        </div>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(_winnerResult.Participant.Email))
+                                    {
+                                        <div class="col-12">
+                                            <div class="d-flex align-items-center gap-2 text-dark">
+                                                <i class="bi bi-envelope-fill text-muted"></i>
+                                                <span>@_winnerResult.Participant.Email</span>
+                                            </div>
+                                        </div>
+                                    }
+                                    <div class="col-12 mt-1">
+                                        <div class="d-flex align-items-center gap-2 text-muted small">
+                                            <i class="bi bi-ticket-perforated-fill text-primary"></i>
+                                            <span>Holds <strong>@_winnerResult.TotalTicketsHeld</strong> total tickets</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="winner-not-found-card animate-fade-in">
+                            <i class="bi bi-emoji-frown display-5 text-muted opacity-50 mb-2"></i>
+                            <h6 class="fw-bold text-danger mb-1">No Matching Winner</h6>
+                            <p class="small text-muted mb-0">Ticket #@GetFullWinnerTicketSearchString() is not registered in the database.</p>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="sal-modal-footer">
+                <button class="btn btn-secondary w-100 fw-bold" @onclick="CloseWinnerModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================== -->
+<!-- 2. MODERN SAVED CONFIRMATION POPUP (AUTO-CLOSES) -->
+<!-- ========================================================== -->
+@if (_showThankYouModal)
+{
+    <div class="sal-modal-backdrop animate-fade-in" @onclick="RegisterNextPerson">
+        <div class="sal-modal-dialog confirmation-dialog animate-bounce-in text-center p-4 shadow-lg" @onclick:stopPropagation="true">
+            <div class="confirmation-celebrate-header text-center pb-2">
+                <div class="sal-confetti-sparkles mb-2">🎉 ✨ 🎁 ✨ 🎉</div>
+                <div class="success-check-badge animate-scale-up mx-auto mb-2">
+                    <i class="bi bi-heart-fill text-danger" style="font-size: 3.2rem; filter: drop-shadow(0 4px 10px rgba(239, 68, 68, 0.35));"></i>
+                </div>
+                <h2 class="fw-bolder text-dark mb-1" style="font-family: 'Outfit', sans-serif;">Thank You!</h2>
+                <div class="fs-5 fw-bold text-primary mb-2">For Supporting the Sal-ibration Raffle</div>
+                <p class="text-muted mb-0 fs-6">
+                    <strong>@_lastSavedParticipantName</strong>'s entry of <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-1 fs-6 fw-bolder rounded-pill">@_lastSavedTicketCount @(_lastSavedTicketCount == 1 ? "Ticket" : "Tickets")</span> has been recorded!
+                </p>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_settings.ThankYouMessage))
+            {
+                <div class="sal-premium-thankyou-card mt-3 mb-3 p-3 text-center animate-scale-up">
+                    <div class="sal-thankyou-custom-text fw-bold">@_settings.ThankYouMessage</div>
+                </div>
+            }
+
+            <div class="p-2 px-3 bg-light rounded-pill d-inline-flex align-items-center gap-2 text-muted small border mt-2">
+                <span class="spinner-grow spinner-grow-sm text-success" role="status"></span>
+                <span>Resetting for next person in a moment...</span>
+            </div>
+
+            <div class="mt-4">
+                <button type="button" class="btn btn-hero-start btn-md w-100 rounded-pill py-3 fw-bold shadow-sm" @onclick="RegisterNextPerson">
+                    <i class="bi bi-person-plus-fill me-2 fs-5"></i> Start Next Person Now
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================== -->
+<!-- 3. CONFIGURATION SETTINGS MODAL -->
+<!-- ========================================================== -->
+@if (_showSettingsModal)
+{
+    <div class="sal-modal-backdrop animate-fade-in" @onclick="CloseSettingsModal">
+        <div class="sal-modal-dialog sal-settings-dialog animate-scale-up" @onclick:stopPropagation="true">
+            <div class="sal-modal-header">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="settings-gear-badge"><i class="bi bi-gear-fill"></i></span>
+                    <div>
+                        <h6 class="mb-0 fw-bold">Event & Ticket Settings</h6>
+                        <small class="text-muted">Customize title, prefixes, timers & messages</small>
+                    </div>
+                </div>
+                <button class="btn btn-close-modal" @onclick="CloseSettingsModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="sal-modal-body p-3 p-md-4">
+                <div class="row g-3">
+                    <!-- LEFT COLUMN: EVENT DETAILS & TICKET CONFIGURATION -->
+                    <div class="col-12 col-md-6">
+                        <div class="settings-card-section h-100 p-3 rounded-3 border bg-white shadow-2xs">
+                            <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+                                <i class="bi bi-sliders text-primary fs-5"></i>
+                                <span class="fw-bold text-dark">Ticket Configuration</span>
+                            </div>
+
+                            <!-- Page Title -->
+                            <div class="mb-3">
+                                <label class="setting-field-label">Page / Event Display Title</label>
+                                <input type="text" class="setting-input-box" @bind="_tempSettings.PageTitle" placeholder="e.g. Sal-ibration" />
+                                <small class="setting-field-hint">Custom title shown across all screens</small>
+                            </div>
+
+                            <!-- Prefix & Variable Digits -->
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label class="setting-field-label">Roll Prefix</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="setting-input-box no-spinner @(_showPrefixKeypad ? "border-primary shadow-sm" : "")" 
+                                               @bind="_tempSettings.TicketPrefix" 
+                                               @onclick="TogglePrefixKeypad" 
+                                               placeholder="e.g. 1987" 
+                                               readonly />
+                                        <button class="btn @(_showPrefixKeypad ? "btn-primary" : "btn-outline-secondary") btn-sm" type="button" @onclick="TogglePrefixKeypad" title="Toggle On-Screen Keypad">
+                                            <i class="bi bi-grid-3x3-gap-fill"></i>
+                                        </button>
+                                    </div>
+                                    <small class="setting-field-hint">Fixed prefix on roll</small>
+                                </div>
+                                <div class="col-6">
+                                    <label class="setting-field-label">Digits to Type</label>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-circle" style="width: 28px; height: 28px; padding: 0;" @onclick='() => _tempSettings.VariableDigitCount = Math.Max(1, _tempSettings.VariableDigitCount - 1)'>-</button>
+                                        <input type="number" class="setting-input-box no-spinner text-center" min="1" max="8" @bind="_tempSettings.VariableDigitCount" inputmode="numeric" />
+                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-circle" style="width: 28px; height: 28px; padding: 0;" @onclick='() => _tempSettings.VariableDigitCount = Math.Min(8, _tempSettings.VariableDigitCount + 1)'>+</button>
+                                    </div>
+                                    <small class="setting-field-hint">Digit tile count</small>
+                                </div>
+                            </div>
+
+                            @if (_showPrefixKeypad)
+                            {
+                                <!-- ON-SCREEN TOUCH KEYPAD FOR ROLL PREFIX -->
+                                <div class="p-2 mb-3 rounded-3 bg-light border animate-scale-up">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                                        <span class="extra-small fw-bold text-primary"><i class="bi bi-keyboard-fill me-1"></i>Prefix Keypad</span>
+                                        <button type="button" class="btn btn-link btn-xs p-0 text-muted" @onclick='() => _showPrefixKeypad = false'>Close</button>
+                                    </div>
+                                    <div class="keypad-grid" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                                        @for (int n = 1; n <= 9; n++)
+                                        {
+                                            var numStr = n.ToString();
+                                            <button type="button" class="btn btn-sm btn-light border fw-bold py-2" @onclick="() => AppendPrefixDigit(numStr)">
+                                                @numStr
+                                            </button>
+                                        }
+                                        <button type="button" class="btn btn-sm btn-danger bg-opacity-10 text-danger border border-danger border-opacity-25 py-2 fw-bold" @onclick="ClearPrefix">
+                                            Clear
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-light border fw-bold py-2" @onclick='() => AppendPrefixDigit("0")'>
+                                            0
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-2 fw-bold text-primary bg-white border" @onclick="BackspacePrefix" title="Backspace">
+                                            <i class="bi bi-backspace-fill fs-6 text-primary"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+
+                            <!-- Ticket Format Live Preview -->
+                            <div class="p-2 rounded-3 bg-light border text-center">
+                                <span class="extra-small text-muted d-block fw-bold mb-1">Live Ticket Format Preview:</span>
+                                <div class="d-flex align-items-center justify-content-center gap-1">
+                                    <span class="badge bg-secondary px-2 py-1">@(_tempSettings.TicketPrefix ?? "")</span>
+                                    <span class="text-muted fw-bold">-</span>
+                                    @for (int s = 0; s < (_tempSettings.VariableDigitCount > 0 ? _tempSettings.VariableDigitCount : 3); s++)
+                                    {
+                                        <span class="badge bg-primary bg-opacity-25 text-primary border border-primary px-2 py-1">#</span>
+                                    }
+                                </div>
+                                <div class="extra-small text-muted mt-1">
+                                    Full: <strong>@GetTicketPreviewString()</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT COLUMN: THANK YOU MESSAGE & RESET -->
+                    <div class="col-12 col-md-6">
+                        <div class="settings-card-section h-100 p-3 rounded-3 border bg-white shadow-2xs d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+                                    <i class="bi bi-chat-heart-fill text-danger fs-5"></i>
+                                    <span class="fw-bold text-dark">Thank You Screen Settings</span>
+                                </div>
+
+                                <!-- Custom Thank You Message -->
+                                <div class="mb-3">
+                                    <label class="setting-field-label">Custom Thank You Message</label>
+                                    <textarea class="setting-input-box" rows="2" @bind="_tempSettings.ThankYouMessage" placeholder="Custom appreciation message..."></textarea>
+                                    <small class="setting-field-hint">Displayed to attendee after saving entry</small>
+                                </div>
+
+                                <!-- Thank You Duration with Quick Step Buttons -->
+                                <div class="mb-3">
+                                    <label class="setting-field-label">Message Duration (Seconds)</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick='() => _tempSettings.ThankYouDisplaySeconds = Math.Max(2, _tempSettings.ThankYouDisplaySeconds - 1)'>-</button>
+                                        <input type="number" class="setting-input-box no-spinner text-center" style="max-width: 90px;" min="2" max="60" @bind="_tempSettings.ThankYouDisplaySeconds" inputmode="numeric" />
+                                        <button type="button" class="btn btn-outline-secondary btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick='() => _tempSettings.ThankYouDisplaySeconds = Math.Min(60, _tempSettings.ThankYouDisplaySeconds + 1)'>+</button>
+                                        <span class="text-muted small ms-1">seconds</span>
+                                    </div>
+                                    <small class="setting-field-hint">Time before auto-resetting to welcome screen</small>
+                                </div>
+                            </div>
+
+                            <!-- DANGER ZONE -->
+                            <div class="p-2 mt-2 rounded-3 border border-danger border-opacity-25 bg-danger bg-opacity-10">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div class="d-flex align-items-center gap-1 text-danger small fw-bold">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>Reset Event Data</span>
+                                    </div>
+                                    <button class="btn btn-danger btn-xs rounded-pill px-3 fw-bold" @onclick="ConfirmClearAllData" disabled="@_isClearingData">
+                                        @if (_isClearingData)
+                                        {
+                                            <span>Clearing...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-trash3-fill me-1"></i>
+                                            <span>Wipe All Data</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sal-modal-footer d-flex gap-2">
+                <button class="btn btn-outline-secondary rounded-pill flex-grow-1" @onclick="CloseSettingsModal">Cancel</button>
+                <button class="btn btn-primary rounded-pill flex-grow-1 fw-bold" @onclick="SaveSettings">Save Settings</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================== -->
+<!-- 4. EDIT / CORRECT SAVED TICKET NUMBER MODAL -->
+<!-- ========================================================== -->
+@if (_showEditTicketModal && _editingParticipant != null && _editingTicket != null)
+{
+    <div class="sal-modal-backdrop animate-fade-in" @onclick="CloseEditTicketModal">
+        <div class="sal-modal-dialog animate-scale-up text-center p-3 p-md-4 shadow-lg" style="max-width: 440px;" @onclick:stopPropagation="true">
+            <div class="sal-modal-header border-0 pb-1">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="sal-badge-icon bg-primary text-white"><i class="bi bi-pencil-fill"></i></span>
+                    <div class="text-start">
+                        <h6 class="mb-0 fw-bold">Correct Ticket Number</h6>
+                        <small class="text-muted">Participant: <strong>@_editingParticipant.FullName</strong></small>
+                    </div>
+                </div>
+                <button class="btn btn-close-modal" @onclick="CloseEditTicketModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="sal-modal-body text-center pt-2">
+                @if (!string.IsNullOrEmpty(_editTicketError))
+                {
+                    <div class="alert alert-danger py-2 px-3 mb-2 rounded-3 text-start small fw-bold animate-shake">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i> @_editTicketError
+                    </div>
+                }
+
+                <div class="mb-2">
+                    <small class="text-muted d-block mb-1">Current Ticket Number:</small>
+                    <span class="badge bg-secondary bg-opacity-10 text-secondary fs-6 px-3 py-1 rounded-pill">
+                        #@_editingTicket.TicketNumber
+                    </span>
+                </div>
+
+                <!-- TILE ENTRY FOR CORRECTION -->
+                <div class="sal-tile-entry-box justify-content-center mb-3">
+                    <div class="tile-row-wrapper justify-content-center">
+                        @if (!string.IsNullOrEmpty(_settings.TicketPrefix))
+                        {
+                            <div class="prefix-tiles-group" title="Fixed Prefix">
+                                @foreach (var ch in _settings.TicketPrefix)
+                                {
+                                    <div class="digit-tile locked-tile">@ch</div>
+                                }
+                            </div>
+                            <div class="tile-separator">-</div>
+                        }
+
+                        <div class="active-tiles-group">
+                            @for (int i = 0; i < _settings.VariableDigitCount; i++)
+                            {
+                                var idx = i;
+                                <input type="tel" 
+                                       id="@($"edit-tile-input-{idx}")"
+                                       class="digit-tile editable-tile" 
+                                       maxlength="1" 
+                                       value="@GetEditDigitAt(idx)"
+                                       @oninput="@((e) => OnEditDigitInput(idx, e))"
+                                       autocomplete="off"
+                                       inputmode="numeric" />
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ON-SCREEN KEYPAD FOR CORRECTION -->
+                <div class="tablet-keypad-container mb-3 animate-fade-in" style="max-width: 300px;">
+                    <div class="keypad-grid" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                        @for (int n = 1; n <= 9; n++)
+                        {
+                            var numStr = n.ToString();
+                            <button type="button" class="btn btn-keypad-digit" style="height: 46px; font-size: 1.25rem;" @onclick="() => OnEditKeypadPress(numStr)">
+                                @numStr
+                            </button>
+                        }
+                        <button type="button" class="btn btn-keypad-action btn-keypad-clear" style="height: 46px; font-size: 0.85rem;" @onclick="ClearEditTiles">
+                            Clear
+                        </button>
+                        <button type="button" class="btn btn-keypad-digit" style="height: 46px; font-size: 1.25rem;" @onclick='() => OnEditKeypadPress("0")'>
+                            0
+                        </button>
+                        <button type="button" class="btn btn-keypad-action btn-keypad-backspace" style="height: 46px;" @onclick="OnEditKeypadBackspace">
+                            <i class="bi bi-backspace-fill"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 justify-content-center">
+                    <button type="button" class="btn btn-outline-danger btn-sm rounded-pill px-3" @onclick="ConfirmDeleteIndividualTicket" title="Remove this single ticket">
+                        <i class="bi bi-trash3 me-1"></i> Delete Ticket
+                    </button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="ConfirmSaveTicketCorrection">
+                        <i class="bi bi-check2-circle me-1"></i> Save Correction
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* PAGE CONTAINER */
+    .sal-page-container {
+        min-height: 100vh;
+        width: 100%;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    .sal-main-content {
+        flex: 1;
+        width: 100%;
+        padding-bottom: 4rem;
+    }
+    .roster-dashboard {
+        width: 100%;
+    }
+
+    /* HEADER */
+    .sal-header {
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+    .sal-brand-title {
+        font-size: 1.15rem;
+        letter-spacing: -0.3px;
+        color: #0f172a;
+    }
+    .sal-highlight {
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 900;
+        font-size: 1.25rem;
+        letter-spacing: 0.5px;
+    }
+    .sal-subtitle {
+        font-size: 0.65rem;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        font-weight: 600;
+        display: block;
+    }
+    .btn-icon-round {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        color: #334155;
+        font-size: 1rem;
+        transition: all 0.2s;
+    }
+    .btn-icon-round:active {
+        background: #e2e8f0;
+        transform: scale(0.95);
+    }
+
+    /* ACTION PILLS BAR */
+    .sal-action-bar {
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .btn-action-pill {
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 6px 12px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        color: #475569;
+        transition: all 0.2s;
+    }
+    .btn-action-pill.active {
+        background: #2563eb;
+        color: #ffffff;
+        border-color: #2563eb;
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+    }
+    .btn-action-winner {
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        padding: 6px 12px;
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.15));
+        color: #d97706;
+        transition: all 0.2s;
+    }
+    .btn-action-winner:active {
+        transform: scale(0.96);
+    }
+
+    /* CARD STYLING */
+    .sal-card {
+        background: #ffffff;
+        border-radius: 16px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+        overflow: hidden;
+        margin-bottom: 1rem;
+    }
+    .sal-card-header {
+        padding: 14px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        background: #fafafa;
+    }
+    .sal-card-body {
+        padding: 16px;
+    }
+    .sal-badge-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: rgba(37, 99, 235, 0.1);
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+    }
+    .sal-divider {
+        margin: 1.25rem 0;
+        border-color: #f1f5f9;
+        opacity: 0.8;
+    }
+
+    /* LABELS & INPUTS */
+    .form-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #334155;
+        margin-bottom: 4px;
+    }
+    .required-label::after {
+        content: " *";
+        color: #ef4444;
+        font-weight: bold;
+    }
+    .badge-optional {
+        font-size: 0.65rem;
+        background: #f1f5f9;
+        color: #64748b;
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-weight: normal;
+        margin-left: 4px;
+    }
+    .btn-field-clear-pill {
+        font-size: 0.72rem;
+        font-weight: 700;
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+        border-radius: 20px;
+        padding: 2px 10px;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.15s ease-in-out;
+        box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
+    }
+    .btn-field-clear-pill:hover, .btn-field-clear-pill:active {
+        background: #dc2626;
+        color: #ffffff;
+        border-color: #dc2626;
+        transform: scale(0.96);
+    }
+    .input-group-modern {
+        display: flex;
+        align-items: center;
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 4px 10px;
+        transition: all 0.2s;
+    }
+    .input-group-modern:focus-within, .input-group-modern.focused-field {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        background: #ffffff;
+    }
+    .input-group-modern.input-group-error {
+        border: 2px solid #ef4444 !important;
+        background: #fff5f5 !important;
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2) !important;
+    }
+    .animate-shake {
+        animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    }
+    @@keyframes shake {
+        10%, 90% { transform: translate3d(-1px, 0, 0); }
+        20%, 80% { transform: translate3d(2px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+        40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+    .btn-xs-domain {
+        font-size: 0.68rem;
+        font-weight: 600;
+        background: #e2e8f0;
+        color: #334155;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 1px 6px;
+        transition: all 0.15s;
+    }
+    .btn-xs-domain:hover, .btn-xs-domain:active {
+        background: #2563eb;
+        color: #ffffff;
+        border-color: #2563eb;
+    }
+    .input-icon {
+        color: #94a3b8;
+        font-size: 1.05rem;
+        margin-right: 8px;
+    }
+    .form-control-modern {
+        border: none;
+        background: transparent;
+        width: 100%;
+        padding: 8px 0;
+        font-size: 0.92rem;
+        color: #0f172a;
+        outline: none;
+    }
+    .field-error-msg {
+        font-size: 0.72rem;
+        color: #ef4444;
+        margin-top: 4px;
+        font-weight: 500;
+    }
+
+    /* DIGIT TILES ENTRY */
+    .sal-tile-entry-box {
+        background: #f1f5f9;
+        border-radius: 14px;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .tile-row-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    .prefix-tiles-group, .active-tiles-group {
+        display: flex;
+        gap: 5px;
+    }
+    .tile-separator {
+        font-weight: 900;
+        color: #94a3b8;
+        font-size: 1.2rem;
+    }
+    .digit-tile {
+        width: 38px;
+        height: 44px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        font-weight: 800;
+        text-align: center;
+        transition: all 0.15s ease-in-out;
+    }
+    .locked-tile {
+        background: #cbd5e1;
+        color: #475569;
+        border: 1px solid #94a3b8;
+        user-select: none;
+    }
+    .editable-tile {
+        background: #ffffff;
+        border: 2px solid #94a3b8;
+        color: #0f172a;
+        outline: none;
+        caret-color: #2563eb;
+    }
+    .editable-tile:focus {
+        border-color: #2563eb;
+        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        transform: scale(1.05);
+    }
+    .btn-add-tile {
+        width: 38px;
+        height: 44px;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #ffffff;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        transition: all 0.2s;
+    }
+    .btn-add-tile:active {
+        transform: scale(0.92);
+    }
+    /* ON-SCREEN TABLET TOUCH KEYPAD */
+    .tablet-keypad-container {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 12px;
+        max-width: 380px;
+        margin: 0 auto;
+    }
+    .keypad-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+    .btn-keypad-digit {
+        height: 52px;
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.1s;
+        user-select: none;
+    }
+    .btn-keypad-digit:active {
+        background: #e2e8f0;
+        transform: scale(0.96);
+    }
+    .btn-keypad-action {
+        height: 52px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        border-radius: 12px;
+        border: 1px solid #cbd5e1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        transition: all 0.1s;
+        user-select: none;
+    }
+    .btn-keypad-clear {
+        background: #fef2f2;
+        color: #dc2626;
+        border-color: #fecaca;
+    }
+    .btn-keypad-clear:active {
+        background: #fee2e2;
+        transform: scale(0.96);
+    }
+    .btn-keypad-backspace {
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 1.25rem;
+    }
+    .btn-keypad-backspace:active {
+        background: #e2e8f0;
+        transform: scale(0.96);
+    }
+
+    /* TABLET & LANDSCAPE RESPONSIVENESS */
+    @@media (min-width: 768px) {
+        .digit-tile {
+            width: 48px;
+            height: 54px;
+            font-size: 1.45rem;
+            border-radius: 10px;
+        }
+        .btn-add-tile {
+            width: 48px;
+            height: 54px;
+            font-size: 1.3rem;
+            border-radius: 10px;
+        }
+        .tablet-keypad-container {
+            max-width: 100%;
+        }
+        .btn-keypad-digit, .btn-keypad-action {
+            height: 56px;
+            font-size: 1.45rem;
+        }
+    }
+
+    @@media (orientation: landscape) and (max-height: 600px) {
+        .sal-card-body {
+            padding: 12px;
+        }
+        .tablet-keypad-container {
+            padding: 8px;
+        }
+        .btn-keypad-digit, .btn-keypad-action {
+            height: 42px;
+            font-size: 1.15rem;
+        }
+    }
+
+    /* LARGE TICKET LIST VIEW */
+    .large-ticket-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 520px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .large-ticket-row {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        transition: all 0.15s;
+    }
+    .large-ticket-row:hover {
+        background: #ffffff;
+        border-color: #93c5fd;
+    }
+    .ticket-index-badge {
+        font-size: 0.82rem;
+        font-weight: 800;
+        background: #e2e8f0;
+        color: #475569;
+        padding: 4px 8px;
+        border-radius: 8px;
+        min-width: 34px;
+        text-align: center;
+    }
+    .large-ticket-number {
+        font-size: 1.35rem;
+        font-weight: 900;
+        letter-spacing: 1px;
+        color: #0f172a;
+        font-family: 'Outfit', 'Inter', monospace;
+    }
+    .btn-edit-ticket-large {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: #eff6ff;
+        color: #2563eb;
+        border: 1px solid #bfdbfe;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        transition: all 0.15s;
+    }
+    .btn-edit-ticket-large:hover, .btn-edit-ticket-large:active {
+        background: #2563eb;
+        color: #ffffff;
+        border-color: #2563eb;
+        transform: scale(0.95);
+    }
+    .btn-delete-ticket-large {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        transition: all 0.15s;
+    }
+    .btn-delete-ticket-large:hover, .btn-delete-ticket-large:active {
+        background: #dc2626;
+        color: #ffffff;
+        transform: scale(0.95);
+    }
+
+    /* BUTTONS */
+    .btn-sal-finish {
+        background: linear-gradient(135deg, #16a34a, #15803d);
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 0.95rem;
+        border: none;
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+        transition: all 0.2s;
+    }
+    .btn-sal-finish:active {
+        transform: scale(0.98);
+    }
+    .btn-sal-primary {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #ffffff;
+        font-weight: 700;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    }
+
+    /* MODAL WINDOWS */
+    .sal-modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(6px);
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .sal-modal-dialog {
+        background: #ffffff;
+        border-radius: 20px;
+        width: 100%;
+        max-width: 440px;
+        overflow: hidden;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+    }
+    .sal-settings-dialog {
+        max-width: 780px !important;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+    }
+    .sal-settings-dialog .sal-modal-body {
+        overflow-y: auto;
+    }
+    .setting-field-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 4px;
+        display: block;
+    }
+    .setting-field-hint {
+        font-size: 0.72rem;
+        color: #64748b;
+        margin-top: 2px;
+        display: block;
+    }
+    .setting-input-box {
+        width: 100%;
+        background: #f8fafc;
+        border: 2px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #0f172a;
+        outline: none;
+        transition: all 0.2s;
+    }
+    .setting-input-box:focus {
+        background: #ffffff;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    /* REMOVE SPINNER ARROWS FROM NUMBER INPUTS (CHROME, SAFARI, EDGE, FIREFOX) */
+    .no-spinner::-webkit-outer-spin-button,
+    .no-spinner::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none !important;
+        margin: 0 !important;
+    }
+    .no-spinner,
+    input[type="number"] {
+        -moz-appearance: textfield !important;
+    }
+    .sal-modal-header {
+        padding: 16px;
+        border-bottom: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .sal-modal-body {
+        padding: 16px;
+    }
+    .sal-modal-footer {
+        padding: 12px 16px;
+        background: #fafafa;
+        border-top: 1px solid #f1f5f9;
+    }
+    .winner-trophy-badge, .settings-gear-badge {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: rgba(245, 158, 11, 0.15);
+        color: #d97706;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+    }
+    .settings-gear-badge {
+        background: rgba(100, 116, 139, 0.15);
+        color: #475569;
+    }
+    .btn-close-modal {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 1.1rem;
+    }
+
+    /* WINNER FOUND CARD */
+    .winner-found-card {
+        background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+        border: 2px solid #34d399;
+        border-radius: 16px;
+        padding: 18px;
+        text-align: center;
+    }
+    .winner-ticket-display {
+        font-size: 1.3rem;
+        font-weight: 900;
+        color: #065f46;
+        letter-spacing: 0.5px;
+    }
+    .confetti-icon-strip {
+        font-size: 1.25rem;
+        letter-spacing: 4px;
+        margin-bottom: 4px;
+    }
+    .winner-not-found-card {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 14px;
+        padding: 20px;
+        text-align: center;
+    }
+
+    /* HERO WELCOME SCREEN (STEP 1) */
+    .sal-welcome-hero {
+        max-width: 680px;
+        margin: 2rem auto;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 28px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+    }
+    .sal-hero-icon-wrapper {
+        width: 88px;
+        height: 88px;
+        border-radius: 24px;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.06));
+        border: 1px solid rgba(37, 99, 235, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.8rem;
+        box-shadow: 0 8px 24px rgba(37, 99, 235, 0.15);
+    }
+    .btn-hero-start {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #ffffff;
+        font-size: 1.2rem;
+        font-weight: 800;
+        padding: 16px 36px;
+        border-radius: 50px;
+        border: none;
+        letter-spacing: 0.3px;
+        transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+        cursor: pointer;
+    }
+    .btn-hero-start:hover {
+        background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        transform: translateY(-2px);
+        box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45);
+        color: #ffffff;
+    }
+    .btn-hero-start:active {
+        transform: scale(0.96);
+    }
+
+    /* CONFIRMATION THANK YOU POPUP */
+    .confirmation-dialog {
+        border-radius: 28px;
+        max-width: 480px;
+    }
+    .confirmation-celebrate-header {
+        background: linear-gradient(180deg, rgba(239, 68, 68, 0.05) 0%, rgba(37, 99, 235, 0.03) 100%);
+        border-radius: 20px;
+        padding: 16px 12px;
+    }
+    .sal-confetti-sparkles {
+        font-size: 1.4rem;
+        letter-spacing: 6px;
+    }
+    .sal-premium-thankyou-card {
+        background: linear-gradient(135deg, #eff6ff, #f8fafc);
+        border: 2px dashed #93c5fd;
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+    }
+    .sal-thankyou-custom-text {
+        font-size: 1.15rem;
+        color: #1e3a8a;
+        line-height: 1.5;
+        letter-spacing: -0.2px;
+    }
+    .success-check-badge {
+        font-size: 3rem;
+        color: #10b981;
+        line-height: 1;
+    }
+
+    /* ROSTER STYLING & MODERN DASHBOARD */
+    .roster-stat-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .roster-stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05) !important;
+    }
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        flex-shrink: 0;
+    }
+    .stat-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #64748b;
+        display: block;
+        margin-bottom: 2px;
+    }
+    .stat-value {
+        font-size: 1.65rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        font-family: 'Outfit', 'Inter', sans-serif;
+    }
+
+    /* SEARCH BAR */
+    .search-box-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        padding: 4px 16px;
+        transition: all 0.2s;
+    }
+    .search-box-wrapper:focus-within {
+        border-color: #2563eb;
+        background: #ffffff;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
+    .search-box-icon {
+        color: #94a3b8;
+        font-size: 1.1rem;
+        margin-right: 12px;
+    }
+    .form-control-search {
+        border: none;
+        background: transparent;
+        width: 100%;
+        padding: 10px 0;
+        font-size: 0.95rem;
+        color: #0f172a;
+        outline: none;
+    }
+    .btn-clear-search {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 0;
+        margin-left: 8px;
+    }
+    .btn-clear-search:hover {
+        color: #64748b;
+    }
+
+    /* ATTENDEE CARDS */
+    .roster-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: calc(100vh - 280px);
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding-right: 6px;
+        padding-bottom: 12px;
+    }
+    .roster-grid::-webkit-scrollbar {
+        width: 8px;
+    }
+    .roster-grid::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 8px;
+    }
+    .roster-grid::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 8px;
+    }
+    .roster-grid::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+    .roster-attendee-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 18px 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+        transition: all 0.2s;
+    }
+    .roster-attendee-card:hover {
+        border-color: #cbd5e1;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+    }
+    .attendee-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #ffffff;
+        font-size: 1.2rem;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+        flex-shrink: 0;
+    }
+    .attendee-avatar.sm-avatar {
+        width: 34px;
+        height: 34px;
+        font-size: 0.95rem;
+        border-radius: 8px;
+    }
+    .attendee-name {
+        font-size: 1.05rem;
+        letter-spacing: -0.2px;
+    }
+    .attendee-contact-pill {
+        font-size: 0.8rem;
+        background: #f1f5f9;
+        color: #475569;
+        padding: 3px 10px;
+        border-radius: 8px;
+        font-weight: 500;
+    }
+    .attendee-ticket-counter {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+    }
+    .btn-delete-attendee {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.95rem;
+        transition: all 0.15s;
+    }
+    .btn-delete-attendee:hover {
+        background: #dc2626;
+        color: #ffffff;
+        transform: scale(0.95);
+    }
+    .roster-tickets-container {
+        border-top: 1px solid #f1f5f9;
+        padding-top: 12px;
+        margin-top: 6px;
+    }
+    .roster-tickets-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: block;
+        margin-bottom: 8px;
+    }
+    .roster-tickets-pills-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .modern-ticket-badge {
+        font-size: 0.88rem;
+        font-weight: 800;
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        color: #0f172a;
+        padding: 4px 10px;
+        border-radius: 10px;
+        font-family: 'Outfit', 'Inter', monospace;
+        letter-spacing: 0.5px;
+        display: inline-flex;
+        align-items: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        transition: all 0.15s;
+    }
+    .modern-ticket-badge:hover {
+        background: #ffffff;
+        border-color: #93c5fd;
+        transform: translateY(-1px);
+    }
+    .btn-xs-pill-action {
+        background: transparent;
+        border: none;
+        padding: 0 2px;
+        font-size: 0.88rem;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 0.15s, transform 0.15s;
+    }
+    .btn-xs-pill-action:hover, .btn-xs-pill-action:active {
+        opacity: 1;
+        transform: scale(1.15);
+    }
+
+    /* MAIN HUB MANAGEMENT SCREEN */
+    .sal-hub-container {
+        max-width: 860px;
+        margin: 0 auto;
+    }
+    .sal-hub-hero {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+    }
+    .sal-hub-badge {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: rgba(37, 99, 235, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+    }
+    .sal-hub-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 20px;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .sal-hub-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06) !important;
+        border-color: #93c5fd;
+    }
+    .sal-hub-card:active {
+        transform: scale(0.98);
+    }
+    .hub-card-primary {
+        background: linear-gradient(135deg, #ffffff, #eff6ff);
+        border: 2px solid #bfdbfe;
+    }
+    .hub-card-primary:hover {
+        border-color: #2563eb;
+    }
+    .hub-card-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        flex-shrink: 0;
+    }
+    .btn-exit-kiosk {
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+    }
+    .btn-exit-kiosk:hover {
+        background: #e2e8f0;
+        color: #0f172a;
+    }
+
+    /* ANIMATIONS */
+    .animate-entrance { animation: fadeIn 0.3s ease-out; }
+    .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+    .animate-scale-up { animation: scaleUp 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .animate-bounce-in { animation: bounceIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @@keyframes scaleUp {
+        from { opacity: 0; transform: scale(0.92); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    @@keyframes bounceIn {
+        0% { opacity: 0; transform: scale(0.8); }
+        70% { transform: scale(1.03); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+</style>
+
+@code {
+    private enum EntryStep
+    {
+        Welcome,
+        ParticipantInfo,
+        TicketEntry
+    }
+
+    private EntryStep _entryStep = EntryStep.Welcome;
+    private bool _isLoading = true;
+    private string _activeTab = "main";
+    private SalibrationSettings _settings = new();
+    private SalibrationSettings _tempSettings = new();
+
+    // Form inputs
+    private string _fullName = "";
+    private string _phoneNumber = "";
+    private string? _email = "";
+    private string _activeField = "name";
+    private List<string> _enteredTickets = new();
+    private string[] _currentDigits = Array.Empty<string>();
+
+    private void StartKioskRegistration()
+    {
+        _activeTab = "entry";
+        _entryStep = EntryStep.Welcome;
+        _fullName = "";
+        _phoneNumber = "";
+        _email = "";
+        _enteredTickets.Clear();
+        InitializeDigitTiles();
+        _nameError = false;
+        _phoneError = false;
+        _phoneErrorMessage = null;
+        _emailError = false;
+        _emailErrorMessage = null;
+        _ticketInputError = null;
+    }
+
+    private void ExitToMainHub()
+    {
+        _activeTab = "main";
+        _entryStep = EntryStep.Welcome;
+        _fullName = "";
+        _phoneNumber = "";
+        _email = "";
+        _enteredTickets.Clear();
+        InitializeDigitTiles();
+        _nameError = false;
+        _phoneError = false;
+        _phoneErrorMessage = null;
+        _emailError = false;
+        _emailErrorMessage = null;
+        _ticketInputError = null;
+    }
+
+    private void StartNewEntry()
+    {
+        _entryStep = EntryStep.ParticipantInfo;
+        _fullName = "";
+        _phoneNumber = "";
+        _email = "";
+        _enteredTickets.Clear();
+        InitializeDigitTiles();
+        _nameError = false;
+        _phoneError = false;
+        _phoneErrorMessage = null;
+        _emailError = false;
+        _emailErrorMessage = null;
+        _ticketInputError = null;
+        _activeField = "name";
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(100);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('participant-name-input')?.focus()");
+        });
+    }
+
+    private void CancelToWelcome()
+    {
+        _entryStep = EntryStep.Welcome;
+        _fullName = "";
+        _phoneNumber = "";
+        _email = "";
+        _enteredTickets.Clear();
+        InitializeDigitTiles();
+        _nameError = false;
+        _phoneError = false;
+        _phoneErrorMessage = null;
+        _emailError = false;
+        _emailErrorMessage = null;
+        _ticketInputError = null;
+    }
+
+    private void ProceedToTickets()
+    {
+        _nameError = string.IsNullOrWhiteSpace(_fullName);
+
+        // Phone Validation (Must be area code + 7 digits = 10 digits)
+        var phoneDigitsOnly = Regex.Replace(_phoneNumber ?? "", @"[^\d]", "");
+        if (string.IsNullOrWhiteSpace(_phoneNumber))
+        {
+            _phoneError = true;
+            _phoneErrorMessage = "Phone number with area code is required (10 digits total).";
+        }
+        else if (phoneDigitsOnly.Length < 10)
+        {
+            _phoneError = true;
+            _phoneErrorMessage = $"Phone number has only {phoneDigitsOnly.Length} digits. Please include 3-digit area code and 7-digit number (10 digits total).";
+        }
+        else if (phoneDigitsOnly.Length > 10)
+        {
+            _phoneError = true;
+            _phoneErrorMessage = $"Phone number has {phoneDigitsOnly.Length} digits. Please enter a 10-digit number (area code + number).";
+        }
+        else
+        {
+            _phoneError = false;
+            _phoneErrorMessage = null;
+        }
+
+        // Email Validation (Optional, but if entered, must be valid email format)
+        if (!string.IsNullOrWhiteSpace(_email))
+        {
+            var emailPattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
+            if (!Regex.IsMatch(_email.Trim(), emailPattern, RegexOptions.IgnoreCase))
+            {
+                _emailError = true;
+                _emailErrorMessage = "Please enter a valid email address (e.g. name@domain.com).";
+            }
+            else
+            {
+                _emailError = false;
+                _emailErrorMessage = null;
+            }
+        }
+        else
+        {
+            _emailError = false;
+            _emailErrorMessage = null;
+        }
+
+        if (_nameError || _phoneError || _emailError)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        _entryStep = EntryStep.TicketEntry;
+        _ticketInputError = null;
+        InitializeDigitTiles();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(100);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('tile-input-0')?.focus()");
+        });
+    }
+
+    private void BackToParticipantInfo()
+    {
+        _entryStep = EntryStep.ParticipantInfo;
+        _ticketInputError = null;
+    }
+
+    private void SetActiveField(string field)
+    {
+        _activeField = field;
+    }
+
+    private void AppendDomain(string domain)
+    {
+        if (string.IsNullOrEmpty(_email))
+        {
+            _email = domain;
+        }
+        else if (!_email.Contains("@"))
+        {
+            _email = _email.Trim() + domain;
+        }
+        else
+        {
+            var userPart = _email.Split('@')[0];
+            _email = userPart + domain;
+        }
+    }
+
+    private void AppendGmail() => AppendDomain("@gmail.com");
+    private void AppendYahoo() => AppendDomain("@yahoo.com");
+    private void AppendHotmail() => AppendDomain("@hotmail.com");
+
+    private bool _nameError = false;
+    private bool _phoneError = false;
+    private string? _phoneErrorMessage;
+    private bool _emailError = false;
+    private string? _emailErrorMessage;
+    private string? _ticketInputError;
+    private bool _isSaving = false;
+
+    // Roster data
+    private List<SalibrationParticipant> _participants = new();
+    private string _searchTerm = "";
+    private int _totalTicketsRegistered = 0;
+
+    // Winner Modal State
+    private bool _showWinnerModal = false;
+    private string[] _winnerDigits = Array.Empty<string>();
+    private bool _hasSearchedWinner = false;
+    private SalibrationWinnerResult? _winnerResult;
+
+    // Thank You Confirmation Modal State
+    private bool _showThankYouModal = false;
+    private string _lastSavedParticipantName = "";
+    private string _lastSavedPhone = "";
+    private int _lastSavedTicketCount = 0;
+
+    // Settings Modal State
+    private bool _showSettingsModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAndData();
+    }
+
+    private async Task LoadSettingsAndData()
+    {
+        _isLoading = true;
+        try
+        {
+            _settings = await SalibrationService.GetSettingsAsync();
+            InitializeDigitTiles();
+            _participants = await SalibrationService.GetAllParticipantsAsync();
+            _totalTicketsRegistered = _participants.Sum(p => p.Tickets?.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Salibration] Init error: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void InitializeDigitTiles()
+    {
+        if (_settings.VariableDigitCount <= 0) _settings.VariableDigitCount = 3;
+        _currentDigits = new string[_settings.VariableDigitCount];
+        for (int i = 0; i < _currentDigits.Length; i++) _currentDigits[i] = "";
+    }
+
+    private string GetFormattedTitleRest()
+    {
+        var title = _settings.PageTitle ?? "Sal-ibration";
+        if (title.StartsWith("Sal", StringComparison.OrdinalIgnoreCase))
+        {
+            return title.Substring(3);
+        }
+        return title;
+    }
+
+    private string GetTicketPreviewString()
+    {
+        var prefix = _tempSettings.TicketPrefix ?? "";
+        var count = _tempSettings.VariableDigitCount > 0 ? _tempSettings.VariableDigitCount : 3;
+        return prefix + new string('0', count);
+    }
+
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+    }
+
+    private string FormatPhoneNumber(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var digits = Regex.Replace(raw, @"\D", "");
+        if (digits.Length == 10)
+        {
+            return $"({digits.Substring(0, 3)}) {digits.Substring(3, 3)}-{digits.Substring(6)}";
+        }
+        if (digits.Length == 11 && digits.StartsWith("1"))
+        {
+            return $"+1 ({digits.Substring(1, 3)}) {digits.Substring(4, 3)}-{digits.Substring(7)}";
+        }
+        if (digits.Length == 7)
+        {
+            return $"{digits.Substring(0, 3)}-{digits.Substring(3)}";
+        }
+        return raw;
+    }
+
+    private string GetDigitAt(int index)
+    {
+        if (_currentDigits != null && index >= 0 && index < _currentDigits.Length)
+        {
+            return _currentDigits[index] ?? "";
+        }
+        return "";
+    }
+
+    private async Task OnKeypadPress(string digit)
+    {
+        _ticketInputError = null;
+        // Find the first empty digit tile
+        int emptyIdx = -1;
+        for (int i = 0; i < _currentDigits.Length; i++)
+        {
+            if (string.IsNullOrEmpty(_currentDigits[i]))
+            {
+                emptyIdx = i;
+                break;
+            }
+        }
+
+        if (emptyIdx != -1)
+        {
+            _currentDigits[emptyIdx] = digit;
+            if (emptyIdx < _settings.VariableDigitCount - 1)
+            {
+                await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('tile-input-{emptyIdx + 1}')?.focus()");
+            }
+            else
+            {
+                // All tiles filled
+                if (_currentDigits.All(d => !string.IsNullOrEmpty(d)))
+                {
+                    TryAddCurrentTileTicket();
+                }
+            }
+        }
+    }
+
+    private void OnKeypadClear()
+    {
+        InitializeDigitTiles();
+        _ticketInputError = null;
+    }
+
+    private void OnKeypadBackspace()
+    {
+        for (int i = _currentDigits.Length - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrEmpty(_currentDigits[i]))
+            {
+                _currentDigits[i] = "";
+                break;
+            }
+        }
+        _ticketInputError = null;
+    }
+
+    private async Task OnDigitInput(int index, ChangeEventArgs e)
+    {
+        _ticketInputError = null;
+        var val = e.Value?.ToString() ?? "";
+        
+        // Keep only digits
+        val = Regex.Replace(val, @"[^\d]", "");
+        if (val.Length > 1)
+        {
+            val = val.Substring(val.Length - 1);
+        }
+
+        _currentDigits[index] = val;
+
+        if (!string.IsNullOrEmpty(val))
+        {
+            // Auto advance to next tile
+            if (index < _settings.VariableDigitCount - 1)
+            {
+                await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('tile-input-{index + 1}')?.focus()");
+            }
+            else
+            {
+                // Last digit entered: Check if full number is ready
+                if (_currentDigits.All(d => !string.IsNullOrEmpty(d)))
+                {
+                    TryAddCurrentTileTicket();
+                }
+            }
+        }
+    }
+
+    private async Task OnTileKeyDown(int index, KeyboardEventArgs e)
+    {
+        if (e.Key == "Backspace" && string.IsNullOrEmpty(_currentDigits[index]) && index > 0)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('tile-input-{index - 1}')?.focus()");
+        }
+        else if (e.Key == "Enter")
+        {
+            TryAddCurrentTileTicket();
+        }
+    }
+
+    private void TryAddCurrentTileTicket()
+    {
+        if (_currentDigits.Any(string.IsNullOrWhiteSpace))
+        {
+            _ticketInputError = "Please complete all digit boxes.";
+            return;
+        }
+
+        var variablePart = string.Join("", _currentDigits);
+        var fullTicketNumber = (_settings.TicketPrefix ?? "") + variablePart;
+
+        // Check 1: Already added in the current registration session
+        if (_enteredTickets.Contains(fullTicketNumber, StringComparer.OrdinalIgnoreCase))
+        {
+            _ticketInputError = $"Ticket #{fullTicketNumber} is already added in this list.";
+            return;
+        }
+
+        // Check 2: Already registered to an existing participant in this event
+        var isAlreadyRegistered = _participants.Any(p => 
+            p.Tickets != null && p.Tickets.Any(t => string.Equals(t.TicketNumber, fullTicketNumber, StringComparison.OrdinalIgnoreCase)));
+
+        if (isAlreadyRegistered)
+        {
+            _ticketInputError = $"Ticket #{fullTicketNumber} has already been registered. Duplicate tickets are not allowed.";
+            return;
+        }
+
+        _enteredTickets.Add(fullTicketNumber);
+        _ticketInputError = null;
+
+        // Reset tiles & focus back to first tile
+        InitializeDigitTiles();
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(50);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('tile-input-0')?.focus()");
+        });
+    }
+
+    private void EditTicket(string ticket)
+    {
+        if (string.IsNullOrEmpty(ticket)) return;
+
+        // Strip prefix if present
+        var prefix = _settings.TicketPrefix ?? "";
+        string variableDigits;
+        if (!string.IsNullOrEmpty(prefix) && ticket.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            variableDigits = ticket.Substring(prefix.Length);
+        }
+        else
+        {
+            variableDigits = ticket;
+        }
+
+        // Initialize digits buffer to match setting length
+        InitializeDigitTiles();
+
+        for (int i = 0; i < _currentDigits.Length && i < variableDigits.Length; i++)
+        {
+            _currentDigits[i] = variableDigits[i].ToString();
+        }
+
+        // Remove from list so user can edit and re-add or correct it
+        _enteredTickets.Remove(ticket);
+        _ticketInputError = null;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(50);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('tile-input-0')?.focus()");
+        });
+    }
+
+    private void RemoveTicket(string ticket)
+    {
+        _enteredTickets.Remove(ticket);
+    }
+
+    private async Task HandleFinishEntry()
+    {
+        _nameError = string.IsNullOrWhiteSpace(_fullName);
+
+        // Phone Validation (Must be area code + 7 digits = 10 digits)
+        var phoneDigitsOnly = Regex.Replace(_phoneNumber ?? "", @"[^\d]", "");
+        if (string.IsNullOrWhiteSpace(_phoneNumber))
+        {
+            _phoneError = true;
+            _phoneErrorMessage = "Phone number with area code is required (10 digits total).";
+        }
+        else if (phoneDigitsOnly.Length < 10)
+        {
+            _phoneError = true;
+            _phoneErrorMessage = $"Phone number has only {phoneDigitsOnly.Length} digits. Please include 3-digit area code and 7-digit number (10 digits total).";
+        }
+        else if (phoneDigitsOnly.Length > 10)
+        {
+            _phoneError = true;
+            _phoneErrorMessage = $"Phone number has {phoneDigitsOnly.Length} digits. Please enter a 10-digit number (area code + number).";
+        }
+        else
+        {
+            _phoneError = false;
+            _phoneErrorMessage = null;
+        }
+
+        // Email Validation (Optional, but if entered, must be valid email format)
+        if (!string.IsNullOrWhiteSpace(_email))
+        {
+            var emailPattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
+            if (!Regex.IsMatch(_email.Trim(), emailPattern, RegexOptions.IgnoreCase))
+            {
+                _emailError = true;
+                _emailErrorMessage = "Please enter a valid email address (e.g. john@example.com).";
+            }
+            else
+            {
+                _emailError = false;
+                _emailErrorMessage = null;
+            }
+        }
+        else
+        {
+            _emailError = false;
+            _emailErrorMessage = null;
+        }
+
+        if (_nameError || _phoneError || _emailError)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        // If user left partially filled or filled digits, try adding them
+        if (_currentDigits.All(d => !string.IsNullOrEmpty(d)))
+        {
+            TryAddCurrentTileTicket();
+        }
+
+        if (_enteredTickets.Count == 0)
+        {
+            _ticketInputError = "Please enter at least one ticket number before saving.";
+            StateHasChanged();
+            return;
+        }
+
+        _isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var currentAppUser = AuthStateProvider.GetCurrentUser();
+            var participant = new SalibrationParticipant
+            {
+                FullName = _fullName.Trim(),
+                PhoneNumber = _phoneNumber.Trim(),
+                Email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(),
+                CreatedBy = currentAppUser?.Username ?? "Mobile User"
+            };
+
+            var ticketSnapshot = _enteredTickets.ToList();
+
+            await SalibrationService.SaveParticipantWithTicketsAsync(participant, ticketSnapshot);
+
+            // Set up Saved Details
+            _lastSavedParticipantName = participant.FullName;
+            _lastSavedPhone = participant.PhoneNumber;
+            _lastSavedTicketCount = ticketSnapshot.Count;
+
+            // Immediately clear the entered tickets list and input state for the next person
+            _fullName = "";
+            _phoneNumber = "";
+            _email = "";
+            _enteredTickets.Clear();
+            InitializeDigitTiles();
+            _nameError = false;
+            _phoneError = false;
+            _phoneErrorMessage = null;
+            _emailError = false;
+            _emailErrorMessage = null;
+            _ticketInputError = null;
+
+            // Refresh roster in background
+            _participants = await SalibrationService.GetAllParticipantsAsync();
+            _totalTicketsRegistered = _participants.Sum(p => p.Tickets?.Count ?? 0);
+
+            // Show saved confirmation popup and automatically reset for next person after configured seconds
+            _showThankYouModal = true;
+            StateHasChanged();
+
+            var displayDelayMs = Math.Max(2, _settings.ThankYouDisplaySeconds > 0 ? _settings.ThankYouDisplaySeconds : 5) * 1000;
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(displayDelayMs);
+                if (_showThankYouModal)
+                {
+                    await InvokeAsync(RegisterNextPerson);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Salibration] Save Error: {ex.Message}");
+            _ticketInputError = "Error saving entry: " + ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RegisterNextPerson()
+    {
+        _showThankYouModal = false;
+        _fullName = "";
+        _phoneNumber = "";
+        _email = "";
+        _enteredTickets.Clear();
+        InitializeDigitTiles();
+        _nameError = false;
+        _phoneError = false;
+        _phoneErrorMessage = null;
+        _emailError = false;
+        _emailErrorMessage = null;
+        _ticketInputError = null;
+        _entryStep = EntryStep.Welcome;
+        _activeTab = "entry";
+        StateHasChanged();
+    }
+
+    private void CloseThankYouModal()
+    {
+        _showThankYouModal = false;
+        _activeTab = "roster";
+    }
+
+    // WINNER MODAL ACTIONS
+    private void OpenWinnerModal()
+    {
+        _showWinnerModal = true;
+        _hasSearchedWinner = false;
+        _winnerResult = null;
+        InitializeWinnerTiles();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(150);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('winner-tile-input-0')?.focus()");
+        });
+    }
+
+    private void InitializeWinnerTiles()
+    {
+        var count = _settings.VariableDigitCount > 0 ? _settings.VariableDigitCount : 3;
+        _winnerDigits = new string[count];
+        for (int i = 0; i < _winnerDigits.Length; i++) _winnerDigits[i] = "";
+    }
+
+    private string GetWinnerDigitAt(int index)
+    {
+        if (_winnerDigits != null && index >= 0 && index < _winnerDigits.Length)
+        {
+            return _winnerDigits[index] ?? "";
+        }
+        return "";
+    }
+
+    private async Task OnWinnerKeypadPress(string digit)
+    {
+        if (_winnerDigits == null || _winnerDigits.Length == 0) return;
+
+        int targetIndex = -1;
+        for (int i = 0; i < _winnerDigits.Length; i++)
+        {
+            if (string.IsNullOrEmpty(_winnerDigits[i]))
+            {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        if (targetIndex == -1)
+        {
+            targetIndex = _winnerDigits.Length - 1;
+        }
+
+        _winnerDigits[targetIndex] = digit;
+
+        if (targetIndex < _winnerDigits.Length - 1)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('winner-tile-input-{targetIndex + 1}')?.focus()");
+        }
+        else
+        {
+            if (_winnerDigits.All(d => !string.IsNullOrEmpty(d)))
+            {
+                await ExecuteWinnerSearch();
+            }
+        }
+    }
+
+    private async Task OnWinnerKeypadBackspace()
+    {
+        if (_winnerDigits == null || _winnerDigits.Length == 0) return;
+
+        int targetIndex = -1;
+        for (int i = _winnerDigits.Length - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrEmpty(_winnerDigits[i]))
+            {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        if (targetIndex >= 0)
+        {
+            _winnerDigits[targetIndex] = "";
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('winner-tile-input-{targetIndex}')?.focus()");
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('winner-tile-input-0')?.focus()");
+        }
+    }
+
+    private void ClearWinnerTiles()
+    {
+        InitializeWinnerTiles();
+        _hasSearchedWinner = false;
+        _winnerResult = null;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(50);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('winner-tile-input-0')?.focus()");
+        });
+    }
+
+    private async Task OnWinnerDigitInput(int index, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        val = Regex.Replace(val, @"[^\d]", "");
+        if (val.Length > 1)
+        {
+            val = val.Substring(val.Length - 1);
+        }
+
+        _winnerDigits[index] = val;
+
+        if (!string.IsNullOrEmpty(val))
+        {
+            // Auto advance to next tile
+            if (index < _settings.VariableDigitCount - 1)
+            {
+                await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('winner-tile-input-{index + 1}')?.focus()");
+            }
+            else
+            {
+                // Last tile filled: auto execute winner search
+                if (_winnerDigits.All(d => !string.IsNullOrEmpty(d)))
+                {
+                    await ExecuteWinnerSearch();
+                }
+            }
+        }
+    }
+
+    private async Task OnWinnerTileKeyDown(int index, KeyboardEventArgs e)
+    {
+        if (e.Key == "Backspace" && string.IsNullOrEmpty(_winnerDigits[index]) && index > 0)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('winner-tile-input-{index - 1}')?.focus()");
+        }
+        else if (e.Key == "Enter")
+        {
+            await ExecuteWinnerSearch();
+        }
+    }
+
+    private string GetFullWinnerTicketSearchString()
+    {
+        var variablePart = string.Join("", _winnerDigits ?? Array.Empty<string>());
+        return (_settings.TicketPrefix ?? "") + variablePart;
+    }
+
+    private void CloseWinnerModal()
+    {
+        _showWinnerModal = false;
+    }
+
+    private async Task ExecuteWinnerSearch()
+    {
+        var fullTicket = GetFullWinnerTicketSearchString();
+        if (string.IsNullOrWhiteSpace(fullTicket)) return;
+        _hasSearchedWinner = true;
+        _winnerResult = await SalibrationService.LookupWinnerByTicketAsync(fullTicket.Trim());
+    }
+
+    // SETTINGS MODAL ACTIONS
+    private bool _showPrefixKeypad = false;
+
+    private void TogglePrefixKeypad()
+    {
+        _showPrefixKeypad = !_showPrefixKeypad;
+    }
+
+    private void AppendPrefixDigit(string digit)
+    {
+        _tempSettings.TicketPrefix = (_tempSettings.TicketPrefix ?? "") + digit;
+    }
+
+    private void ClearPrefix()
+    {
+        _tempSettings.TicketPrefix = "";
+    }
+
+    private void BackspacePrefix()
+    {
+        if (!string.IsNullOrEmpty(_tempSettings.TicketPrefix))
+        {
+            _tempSettings.TicketPrefix = _tempSettings.TicketPrefix.Substring(0, _tempSettings.TicketPrefix.Length - 1);
+        }
+    }
+
+    private void OpenSettingsModal()
+    {
+        _showPrefixKeypad = false;
+        _tempSettings = new SalibrationSettings
+        {
+            PageTitle = _settings.PageTitle,
+            TicketPrefix = _settings.TicketPrefix,
+            VariableDigitCount = _settings.VariableDigitCount,
+            ThankYouMessage = _settings.ThankYouMessage,
+            ThankYouDisplaySeconds = _settings.ThankYouDisplaySeconds > 0 ? _settings.ThankYouDisplaySeconds : 5
+        };
+        _showSettingsModal = true;
+    }
+
+    private void CloseSettingsModal()
+    {
+        _showPrefixKeypad = false;
+        _showSettingsModal = false;
+    }
+
+    private async Task SaveSettings()
+    {
+        _settings = new SalibrationSettings
+        {
+            PageTitle = string.IsNullOrWhiteSpace(_tempSettings.PageTitle) ? "Sal-ibration" : _tempSettings.PageTitle.Trim(),
+            TicketPrefix = (_tempSettings.TicketPrefix ?? "").Trim(),
+            VariableDigitCount = _tempSettings.VariableDigitCount > 0 ? _tempSettings.VariableDigitCount : 3,
+            ThankYouMessage = string.IsNullOrWhiteSpace(_tempSettings.ThankYouMessage) ? "Thank you for supporting our fundraiser!" : _tempSettings.ThankYouMessage.Trim(),
+            ThankYouDisplaySeconds = _tempSettings.ThankYouDisplaySeconds > 0 ? _tempSettings.ThankYouDisplaySeconds : 5
+        };
+
+        await SalibrationService.SaveSettingsAsync(_settings);
+        InitializeDigitTiles();
+        _showSettingsModal = false;
+    }
+
+    private bool _isClearingData = false;
+
+    private async Task ConfirmClearAllData()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "WARNING: This will permanently delete all participants and all raffle tickets recorded for this event. Are you sure you want to start from scratch?");
+        if (confirmed)
+        {
+            _isClearingData = true;
+            try
+            {
+                await SalibrationService.ClearAllDataAsync();
+                _participants = await SalibrationService.GetAllParticipantsAsync();
+                _totalTicketsRegistered = 0;
+                _enteredTickets.Clear();
+                InitializeDigitTiles();
+                _showSettingsModal = false;
+                _activeTab = "entry";
+            }
+            finally
+            {
+                _isClearingData = false;
+            }
+        }
+    }
+
+    private async Task ConfirmDeleteParticipant(SalibrationParticipant p)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to remove {p.FullName} and their {p.Tickets.Count} tickets?");
+        if (confirmed)
+        {
+            await SalibrationService.DeleteParticipantAsync(p.Id);
+            _participants = await SalibrationService.GetAllParticipantsAsync();
+            _totalTicketsRegistered = _participants.Sum(x => x.Tickets?.Count ?? 0);
+        }
+    }
+
+    // EDIT / CORRECT SAVED TICKET MODAL LOGIC
+    private bool _showEditTicketModal = false;
+    private SalibrationParticipant? _editingParticipant;
+    private SalibrationTicket? _editingTicket;
+    private string[] _editDigits = Array.Empty<string>();
+    private string? _editTicketError;
+
+    private void OpenEditTicketModal(SalibrationParticipant p, SalibrationTicket tk)
+    {
+        _editingParticipant = p;
+        _editingTicket = tk;
+        _editTicketError = null;
+
+        var count = _settings.VariableDigitCount > 0 ? _settings.VariableDigitCount : 3;
+        _editDigits = new string[count];
+        for (int i = 0; i < _editDigits.Length; i++) _editDigits[i] = "";
+
+        // Populate variable portion of current ticket number
+        var prefix = _settings.TicketPrefix ?? "";
+        string variablePortion = tk.TicketNumber ?? "";
+        if (!string.IsNullOrEmpty(prefix) && variablePortion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            variablePortion = variablePortion.Substring(prefix.Length);
+        }
+
+        for (int i = 0; i < _editDigits.Length && i < variablePortion.Length; i++)
+        {
+            _editDigits[i] = variablePortion[i].ToString();
+        }
+
+        _showEditTicketModal = true;
+    }
+
+    private void CloseEditTicketModal()
+    {
+        _showEditTicketModal = false;
+        _editingParticipant = null;
+        _editingTicket = null;
+        _editTicketError = null;
+    }
+
+    private string GetEditDigitAt(int index)
+    {
+        if (_editDigits != null && index >= 0 && index < _editDigits.Length)
+        {
+            return _editDigits[index] ?? "";
+        }
+        return "";
+    }
+
+    private void OnEditKeypadPress(string digit)
+    {
+        _editTicketError = null;
+        for (int i = 0; i < _editDigits.Length; i++)
+        {
+            if (string.IsNullOrEmpty(_editDigits[i]))
+            {
+                _editDigits[i] = digit;
+                break;
+            }
+        }
+    }
+
+    private void ClearEditTiles()
+    {
+        for (int i = 0; i < _editDigits.Length; i++) _editDigits[i] = "";
+        _editTicketError = null;
+    }
+
+    private void OnEditKeypadBackspace()
+    {
+        _editTicketError = null;
+        for (int i = _editDigits.Length - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrEmpty(_editDigits[i]))
+            {
+                _editDigits[i] = "";
+                break;
+            }
+        }
+    }
+
+    private void OnEditDigitInput(int index, ChangeEventArgs e)
+    {
+        _editTicketError = null;
+        var val = e.Value?.ToString() ?? "";
+        val = Regex.Replace(val, @"[^\d]", "");
+        if (val.Length > 1) val = val.Substring(val.Length - 1);
+        _editDigits[index] = val;
+    }
+
+    private async Task ConfirmSaveTicketCorrection()
+    {
+        if (_editingParticipant == null || _editingTicket == null) return;
+
+        if (_editDigits.Any(string.IsNullOrWhiteSpace))
+        {
+            _editTicketError = "Please complete all digit boxes.";
+            return;
+        }
+
+        var variablePart = string.Join("", _editDigits);
+        var newTicketNumber = (_settings.TicketPrefix ?? "") + variablePart;
+
+        // Check if duplicate across entire registry (excluding this exact ticket being edited)
+        var isDuplicate = _participants.Any(p => 
+            p.Tickets != null && p.Tickets.Any(t => t.Id != _editingTicket.Id && string.Equals(t.TicketNumber, newTicketNumber, StringComparison.OrdinalIgnoreCase)));
+
+        if (isDuplicate)
+        {
+            _editTicketError = $"Ticket #{newTicketNumber} is already registered. Duplicate tickets are not allowed.";
+            return;
+        }
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to change ticket #{_editingTicket.TicketNumber} to #{newTicketNumber} for {_editingParticipant.FullName}?");
+
+        if (confirmed)
+        {
+            // Update ticket list for this participant
+            var updatedTickets = _editingParticipant.Tickets.Select(t => t.TicketNumber == _editingTicket.TicketNumber ? newTicketNumber : t.TicketNumber).ToList();
+            await SalibrationService.SaveParticipantWithTicketsAsync(_editingParticipant, updatedTickets);
+            _participants = await SalibrationService.GetAllParticipantsAsync();
+            _totalTicketsRegistered = _participants.Sum(x => x.Tickets?.Count ?? 0);
+            CloseEditTicketModal();
+        }
+    }
+
+    private async Task ConfirmDeleteIndividualTicket()
+    {
+        if (_editingParticipant == null || _editingTicket == null) return;
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete ticket #{_editingTicket.TicketNumber} from {_editingParticipant.FullName}?");
+
+        if (confirmed)
+        {
+            var remainingTickets = _editingParticipant.Tickets.Where(t => t.TicketNumber != _editingTicket.TicketNumber).Select(t => t.TicketNumber).ToList();
+            if (remainingTickets.Count == 0)
+            {
+                // Delete whole participant if no tickets left
+                await SalibrationService.DeleteParticipantAsync(_editingParticipant.Id);
+            }
+            else
+            {
+                await SalibrationService.SaveParticipantWithTicketsAsync(_editingParticipant, remainingTickets);
+            }
+
+            _participants = await SalibrationService.GetAllParticipantsAsync();
+            _totalTicketsRegistered = _participants.Sum(x => x.Tickets?.Count ?? 0);
+            CloseEditTicketModal();
+        }
+    }
+
+    private List<SalibrationParticipant> FilteredParticipants
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_searchTerm)) return _participants;
+            var term = _searchTerm.Trim().ToLowerInvariant();
+            return _participants.Where(p =>
+                (p.FullName ?? "").ToLowerInvariant().Contains(term) ||
+                (p.PhoneNumber ?? "").Contains(term) ||
+                (p.Email ?? "").ToLowerInvariant().Contains(term) ||
+                (p.Tickets != null && p.Tickets.Any(t => (t.TicketNumber ?? "").ToLowerInvariant().Contains(term)))
+            ).ToList();
+        }
+    }
+}

@@ -67,6 +67,7 @@ builder.Services.AddScoped<MobileDiagnosticsService>();
 builder.Services.AddScoped<ISystemSettingsService, MobileSystemSettingsService>();
 builder.Services.AddScoped<ILiquorService, MobileLiquorService>();
 builder.Services.AddScoped<IMediaAssetService, MobileMediaAssetService>();
+builder.Services.AddScoped<ISalibrationService, MobileSalibrationService>();
 
 // Auth Setup
 builder.Services.AddAuthorizationCore();

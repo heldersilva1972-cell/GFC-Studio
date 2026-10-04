@@ -6095,7 +6095,7 @@
 
     private decimal CalculateGamePayoutFinalShare(BingoSheet sheet, BingoGame game)
     {
-        return game.CustomPayoutOverride ?? CalculateGamePayoutRoundedShare(sheet, game);
+        return CalculateGamePayoutRoundedShare(sheet, game);
     }
 
     private decimal CalculateGamePayout(BingoSheet sheet, BingoGame game)
@@ -6204,11 +6204,7 @@
     {
         if (game.CustomPayoutOverride.HasValue)
         {
-            var systemShare = CalculateSystemGamePayoutRoundedShare(sheet, game);
-            if (game.CustomPayoutOverride.Value <= systemShare)
-            {
-                return game.CustomPayoutOverride.Value * game.WinnerCount;
-            }
+            return game.CustomPayoutOverride.Value;
         }
 
         return CalculateSystemGamePayoutRaw(sheet, game);
@@ -7029,6 +7025,13 @@
     {
         if (draft == null) return 0m;
         
+        // If the user filled in the bank balances (7a, 7b, 7c), use their sum directly as it represents the true ending unexpended net profit
+        var bankBalanceSum = draft.BeanoCheckbookBalance + draft.BeanoSavingsBalance + draft.BeanoCdBalance;
+        if (bankBalanceSum > 0m)
+        {
+            return bankBalanceSum;
+        }
+
         var prevPacksSold = draft.AdmissionPacks?.Where(p => !IsAdditionalCardsPack(p.Name)).Sum(p => p.Sold) ?? 0;
         var prevExtraCards = 0;
         if (draft.AdmissionPacks != null)
@@ -7075,7 +7078,8 @@
             }
         }
         var prevTotalPrizesPaid = prevSheetPrizes + (draft.DoorPrizeAmount * draft.DoorPrizeCount);
-        var prevTotalExpenditures = prevTaxPaid + prevTotalPrizesPaid + draft.BeanoOtherExpenses.Sum(e => e.Amount);
+        var prevOtherExpenses = draft.BeanoOtherExpenses?.Sum(e => e.Amount) ?? 0m;
+        var prevTotalExpenditures = prevTaxPaid + prevTotalPrizesPaid + prevOtherExpenses;
         
         var prevNetProfit = prevGrossBeanoReceipts - prevTotalExpenditures;
         
@@ -7166,36 +7170,58 @@
                     {
                         prevDate = mostRecentServer.SessionDate.Date;
                         
-                        // Compute values from server session
-                        decimal prevNetProfit = mostRecentServer.TotalGrossReceipts - mostRecentServer.TotalPrizesPaid - mostRecentServer.TotalLotteryTake;
-                        
-                        decimal prevTotalDisbursements = 0m;
-                        if (!string.IsNullOrEmpty(mostRecentServer.BeanoDisbursementsJson))
+                        var serverBankSum = mostRecentServer.BeanoCheckbookBalance + mostRecentServer.BeanoSavingsBalance + mostRecentServer.BeanoCdBalance;
+                        if (serverBankSum > 0m)
                         {
-                            try
-                            {
-                                var disbs = System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(mostRecentServer.BeanoDisbursementsJson);
-                                prevTotalDisbursements = disbs?.Sum(d => d.Amount) ?? 0m;
-                            }
-                            catch {}
+                            prevUnexpended = serverBankSum;
                         }
-                        
-                        decimal prevPullTabSales = mostRecentServer.PullTabEntries?.Sum(p => {
-                            var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == p.GameDefinitionId);
-                            var price = def?.TicketPrice ?? 0m;
-                            return (p.TicketsIssued - p.TicketsReturned) * price;
-                        }) ?? 0m;
-                        decimal prevPullTabPrizes = mostRecentServer.PullTabEntries?.Sum(p => p.PrizesPaid) ?? 0m;
-                        decimal prevPullTabNetProceeds = prevPullTabSales - prevPullTabPrizes;
+                        else
+                        {
+                            // Compute values accurately from server session
+                            decimal sOtherExpenses = 0m;
+                            if (!string.IsNullOrEmpty(mostRecentServer.BeanoOtherExpensesJson))
+                            {
+                                try
+                                {
+                                    var exps = System.Text.Json.JsonSerializer.Deserialize<List<BeanoExpense>>(mostRecentServer.BeanoOtherExpensesJson);
+                                    sOtherExpenses = exps?.Sum(e => e.Amount) ?? 0m;
+                                }
+                                catch {}
+                            }
 
-                        decimal prevTotalFundsAvailable = mostRecentServer.BeanoUnexpendedNetProfit 
-                            + prevNetProfit 
-                            + prevPullTabNetProceeds 
-                            + mostRecentServer.BeanoInterest 
-                            + mostRecentServer.BeanoGameBank 
-                            + mostRecentServer.BeanoOthers;
+                            decimal sGrossBeanoReceipts = mostRecentServer.TotalGrossReceipts + mostRecentServer.BeanoSuppliesSales + mostRecentServer.BeanoOtherReceipts;
+                            decimal sTaxPaid = sGrossBeanoReceipts * 0.05m;
+                            decimal sTotalExpenditures = sTaxPaid + mostRecentServer.TotalPrizesPaid + sOtherExpenses;
+                            decimal prevNetProfit = sGrossBeanoReceipts - sTotalExpenditures;
+                            
+                            decimal prevTotalDisbursements = 0m;
+                            if (!string.IsNullOrEmpty(mostRecentServer.BeanoDisbursementsJson))
+                            {
+                                try
+                                {
+                                    var disbs = System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(mostRecentServer.BeanoDisbursementsJson);
+                                    prevTotalDisbursements = disbs?.Sum(d => d.Amount) ?? 0m;
+                                }
+                                catch {}
+                            }
+                            
+                            decimal prevPullTabSales = mostRecentServer.PullTabEntries?.Sum(p => {
+                                var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == p.GameDefinitionId);
+                                var price = def?.TicketPrice ?? 0m;
+                                return (p.TicketsIssued - p.TicketsReturned) * price;
+                            }) ?? 0m;
+                            decimal prevPullTabPrizes = mostRecentServer.PullTabEntries?.Sum(p => p.PrizesPaid) ?? 0m;
+                            decimal prevPullTabNetProceeds = prevPullTabSales - prevPullTabPrizes;
 
-                        prevUnexpended = prevTotalFundsAvailable - prevTotalDisbursements;
+                            decimal prevTotalFundsAvailable = mostRecentServer.BeanoUnexpendedNetProfit 
+                                + prevNetProfit 
+                                + prevPullTabNetProceeds 
+                                + mostRecentServer.BeanoInterest 
+                                + mostRecentServer.BeanoGameBank 
+                                + mostRecentServer.BeanoOthers;
+
+                            prevUnexpended = prevTotalFundsAvailable - prevTotalDisbursements;
+                        }
 
                         // Calculate server session progressive carryover
                         decimal sProgGross = 0m;
@@ -7208,8 +7234,8 @@
                             sProgGross = progSheetSales * progPrice;
                             sProgPrizes = mostRecentServer.GameEntries?.Where(ge => ge.SheetColor == progColor).Sum(ge => ge.PrizePaid) ?? 0m;
                         }
-                        decimal sTaxPaid = sProgGross * 0.05m;
-                        prevProgCarryover = mostRecentServer.BeanoProgBeginningBalance + sProgGross - sTaxPaid - sProgPrizes;
+                        decimal sProgTaxPaid = sProgGross * 0.05m;
+                        prevProgCarryover = mostRecentServer.BeanoProgBeginningBalance + sProgGross - sProgTaxPaid - sProgPrizes;
                         
                         targetProfitPercentage = null;
                         useManualScaling = null;
