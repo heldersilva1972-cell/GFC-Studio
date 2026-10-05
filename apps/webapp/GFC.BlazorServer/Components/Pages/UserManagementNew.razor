@@ -23,6 +23,7 @@
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject IBlazorSystemSettingsService SystemSettingsService
+@inject IFirebaseNotificationService FirebaseNotificationService
 @implements IDisposable
 
 <PageTitle>User Management - GFC</PageTitle>
@@ -561,10 +562,13 @@
                                             </div>
                                         </div>
 
-                                        <!-- Revoke Action -->
+                                        <!-- Device Actions -->
                                         @if (dev.IsActive)
                                         {
-                                            <div class="mt-3 pt-2 border-top">
+                                            <div class="mt-3 pt-2 border-top d-flex flex-column gap-2">
+                                                <button class="btn btn-outline-primary btn-sm w-100 rounded-pill py-2 fw-semibold" @onclick="() => SendTestPushToDevice(dev.Id)">
+                                                    <i class="bi bi-bell-fill me-1"></i> Send Test Push Alert
+                                                </button>
                                                 <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2 fw-semibold" @onclick="() => RevokeGfcConnectDevice(dev.Id)">
                                                     <i class="bi bi-trash-fill me-1"></i> Revoke Access
                                                 </button>
@@ -2446,6 +2450,45 @@
         catch (Exception ex)
         {
             await ToastService.ShowError($"Error revoking device: {ex.Message}");
+        }
+    }
+
+    private async Task SendTestPushToDevice(int deviceId)
+    {
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var dev = await context.UserDevices.FindAsync(deviceId);
+            if (dev == null || string.IsNullOrWhiteSpace(dev.FcmDeviceToken))
+            {
+                await ToastService.ShowWarning("This device does not have an active FCM push token registered.");
+                return;
+            }
+
+            var sent = await FirebaseNotificationService.SendToSingleDeviceTokenAsync(
+                dev.FcmDeviceToken,
+                "🔔 GFC Studio Alert Test",
+                $"Direct test alert sent to {dev.DeviceModel ?? "GFC Connect"} at {DateTime.Now:h:mm tt}.",
+                new Dictionary<string, string>
+                {
+                    { "category", "urgent" },
+                    { "action", "test_ping" },
+                    { "timestamp", DateTime.UtcNow.ToString("o") }
+                }
+            );
+
+            if (sent)
+            {
+                await ToastService.ShowSuccess($"Push notification dispatched to {dev.DeviceModel ?? "device"}!");
+            }
+            else
+            {
+                await ToastService.ShowWarning("Notification queued, but server is in simulated mode. Place 'firebase-adminsdk.json' in App_Data to enable live delivery.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to send test push: {ex.Message}");
         }
     }
 

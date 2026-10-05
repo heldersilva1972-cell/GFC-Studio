@@ -75,6 +75,11 @@ class HallRentalsActivity : AppCompatActivity() {
         binding.toolbarRentals.setNavigationOnClickListener {
             finish()
         }
+
+        binding.btnOpenCalendar.setOnClickListener {
+            val intent = Intent(this, RentalCalendarActivity::class.java)
+            startActivity(intent)
+        }
     }
 
     private fun setupRecyclerView() {
@@ -93,10 +98,12 @@ class HallRentalsActivity : AppCompatActivity() {
 
     private fun setupOfflineListeners() {
         binding.btnBannerReconnect.setOnClickListener {
+            ApiClient.initBaseUrl(this)
             loadRentals(isManual = true)
         }
 
         binding.btnRetryLoad.setOnClickListener {
+            ApiClient.initBaseUrl(this)
             loadRentals(isManual = true)
         }
     }
@@ -104,9 +111,9 @@ class HallRentalsActivity : AppCompatActivity() {
     private fun setupStatusTabs() {
         val tabLayout = binding.tabLayoutStatus
         tabLayout.removeAllTabs()
+        tabLayout.addTab(tabLayout.newTab().setText("Pending & Inquiries"))
+        tabLayout.addTab(tabLayout.newTab().setText("Approved & Active"))
         tabLayout.addTab(tabLayout.newTab().setText("All Bookings"))
-        tabLayout.addTab(tabLayout.newTab().setText("Pending Review"))
-        tabLayout.addTab(tabLayout.newTab().setText("Approved"))
         tabLayout.addTab(tabLayout.newTab().setText("Completed"))
 
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
@@ -150,11 +157,29 @@ class HallRentalsActivity : AppCompatActivity() {
     private fun applyFilter() {
         filteredRentals.clear()
         when (currentFilterIndex) {
-            1 -> filteredRentals.addAll(allRentals.filter { it.status.equals("Pending", ignoreCase = true) })
-            2 -> filteredRentals.addAll(allRentals.filter { 
-                it.status.equals("Approved", ignoreCase = true) || it.status.equals("Confirmed", ignoreCase = true) || it.status.contains("Deposit", ignoreCase = true)
+            0 -> filteredRentals.addAll(allRentals.filter { 
+                !it.status.equals("Archived", ignoreCase = true) &&
+                !it.status.equals("Denied", ignoreCase = true) &&
+                !it.status.equals("Cancelled", ignoreCase = true) &&
+                (it.status.equals("Pending", ignoreCase = true) || 
+                 it.status.equals("Inquiry", ignoreCase = true) ||
+                 it.status.equals("Responded", ignoreCase = true) ||
+                 it.eventType?.contains("Inquiry", ignoreCase = true) == true)
             })
-            3 -> filteredRentals.addAll(allRentals.filter { it.status.equals("Completed", ignoreCase = true) })
+            1 -> filteredRentals.addAll(allRentals.filter { 
+                it.status.equals("Approved", ignoreCase = true) || 
+                it.status.equals("Confirmed", ignoreCase = true) || 
+                it.status.contains("Deposit", ignoreCase = true)
+            })
+            2 -> filteredRentals.addAll(allRentals.filter { 
+                !it.status.equals("Archived", ignoreCase = true)
+            })
+            3 -> filteredRentals.addAll(allRentals.filter { 
+                it.status.equals("Completed", ignoreCase = true) ||
+                it.status.equals("Denied", ignoreCase = true) ||
+                it.status.equals("Cancelled", ignoreCase = true) ||
+                it.status.equals("Archived", ignoreCase = true)
+            })
             else -> filteredRentals.addAll(allRentals)
         }
 
@@ -222,15 +247,15 @@ class HallRentalsActivity : AppCompatActivity() {
         // If we have cached records on disk, show offline banner and keep cached data on screen
         if (allRentals.isNotEmpty()) {
             binding.bannerOffline.visibility = View.VISIBLE
-            binding.txtOfflineBanner.text = "⚠️ Offline • Showing cached bookings"
+            binding.txtOfflineBanner.text = "⚠️ Offline: $reason (${ApiClient.currentBaseUrl})"
             if (isManual) {
-                Toast.makeText(this, "Could not reach server. Showing cached data.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Could not reach ${ApiClient.currentBaseUrl}: $reason", Toast.LENGTH_LONG).show()
             }
         } else {
             binding.bannerOffline.visibility = View.GONE
             applyFilter()
             if (isManual) {
-                Toast.makeText(this, "Network error: $reason", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Network error (${ApiClient.currentBaseUrl}): $reason", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -329,8 +354,9 @@ class HallRentalsActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val item = items[position]
             with(holder.itemBinding) {
-                txtItemEventType.text = item.eventType ?: "Hall Rental"
-                txtItemStatusBadge.text = item.status
+                val isInquiry = item.eventType?.contains("Inquiry", ignoreCase = true) == true ||
+                                item.status.equals("Inquiry", ignoreCase = true) ||
+                                item.status.equals("Responded", ignoreCase = true)
 
                 // Date Formatting
                 val dateStr = try {
@@ -342,10 +368,51 @@ class HallRentalsActivity : AppCompatActivity() {
                     item.eventDate.substringBefore('T')
                 }
 
-                txtItemDateRange.text = "📅 $dateStr • ${item.startTime ?: "2:00 PM"} - ${item.endTime ?: "7:00 PM"}"
+                val currencyFormat = NumberFormat.getCurrencyInstance(Locale.US)
+
+                if (isInquiry) {
+                    // Visually distinguish inquiry from regular bookings
+                    layoutInquiryBanner.visibility = View.VISIBLE
+                    txtInquiryBannerTitle.text = "GENERAL INQUIRY • NOT A CONFIRMED BOOKING"
+
+                    // Distinct amber card border to immediately stand out
+                    cardRentalItem.strokeColor = getColor(R.color.status_yellow)
+                    cardRentalItem.strokeWidth = (2 * resources.displayMetrics.density).toInt()
+
+                    txtItemEventType.text = "📋 ${item.eventType ?: "General Inquiry"}"
+                    txtItemEventType.setTextColor(getColor(R.color.status_yellow))
+
+                    txtItemStatusBadge.text = if (item.status.equals("Pending", ignoreCase = true)) "Inquiry" else item.status
+                    txtItemStatusBadge.setTextColor(getColor(R.color.status_yellow))
+                    txtItemStatusBadge.setBackgroundResource(R.drawable.bg_badge_inquiry)
+
+                    txtItemDateRange.text = "📅 Requested: $dateStr (Slot Not Reserved)"
+                    txtItemDateRange.setTextColor(getColor(R.color.status_yellow))
+
+                    txtItemPrice.text = if (item.totalPrice <= 0.0) "Inquiry" else currencyFormat.format(item.totalPrice)
+                } else {
+                    layoutInquiryBanner.visibility = View.GONE
+
+                    // Standard booking styling
+                    cardRentalItem.strokeColor = getColor(R.color.card_dark_stroke)
+                    cardRentalItem.strokeWidth = (1 * resources.displayMetrics.density).toInt()
+
+                    txtItemEventType.text = item.eventType ?: "Hall Rental"
+                    txtItemEventType.setTextColor(getColor(R.color.text_primary))
+
+                    txtItemStatusBadge.text = item.status
+                    txtItemStatusBadge.setTextColor(getColor(R.color.cyan_accent))
+                    txtItemStatusBadge.setBackgroundResource(R.drawable.bg_pill_sync)
+
+                    txtItemDateRange.text = "📅 $dateStr • ${item.startTime ?: "2:00 PM"} - ${item.endTime ?: "7:00 PM"}"
+                    txtItemDateRange.setTextColor(getColor(R.color.cyan_accent))
+
+                    txtItemPrice.text = currencyFormat.format(item.totalPrice)
+                }
+
                 val barText = if (item.bartenderRequested) " • Bar Included" else ""
                 txtItemRoomGuests.text = "🏛️ ${item.roomSelected ?: "Function Hall"} • ${item.guestCount} Guests$barText"
-                txtItemApplicant.text = "Renter: ${item.applicantName}"
+                txtItemApplicant.text = "👤 ${item.applicantName}"
 
                 // Matrix Selected Badge
                 val matrix = item.matrixSelected ?: if (item.isVerifiedMember) "Member" else "Non-Member"
@@ -368,16 +435,58 @@ class HallRentalsActivity : AppCompatActivity() {
                     txtItemMemberVerifyBadge.visibility = View.GONE
                 }
 
+                // Contact details & Direct Phone Call Button
+                val phone = item.requesterPhone?.trim() ?: ""
+                val email = item.requesterEmail?.trim() ?: ""
+                
+                // Submission Age & Payment Window Tracking
+                val ageText = getSubmissionAgeText(item.createdAt)
+                val isPaid = item.isPaid == true
+                val amountPaid = item.amountPaid ?: 0.0
+                val total = item.totalPrice
+
+                if (isPaid || (amountPaid >= total && total > 0)) {
+                    txtItemTrackingBadge.text = "✓ Paid in Full"
+                    txtItemTrackingBadge.setTextColor(getColor(R.color.emerald_accent))
+                    txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                    txtItemTrackingBadge.visibility = View.VISIBLE
+                } else if (amountPaid > 0) {
+                    txtItemTrackingBadge.text = "💵 Paid: ${currencyFormat.format(amountPaid)}"
+                    txtItemTrackingBadge.setTextColor(getColor(R.color.cyan_accent))
+                    txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_pill_sync)
+                    txtItemTrackingBadge.visibility = View.VISIBLE
+                } else if (ageText.isNotEmpty()) {
+                    txtItemTrackingBadge.text = "⏱️ $ageText"
+                    txtItemTrackingBadge.setTextColor(getColor(R.color.text_secondary))
+                    txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_pill_sync)
+                    txtItemTrackingBadge.visibility = View.VISIBLE
+                } else {
+                    txtItemTrackingBadge.visibility = View.GONE
+                }
+                
                 val contactDetails = StringBuilder()
-                if (!item.requesterPhone.isNullOrEmpty()) contactDetails.append("📞 ${item.requesterPhone}  ")
-                if (!item.requesterEmail.isNullOrEmpty()) contactDetails.append("✉️ ${item.requesterEmail}")
+                if (phone.isNotEmpty()) contactDetails.append("📞 $phone  ")
+                if (email.isNotEmpty()) contactDetails.append("✉️ $email")
                 txtItemContact.text = if (contactDetails.isNotEmpty()) contactDetails.toString() else "No contact info"
 
-                val currencyFormat = NumberFormat.getCurrencyInstance(Locale.US)
-                txtItemPrice.text = currencyFormat.format(item.totalPrice)
+                if (phone.isNotEmpty()) {
+                    btnItemCallApplicant.visibility = View.VISIBLE
+                    btnItemCallApplicant.setOnClickListener {
+                        try {
+                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                                data = Uri.parse("tel:$phone")
+                            }
+                            startActivity(dialIntent)
+                        } catch (e: Exception) {
+                            Toast.makeText(this@HallRentalsActivity, "Cannot open dialer: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    btnItemCallApplicant.visibility = View.GONE
+                }
 
-                // Show Admin Action buttons if Status is Pending
-                if (item.status.equals("Pending", ignoreCase = true)) {
+                // Show Admin Action buttons ONLY for pending real bookings (never on inquiries or already-decided bookings)
+                if (!isInquiry && item.status.equals("Pending", ignoreCase = true)) {
                     layoutAdminActions.visibility = View.VISIBLE
                     btnApproveRental.setOnClickListener { promptApprove(item) }
                     btnDenyRental.setOnClickListener { promptDeny(item) }
@@ -396,5 +505,24 @@ class HallRentalsActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = items.size
+
+        private fun getSubmissionAgeText(createdAtStr: String?): String {
+            if (createdAtStr.isNullOrBlank()) return ""
+            return try {
+                val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val cleanDate = createdAtStr.substringBefore('T')
+                val createdDate = isoFormat.parse(cleanDate) ?: return ""
+                val diffMs = System.currentTimeMillis() - createdDate.time
+                val days = (diffMs / (1000 * 60 * 60 * 24)).toInt()
+                when {
+                    days > 1 -> "${days}d ago"
+                    days == 1 -> "Yesterday"
+                    days == 0 -> "Today"
+                    else -> ""
+                }
+            } catch (e: Exception) {
+                ""
+            }
+        }
     }
 }

@@ -38,9 +38,32 @@ interface GfcApiService {
     @POST("api/rentals/mobile/deny/{id}")
     suspend fun denyRental(@Path("id") id: Int, @Body request: ApprovalActionRequest? = null): Response<ApprovalResponse>
 
+    @POST("api/rentals/mobile/cancel/{id}")
+    suspend fun cancelRental(@Path("id") id: Int, @Body request: ApprovalActionRequest? = null): Response<ApprovalResponse>
+
+    @DELETE("api/rentals/mobile/delete/{id}")
+    suspend fun deleteRental(@Path("id") id: Int): Response<ApprovalResponse>
+
     @GET("api/rentals/mobile/detail/{id}")
     suspend fun getRentalDetail(@Path("id") id: Int): Response<HallRentalDetailDto>
 
+    @GET("api/rentals/mobile/verify-member")
+    suspend fun verifyMemberLive(
+        @Query("name") name: String?,
+        @Query("email") email: String?,
+        @Query("phone") phone: String?,
+        @Query("isMember") isMember: Boolean = true
+    ): Response<VerifyMemberResponse>
+
     @POST("api/rentals/mobile/update/{id}")
     suspend fun updateRental(@Path("id") id: Int, @Body payload: UpdateRentalPayload): Response<RentalUpdateResponse>
+
+    @POST("api/rentals/mobile/record-payment/{id}")
+    suspend fun recordPayment(@Path("id") id: Int, @Body payload: RecordPaymentPayload): Response<ApprovalResponse>
+
+    @POST("api/rentals/mobile/payment-reminder/{id}")
+    suspend fun sendPaymentReminder(@Path("id") id: Int, @Body payload: PaymentReminderPayload): Response<ApprovalResponse>
+
+    @POST("api/rentals/mobile/club-event")
+    suspend fun createClubEvent(@Body payload: CreateClubEventPayload): Response<ApprovalResponse>
 }

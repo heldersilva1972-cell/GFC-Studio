@@ -100,8 +100,15 @@ namespace GFC.BlazorServer.Controllers
         private (bool isVerified, int? memberId, string statusText, string badgeType, List<PossibleMemberDto> candidates) VerifyMember(string? name, string? email, string? phone, bool claimedMember)
         {
             var candidates = new List<PossibleMemberDto>();
+
+            // If the applicant is booking under the non-member matrix, do not search or match against the member directory
+            if (!claimedMember)
+            {
+                return (false, null, "Applicant is booking under standard Non-Member pricing.", "NON_MEMBER", candidates);
+            }
+
             if (string.IsNullOrWhiteSpace(name)) 
-                return (false, null, "No applicant name", "NON_MEMBER", candidates);
+                return (false, null, "No applicant name provided", "UNVERIFIED_CLAIM", candidates);
 
             var cleanName = name.Trim().ToLowerInvariant();
             int parenIdx = cleanName.IndexOf('(');
@@ -150,7 +157,7 @@ namespace GFC.BlazorServer.Controllers
                 }
             }
 
-            // 2. Match Full Combined / Normalized Name (handles suffixes and middle initials seamlessly)
+            // 2. Match Full Combined / Normalized Name
             if (match == null && !string.IsNullOrEmpty(cleanName))
             {
                 match = members.FirstOrDefault(m => 
@@ -164,29 +171,12 @@ namespace GFC.BlazorServer.Controllers
                 });
             }
 
-            // 3. Match Phone
-            if (match == null && cleanPhone.Length >= 7)
-            {
-                match = members.FirstOrDefault(m => 
-                    !string.IsNullOrEmpty(m.Phone) && System.Text.RegularExpressions.Regex.Replace(m.Phone, @"[^\d]", "").EndsWith(cleanPhone.Length > 7 ? cleanPhone.Substring(cleanPhone.Length - 7) : cleanPhone));
-            }
-
-            // 4. Match Email
-            if (match == null && cleanEmail.Length > 3 && cleanEmail.Contains("@"))
-            {
-                match = members.FirstOrDefault(m => string.Equals((m.Email ?? "").Trim(), cleanEmail, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (match != null)
-            {
-                var status = string.IsNullOrWhiteSpace(match.Status) ? "Active" : match.Status;
-                var display = GetMemberDisplayName(match);
-                return (true, match.MemberID, $"Verified: {display} #{match.MemberID} ({status})", "VERIFIED", candidates);
-            }
-
-            // 5. Search for Similar Candidate Members (considering Suffix)
+            // Search for Potential Candidate Matches for Admin Review
+            // (Phone, Email, and Last Name matches are presented as candidates for manual review/linking, never auto-verified blindly)
             foreach (var m in members)
             {
+                if (match != null && m.MemberID == match.MemberID) continue;
+
                 string mFirst = (m.FirstName ?? "").Trim().ToLowerInvariant();
                 string mLast = (m.LastName ?? "").Trim().ToLowerInvariant();
                 string mSuffix = (m.Suffix ?? "").Trim().ToLowerInvariant().TrimEnd('.');
@@ -238,15 +228,17 @@ namespace GFC.BlazorServer.Controllers
                 }
             }
 
-            if (claimedMember)
+            if (match != null)
             {
-                var claimText = candidates.Any() 
-                    ? $"Claimed Member ({candidates.Count} candidate match{(candidates.Count > 1 ? "es" : "")})"
-                    : "Claimed Member (Not in Directory)";
-                return (false, null, claimText, "UNVERIFIED_CLAIM", candidates);
+                var status = string.IsNullOrWhiteSpace(match.Status) ? "Active" : match.Status;
+                var display = GetMemberDisplayName(match);
+                return (true, match.MemberID, $"Verified: {display} #{match.MemberID} ({status})", "VERIFIED", candidates);
             }
 
-            return (false, null, "Non-Member", "NON_MEMBER", candidates);
+            var claimText = candidates.Any() 
+                ? $"Claimed Member ({candidates.Count} candidate match{(candidates.Count > 1 ? "es" : "")})"
+                : "Claimed Member (Not in Directory)";
+            return (false, null, claimText, "UNVERIFIED_CLAIM", candidates);
         }
 
         public class GoogleFormWebhookPayload
@@ -336,6 +328,7 @@ namespace GFC.BlazorServer.Controllers
         {
             try
             {
+                var settings = await _settingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
                 var requests = await _rentalService.GetRentalRequestsAsync();
                 var list = requests
                     .OrderByDescending(r => r.StatusChangedDate ?? r.CreatedDate)
@@ -349,6 +342,7 @@ namespace GFC.BlazorServer.Controllers
                             : (r.MemberStatus ? "Member" : "Non-Member");
 
                         var effectiveEventDate = r.EventDate != default ? r.EventDate : (r.RequestedDate != default ? r.RequestedDate : DateTime.Today);
+                        var effectiveCreatedDate = r.CreatedDate != default ? r.CreatedDate : (r.RequestedDate != default ? r.RequestedDate : DateTime.Today);
 
                         return new
                         {
@@ -357,6 +351,7 @@ namespace GFC.BlazorServer.Controllers
                             RequesterPhone = r.RequesterPhone ?? "",
                             RequesterEmail = r.RequesterEmail ?? "",
                             EventDate = effectiveEventDate,
+                            CreatedAt = effectiveCreatedDate,
                             r.EventType,
                             r.StartTime,
                             r.EndTime,
@@ -364,6 +359,9 @@ namespace GFC.BlazorServer.Controllers
                             r.GuestCount,
                             r.TotalPrice,
                             r.SecurityDepositAmount,
+                            RequireSecurityDeposit = settings.RequireSecurityDeposit,
+                            r.AmountPaid,
+                            r.IsPaid,
                             Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
                             r.BartenderRequested,
                             r.KitchenUsage,
@@ -414,6 +412,103 @@ namespace GFC.BlazorServer.Controllers
             }
         }
 
+        [HttpPost("mobile/deny/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> DenyRental(int id, [FromBody] ApprovalActionRequest? body)
+        {
+            try
+            {
+                var rawName = User.Identity?.Name;
+                var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
+                var notes = !string.IsNullOrWhiteSpace(body?.Notes) ? body.Notes : "Denied via GFC Connect";
+                var success = await _rentalService.DenyRentalRequestAsync(id, notes, username);
+                if (success)
+                {
+                    return Ok(new { success = true, message = "Rental request denied." });
+                }
+                return BadRequest(new { error = "Could not deny rental request." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error denying rental: " + ex.Message });
+            }
+        }
+
+        [HttpPost("mobile/cancel/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> CancelRental(int id, [FromBody] ApprovalActionRequest? body)
+        {
+            try
+            {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
+                var rawName = User.Identity?.Name;
+                var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
+                var reason = !string.IsNullOrWhiteSpace(body?.Notes) ? body.Notes : "Cancelled via GFC Connect";
+
+                request.Status = "Cancelled";
+                request.StatusChangedBy = username;
+                request.StatusChangedDate = DateTime.UtcNow;
+                request.InternalNotes = $"{request.InternalNotes}\n[{DateTime.Now:g}] CANCELLED by {username}: {reason}".Trim();
+
+                await _rentalService.UpdateRentalRequestAsync(request);
+
+                // Free up the calendar date
+                var eventDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+                if (eventDate != default)
+                {
+                    await _rentalService.UpdateCalendarAvailabilityAsync(eventDate, "Available");
+                }
+
+                return Ok(new { success = true, message = "Rental booking cancelled successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error cancelling rental: " + ex.Message });
+            }
+        }
+
+        [HttpDelete("mobile/delete/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> DeleteRental(int id)
+        {
+            try
+            {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
+                await _rentalService.DeleteRentalRequestAsync(id);
+                return Ok(new { success = true, message = "Rental request deleted permanently." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error deleting rental: " + ex.Message });
+            }
+        }
+
+        [HttpGet("mobile/verify-member")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public IActionResult VerifyMemberLive([FromQuery] string? name, [FromQuery] string? email, [FromQuery] string? phone, [FromQuery] bool isMember = true)
+        {
+            try
+            {
+                var verify = VerifyMember(name, email, phone, isMember);
+                return Ok(new
+                {
+                    isVerified = verify.isVerified,
+                    memberId = verify.memberId,
+                    statusText = verify.statusText,
+                    badgeType = verify.badgeType,
+                    candidates = verify.candidates
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error verifying member status: " + ex.Message });
+            }
+        }
+
         [HttpGet("mobile/detail/{id:int}")]
         [Microsoft.AspNetCore.Authorization.Authorize]
         public async Task<IActionResult> GetRentalDetail(int id)
@@ -424,10 +519,12 @@ namespace GFC.BlazorServer.Controllers
                 if (r == null) return NotFound(new { error = "Rental request not found." });
 
                 var name = r.ApplicantName ?? r.RequesterName ?? "Applicant";
-                var verify = VerifyMember(name, r.RequesterEmail, r.RequesterPhone, r.MemberStatus);
+                var isClaimedMember = r.MemberStatus || 
+                    (!string.IsNullOrWhiteSpace(r.RenterType) && r.RenterType.Contains("Member", StringComparison.OrdinalIgnoreCase) && !r.RenterType.Contains("Non", StringComparison.OrdinalIgnoreCase));
+                var verify = VerifyMember(name, r.RequesterEmail, r.RequesterPhone, isClaimedMember);
                 var matrix = !string.IsNullOrWhiteSpace(r.RenterType) 
                     ? r.RenterType 
-                    : (r.MemberStatus ? "Member" : "Non-Member");
+                    : (isClaimedMember ? "Member" : "Non-Member");
 
                 var effectiveEventDate = r.EventDate != default ? r.EventDate : (r.RequestedDate != default ? r.RequestedDate : DateTime.Today);
 
@@ -473,7 +570,8 @@ namespace GFC.BlazorServer.Controllers
                     r.KitchenUsage,
                     r.AvEquipmentUsage,
                     r.SecurityDepositPaid,
-                    r.SecurityDepositAmount,
+                    SecurityDepositAmount = (settings?.RequireSecurityDeposit == true ? r.SecurityDepositAmount : 0m),
+                    RequireSecurityDeposit = settings?.RequireSecurityDeposit ?? true,
                     r.TotalPrice,
                     r.AmountPaid,
                     r.IsPaid,
@@ -487,6 +585,7 @@ namespace GFC.BlazorServer.Controllers
                     r.StatusChangedDate,
                     InternalNotes = r.InternalNotes ?? "",
                     r.CreatedDate,
+                    CreatedAt = r.CreatedDate != default ? r.CreatedDate : (r.RequestedDate != default ? r.RequestedDate : DateTime.Today),
                     MatrixSelected = matrix,
                     IsVerifiedMember = verify.isVerified,
                     VerifiedMemberId = verify.memberId,
@@ -739,25 +838,231 @@ namespace GFC.BlazorServer.Controllers
             }
         }
 
-        [HttpPost("mobile/deny/{id:int}")]
+        public class RecordPaymentPayload
+        {
+            public decimal Amount { get; set; }
+            public string? PaymentMethod { get; set; } // Cash, Check, Credit Card, Venmo, Online
+            public string? Note { get; set; }
+            public bool MarkAsDeposit { get; set; }
+        }
+
+        [HttpPost("mobile/record-payment/{id:int}")]
         [Microsoft.AspNetCore.Authorization.Authorize]
-        public async Task<IActionResult> DenyRental(int id, [FromBody] ApprovalActionRequest? body)
+        public async Task<IActionResult> RecordPayment(int id, [FromBody] RecordPaymentPayload payload)
         {
             try
             {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
                 var rawName = User.Identity?.Name;
                 var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
-                var notes = !string.IsNullOrWhiteSpace(body?.Notes) ? body.Notes : "Denied via GFC Connect";
-                var success = await _rentalService.DenyRentalRequestAsync(id, notes, username);
-                if (success)
+                var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
+
+                var currentPaid = request.AmountPaid;
+                var newPaid = currentPaid + payload.Amount;
+                request.AmountPaid = newPaid;
+
+                if (payload.MarkAsDeposit)
                 {
-                    return Ok(new { success = true, message = "Rental denied successfully." });
+                    request.SecurityDepositPaid = true;
                 }
-                return BadRequest(new { error = "Could not deny rental request." });
+
+                if (newPaid >= request.TotalPrice && request.TotalPrice > 0)
+                {
+                    request.IsPaid = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(payload.PaymentMethod))
+                {
+                    request.PaymentMethod = payload.PaymentMethod;
+                }
+
+                var methodStr = !string.IsNullOrWhiteSpace(payload.PaymentMethod) ? $" via {payload.PaymentMethod}" : "";
+                var noteStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Note: {payload.Note.Trim()}" : "";
+                var auditLine = $"[{nowStamp} by {username}]\n• 💵 Payment Recorded: +${payload.Amount:N2}{methodStr} (Total Paid: ${newPaid:N2} of ${request.TotalPrice:N2}){noteStr}";
+
+                request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
+                request.StatusChangedBy = username;
+                request.StatusChangedDate = DateTime.UtcNow;
+
+                await _rentalService.UpdateRentalRequestAsync(request);
+
+                return Ok(new { 
+                    success = true, 
+                    message = $"Payment of ${payload.Amount:N2} recorded successfully.", 
+                    amountPaid = request.AmountPaid,
+                    isPaid = request.IsPaid,
+                    securityDepositPaid = request.SecurityDepositPaid
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = "Error denying rental: " + ex.Message });
+                return StatusCode(500, new { error = "Error recording payment: " + ex.Message });
+            }
+        }
+
+        public class PaymentReminderPayload
+        {
+            public string? CustomNote { get; set; }
+        }
+
+        [HttpPost("mobile/payment-reminder/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> SendPaymentReminder(int id, [FromBody] PaymentReminderPayload? payload)
+        {
+            try
+            {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
+                var targetEmail = !string.IsNullOrWhiteSpace(request.RequesterEmail) ? request.RequesterEmail.Trim() : null;
+                if (string.IsNullOrWhiteSpace(targetEmail))
+                {
+                    return BadRequest(new { error = "No email address is associated with this rental booking." });
+                }
+
+                var settings = await _settingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
+                var rawName = User.Identity?.Name;
+                var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
+                var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
+
+                var applicantName = request.ApplicantName ?? request.RequesterName ?? "Applicant";
+                var eventDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+                var eventDateStr = eventDate.ToString("MMMM dd, yyyy");
+                var totalQuoted = request.TotalPrice;
+                var amountPaid = request.AmountPaid;
+                var remainingBalance = Math.Max(0m, totalQuoted - amountPaid);
+                var clubNameStr = string.IsNullOrWhiteSpace(settings.RentalFormSubtitle) ? "Gloucester Fraternity Club" : settings.RentalFormSubtitle;
+                var clubPhoneStr = string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone;
+
+                string subject = !string.IsNullOrWhiteSpace(settings.PaymentReminderEmailSubject) 
+                    ? settings.PaymentReminderEmailSubject 
+                    : "Payment Reminder - {ClubName} Hall Rental for {EventDate}";
+                subject = subject
+                    .Replace("{ClubName}", clubNameStr)
+                    .Replace("{ApplicantName}", applicantName)
+                    .Replace("{EventDate}", eventDateStr);
+
+                string defaultTemplate = @"Dear {ApplicantName},
+
+This is a friendly reminder regarding your upcoming hall rental booking with {ClubName} on {EventDate}.
+
+Payment Summary:
+- Total Rental Amount: ${TotalPrice}
+- Total Payments Received: ${AmountPaid}
+- Outstanding Balance Due: ${RemainingBalance}
+
+Please remit your outstanding balance as soon as possible to maintain your reserved date. If you have already submitted payment, please disregard this notice.
+
+If you have any questions or need assistance, please contact us at {ClubPhone}.
+
+Warm regards,
+{ClubName} Hall Rental Committee";
+
+                string body = !string.IsNullOrWhiteSpace(settings.PaymentReminderEmailBody) 
+                    ? settings.PaymentReminderEmailBody 
+                    : defaultTemplate;
+
+                body = body
+                    .Replace("{ApplicantName}", applicantName)
+                    .Replace("{EventDate}", eventDateStr)
+                    .Replace("{TotalPrice}", totalQuoted.ToString("N2"))
+                    .Replace("{AmountPaid}", amountPaid.ToString("N2"))
+                    .Replace("{RemainingBalance}", remainingBalance.ToString("N2"))
+                    .Replace("{ClubPhone}", clubPhoneStr)
+                    .Replace("{ClubName}", clubNameStr);
+
+                var noteHtml = "";
+                if (!string.IsNullOrWhiteSpace(payload?.CustomNote))
+                {
+                    noteHtml = $"<div style='background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 16px 0; border-radius: 4px;'>" +
+                               $"<strong style='color: #92400e;'>Special Note / Instructions:</strong>" +
+                               $"<p style='color: #78350f; margin: 4px 0 0 0;'>{System.Net.WebUtility.HtmlEncode(payload.CustomNote.Trim())}</p>" +
+                               $"</div>";
+                }
+
+                string formattedHtml = $"<div style='font-family: Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;'>" +
+                    $"<div style='border-bottom: 2px solid #f59e0b; padding-bottom: 12px; margin-bottom: 16px;'>" +
+                    $"<h2 style='color: #b45309; margin: 0;'>Payment &amp; Balance Reminder</h2>" +
+                    $"<p style='color: #64748b; margin: 4px 0 0 0; font-size: 13px;'>{clubNameStr} &bull; Hall Rentals</p>" +
+                    $"</div>" +
+                    $"<div style='white-space: pre-line;'>{System.Net.WebUtility.HtmlEncode(body)}</div>" +
+                    noteHtml +
+                    $"<hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0 10px 0;'/>" +
+                    $"<small style='color: #94a3b8;'>Gloucester Fraternity Club &bull; 27 Webster Street, Gloucester, MA 01930 &bull; {clubPhoneStr}</small>" +
+                    $"</div>";
+
+                var result = await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, formattedHtml, settings.RentalEmailCc);
+                if (result.Success)
+                {
+                    var customNoteStr = !string.IsNullOrWhiteSpace(payload?.CustomNote) ? $" • Note: {payload.CustomNote.Trim()}" : "";
+                    var auditEntry = $"[{nowStamp} by {username}]\n• ✉️ Payment Reminder Email Sent to {targetEmail}{customNoteStr}";
+                    request.InternalNotes = $"{auditEntry}\n\n{(request.InternalNotes ?? "")}".Trim();
+                    await _rentalService.UpdateRentalRequestAsync(request);
+
+                    return Ok(new { success = true, message = $"Payment reminder sent to {targetEmail}." });
+                }
+
+                return BadRequest(new { error = $"Failed to send email: {result.ErrorMessage}" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error sending payment reminder: " + ex.Message });
+            }
+        }
+
+        [HttpGet("mobile/unavailable-dates")]
+        [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+        public async Task<IActionResult> GetUnavailableDates()
+        {
+            try
+            {
+                var dates = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: false);
+                return Ok(dates);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Failed to load unavailable dates: " + ex.Message });
+            }
+        }
+
+        public class CreateClubEventPayload
+        {
+            public DateTime Date { get; set; }
+            public string Reason { get; set; } = string.Empty;
+            public string? Location { get; set; } = "Function Hall";
+            public string? StartTime { get; set; }
+            public string? EndTime { get; set; }
+            public bool IsFullDay { get; set; } = true;
+        }
+
+        [HttpPost("mobile/club-event")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> CreateClubEvent([FromBody] CreateClubEventPayload payload)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(payload.Reason))
+                {
+                    return BadRequest(new { error = "Event title or reason is required." });
+                }
+
+                var settings = await _settingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
+                var primaryLoc = settings.ManagedRentalLocation ?? "Function Hall";
+                var secondaryLoc = settings.SecondaryFlexibleLocation ?? "Office";
+                var locName = !string.IsNullOrWhiteSpace(payload.Location) ? payload.Location.Trim() : primaryLoc;
+
+                var start = !payload.IsFullDay ? payload.StartTime : null;
+                var end = !payload.IsFullDay ? payload.EndTime : null;
+                var description = $"Club Event ({locName}): {payload.Reason.Trim()}";
+
+                await _rentalService.AddBlackoutDateAsync(payload.Date, description, start, end);
+                return Ok(new { success = true, message = $"Club event '{payload.Reason}' scheduled in {locName} for {payload.Date:MMM dd, yyyy}." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error creating club event: " + ex.Message });
             }
         }
     }

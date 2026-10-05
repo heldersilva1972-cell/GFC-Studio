@@ -3,6 +3,7 @@ using GFC.Core.Models;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MimeKit;
 using Resend;
 using System;
@@ -13,10 +14,14 @@ namespace GFC.BlazorServer.Services
     public class RentalEmailDispatcher : IRentalEmailDispatcher
     {
         private readonly ILogger<RentalEmailDispatcher> _logger;
+        private readonly IOptionsMonitor<EmailSettings> _emailSettings;
 
-        public RentalEmailDispatcher(ILogger<RentalEmailDispatcher> logger)
+        public RentalEmailDispatcher(
+            ILogger<RentalEmailDispatcher> logger,
+            IOptionsMonitor<EmailSettings> emailSettings)
         {
             _logger = logger;
+            _emailSettings = emailSettings;
         }
 
         public async Task<EmailResult> SendRentalEmailAsync(
@@ -42,13 +47,32 @@ namespace GFC.BlazorServer.Services
                 return EmailResult.Failure("Recipient email is empty.");
             }
 
-            var provider = settings.RentalEmailProvider ?? "SMTP";
-            if (provider.Equals("Resend", StringComparison.OrdinalIgnoreCase))
+            var globalSettings = _emailSettings.CurrentValue;
+            var provider = settings.RentalEmailProvider ?? (globalSettings.Provider == GFC.Core.Enums.EmailProvider.Resend ? "Resend" : "SMTP");
+            
+            // Check if Resend is preferred or configured
+            var hasResendKey = !string.IsNullOrWhiteSpace(settings.RentalResendApiKey) || !string.IsNullOrWhiteSpace(globalSettings.ResendApiKey);
+            if (provider.Equals("Resend", StringComparison.OrdinalIgnoreCase) || hasResendKey)
             {
+                var resendResult = await SendViaResendAsync(settings, recipientEmail, subject, htmlBody, ccEmail);
+                if (resendResult.Success) return resendResult;
+
+                _logger.LogWarning("Resend attempt failed: {Error}. Checking SMTP fallback.", resendResult.ErrorMessage);
+                if (!string.IsNullOrWhiteSpace(settings.RentalSmtpHost) || !string.IsNullOrWhiteSpace(globalSettings.SmtpHost))
+                {
+                    return await SendViaSmtpAsync(settings, recipientEmail, subject, htmlBody, ccEmail);
+                }
+                return resendResult;
+            }
+
+            var smtpResult = await SendViaSmtpAsync(settings, recipientEmail, subject, htmlBody, ccEmail);
+            if (!smtpResult.Success && hasResendKey)
+            {
+                _logger.LogWarning("SMTP attempt failed: {Error}. Attempting Resend fallback.", smtpResult.ErrorMessage);
                 return await SendViaResendAsync(settings, recipientEmail, subject, htmlBody, ccEmail);
             }
 
-            return await SendViaSmtpAsync(settings, recipientEmail, subject, htmlBody, ccEmail);
+            return smtpResult;
         }
 
         public async Task<EmailResult> TestRentalEmailConnectionAsync(
@@ -83,18 +107,25 @@ namespace GFC.BlazorServer.Services
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(settings.RentalSmtpHost))
+                var globalSettings = _emailSettings.CurrentValue;
+                var host = !string.IsNullOrWhiteSpace(settings.RentalSmtpHost) ? settings.RentalSmtpHost : globalSettings.SmtpHost;
+                if (string.IsNullOrWhiteSpace(host))
                 {
-                    return EmailResult.Failure("SMTP Host is not configured in Hall Rental Settings.");
+                    return EmailResult.Failure("SMTP Host is not configured in Hall Rental Settings or System Settings.");
                 }
 
-                var message = new MimeMessage();
-                var fromName = string.IsNullOrWhiteSpace(settings.RentalSenderName) ? "GFC Hall Rentals" : settings.RentalSenderName;
-                var fromAddress = string.IsNullOrWhiteSpace(settings.RentalSenderEmail) ? "rentals@gloucesterfraternityclub.com" : settings.RentalSenderEmail;
+                var fromName = !string.IsNullOrWhiteSpace(settings.RentalSenderName) 
+                    ? settings.RentalSenderName 
+                    : (!string.IsNullOrWhiteSpace(globalSettings.FromName) ? globalSettings.FromName : "Gloucester Fraternity Club - Hall Rentals");
 
+                var fromAddress = !string.IsNullOrWhiteSpace(settings.RentalSenderEmail) 
+                    ? settings.RentalSenderEmail 
+                    : (!string.IsNullOrWhiteSpace(globalSettings.FromAddress) ? globalSettings.FromAddress : "rentals@gloucesterfraternityclub.com");
+
+                var message = new MimeMessage();
                 message.From.Add(new MailboxAddress(fromName, fromAddress));
                 message.ReplyTo.Add(new MailboxAddress(fromName, fromAddress));
-                message.To.Add(new MailboxAddress("", recipientEmail));
+                message.To.Add(new MailboxAddress("", recipientEmail.Trim()));
 
                 if (!string.IsNullOrWhiteSpace(ccEmail))
                 {
@@ -102,7 +133,7 @@ namespace GFC.BlazorServer.Services
                     {
                         if (addr.Contains("@"))
                         {
-                            message.Cc.Add(new MailboxAddress("", addr));
+                            message.Cc.Add(new MailboxAddress("", addr.Trim()));
                         }
                     }
                 }
@@ -112,14 +143,18 @@ namespace GFC.BlazorServer.Services
                 message.Body = bodyBuilder.ToMessageBody();
 
                 using var client = new SmtpClient();
-                var port = settings.RentalSmtpPort > 0 ? settings.RentalSmtpPort : 587;
-                var secureOptions = settings.RentalSmtpEnableSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
+                var port = settings.RentalSmtpPort > 0 ? settings.RentalSmtpPort : (globalSettings.SmtpPort > 0 ? globalSettings.SmtpPort : 587);
+                var enableSsl = settings.RentalSmtpEnableSsl || globalSettings.SmtpEnableSsl;
+                var secureOptions = enableSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
 
-                await client.ConnectAsync(settings.RentalSmtpHost, port, secureOptions);
+                var username = !string.IsNullOrWhiteSpace(settings.RentalSmtpUsername) ? settings.RentalSmtpUsername : globalSettings.SmtpUsername;
+                var password = !string.IsNullOrWhiteSpace(settings.RentalSmtpPassword) ? settings.RentalSmtpPassword : globalSettings.SmtpPassword;
 
-                if (!string.IsNullOrEmpty(settings.RentalSmtpUsername))
+                await client.ConnectAsync(host, port, secureOptions);
+
+                if (!string.IsNullOrEmpty(username))
                 {
-                    await client.AuthenticateAsync(settings.RentalSmtpUsername, settings.RentalSmtpPassword ?? string.Empty);
+                    await client.AuthenticateAsync(username, password ?? string.Empty);
                 }
 
                 await client.SendAsync(message);
@@ -145,24 +180,32 @@ namespace GFC.BlazorServer.Services
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(settings.RentalResendApiKey) || !settings.RentalResendApiKey.StartsWith("re_"))
+                var globalSettings = _emailSettings.CurrentValue;
+                var apiKey = !string.IsNullOrWhiteSpace(settings.RentalResendApiKey) ? settings.RentalResendApiKey : globalSettings.ResendApiKey;
+                if (string.IsNullOrWhiteSpace(apiKey) || !apiKey.StartsWith("re_"))
                 {
-                    return EmailResult.Failure("Resend API Key is missing or invalid. It must start with 're_'.");
+                    return EmailResult.Failure("Resend API Key is missing or invalid. Please configure your Resend API Key in Hall Rental Settings or System Settings.");
                 }
 
-                var resendClient = ResendClient.Create(settings.RentalResendApiKey);
+                var resendClient = ResendClient.Create(apiKey);
 
-                var fromName = string.IsNullOrWhiteSpace(settings.RentalSenderName) ? "GFC Hall Rentals" : settings.RentalSenderName;
-                var fromAddress = string.IsNullOrWhiteSpace(settings.RentalSenderEmail) ? "rentals@gloucesterfraternityclub.com" : settings.RentalSenderEmail;
+                var fromName = !string.IsNullOrWhiteSpace(settings.RentalSenderName) 
+                    ? settings.RentalSenderName 
+                    : (!string.IsNullOrWhiteSpace(globalSettings.FromName) ? globalSettings.FromName : "Gloucester Fraternity Club - Hall Rentals");
 
-                var message = new EmailMessage
-                {
-                    From = $"\"{fromName}\" <{fromAddress}>",
-                    Subject = subject,
-                    HtmlBody = htmlBody.Replace("\n", "<br/>")
-                };
+                var fromAddress = !string.IsNullOrWhiteSpace(settings.RentalSenderEmail) 
+                    ? settings.RentalSenderEmail 
+                    : (!string.IsNullOrWhiteSpace(globalSettings.FromAddress) ? globalSettings.FromAddress : "rentals@gloucesterfraternityclub.com");
 
-                message.To.Add(recipientEmail);
+                var message = new EmailMessage();
+                if (message.To == null) message.To = new EmailAddressList();
+                if (message.Cc == null) message.Cc = new EmailAddressList();
+
+                message.From = !string.IsNullOrWhiteSpace(fromName) ? $"\"{fromName}\" <{fromAddress}>" : fromAddress;
+                message.Subject = subject;
+                message.HtmlBody = htmlBody.Replace("\n", "<br/>");
+
+                message.To.Add(recipientEmail.Trim());
 
                 if (!string.IsNullOrWhiteSpace(ccEmail))
                 {
@@ -170,7 +213,7 @@ namespace GFC.BlazorServer.Services
                     {
                         if (addr.Contains("@"))
                         {
-                            message.Cc.Add(addr);
+                            message.Cc.Add(addr.Trim());
                         }
                     }
                 }

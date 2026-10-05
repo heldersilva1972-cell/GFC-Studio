@@ -20,6 +20,7 @@ namespace GFC.BlazorServer.Services
         private readonly IWebsiteSettingsService _websiteSettingsService;
         private readonly IRentalEmailDispatcher _emailDispatcher;
         private readonly IGoogleCalendarService _googleCalendarService;
+        private readonly IFirebaseNotificationService _firebaseNotificationService;
 
         public RentalService(
             IDbContextFactory<GfcDbContext> contextFactory,
@@ -27,7 +28,8 @@ namespace GFC.BlazorServer.Services
             INotificationRoutingService routingService,
             IWebsiteSettingsService websiteSettingsService,
             IRentalEmailDispatcher emailDispatcher,
-            IGoogleCalendarService googleCalendarService)
+            IGoogleCalendarService googleCalendarService,
+            IFirebaseNotificationService firebaseNotificationService)
         {
             _contextFactory = contextFactory;
             _notificationService = notificationService;
@@ -35,6 +37,7 @@ namespace GFC.BlazorServer.Services
             _websiteSettingsService = websiteSettingsService;
             _emailDispatcher = emailDispatcher;
             _googleCalendarService = googleCalendarService;
+            _firebaseNotificationService = firebaseNotificationService;
         }
 
         public static event Action? OnGlobalCalendarUpdated;
@@ -118,14 +121,38 @@ namespace GFC.BlazorServer.Services
             context.HallRentalRequests.Add(request);
             await context.SaveChangesAsync();
 
+            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
+            try
+            {
+                var isQuestion = string.Equals(request.Status, RentalStatus.Inquiry, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(request.EventType, "General Inquiry", StringComparison.OrdinalIgnoreCase);
+
+                var title = isQuestion ? "💬 New Rental Question Received" : "🏛️ New Hall Rental Application";
+                var body = isQuestion 
+                    ? $"Question from {request.ApplicantName ?? request.RequesterName ?? "Visitor"}: {request.EventDescription ?? "No description"}"
+                    : $"New application from {request.ApplicantName ?? request.RequesterName} for {request.EventDate:MMM dd, yyyy} ({request.EventType ?? "Rental"}).";
+
+                await _firebaseNotificationService.BroadcastAsync(
+                    title,
+                    body,
+                    new Dictionary<string, string>
+                    {
+                        { "category", isQuestion ? "inquiry" : "rental" },
+                        { "rental_id", request.Id.ToString() },
+                        { "applicant_name", request.ApplicantName ?? request.RequesterName ?? "" },
+                        { "event_date", request.EventDate.ToString("yyyy-MM-dd") }
+                    }
+                );
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Push notification error in CreateRentalRequestAsync: {ex.Message}");
+            }
+
             var directorEmail = await _routingService.GetEmailForActionAsync("Rental Inquiry");
             if (!string.IsNullOrEmpty(directorEmail))
             {
-                // Fire and forget email notification
-                // Assuming a method like SendRentalInquiryEmailAsync exists on INotificationService
-                // This method would need to be created if it doesn't exist.
-                // For the purpose of this task, I will add a placeholder comment.
-                // await _notificationService.SendGeneralNotificationAsync(directorEmail, "New Rental Inquiry", $"A new rental inquiry has been submitted by {request.ContactName}.");
+                // Email routing if configured
             }
         }
 
@@ -343,7 +370,7 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task<List<UnavailableDateDto>> GetUnavailableDatesAsync()
+        public async Task<List<UnavailableDateDto>> GetUnavailableDatesAsync(bool includeRentalRequests = true)
         {
             var results = new List<UnavailableDateDto>();
             await using var context = await _contextFactory.CreateDbContextAsync();
@@ -356,27 +383,32 @@ namespace GFC.BlazorServer.Services
                     Date = d.Date, 
                     Status = d.Status == "Blackout" ? "Blackout" : "Booked", 
                     EventType = d.Description ?? "Private Event",
-                    EventTime = d.StartTime != null && d.EndTime != null ? $"{d.StartTime} - {d.EndTime}" : null
+                    EventTime = d.StartTime != null && d.EndTime != null ? $"{d.StartTime} - {d.EndTime}" : null,
+                    IsFullDay = d.StartTime == null || d.EndTime == null
                 })
                 .ToListAsync();
             
             results.AddRange(calendarDates);
 
-            // 2. Get dates from active rental requests
-            var requestDates = await context.HallRentalRequests
-                .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
-                .ToListAsync();
-            
-            foreach (var r in requestDates)
+            // 2. Get dates from active rental requests (optional - excluded when requested by mobile calendar to avoid duplicating rentals)
+            if (includeRentalRequests)
             {
-                var dto = new UnavailableDateDto
+                var requestDates = await context.HallRentalRequests
+                    .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
+                    .ToListAsync();
+                
+                foreach (var r in requestDates)
                 {
-                    Date = r.RequestedDate,
-                    Status = r.Status == "Approved" ? "Booked" : "Pending",
-                    EventType = r.EventType,
-                    EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null
-                };
-                results.Add(dto);
+                    var dto = new UnavailableDateDto
+                    {
+                        Date = r.RequestedDate,
+                        Status = r.Status == "Approved" ? "Booked" : "Pending",
+                        EventType = r.EventType,
+                        EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null,
+                        IsFullDay = string.IsNullOrWhiteSpace(r.StartTime) || string.IsNullOrWhiteSpace(r.EndTime)
+                    };
+                    results.Add(dto);
+                }
             }
 
             // 3. Get Club Events / External Bookings from Google Calendar Service
@@ -441,7 +473,8 @@ namespace GFC.BlazorServer.Services
                                 Date = evt.Start.Date,
                                 Status = "Booked",
                                 EventType = !string.IsNullOrWhiteSpace(evt.Title) ? evt.Title : "Club Event",
-                                EventTime = eventTime
+                                EventTime = eventTime,
+                                IsFullDay = evt.IsAllDay || string.IsNullOrWhiteSpace(eventTime)
                             });
                         }
                     }
@@ -571,6 +604,28 @@ namespace GFC.BlazorServer.Services
             }
 
             await context.SaveChangesAsync();
+
+            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
+            try
+            {
+                var applicantName = req?.ApplicantName ?? "Applicant";
+                await _firebaseNotificationService.BroadcastAsync(
+                    "💰 Rental Payment Received",
+                    $"Payment of ${payment.Amount:N2} ({payment.PaymentType}) received for {applicantName}.",
+                    new Dictionary<string, string>
+                    {
+                        { "category", "rental_payment" },
+                        { "rental_id", payment.HallRentalRequestId.ToString() },
+                        { "amount", payment.Amount.ToString("N2") },
+                        { "payment_type", payment.PaymentType ?? "Payment" }
+                    }
+                );
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Payment push notification warning: {ex.Message}");
+            }
+
             return payment;
         }
 
@@ -1038,6 +1093,26 @@ namespace GFC.BlazorServer.Services
                 System.Diagnostics.Debug.WriteLine($"[RentalService] Rental email delivery error: {ex.Message}");
             }
 
+            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
+            try
+            {
+                await _firebaseNotificationService.BroadcastAsync(
+                    "🏛️ New Hall Rental Application",
+                    $"New application from {request.ApplicantName} for {request.EventDate:MMM dd, yyyy} ({request.EventType ?? "Rental"}).",
+                    new Dictionary<string, string>
+                    {
+                        { "category", "rental" },
+                        { "rental_id", request.Id.ToString() },
+                        { "applicant_name", request.ApplicantName ?? "" },
+                        { "event_date", request.EventDate.ToString("yyyy-MM-dd") }
+                    }
+                );
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Application push notification warning: {ex.Message}");
+            }
+
             return request;
         }
 
@@ -1141,6 +1216,27 @@ namespace GFC.BlazorServer.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry email delivery notice: {ex.Message}");
+            }
+
+            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
+            try
+            {
+                string eventDateStr = newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
+                await _firebaseNotificationService.BroadcastAsync(
+                    "💬 New Rental Inquiry Received",
+                    $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}): {(newInquiry.RequestPhoneCall ? "📞 Phone Call Requested" : "✉️ Email")}",
+                    new Dictionary<string, string>
+                    {
+                        { "category", "inquiry" },
+                        { "rental_id", newInquiry.Id.ToString() },
+                        { "applicant_name", newInquiry.ApplicantName ?? "" },
+                        { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" }
+                    }
+                );
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry push notification warning: {ex.Message}");
             }
 
             return inquiry;

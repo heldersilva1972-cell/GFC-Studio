@@ -67,7 +67,7 @@ public class MobileAuthController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<object>> RedeemSetupCode([FromBody] SetupCodeRequest request)
     {
-        if (request == null || string.IsNullOrEmpty(request.Code))
+        if (request == null || string.IsNullOrWhiteSpace(request.Code))
         {
             return BadRequest(new { error = "Setup code is required" });
         }
@@ -79,6 +79,53 @@ public class MobileAuthController : ControllerBase
             {
                 return BadRequest(new { error = "Invalid or expired setup code" });
             }
+
+            // Retrieve user and permission details for atomic single-roundtrip activation
+            AppUser? user = null;
+            var session = await _deviceTrustRepository.GetByTokenAsync(token);
+            if (session != null)
+            {
+                user = _userRepository.GetById(session.UserId);
+            }
+
+            if (user != null)
+            {
+                var rawPermissions = _pagePermissionRepository.GetUserPermissions(user.UserId).Where(p => p.CanAccess).ToList();
+                var permissions = rawPermissions.Select(p => new GFC.Core.DTOs.MobilePermissionDto
+                {
+                    PageId = p.Page?.PageId ?? 0,
+                    PageName = p.Page?.PageName ?? "Unknown",
+                    PageRoute = p.Page?.PageRoute ?? "",
+                    Category = p.Page?.Category,
+                    CanAccess = p.CanAccess,
+                    CanEdit = p.CanEdit,
+                    ReceivePush = p.ReceivePush
+                }).ToList();
+
+                var allowedRoutes = permissions
+                    .Select(p => (p.PageRoute ?? "").Trim('/').ToLowerInvariant())
+                    .Where(r => !string.IsNullOrEmpty(r))
+                    .Distinct()
+                    .ToList();
+
+                return Ok(new
+                {
+                    token,
+                    deviceToken = token,
+                    user = new
+                    {
+                        userId = user.UserId,
+                        username = user.Username,
+                        firstName = (string?)null,
+                        lastName = (string?)null,
+                        isAdmin = user.IsAdmin,
+                        memberId = user.MemberId
+                    },
+                    permissions,
+                    allowedRoutes
+                });
+            }
+
             return Ok(new { token });
         }
         catch (Exception ex)

@@ -23,6 +23,8 @@ import com.gfc.connect.data.cache.RentalCacheManager
 import com.gfc.connect.data.models.ApprovalActionRequest
 import com.gfc.connect.data.models.AvailableMatrixTierDto
 import com.gfc.connect.data.models.HallRentalDetailDto
+import com.gfc.connect.data.models.PaymentReminderPayload
+import com.gfc.connect.data.models.RecordPaymentPayload
 import com.gfc.connect.data.models.UpdateRentalPayload
 import com.gfc.connect.databinding.ActivityRentalDetailBinding
 import com.google.android.material.button.MaterialButton
@@ -85,11 +87,33 @@ class RentalDetailActivity : AppCompatActivity() {
 
     private fun setupToolbar() {
         binding.toolbarDetail.setNavigationOnClickListener {
-            finish()
+            handleBackNavigation()
         }
+
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleBackNavigation()
+            }
+        })
 
         binding.btnToggleEdit.setOnClickListener {
             toggleEditMode(!isEditMode)
+        }
+    }
+
+    private fun handleBackNavigation() {
+        if (isEditMode) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Unsaved Changes")
+                .setMessage("You have unsaved edits to this rental booking. Do you want to discard them?")
+                .setPositiveButton("Discard Changes") { _, _ ->
+                    toggleEditMode(false)
+                    finish()
+                }
+                .setNegativeButton("Keep Editing", null)
+                .show()
+        } else {
+            finish()
         }
     }
 
@@ -97,7 +121,7 @@ class RentalDetailActivity : AppCompatActivity() {
         val tabLayout = binding.tabLayoutSections
         tabLayout.removeAllTabs()
         tabLayout.addTab(tabLayout.newTab().setText("📅 Event"))
-        tabLayout.addTab(tabLayout.newTab().setText("👤 Renter"))
+        tabLayout.addTab(tabLayout.newTab().setText("👤 Applicant"))
         tabLayout.addTab(tabLayout.newTab().setText("💵 Pricing"))
         tabLayout.addTab(tabLayout.newTab().setText("🛡️ Admin"))
 
@@ -164,7 +188,7 @@ class RentalDetailActivity : AppCompatActivity() {
             val email = binding.editEmail.text.toString().trim()
             if (email.isNotEmpty()) {
                 val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email"))
-                intent.putExtra(Intent.EXTRA_SUBJECT, "Good Fellowship Club - Hall Rental Inquiry")
+                intent.putExtra(Intent.EXTRA_SUBJECT, "Gloucester Fraternity Club - Hall Rental Inquiry")
                 startActivity(intent)
             } else {
                 Toast.makeText(this, "No email address available.", Toast.LENGTH_SHORT).show()
@@ -181,6 +205,17 @@ class RentalDetailActivity : AppCompatActivity() {
         // Approve / Deny from detail
         binding.btnApproveDetail.setOnClickListener { promptApprove() }
         binding.btnDenyDetail.setOnClickListener { promptDeny() }
+
+        // Cancel / Delete from detail
+        binding.btnCancelBooking.setOnClickListener { promptCancel() }
+        binding.btnDeleteBooking.setOnClickListener { promptDelete() }
+
+        // Unlink Member
+        binding.btnUnlinkMember.setOnClickListener { promptUnlinkMember() }
+
+        // Record Payment & Send Reminder
+        binding.btnRecordPayment.setOnClickListener { promptRecordPayment() }
+        binding.btnSendPaymentReminder.setOnClickListener { promptSendPaymentReminder() }
 
         // Save & Cancel
         binding.btnSaveDetail.setOnClickListener { promptSaveChanges() }
@@ -222,10 +257,45 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun populateUI(item: HallRentalDetailDto) {
+        val isInquiry = item.eventType?.contains("Inquiry", ignoreCase = true) == true ||
+                        item.status.equals("Inquiry", ignoreCase = true) ||
+                        item.status.equals("Responded", ignoreCase = true)
+
         // Header
-        binding.txtHeaderEventType.text = item.eventType ?: "Hall Rental"
-        binding.txtHeaderStatus.text = item.status
-        updateStatusBadgeColor(item.status)
+        binding.txtHeaderApplicantName.text = "👤 ${item.applicantName}"
+        if (isInquiry) {
+            binding.txtHeaderEventType.text = "📋 ${item.eventType ?: "General Inquiry"}"
+            binding.txtHeaderEventType.setTextColor(getColor(R.color.status_yellow))
+            binding.txtHeaderStatus.text = "INQUIRY (UNCONFIRMED)"
+            binding.txtHeaderStatus.setTextColor(getColor(R.color.status_yellow))
+            binding.txtHeaderStatus.setBackgroundResource(R.drawable.bg_badge_inquiry)
+        } else {
+            binding.txtHeaderEventType.text = item.eventType ?: "Hall Rental"
+            binding.txtHeaderEventType.setTextColor(getColor(R.color.cyan_accent))
+            binding.txtHeaderStatus.text = item.status
+            updateStatusBadgeColor(item.status)
+        }
+
+        // Submission Age & Tracking Header
+        val ageText = getSubmissionAgeText(item.createdAt ?: item.createdDate)
+        val isPaid = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
+        val remaining = Math.max(0.0, item.totalPrice - item.amountPaid)
+        
+        if (isPaid) {
+            binding.txtHeaderTracking.text = "• ✓ Paid in Full"
+            binding.txtHeaderTracking.setTextColor(getColor(R.color.emerald_accent))
+            binding.txtHeaderTracking.visibility = View.VISIBLE
+        } else if (item.amountPaid > 0) {
+            binding.txtHeaderTracking.text = "• 💵 Bal: $${remaining.toInt()}"
+            binding.txtHeaderTracking.setTextColor(getColor(R.color.cyan_accent))
+            binding.txtHeaderTracking.visibility = View.VISIBLE
+        } else if (ageText.isNotEmpty()) {
+            binding.txtHeaderTracking.text = "• ⏱️ $ageText"
+            binding.txtHeaderTracking.setTextColor(getColor(R.color.text_muted))
+            binding.txtHeaderTracking.visibility = View.VISIBLE
+        } else {
+            binding.txtHeaderTracking.visibility = View.GONE
+        }
 
         // Parse Date
         val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -236,14 +306,14 @@ class RentalDetailActivity : AppCompatActivity() {
             if (parsed != null) {
                 selectedEventCalendar.time = parsed
                 binding.txtEventDate.text = displayFormat.format(parsed)
-                binding.txtHeaderSubtitle.text = "${item.applicantName} • ${displayFormat.format(parsed)}"
+                binding.txtHeaderSubtitle.text = "•  ${displayFormat.format(parsed)}"
             } else {
                 binding.txtEventDate.text = item.eventDate
-                binding.txtHeaderSubtitle.text = "${item.applicantName} • ${item.eventDate}"
+                binding.txtHeaderSubtitle.text = "•  ${item.eventDate}"
             }
         } catch (e: Exception) {
             binding.txtEventDate.text = item.eventDate
-            binding.txtHeaderSubtitle.text = "${item.applicantName} • ${item.eventDate}"
+            binding.txtHeaderSubtitle.text = "•  ${item.eventDate}"
         }
 
         // Event Fields
@@ -269,16 +339,19 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.emerald_accent))
             binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_badge_emerald)
             binding.txtMemberVerifyDetails.text = item.memberVerificationText ?: "Active member in good standing."
+            binding.btnUnlinkMember.visibility = View.VISIBLE
         } else if (item.memberVerificationBadge == "UNVERIFIED_CLAIM") {
             binding.txtMemberVerifyBadgeDetail.text = "CLAIMED (NOT IN DIRECTORY)"
             binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.status_yellow))
             binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
             binding.txtMemberVerifyDetails.text = item.memberVerificationText ?: "Applicant selected Member pricing, but no matching record was found in the directory."
+            binding.btnUnlinkMember.visibility = View.GONE
         } else {
             binding.txtMemberVerifyBadgeDetail.text = "NON-MEMBER"
             binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.text_muted))
             binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
             binding.txtMemberVerifyDetails.text = "Applicant is booking under standard Non-Member pricing."
+            binding.btnUnlinkMember.visibility = View.GONE
         }
 
         // Render Possible Candidate Matches
@@ -289,39 +362,24 @@ class RentalDetailActivity : AppCompatActivity() {
         binding.editPhone.setText(item.requesterPhone ?: "")
         binding.editEmail.setText(item.requesterEmail ?: "")
         
-        val street = item.requesterAddress?.trim().orEmpty()
-        val city = item.requesterCity?.trim().orEmpty()
-        val state = item.requesterState?.trim().orEmpty()
-        val zip = item.requesterZip?.trim().orEmpty()
-
-        val fullAddress = if (street.isNotEmpty()) {
-            val containsCity = city.isNotEmpty() && street.contains(city, ignoreCase = true)
-            val containsState = state.isNotEmpty() && street.contains(state, ignoreCase = true)
-            val containsZip = zip.isNotEmpty() && street.contains(zip, ignoreCase = true)
-
-            if (containsCity || containsState || containsZip) {
-                street
-            } else {
-                listOfNotNull(
-                    street.ifEmpty { null },
-                    city.ifEmpty { null },
-                    state.ifEmpty { null },
-                    zip.ifEmpty { null }
-                ).joinToString(", ")
-            }
-        } else {
-            listOfNotNull(
-                city.ifEmpty { null },
-                state.ifEmpty { null },
-                zip.ifEmpty { null }
-            ).joinToString(", ")
-        }
-        binding.editAddress.setText(if (fullAddress.isNotEmpty()) fullAddress else "")
+        val fullAddress = sanitizeAddress(
+            rawStreet = item.requesterAddress,
+            city = item.requesterCity,
+            state = item.requesterState,
+            zip = item.requesterZip
+        )
+        binding.editAddress.setText(fullAddress)
 
         // Financials
         val currencyFormat = NumberFormat.getCurrencyInstance(Locale.US)
         binding.editTotalPrice.setText(item.totalPrice.toString())
-        binding.editSecurityDeposit.setText(item.securityDepositAmount.toString())
+        if (item.requireSecurityDeposit) {
+            binding.layoutSecurityDepositContainer.visibility = View.VISIBLE
+            binding.editSecurityDeposit.setText(item.securityDepositAmount.toString())
+        } else {
+            binding.layoutSecurityDepositContainer.visibility = View.GONE
+            binding.editSecurityDeposit.setText("0")
+        }
         binding.editAmountPaid.setText(item.amountPaid.toString())
         binding.switchIsPaid.isChecked = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
 
@@ -358,6 +416,10 @@ class RentalDetailActivity : AppCompatActivity() {
             if (isEmpty()) append("Pending administrative review.")
         }
         binding.txtDecisionInfo.text = decisionInfo.trimEnd()
+
+        // Approve / Deny buttons ONLY appear for actionable PENDING booking applications (never on inquiries or already-decided bookings)
+        val canShowApprovalButtons = !isInquiry && item.status.equals("Pending", ignoreCase = true)
+        binding.layoutQuickActions.visibility = if (canShowApprovalButtons) View.VISIBLE else View.GONE
     }
 
     private fun renderPossibleCandidates(item: HallRentalDetailDto) {
@@ -367,6 +429,78 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.layoutCandidatesList.removeAllViews()
 
             for (cand in candidates) {
+                val candidateCard = com.google.android.material.card.MaterialCardView(this).apply {
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = (6 * resources.displayMetrics.density).toInt()
+                    }
+                    setCardBackgroundColor(getColor(R.color.surface_dark_muted))
+                    radius = 8 * resources.displayMetrics.density
+                    strokeColor = getColor(R.color.border_dark)
+                    strokeWidth = (1 * resources.displayMetrics.density).toInt()
+                }
+
+                val rowLayout = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    val pad = (12 * resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad, pad, pad)
+                }
+
+                val infoLayout = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                val txtName = android.widget.TextView(this).apply {
+                    text = "${cand.fullName} #${cand.memberId} (${cand.status})"
+                    setTextColor(getColor(R.color.text_primary))
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }
+
+                val txtReason = android.widget.TextView(this).apply {
+                    text = "Match: ${cand.matchReason}"
+                    setTextColor(getColor(R.color.status_yellow))
+                    textSize = 11f
+                }
+
+                infoLayout.addView(txtName)
+                infoLayout.addView(txtReason)
+
+                val btnSelect = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = "Link"
+                    textSize = 12f
+                    setPadding(
+                        (10 * resources.displayMetrics.density).toInt(),
+                        (4 * resources.displayMetrics.density).toInt(),
+                        (10 * resources.displayMetrics.density).toInt(),
+                        (4 * resources.displayMetrics.density).toInt()
+                    )
+                    setOnClickListener {
+                        linkCandidateMember(cand)
+                    }
+                }
+
+                rowLayout.addView(infoLayout)
+                rowLayout.addView(btnSelect)
+                candidateCard.addView(rowLayout)
+                binding.layoutCandidatesList.addView(candidateCard)
+            }
+        } else {
+            binding.layoutCandidatesContainer.visibility = View.GONE
+        }
+    }
+
+    private fun renderCandidateListDirect(candidates: List<com.gfc.connect.data.models.PossibleMemberDto>?) {
+        val list = candidates ?: emptyList()
+        if (list.isNotEmpty()) {
+            binding.layoutCandidatesContainer.visibility = View.VISIBLE
+            binding.layoutCandidatesList.removeAllViews()
+
+            for (cand in list) {
                 val candidateCard = com.google.android.material.card.MaterialCardView(this).apply {
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -449,13 +583,80 @@ class RentalDetailActivity : AppCompatActivity() {
                 binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.emerald_accent))
                 binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_badge_emerald)
                 binding.txtMemberVerifyDetails.text = "Linked to directory member #${candidate.memberId} (${candidate.status})."
+                binding.btnUnlinkMember.visibility = View.VISIBLE
                 binding.layoutCandidatesContainer.visibility = View.GONE
                 
                 toggleEditMode(true)
-                Toast.makeText(this, "Linked to ${candidate.fullName}. Tap 'Save Changes' to commit to server.", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun promptUnlinkMember() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Unlink Member Verification")
+            .setMessage("Are you sure you want to unlink this member verification?\n\nThe booking will remain under Member pricing as an unverified claim, and directory candidate matches will be redisplayed for review.")
+            .setPositiveButton("Unlink") { _, _ ->
+                binding.txtMemberVerifyBadgeDetail.text = "CLAIMED (NOT IN DIRECTORY)"
+                binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.status_yellow))
+                binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+                binding.txtMemberVerifyDetails.text = "Member verification cleared. Review candidate matches below or tap 'Save Changes' to commit."
+                binding.btnUnlinkMember.visibility = View.GONE
+                
+                val name = binding.editApplicantName.text.toString().trim()
+                val email = binding.editEmail.text.toString().trim()
+                val phone = binding.editPhone.text.toString().trim()
+                verifyMemberStatusLive(name, email, phone)
+
+                if (!isEditMode) {
+                    toggleEditMode(true)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun verifyMemberStatusLive(name: String, email: String, phone: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val resp = ApiClient.service.verifyMemberLive(name, email, phone, true)
+                withContext(Dispatchers.Main) {
+                    if (resp.isSuccessful && resp.body() != null) {
+                        val result = resp.body()!!
+                        if (result.isVerified) {
+                            val idText = if (result.memberId != null && result.memberId > 0) " #${result.memberId}" else ""
+                            binding.txtMemberVerifyBadgeDetail.text = "VERIFIED MEMBER$idText"
+                            binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.emerald_accent))
+                            binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_badge_emerald)
+                            binding.txtMemberVerifyDetails.text = result.statusText
+                            binding.btnUnlinkMember.visibility = View.VISIBLE
+                            binding.layoutCandidatesContainer.visibility = View.GONE
+                        } else {
+                            binding.txtMemberVerifyBadgeDetail.text = "CLAIMED (NOT IN DIRECTORY)"
+                            binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.status_yellow))
+                            binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+                            binding.txtMemberVerifyDetails.text = result.statusText
+                            binding.btnUnlinkMember.visibility = View.GONE
+                            renderCandidateListDirect(result.candidates)
+                        }
+                    } else {
+                        binding.txtMemberVerifyBadgeDetail.text = "UNVERIFIED"
+                        binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.status_yellow))
+                        binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+                        binding.txtMemberVerifyDetails.text = "Could not verify member status with server (Code: ${resp.code()})."
+                        binding.btnUnlinkMember.visibility = View.GONE
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.txtMemberVerifyBadgeDetail.text = "OFFLINE"
+                    binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.text_muted))
+                    binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+                    binding.txtMemberVerifyDetails.text = "Directory check offline: ${e.localizedMessage}"
+                    binding.btnUnlinkMember.visibility = View.GONE
+                }
+            }
+        }
     }
 
     private fun renderMatrixTiers(item: HallRentalDetailDto) {
@@ -586,18 +787,30 @@ class RentalDetailActivity : AppCompatActivity() {
                         setTextColor(getColor(R.color.bg_dark))
                         backgroundTintList = ColorStateList.valueOf(getColor(R.color.cyan_accent))
                         strokeColor = ColorStateList.valueOf(getColor(R.color.cyan_accent))
+                        isEnabled = isEditMode
                     } else {
                         text = "Select"
-                        setTextColor(getColor(R.color.cyan_accent))
+                        setTextColor(if (isEditMode) getColor(R.color.cyan_accent) else getColor(R.color.text_muted))
                         strokeColor = ColorStateList.valueOf(getColor(R.color.border_dark))
+                        visibility = if (isEditMode) View.VISIBLE else View.GONE
+                        isEnabled = isEditMode
                     }
                 }
 
-                val onTierClick = View.OnClickListener {
-                    applySelectedMatrixTier(tier)
+                if (isEditMode) {
+                    val onTierClick = View.OnClickListener {
+                        applySelectedMatrixTier(tier)
+                    }
+                    selectBtn.setOnClickListener(onTierClick)
+                    setOnClickListener(onTierClick)
+                    isClickable = true
+                    isFocusable = true
+                } else {
+                    isClickable = false
+                    isFocusable = false
+                    setOnClickListener(null)
+                    selectBtn.setOnClickListener(null)
                 }
-                selectBtn.setOnClickListener(onTierClick)
-                setOnClickListener(onTierClick)
 
                 rowLayout.addView(selectBtn)
                 addView(rowLayout)
@@ -607,9 +820,37 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun applySelectedMatrixTier(tier: AvailableMatrixTierDto) {
+        if (!isEditMode) return
         selectedMatrixTierTitle = tier.title
         binding.editMatrixSelected.setText(tier.title)
         binding.txtCurrentMatrixBadge.text = tier.title
+
+        val isMemberTier = (!tier.title.contains("Non", ignoreCase = true) && tier.title.contains("Member", ignoreCase = true)) ||
+                           (!tier.associatedRenterType.isNullOrEmpty() && !tier.associatedRenterType.contains("Non", ignoreCase = true) && tier.associatedRenterType.contains("Member", ignoreCase = true)) ||
+                           (!tier.id.isNullOrEmpty() && !tier.id.contains("non", ignoreCase = true) && tier.id.contains("member", ignoreCase = true))
+
+        if (isMemberTier) {
+            val name = binding.editApplicantName.text.toString().trim().ifEmpty { rentalDetail?.applicantName.orEmpty() }
+            val email = binding.editEmail.text.toString().trim().ifEmpty { rentalDetail?.requesterEmail.orEmpty() }
+            val phone = binding.editPhone.text.toString().trim().ifEmpty { rentalDetail?.requesterPhone.orEmpty() }
+
+            // Immediate visual feedback on the Pricing tab
+            binding.txtMemberVerifyBadgeDetail.text = "CHECKING DIRECTORY..."
+            binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.cyan_accent))
+            binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+            binding.txtMemberVerifyDetails.text = "Searching directory for '$name'..."
+            binding.btnUnlinkMember.visibility = View.GONE
+            binding.layoutCandidatesContainer.visibility = View.GONE
+
+            verifyMemberStatusLive(name, email, phone)
+        } else {
+            binding.txtMemberVerifyBadgeDetail.text = "NON-MEMBER"
+            binding.txtMemberVerifyBadgeDetail.setTextColor(getColor(R.color.text_muted))
+            binding.txtMemberVerifyBadgeDetail.setBackgroundResource(R.drawable.bg_pill_sync)
+            binding.txtMemberVerifyDetails.text = "Applicant is booking under standard Non-Member pricing."
+            binding.btnUnlinkMember.visibility = View.GONE
+            binding.layoutCandidatesContainer.visibility = View.GONE
+        }
 
         // Recalculate price: base rate + bartender + kitchen + av
         var total = tier.rateForDate
@@ -622,7 +863,6 @@ class RentalDetailActivity : AppCompatActivity() {
             toggleEditMode(true)
         }
         rentalDetail?.let { renderMatrixTiers(it) }
-        Toast.makeText(this, "Updated to ${tier.title} ($${tier.rateForDate.toInt()} base). Tap 'Save Changes' to apply.", Toast.LENGTH_LONG).show()
     }
 
     private fun updateStatusBadgeColor(status: String) {
@@ -639,6 +879,48 @@ class RentalDetailActivity : AppCompatActivity() {
                 binding.txtHeaderStatus.setTextColor(getColor(R.color.cyan_accent))
                 binding.txtHeaderStatus.setBackgroundResource(R.drawable.bg_badge_emerald)
             }
+        }
+    }
+
+    private fun sanitizeAddress(rawStreet: String?, city: String?, state: String?, zip: String?): String {
+        var street = rawStreet?.trim().orEmpty()
+        if (street.isEmpty()) {
+            val parts = listOfNotNull(
+                city?.trim()?.ifEmpty { null },
+                state?.trim()?.ifEmpty { null },
+                zip?.trim()?.ifEmpty { null }
+            )
+            return parts.joinToString(", ")
+        }
+
+        // De-duplicate repeated chunks within the street string itself (e.g., "123 Main, Pawtucket, RI, Pawtucket, RI")
+        val chunks = street.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val uniqueChunks = mutableListOf<String>()
+        for (chunk in chunks) {
+            if (!uniqueChunks.any { it.equals(chunk, ignoreCase = true) }) {
+                uniqueChunks.add(chunk)
+            }
+        }
+        street = uniqueChunks.joinToString(", ")
+
+        // If city/state/zip are provided separately, only append them if they aren't already present in street
+        val cleanCity = city?.trim().orEmpty()
+        val cleanState = state?.trim().orEmpty()
+        val cleanZip = zip?.trim().orEmpty()
+
+        val needsCity = cleanCity.isNotEmpty() && !street.contains(cleanCity, ignoreCase = true)
+        val needsState = cleanState.isNotEmpty() && !street.contains(cleanState, ignoreCase = true)
+        val needsZip = cleanZip.isNotEmpty() && !street.contains(cleanZip, ignoreCase = true)
+
+        val appendParts = mutableListOf<String>()
+        if (needsCity) appendParts.add(cleanCity)
+        if (needsState) appendParts.add(cleanState)
+        if (needsZip) appendParts.add(cleanZip)
+
+        return if (appendParts.isNotEmpty()) {
+            "$street, ${appendParts.joinToString(", ")}"
+        } else {
+            street
         }
     }
 
@@ -671,6 +953,8 @@ class RentalDetailActivity : AppCompatActivity() {
 
         binding.spinnerStatus.isEnabled = enable
         binding.editInternalNotes.isEnabled = enable
+
+        rentalDetail?.let { renderMatrixTiers(it) }
 
         if (enable) {
             binding.editEventType.requestFocus()
@@ -1023,6 +1307,311 @@ class RentalDetailActivity : AppCompatActivity() {
                         loadRentalDetail()
                     } else {
                         Toast.makeText(this@RentalDetailActivity, "Denial failed.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun promptCancel() {
+        val input = EditText(this).apply {
+            hint = "Optional cancellation reason..."
+            setPadding(40, 24, 40, 24)
+        }
+
+        val applicantName = rentalDetail?.applicantName ?: "this applicant"
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("⚠️ Cancel Hall Booking")
+            .setMessage("Are you sure you want to cancel the booking for $applicantName?\n\nThis will mark the request as Cancelled and release the reserved date on the club calendar.")
+            .setView(input)
+            .setPositiveButton("Cancel Booking") { _, _ ->
+                val reason = input.text.toString().trim()
+                executeCancel(reason)
+            }
+            .setNegativeButton("Keep Active", null)
+            .show()
+    }
+
+    private fun executeCancel(reason: String) {
+        showLoading("Cancelling Booking...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = ApiClient.service.cancelRental(rentalId, ApprovalActionRequest(reason))
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@RentalDetailActivity, "Booking cancelled and calendar date released.", Toast.LENGTH_LONG).show()
+                        loadRentalDetail()
+                    } else {
+                        Toast.makeText(this@RentalDetailActivity, "Failed to cancel booking.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun promptDelete() {
+        val applicantName = rentalDetail?.applicantName ?: "this record"
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🗑️ Permanently Delete Booking")
+            .setMessage("⚠️ Are you sure you want to permanently delete the booking record for $applicantName?\n\nThis action CANNOT be undone and will permanently remove all booking records, payment history, and audit trails.")
+            .setPositiveButton("Delete Permanently") { _, _ ->
+                executeDelete()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeDelete() {
+        showLoading("Deleting Record...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = ApiClient.service.deleteRental(rentalId)
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@RentalDetailActivity, "Booking record permanently deleted.", Toast.LENGTH_LONG).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this@RentalDetailActivity, "Failed to delete record.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun getSubmissionAgeText(createdAtStr: String?): String {
+        if (createdAtStr.isNullOrBlank()) return ""
+        return try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val cleanDate = createdAtStr.substringBefore('T')
+            val createdDate = isoFormat.parse(cleanDate) ?: return ""
+            val diffMs = System.currentTimeMillis() - createdDate.time
+            val days = (diffMs / (1000 * 60 * 60 * 24)).toInt()
+            when {
+                days > 1 -> "${days}d ago"
+                days == 1 -> "Yesterday"
+                days == 0 -> "Today"
+                else -> ""
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    private fun promptRecordPayment() {
+        val item = rentalDetail ?: return
+        val currentPaid = item.amountPaid
+        val total = item.totalPrice
+        val remaining = Math.max(0.0, total - currentPaid)
+        val deposit = item.securityDepositAmount
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        val summaryTv = TextView(this).apply {
+            text = "Total: $${total.toInt()}  •  Paid: $${currentPaid.toInt()}  •  Balance Due: $${remaining.toInt()}"
+            setTextColor(getColor(R.color.cyan_accent))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 16)
+        }
+        dialogView.addView(summaryTv)
+
+        val amountInput = EditText(this).apply {
+            hint = "Payment Amount ($)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(if (remaining > 0) String.format(Locale.US, "%.2f", remaining) else "")
+            setPadding(20, 20, 20, 20)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
+        }
+        dialogView.addView(amountInput)
+
+        // Presets buttons row
+        val presetsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 12)
+        }
+
+        if (remaining > 0) {
+            val btnFull = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Full ($${remaining.toInt()})"
+                textSize = 11f
+                setOnClickListener { amountInput.setText(String.format(Locale.US, "%.2f", remaining)) }
+            }
+            presetsLayout.addView(btnFull)
+        }
+
+        if (item.requireSecurityDeposit && deposit > 0 && currentPaid < deposit) {
+            val btnDep = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Deposit ($${deposit.toInt()})"
+                textSize = 11f
+                val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = 12
+                }
+                layoutParams = params
+                setOnClickListener { amountInput.setText(String.format(Locale.US, "%.2f", deposit)) }
+            }
+            presetsLayout.addView(btnDep)
+        }
+        dialogView.addView(presetsLayout)
+
+        // Payment Method Dropdown/Spinner
+        val methodSpinner = android.widget.Spinner(this).apply {
+            val methods = listOf("Cash", "Check", "Credit Card", "Venmo", "Online", "Other")
+            adapter = android.widget.ArrayAdapter(this@RentalDetailActivity, android.R.layout.simple_spinner_dropdown_item, methods)
+            setBackgroundResource(R.drawable.bg_spinner_dark)
+            setPadding(20, 20, 20, 20)
+        }
+        dialogView.addView(methodSpinner)
+
+        val noteInput = EditText(this).apply {
+            hint = "Optional reference / check # / note..."
+            setPadding(20, 20, 20, 20)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
+            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = 16
+            }
+            layoutParams = params
+        }
+        dialogView.addView(noteInput)
+
+        val depositCheck = if (item.requireSecurityDeposit) {
+            android.widget.CheckBox(this).apply {
+                text = "Mark Security Deposit as Paid"
+                isChecked = !item.securityDepositPaid
+                setTextColor(getColor(R.color.text_primary))
+                val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = 12
+                }
+                layoutParams = params
+            }.also { dialogView.addView(it) }
+        } else null
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("💵 Record Payment")
+            .setView(dialogView)
+            .setPositiveButton("Record Payment") { _, _ ->
+                val amt = amountInput.text.toString().toDoubleOrNull() ?: 0.0
+                if (amt <= 0.0) {
+                    Toast.makeText(this, "Please enter a valid payment amount.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val method = methodSpinner.selectedItem?.toString() ?: "Cash"
+                val note = noteInput.text.toString().trim().ifEmpty { null }
+                val isDep = depositCheck?.isChecked ?: false
+                executeRecordPayment(amt, method, note, isDep)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeRecordPayment(amount: Double, method: String, note: String?, markAsDeposit: Boolean) {
+        showLoading("Recording Payment...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val payload = RecordPaymentPayload(amount, method, note, markAsDeposit)
+                val response = ApiClient.service.recordPayment(rentalId, payload)
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@RentalDetailActivity, "💵 Payment recorded successfully!", Toast.LENGTH_LONG).show()
+                        loadRentalDetail()
+                    } else {
+                        val errMsg = try {
+                            val errJson = response.errorBody()?.string()
+                            if (!errJson.isNullOrBlank()) {
+                                val obj = org.json.JSONObject(errJson)
+                                obj.optString("error", obj.optString("message", "Failed to record payment."))
+                            } else {
+                                response.body()?.message ?: "Failed to record payment."
+                            }
+                        } catch (e: Exception) {
+                            response.body()?.message ?: "Failed to record payment."
+                        }
+                        Toast.makeText(this@RentalDetailActivity, "❌ $errMsg", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun promptSendPaymentReminder() {
+        val item = rentalDetail ?: return
+        val email = item.requesterEmail?.trim().orEmpty()
+        if (email.isEmpty()) {
+            Toast.makeText(this, "No email address found on this booking record.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val remaining = Math.max(0.0, item.totalPrice - item.amountPaid)
+        val noteInput = EditText(this).apply {
+            hint = "Optional custom note/instructions to include in email..."
+            setPadding(40, 24, 40, 24)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("✉️ Send Payment Reminder")
+            .setMessage("Send customized balance reminder email to:\n$email\n\n• Outstanding Balance Due: $${remaining.toInt()}\n• Event Date: ${item.eventDate.substringBefore('T')}\n\nProceed with sending?")
+            .setView(noteInput)
+            .setPositiveButton("Send Reminder") { _, _ ->
+                val customNote = noteInput.text.toString().trim().ifEmpty { null }
+                executeSendPaymentReminder(customNote)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeSendPaymentReminder(customNote: String?) {
+        showLoading("Sending Payment Reminder Email...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val payload = PaymentReminderPayload(customNote)
+                val response = ApiClient.service.sendPaymentReminder(rentalId, payload)
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@RentalDetailActivity, "✉️ Payment reminder successfully sent!", Toast.LENGTH_LONG).show()
+                        loadRentalDetail()
+                    } else {
+                        val errMsg = try {
+                            val errJson = response.errorBody()?.string()
+                            if (!errJson.isNullOrBlank()) {
+                                val obj = org.json.JSONObject(errJson)
+                                obj.optString("error", obj.optString("message", "Failed to send payment reminder."))
+                            } else {
+                                response.body()?.message ?: "Failed to send payment reminder."
+                            }
+                        } catch (e: Exception) {
+                            response.body()?.message ?: "Failed to send payment reminder."
+                        }
+                        Toast.makeText(this@RentalDetailActivity, "❌ $errMsg", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {

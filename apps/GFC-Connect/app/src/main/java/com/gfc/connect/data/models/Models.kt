@@ -8,7 +8,11 @@ data class SetupCodeRequest(
 
 data class SetupCodeResponse(
     @SerializedName("token") val token: String?,
-    @SerializedName("error") val error: String?
+    @SerializedName("deviceToken") val deviceToken: String? = null,
+    @SerializedName("user") val user: UserDto? = null,
+    @SerializedName("permissions") val permissions: List<MobilePermissionDto>? = null,
+    @SerializedName("allowedRoutes") val allowedRoutes: List<String>? = null,
+    @SerializedName("error") val error: String? = null
 )
 
 data class GfcLoginResult(
@@ -69,6 +73,10 @@ data class HallRentalDto(
     @SerializedName("guestCount") val guestCount: Int,
     @SerializedName("totalPrice") val totalPrice: Double,
     @SerializedName("securityDepositAmount") val securityDepositAmount: Double,
+    @SerializedName("requireSecurityDeposit") val requireSecurityDeposit: Boolean = true,
+    @SerializedName("amountPaid") val amountPaid: Double? = 0.0,
+    @SerializedName("isPaid") val isPaid: Boolean? = false,
+    @SerializedName("createdAt") val createdAt: String? = null,
     @SerializedName("status") val status: String,
     @SerializedName("bartenderRequested") val bartenderRequested: Boolean,
     @SerializedName("kitchenUsage") val kitchenUsage: Boolean,
@@ -89,6 +97,26 @@ data class PossibleMemberDto(
     @SerializedName("matchReason") val matchReason: String,
     @SerializedName("phone") val phone: String?,
     @SerializedName("email") val email: String?
+)
+
+data class RecordPaymentPayload(
+    @SerializedName("amount") val amount: Double,
+    @SerializedName("paymentMethod") val paymentMethod: String?,
+    @SerializedName("note") val note: String?,
+    @SerializedName("markAsDeposit") val markAsDeposit: Boolean = false
+)
+
+data class PaymentReminderPayload(
+    @SerializedName("customNote") val customNote: String?
+)
+
+data class CreateClubEventPayload(
+    @SerializedName("date") val date: String,
+    @SerializedName("reason") val reason: String,
+    @SerializedName("location") val location: String = "Function Hall",
+    @SerializedName("startTime") val startTime: String?,
+    @SerializedName("endTime") val endTime: String?,
+    @SerializedName("isFullDay") val isFullDay: Boolean = true
 )
 
 data class ApprovalActionRequest(
@@ -123,8 +151,11 @@ data class InquiryResponse(
 
 data class UnavailableDateDto(
     @SerializedName("date") val date: String,
-    @SerializedName("reason") val reason: String?,
-    @SerializedName("isFullDay") val isFullDay: Boolean
+    @SerializedName("status") val status: String? = "Booked",
+    @SerializedName("eventType") val eventType: String? = null,
+    @SerializedName("eventTime") val eventTime: String? = null,
+    @SerializedName("reason") val reason: String? = null,
+    @SerializedName("isFullDay") val isFullDay: Boolean = true
 )
 
 data class HallRentalDetailDto(
@@ -153,6 +184,7 @@ data class HallRentalDetailDto(
     @SerializedName("avEquipmentUsage") val avEquipmentUsage: Boolean,
     @SerializedName("securityDepositPaid") val securityDepositPaid: Boolean,
     @SerializedName("securityDepositAmount") val securityDepositAmount: Double,
+    @SerializedName("requireSecurityDeposit") val requireSecurityDeposit: Boolean = true,
     @SerializedName("totalPrice") val totalPrice: Double,
     @SerializedName("amountPaid") val amountPaid: Double,
     @SerializedName("isPaid") val isPaid: Boolean,
@@ -166,6 +198,7 @@ data class HallRentalDetailDto(
     @SerializedName("statusChangedDate") val statusChangedDate: String?,
     @SerializedName("internalNotes") val internalNotes: String?,
     @SerializedName("createdDate") val createdDate: String?,
+    @SerializedName("createdAt") val createdAt: String? = null,
     @SerializedName("matrixSelected") val matrixSelected: String?,
     @SerializedName("isVerifiedMember") val isVerifiedMember: Boolean = false,
     @SerializedName("verifiedMemberId") val verifiedMemberId: Int?,
@@ -216,5 +249,13 @@ data class RentalUpdateResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String?,
     @SerializedName("error") val error: String?
+)
+
+data class VerifyMemberResponse(
+    @SerializedName("isVerified") val isVerified: Boolean,
+    @SerializedName("memberId") val memberId: Int?,
+    @SerializedName("statusText") val statusText: String?,
+    @SerializedName("badgeType") val badgeType: String?,
+    @SerializedName("candidates") val candidates: List<PossibleMemberDto>? = emptyList()
 )
 

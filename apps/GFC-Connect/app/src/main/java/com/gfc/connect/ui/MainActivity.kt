@@ -2,11 +2,13 @@ package com.gfc.connect.ui
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -14,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.gfc.connect.BuildConfig
 import com.gfc.connect.GfcConnectApp
+import com.gfc.connect.R
 import com.gfc.connect.api.ApiClient
 import com.gfc.connect.data.models.DeviceRegistrationPayload
 import com.gfc.connect.data.models.SetupCodeRequest
@@ -21,6 +24,7 @@ import com.gfc.connect.data.models.VersionResponse
 import com.gfc.connect.databinding.ActivityMainBinding
 import com.gfc.connect.security.BiometricAuthManager
 import com.gfc.connect.update.AppUpdateManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,6 +54,7 @@ class MainActivity : AppCompatActivity() {
 
         biometricManager = BiometricAuthManager(this)
         updateManager = AppUpdateManager(this)
+        ApiClient.initBaseUrl(this)
 
         setupListeners()
         evaluateAppState()
@@ -118,21 +123,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Server Endpoint Switcher (Localhost 5207 vs IIS Express vs Live)
-        val serverOptions = listOf(
-            "Localhost (5207)" to ApiClient.LOCAL_EMULATOR_URL,
-            "Live Cloud" to ApiClient.LIVE_URL,
-            "IIS Express (62517)" to ApiClient.LOCAL_IIS_URL
-        )
-        var currentServerIndex = 0
-        ApiClient.currentBaseUrl = serverOptions[currentServerIndex].second
-        binding.btnToggleServer.text = "🌐 Server: ${serverOptions[currentServerIndex].first}"
-
+        // Server Endpoint Switcher
+        updateServerButtonLabel()
         binding.btnToggleServer.setOnClickListener {
-            currentServerIndex = (currentServerIndex + 1) % serverOptions.size
-            ApiClient.currentBaseUrl = serverOptions[currentServerIndex].second
-            binding.btnToggleServer.text = "🌐 Server: ${serverOptions[currentServerIndex].first}"
-            Toast.makeText(this, "Target: ${serverOptions[currentServerIndex].second}", Toast.LENGTH_SHORT).show()
+            showServerSelectionDialog()
         }
 
         // Biometric Retry Button
@@ -168,16 +162,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.cardSettings.setOnClickListener {
-            showFeatureToast("Settings", "Opening biometrics & security settings...")
+            val intent = Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
         }
 
         binding.btnNotificationBell.setOnClickListener {
-            showFeatureToast("Notifications", "You have no unread notifications.")
+            val intent = Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
         }
     }
 
     private fun evaluateAppState() {
         val storage = GfcConnectApp.instance.tokenStorage
+        val appSettings = GfcConnectApp.instance.appSettings
+
+        val expiredReason = intent.getStringExtra("AUTH_EXPIRED_REASON")
+        if (!expiredReason.isNullOrEmpty()) {
+            showView(OnboardingState.UNPAIRED)
+            binding.txtOnboardingError.text = expiredReason
+            binding.txtOnboardingError.visibility = View.VISIBLE
+            return
+        }
 
         when {
             // State 1: Device Not Yet Paired -> Show 6-digit Setup Code screen
@@ -186,7 +191,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // State 2: Device Paired & Biometrics Available -> Lock screen & prompt Biometrics
-            storage.isBiometricEnabled() && biometricManager.canAuthenticate() -> {
+            storage.isBiometricEnabled() && appSettings.biometricAppLockEnabled && biometricManager.canAuthenticate() -> {
                 showView(OnboardingState.BIOMETRIC_LOCKED)
                 binding.txtBiometricUserGreeting.text = "Welcome back, ${storage.getMemberName() ?: storage.getUsername() ?: "Member"}.\nTouch fingerprint sensor to unlock."
                 promptBiometrics()
@@ -259,13 +264,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 val response = ApiClient.service.redeemSetupCode(SetupCodeRequest(code))
                 if (response.isSuccessful && response.body()?.token != null) {
-                    val token = response.body()!!.token!!
+                    val body = response.body()!!
+                    val token = body.token!!
 
-                    // Fetch user info with this token
-                    val userResponse = ApiClient.service.getCurrentUser(token)
-                    if (userResponse.isSuccessful && userResponse.body()?.user != null) {
-                        val result = userResponse.body()!!
-                        val user = result.user!!
+                    val user = body.user
+                    val permissions = body.permissions
+
+                    if (user != null) {
                         val memberFullName = "${user.firstName ?: ""} ${user.lastName ?: ""}".trim().ifEmpty { user.username }
 
                         // Save securely in Hardware-Backed Keystore
@@ -274,7 +279,7 @@ class MainActivity : AppCompatActivity() {
                             userId = user.userId,
                             username = user.username,
                             memberName = memberFullName,
-                            permissions = result.permissions
+                            permissions = permissions
                         )
 
                         withContext(Dispatchers.Main) {
@@ -284,7 +289,30 @@ class MainActivity : AppCompatActivity() {
                             evaluateAppState()
                         }
                     } else {
-                        showPairingError("Setup code verified, but failed to retrieve user account.")
+                        // Fallback: Fetch user info with this token
+                        val userResponse = ApiClient.service.getCurrentUser(token)
+                        if (userResponse.isSuccessful && userResponse.body()?.user != null) {
+                            val result = userResponse.body()!!
+                            val u = result.user!!
+                            val memberFullName = "${u.firstName ?: ""} ${u.lastName ?: ""}".trim().ifEmpty { u.username }
+
+                            GfcConnectApp.instance.tokenStorage.saveAuthData(
+                                token = token,
+                                userId = u.userId,
+                                username = u.username,
+                                memberName = memberFullName,
+                                permissions = result.permissions
+                            )
+
+                            withContext(Dispatchers.Main) {
+                                binding.progressOnboarding.visibility = View.GONE
+                                binding.btnVerifyCode.isEnabled = true
+                                Toast.makeText(this@MainActivity, "Device paired successfully as $memberFullName!", Toast.LENGTH_LONG).show()
+                                evaluateAppState()
+                            }
+                        } else {
+                            showPairingError("Setup code verified, but failed to retrieve user account.")
+                        }
                     }
                 } else {
                     val rawErr = response.errorBody()?.string() ?: ""
@@ -398,6 +426,70 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             // Firebase optional on dev emulator
         }
+    }
+
+    private fun updateServerButtonLabel() {
+        val current = ApiClient.currentBaseUrl
+        val label = when {
+            current.contains("localhost") || current.contains("127.0.0.1") -> "USB Mirror (localhost:5207)"
+            current.contains("10.0.2.2:5207") -> "Emulator (10.0.2.2:5207)"
+            else -> "Local Wi-Fi IP ($current)"
+        }
+        binding.btnToggleServer.text = "🌐 Target: $label"
+    }
+
+    private fun showServerSelectionDialog() {
+        val options = arrayOf(
+            "📱 Physical Device (USB Mirror / localhost:5207)",
+            "💻 Android Studio Emulator (10.0.2.2:5207)",
+            "📶 Local Wi-Fi LAN IP (e.g., 192.168.1.xxx:5207)"
+        )
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🌐 Select Local Server Target")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        ApiClient.persistBaseUrl(this, ApiClient.LOCAL_USB_ADB_URL)
+                        updateServerButtonLabel()
+                        Toast.makeText(this, "Target: USB Mirror (localhost:5207)", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> {
+                        ApiClient.persistBaseUrl(this, ApiClient.LOCAL_EMULATOR_URL)
+                        updateServerButtonLabel()
+                        Toast.makeText(this, "Target: AVD Emulator (10.0.2.2:5207)", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> {
+                        promptCustomLanIpDialog()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptCustomLanIpDialog() {
+        val input = EditText(this).apply {
+            hint = "e.g. 192.168.1.150:5207"
+            setText(ApiClient.currentBaseUrl.removePrefix("http://").removePrefix("https://").removeSuffix("/"))
+            setPadding(40, 30, 40, 30)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("📶 Enter Local PC IP Address")
+            .setMessage("Enter your computer's local Wi-Fi IP and port (e.g. 192.168.1.150:5207):")
+            .setView(input)
+            .setPositiveButton("Connect") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    val fullUrl = if (text.startsWith("http://") || text.startsWith("https://")) text else "http://$text/"
+                    ApiClient.persistBaseUrl(this, fullUrl)
+                    updateServerButtonLabel()
+                    Toast.makeText(this, "Target: $fullUrl", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showFeatureToast(featureName: String, detail: String) {

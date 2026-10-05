@@ -169,6 +169,8 @@ namespace GFC.BlazorServer.Services
                                 case "sendinquiryconfirmationemail": settings.SendInquiryConfirmationEmail = Convert.ToBoolean(val); break;
                                 case "inquiryconfirmationemailsubject": settings.InquiryConfirmationEmailSubject = val?.ToString() ?? "We received your inquiry - Gloucester Fraternity Club"; break;
                                 case "inquiryconfirmationemailbody": settings.InquiryConfirmationEmailBody = val?.ToString() ?? ""; break;
+                                case "paymentreminderemailsubject": settings.PaymentReminderEmailSubject = val?.ToString() ?? "Payment Reminder - {ClubName} Hall Rental for {EventDate}"; break;
+                                case "paymentreminderemailbody": settings.PaymentReminderEmailBody = val?.ToString(); break;
                                 case "enablerentalinboundwebhook": settings.EnableRentalInboundWebhook = Convert.ToBoolean(val); break;
                                 case "rentalinboundwebhooksecret": settings.RentalInboundWebhookSecret = val?.ToString() ?? Guid.NewGuid().ToString("N"); break;
                                 case "rentalinboundnotifystaff": settings.RentalInboundNotifyStaff = Convert.ToBoolean(val); break;
@@ -334,6 +336,8 @@ namespace GFC.BlazorServer.Services
                             [SendInquiryConfirmationEmail] = @p87,
                             [InquiryConfirmationEmailSubject] = @p88,
                             [InquiryConfirmationEmailBody] = @p89,
+                            [PaymentReminderEmailSubject] = @p103,
+                            [PaymentReminderEmailBody] = @p104,
                             [EnableRentalInboundWebhook] = @p90,
                             [RentalInboundWebhookSecret] = @p91,
                             [RentalInboundNotifyStaff] = @p92,
@@ -509,7 +513,9 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p99", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.SecondaryFlexibleLocation ?? "Office" },
                     new Microsoft.Data.SqlClient.SqlParameter("@p100", System.Data.SqlDbType.Bit) { Value = settings.HideInquiryFloatingButtonOnMobile },
                     new Microsoft.Data.SqlClient.SqlParameter("@p101", System.Data.SqlDbType.Bit) { Value = settings.ShowHomeButton },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p102", System.Data.SqlDbType.Bit) { Value = settings.ShowMobileHomeButton }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p102", System.Data.SqlDbType.Bit) { Value = settings.ShowMobileHomeButton },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p103", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PaymentReminderEmailSubject ?? "Payment Reminder - {ClubName} Hall Rental for {EventDate}" },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p104", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PaymentReminderEmailBody ?? DBNull.Value }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -596,6 +602,12 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ApplicantConfirmationEmailBody')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [ApplicantConfirmationEmailBody] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentReminderEmailSubject')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentReminderEmailSubject] NVARCHAR(500) NULL DEFAULT 'Payment Reminder - {ClubName} Hall Rental for {EventDate}';
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentReminderEmailBody')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentReminderEmailBody] NVARCHAR(MAX) NULL;
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalEmailProvider')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalEmailProvider] NVARCHAR(50) NOT NULL DEFAULT 'SMTP';

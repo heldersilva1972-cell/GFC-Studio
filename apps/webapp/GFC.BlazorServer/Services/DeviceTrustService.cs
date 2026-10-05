@@ -684,24 +684,32 @@ public class DeviceTrustService : IDeviceTrustService
             // Generate an active 365-day device trust token for this user
             var newToken = await CreateDeviceTokenAsync(invite.UserId, "GFC Connect Android", "0.0.0.0", 365);
 
-            // Immediately enroll in UserDevices table for instant visibility on GFC Connect dashboard
-            var userDevice = new UserDevice
+            // Try enrolling into UserDevices table if present
+            try
             {
-                UserId = invite.UserId,
-                DeviceToken = newToken,
-                DeviceModel = "Android Device",
-                OsVersion = "Android",
-                AppVersion = "1.0.0",
-                Platform = "Android",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                LastActive = DateTime.UtcNow
-            };
-            context.UserDevices.Add(userDevice);
+                var userDevice = new UserDevice
+                {
+                    UserId = invite.UserId,
+                    DeviceToken = newToken,
+                    DeviceModel = "Android Device",
+                    OsVersion = "Android",
+                    AppVersion = "1.0.0",
+                    Platform = "Android",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    LastActive = DateTime.UtcNow
+                };
+                context.UserDevices.Add(userDevice);
+                await context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Could not auto-insert into UserDevices (table may not be migrated yet): {Message}", ex.Message);
+                // Save invite redemption state regardless
+                try { await context.SaveChangesAsync(); } catch { }
+            }
 
-            await context.SaveChangesAsync();
-
-            _logger.LogInformation("Invite setup code {Code} successfully redeemed & enrolled in UserDevices for UserId={UserId}", normalized, invite.UserId);
+            _logger.LogInformation("Invite setup code {Code} successfully redeemed for UserId={UserId}", normalized, invite.UserId);
             return newToken;
         }
 

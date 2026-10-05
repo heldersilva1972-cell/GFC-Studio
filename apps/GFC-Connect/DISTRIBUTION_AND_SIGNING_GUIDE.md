@@ -18,7 +18,7 @@ keytool -genkeypair -v `
   -keyalg RSA `
   -keysize 4096 `
   -validity 10000 `
-  -dname "CN=Good Fellowship Club, OU=IT, O=GFC, L=Local, ST=State, C=US"
+  -dname "CN=Gloucester Fraternity Club, OU=IT, O=GFC, L=Local, ST=State, C=US"
 ```
 
 3. Enter a strong password when prompted and save it securely in your password manager.
