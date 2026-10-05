@@ -186,6 +186,7 @@ public class Program
         builder.Services.AddScoped<IEmailService, EmailService>(); // The dispatcher
         builder.Services.AddScoped<LotteryEmailService>();
         builder.Services.AddHostedService<LotteryEmailBackgroundWorker>();
+        builder.Services.AddScoped<IFirebaseNotificationService, FirebaseNotificationService>();
         
         builder.Services.AddOptions<ResendClientOptions>()
             .Configure<IOptionsMonitor<EmailSettings>>((options, settingsMonitor) => 

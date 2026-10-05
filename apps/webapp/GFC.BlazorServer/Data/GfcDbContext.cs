@@ -49,6 +49,7 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<UserDevice> UserDevices => Set<UserDevice>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
     
     // Diagnostics System

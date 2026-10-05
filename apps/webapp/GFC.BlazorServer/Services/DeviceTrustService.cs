@@ -93,9 +93,9 @@ public class DeviceTrustService : IDeviceTrustService
                              userAgent?.Contains("iPhone") == true ? "iPhone" : "Browser";
 
                 var matches = existingTokens.Where(t => 
-                    (platform == "Android" && t.UserAgent.Contains("Android")) ||
-                    (platform == "iPhone" && t.UserAgent.Contains("iPhone")) ||
-                    (platform == "Browser" && !t.UserAgent.Contains("Android") && !t.UserAgent.Contains("iPhone"))
+                    (platform == "Android" && t.UserAgent?.Contains("Android") == true) ||
+                    (platform == "iPhone" && t.UserAgent?.Contains("iPhone") == true) ||
+                    (platform == "Browser" && t.UserAgent?.Contains("Android") != true && t.UserAgent?.Contains("iPhone") != true)
                 ).ToList();
 
                 foreach (var oldToken in matches)
@@ -670,10 +670,43 @@ public class DeviceTrustService : IDeviceTrustService
         if (digitsOnly.Length != 8) return null;
         var normalized = $"{digitsOnly.Substring(0, 4)}-{digitsOnly.Substring(4, 4)}";
 
-        var lookupKey = $"{SetupCodePrefix}{normalized}";
-
         await using var context = await _contextFactory.CreateDbContextAsync();
 
+        // 1. Check DeviceInviteTokens (codes generated from User Management portal)
+        var invite = await context.DeviceInviteTokens
+            .FirstOrDefaultAsync(d => d.Token == normalized && !d.IsRevoked && d.UsedAtUtc == null && d.ExpiresAtUtc > DateTime.UtcNow);
+
+        if (invite != null)
+        {
+            // Mark invite as redeemed/used
+            invite.UsedAtUtc = DateTime.UtcNow;
+
+            // Generate an active 365-day device trust token for this user
+            var newToken = await CreateDeviceTokenAsync(invite.UserId, "GFC Connect Android", "0.0.0.0", 365);
+
+            // Immediately enroll in UserDevices table for instant visibility on GFC Connect dashboard
+            var userDevice = new UserDevice
+            {
+                UserId = invite.UserId,
+                DeviceToken = newToken,
+                DeviceModel = "Android Device",
+                OsVersion = "Android",
+                AppVersion = "1.0.0",
+                Platform = "Android",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                LastActive = DateTime.UtcNow
+            };
+            context.UserDevices.Add(userDevice);
+
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Invite setup code {Code} successfully redeemed & enrolled in UserDevices for UserId={UserId}", normalized, invite.UserId);
+            return newToken;
+        }
+
+        // 2. Check Short-lived TrustedDevice setup codes (e.g. re-trust station tokens)
+        var lookupKey = $"{SetupCodePrefix}{normalized}";
         var record = await context.TrustedDevices
             .OrderBy(d => d.Id)
             .FirstOrDefaultAsync(d =>

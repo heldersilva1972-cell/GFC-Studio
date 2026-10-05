@@ -17,7 +17,10 @@
 @using GFC.BlazorServer.Services.Vpn
 @inject IPasskeyService PasskeyService
 @inject IDeviceTrustService DeviceTrustService
-@inject IDeviceInviteService DeviceInviteService
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject IBlazorSystemSettingsService SystemSettingsService
 @implements IDisposable
@@ -93,6 +96,11 @@
                         @onclick='() => _currentTab = "stations"' style="transition: all 0.2s ease-in-out; font-size: 0.95rem;">
                     <i class="bi bi-display"></i>
                     <span>Shared Workstations</span>
+                </button>
+                <button type="button" class="btn btn-sm px-4 py-2 fw-semibold rounded-3 d-flex align-items-center gap-2 border-0 @(_currentTab == "gfc_connect" ? "bg-white text-primary shadow-sm" : "text-muted bg-transparent")" 
+                        @onclick='() => _currentTab = "gfc_connect"' style="transition: all 0.2s ease-in-out; font-size: 0.95rem;">
+                    <i class="bi bi-phone-fill text-primary"></i>
+                    <span>GFC Connect</span>
                 </button>
             </div>
             <div class="card-actions">
@@ -455,6 +463,117 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                }
+            </div>
+        }
+        else if (_currentTab == "gfc_connect")
+        {
+            <div class="p-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="h5 mb-1 text-dark fw-bold d-flex align-items-center">
+                            <i class="bi bi-phone-fill text-primary me-2"></i>GFC Connect Enrolled Devices
+                        </h3>
+                        <p class="text-muted small mb-0">Authorized Android mobile devices paired with member accounts via biometrics and device trust.</p>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary btn-sm fw-bold shadow-sm px-3" @onclick="OpenGfcConnectModal">
+                            <i class="bi bi-plus-circle-fill me-1"></i> Onboard Device
+                        </button>
+                        <button class="btn btn-light btn-sm border" @onclick="LoadGfcConnectDevices">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Sync Devices
+                        </button>
+                    </div>
+                </div>
+
+                @if (_gfcConnectDevices == null || !_gfcConnectDevices.Any())
+                {
+                    <div class="card border-dashed p-5 text-center bg-light rounded-4">
+                        <div class="bg-white rounded-circle shadow-sm d-inline-flex align-items-center justify-content-center mb-3 mx-auto" style="width: 70px; height: 70px;">
+                            <i class="bi bi-phone text-muted" style="font-size: 2rem;"></i>
+                        </div>
+                        <h5 class="fw-bold text-dark">No GFC Connect Devices Enrolled</h5>
+                        <p class="text-muted mb-3 mx-auto" style="max-width: 400px;">
+                            Click <strong>"Onboard Device"</strong> to generate a 6-digit setup code for a member to download and activate the app.
+                        </p>
+                        <div>
+                            <button class="btn btn-outline-primary btn-sm rounded-pill px-4 py-2" @onclick="OpenGfcConnectModal">
+                                <i class="bi bi-plus-lg me-1"></i> Onboard First Device
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="row g-3">
+                        @foreach (var dev in _gfcConnectDevices)
+                        {
+                            <div class="col-md-6 col-lg-4" @key="dev.Id">
+                                <div class="card h-100 border-0 shadow-sm rounded-4 overflow-hidden" style="background: #ffffff; border: 1px solid rgba(0,0,0,0.06) !important;">
+                                    <div class="card-body p-4 d-flex flex-column justify-content-between">
+                                        <div>
+                                            <!-- Member Info & Status -->
+                                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                                <div class="d-flex align-items-center gap-3">
+                                                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary fw-bold d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; font-size: 1.1rem;">
+                                                        @(string.IsNullOrEmpty(dev.MemberName) ? "U" : dev.MemberName[0].ToString().ToUpper())
+                                                    </div>
+                                                    <div>
+                                                        <h6 class="mb-0 fw-bold text-dark">@dev.MemberName</h6>
+                                                        <span class="text-muted small">@dev.Username</span>
+                                                    </div>
+                                                </div>
+                                                @if (dev.IsActive)
+                                                {
+                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 rounded-pill small">
+                                                        <i class="bi bi-dot"></i> Active - Online
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1 rounded-pill small">
+                                                        <i class="bi bi-x-circle me-1"></i> Revoked
+                                                    </span>
+                                                }
+                                            </div>
+
+                                            <hr class="my-3 opacity-25" />
+
+                                            <!-- Device Hardware & App Specs -->
+                                            <div class="mb-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                                    <span class="text-muted"><i class="bi bi-phone me-1"></i> Device Model:</span>
+                                                    <span class="fw-semibold text-dark">@(string.IsNullOrEmpty(dev.DeviceModel) ? "Android Device" : dev.DeviceModel)</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                                    <span class="text-muted"><i class="bi bi-box-seam me-1"></i> Installed Version:</span>
+                                                    <span class="badge bg-light text-dark border">@(string.IsNullOrEmpty(dev.AppVersion) ? "v1.0.0" : dev.AppVersion)</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between align-items-center mb-1 small">
+                                                    <span class="text-muted"><i class="bi bi-calendar-check me-1"></i> First Enrolled:</span>
+                                                    <span class="text-dark">@dev.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                                                </div>
+                                                <div class="d-flex justify-content-between align-items-center small">
+                                                    <span class="text-muted"><i class="bi bi-clock-history me-1"></i> Last Active:</span>
+                                                    <span class="text-primary fw-semibold">@GetTimeAgo(dev.LastActive)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Revoke Action -->
+                                        @if (dev.IsActive)
+                                        {
+                                            <div class="mt-3 pt-2 border-top">
+                                                <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2 fw-semibold" @onclick="() => RevokeGfcConnectDevice(dev.Id)">
+                                                    <i class="bi bi-trash-fill me-1"></i> Revoke Access
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -1080,6 +1199,92 @@
     </div>
 }
 
+@* GFC Connect Onboarding Modal *@
+@if (_showGfcConnectModal)
+{
+    <div class="modal-overlay" @onclick="CloseGfcConnectModal">
+        <div class="modal-container" style="max-width: 500px;" @onclick:stopPropagation>
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                    <i class="bi bi-phone-fill text-primary me-2"></i>Onboard GFC Connect Device
+                </h5>
+                <button class="btn-close" @onclick="CloseGfcConnectModal"></button>
+            </div>
+            <div class="modal-body p-4">
+                @if (string.IsNullOrEmpty(_gfcConnectPairingCode))
+                {
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark small">Select Member to Onboard</label>
+                        <select class="form-select form-select-lg shadow-sm" @bind="_selectedGfcConnectUserId">
+                            <option value="0">-- Choose Member Account --</option>
+                            @foreach (var user in _users.Where(u => u.IsActive))
+                            {
+                                <option value="@user.UserId">@user.MemberName (@user.Username)</option>
+                            }
+                        </select>
+                        <div class="text-muted small mt-2">
+                            This generates a temporary 6-digit setup code binding the GFC Connect app to this member's account.
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <button class="btn btn-primary btn-lg w-100 fw-bold shadow-sm py-3 rounded-3" 
+                                @onclick="GenerateGfcConnectCode" 
+                                disabled="@(_selectedGfcConnectUserId == 0 || _isGeneratingGfcCode)">
+                            @if (_isGeneratingGfcCode)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Generating Code...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-qr-code-scan me-2"></i>
+                                <span>Generate Setup Code & QR</span>
+                            }
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-2">
+                        <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-1 rounded-pill small fw-bold mb-3">
+                            SCAN OR ENTER ON PHONE
+                        </span>
+                        
+                        <div class="p-3 bg-light rounded-4 border mb-3">
+                            <div class="display-4 fw-bold text-primary" style="letter-spacing: 0.15em;">
+                                @_gfcConnectPairingCode
+                            </div>
+                            <div class="text-muted small mt-1">
+                                <i class="bi bi-hourglass-split me-1"></i>Expires in: <strong>@(_gfcConnectSecondsRemaining / 60):@((_gfcConnectSecondsRemaining % 60).ToString("D2"))</strong>
+                            </div>
+                        </div>
+
+                        <div class="card p-3 border-0 bg-light rounded-3 mb-3 text-start small">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <i class="bi bi-link-45deg text-primary fs-5"></i>
+                                <strong class="text-dark">Direct Download Address:</strong>
+                            </div>
+                            <div class="text-muted text-break">
+                                <code>https://gfc.lovanow.com/app?code=@_gfcConnectPairingCode</code>
+                            </div>
+                        </div>
+
+                        <p class="text-muted small mb-0">
+                            Instruct the member to visit the address above on their phone to verify access and download the APK.
+                        </p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer border-top-0 pt-0">
+                <button class="btn btn-light w-100 py-2 fw-bold" @onclick="CloseGfcConnectModal">
+                    @(string.IsNullOrEmpty(_gfcConnectPairingCode) ? "Cancel" : "Done")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<UserListItemDto> _users = new();
     private List<ActiveMemberDto> _availableMembers = new();
@@ -1120,6 +1325,29 @@
     private List<DeviceSessionDto> _pendingSessions = new();
     private List<TrustedDevice> _activeStations = new();
     private bool _showAdminPasscode = false;
+
+    // GFC Connect Device Management
+    private List<GfcConnectDeviceDto> _gfcConnectDevices = new();
+    private bool _showGfcConnectModal = false;
+    private int _selectedGfcConnectUserId = 0;
+    private string? _gfcConnectPairingCode;
+    private int _gfcConnectSecondsRemaining = 900;
+    private global::System.Threading.Timer? _gfcConnectTimer;
+    private bool _isGeneratingGfcCode = false;
+
+    public class GfcConnectDeviceDto
+    {
+        public int Id { get; set; }
+        public int UserId { get; set; }
+        public string Username { get; set; } = "";
+        public string MemberName { get; set; } = "";
+        public string? DeviceModel { get; set; }
+        public string? OsVersion { get; set; }
+        public string? AppVersion { get; set; }
+        public bool IsActive { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime LastActive { get; set; }
+    }
 
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -1196,6 +1424,7 @@
                 Task.Run(() => _availableMembers = UserManagementService.GetEligibleMembersForUserCreation()),
                 Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList()),
                 Task.Run(async () => _systemSettings = await SystemSettingsService.GetAsync()),
+                Task.Run(async () => await LoadGfcConnectDevices()),
                 Task.Run(async () => {
                     var authState = await AuthStateProvider.GetAuthenticationStateAsync();
                     var user = authState.User;
@@ -2097,8 +2326,132 @@
         }
     }
 
+    private async Task LoadGfcConnectDevices()
+    {
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var devices = await context.UserDevices
+                .Include(d => d.User)
+                .OrderByDescending(d => d.LastActive)
+                .ToListAsync();
+
+            _gfcConnectDevices = devices.Select(d => new GfcConnectDeviceDto
+            {
+                Id = d.Id,
+                UserId = d.UserId,
+                Username = d.User?.Username ?? "Unknown",
+                MemberName = d.User != null ? (!string.IsNullOrEmpty(d.User.Email) ? $"{d.User.Username} ({d.User.Email})" : d.User.Username) : "Unknown",
+                DeviceModel = d.DeviceModel,
+                OsVersion = d.OsVersion,
+                AppVersion = d.AppVersion,
+                IsActive = d.IsActive,
+                CreatedAt = d.CreatedAt,
+                LastActive = d.LastActive
+            }).ToList();
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[GFC-CONNECT] Error loading devices: {ex.Message}");
+        }
+    }
+
+    private void OpenGfcConnectModal()
+    {
+        _selectedGfcConnectUserId = 0;
+        _gfcConnectPairingCode = null;
+        _showGfcConnectModal = true;
+    }
+
+    private void CloseGfcConnectModal()
+    {
+        _showGfcConnectModal = false;
+        StopGfcConnectCountdown();
+        _ = LoadGfcConnectDevices();
+    }
+
+    private async Task GenerateGfcConnectCode()
+    {
+        if (_selectedGfcConnectUserId == 0) return;
+        _isGeneratingGfcCode = true;
+
+        try
+        {
+            var user = _users.FirstOrDefault(u => u.UserId == _selectedGfcConnectUserId);
+            var memberName = user?.MemberName ?? user?.Username ?? "Member";
+
+            _gfcConnectPairingCode = await DeviceTrustService.GeneratePairingCodeAsync(
+                _selectedGfcConnectUserId,
+                "GFC Connect Phone",
+                $"GFC Connect ({memberName})",
+                "Mobile",
+                _selectedGfcConnectUserId.ToString()
+            );
+
+            StartGfcConnectCountdown();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to generate code: {ex.Message}");
+        }
+        finally
+        {
+            _isGeneratingGfcCode = false;
+        }
+    }
+
+    private void StartGfcConnectCountdown()
+    {
+        StopGfcConnectCountdown();
+        _gfcConnectSecondsRemaining = 900;
+        _gfcConnectTimer = new global::System.Threading.Timer((_) =>
+        {
+            InvokeAsync(() =>
+            {
+                if (_gfcConnectSecondsRemaining > 0)
+                {
+                    _gfcConnectSecondsRemaining--;
+                    StateHasChanged();
+                }
+                else
+                {
+                    StopGfcConnectCountdown();
+                }
+            });
+        }, null, 1000, 1000);
+    }
+
+    private void StopGfcConnectCountdown()
+    {
+        _gfcConnectTimer?.Dispose();
+        _gfcConnectTimer = null;
+    }
+
+    private async Task RevokeGfcConnectDevice(int deviceId)
+    {
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var dev = await context.UserDevices.FindAsync(deviceId);
+            if (dev != null)
+            {
+                dev.IsActive = false;
+                await context.SaveChangesAsync();
+                await ToastService.ShowSuccess("Device access revoked successfully.");
+                await LoadGfcConnectDevices();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error revoking device: {ex.Message}");
+        }
+    }
+
     public void Dispose()
     {
         StopCountdown();
+        StopGfcConnectCountdown();
     }
 }

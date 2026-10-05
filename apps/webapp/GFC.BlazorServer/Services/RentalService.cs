@@ -53,12 +53,12 @@ namespace GFC.BlazorServer.Services
             catch { }
         }
 
-        public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
+        public async Task<HallRentalRequest?> GetRentalRequestAsync(int id)
         {
             try
             {
                 await using var context = await _contextFactory.CreateDbContextAsync();
-                return await context.HallRentalRequests.FindAsync(id);
+                return await context.HallRentalRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
             }
             catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return null; }
         }
@@ -68,7 +68,7 @@ namespace GFC.BlazorServer.Services
             try
             {
                 await using var context = await _contextFactory.CreateDbContextAsync();
-                return await context.HallRentalRequests.ToListAsync();
+                return await context.HallRentalRequests.AsNoTracking().ToListAsync();
             }
             catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Enumerable.Empty<HallRentalRequest>(); }
         }
