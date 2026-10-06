@@ -218,6 +218,53 @@
                         }
                     }
                 }
+
+                // 2b. Merge database blackout dates & club events (from AvailabilityCalendars table)
+                var dbBlackouts = await RentalService.GetUnavailableDatesAsync(includeRentalRequests: false);
+                foreach (var unavail in dbBlackouts)
+                {
+                    var title = !string.IsNullOrWhiteSpace(unavail.EventType) ? unavail.EventType : "Club Event";
+                    var isOffice = title.Contains("Office", StringComparison.OrdinalIgnoreCase);
+                    var loc = isOffice ? (_webSettings?.SecondaryFlexibleLocation ?? "Office") : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
+
+                    var existing = calendarEvents.FirstOrDefault(e => 
+                        e.Start.Date == unavail.Date.Date && 
+                        (
+                            (!string.IsNullOrWhiteSpace(title) && (e.Title.Contains(title, StringComparison.OrdinalIgnoreCase) || title.Contains(e.Title, StringComparison.OrdinalIgnoreCase))) ||
+                            (unavail.IsFullDay && e.IsAllDay && string.Equals(e.Location, loc, StringComparison.OrdinalIgnoreCase))
+                        ));
+
+                    if (existing == null)
+                    {
+                        DateTime start = unavail.Date.Date.AddHours(9);
+                        DateTime end = unavail.Date.Date.AddHours(23);
+                        bool isAllDay = unavail.IsFullDay;
+
+                        if (!unavail.IsFullDay && !string.IsNullOrWhiteSpace(unavail.EventTime))
+                        {
+                            var parts = unavail.EventTime.Split('-', StringSplitOptions.TrimEntries);
+                            if (parts.Length == 2 && DateTime.TryParse(parts[0], out var ps) && DateTime.TryParse(parts[1], out var pe))
+                            {
+                                start = unavail.Date.Date.Add(ps.TimeOfDay);
+                                end = unavail.Date.Date.Add(pe.TimeOfDay);
+                                isAllDay = false;
+                            }
+                        }
+
+                        calendarEvents.Add(new CalendarEventItem
+                        {
+                            GoogleEventId = $"db-blackout-{unavail.Date:yyyyMMdd}-{Math.Abs(title.GetHashCode()):X}",
+                            Title = title,
+                            Start = start,
+                            End = end,
+                            IsAllDay = isAllDay,
+                            Location = loc,
+                            Source = "Club Event",
+                            Status = "Confirmed",
+                            Description = isOffice ? "Club Event (Office Space)\nShow on Public Calendar: Yes" : "Club Event / Blackout"
+                        });
+                    }
+                }
             }
             catch (Exception dbEx)
             {

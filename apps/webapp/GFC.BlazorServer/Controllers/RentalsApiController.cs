@@ -304,9 +304,13 @@ namespace GFC.BlazorServer.Controllers
             // Calculate pricing based on settings
             decimal basePrice = payload.IsClubMember ? (settings?.FunctionHallMemberRate ?? 300) : (settings?.FunctionHallNonMemberRate ?? 400);
             decimal addOns = 0;
-            if (payload.BarService) addOns += (settings?.BartenderServiceFee ?? 100);
-            if (payload.KitchenAccess) addOns += (settings?.KitchenFee ?? 0);
-            if (payload.AvEquipment) addOns += (settings?.AvEquipmentFee ?? 0);
+            var activeAddons = (settings?.GetAddonsList() ?? RentalPricingDefaults.GetDefaultAddons()).Where(a => a.IsActive).ToList();
+            var barAddon = activeAddons.FirstOrDefault(a => a.Id == "addon_bar" || a.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase));
+            if (payload.BarService && barAddon != null) addOns += barAddon.Fee;
+            var kitAddon = activeAddons.FirstOrDefault(a => a.Id == "addon_kitchen" || a.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase));
+            if (payload.KitchenAccess && kitAddon != null) addOns += kitAddon.Fee;
+            var avAddon = activeAddons.FirstOrDefault(a => a.Id == "addon_av" || a.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || a.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase));
+            if (payload.AvEquipment && avAddon != null) addOns += avAddon.Fee;
 
             request.TotalPrice = basePrice + addOns;
             request.SecurityDepositAmount = settings?.SecurityDepositAmount ?? 200;
@@ -368,6 +372,9 @@ namespace GFC.BlazorServer.Controllers
                             r.AvEquipmentUsage,
                             AdminNotes = r.InternalNotes ?? "",
                             MatrixSelected = matrix,
+                            PreferredContactMethod = r.PreferredContactMethod,
+                            RequestPhoneCall = r.RequestPhoneCall,
+                            EventDescription = r.EventDescription ?? "",
                             IsVerifiedMember = verify.isVerified,
                             VerifiedMemberId = verify.memberId,
                             MemberVerificationText = verify.statusText,
@@ -587,12 +594,43 @@ namespace GFC.BlazorServer.Controllers
                     r.CreatedDate,
                     CreatedAt = r.CreatedDate != default ? r.CreatedDate : (r.RequestedDate != default ? r.RequestedDate : DateTime.Today),
                     MatrixSelected = matrix,
+                    PreferredContactMethod = r.PreferredContactMethod,
+                    RequestPhoneCall = r.RequestPhoneCall,
                     IsVerifiedMember = verify.isVerified,
                     VerifiedMemberId = verify.memberId,
                     MemberVerificationText = verify.statusText,
                     MemberVerificationBadge = verify.badgeType,
                     PossibleMembers = verify.candidates,
                     AvailableMatrixTiers = availableMatrixTiers,
+                    AvailableAddons = (settings?.GetAddonsList() ?? RentalPricingDefaults.GetDefaultAddons())
+                        .Where(a => a.IsActive)
+                        .Select(a => new
+                        {
+                            Id = a.Id,
+                            Name = a.Name,
+                            Description = a.Description,
+                            Fee = (double)a.Fee,
+                            IsActive = a.IsActive,
+                            IsSelected = (a.Id == "addon_bar" || a.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase)) ? r.BartenderRequested :
+                                         (a.Id == "addon_kitchen" || a.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase)) ? r.KitchenUsage :
+                                         (a.Id == "addon_av" || a.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || a.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase)) ? r.AvEquipmentUsage : false
+                        }).ToList(),
+                    AvailableDaySchedules = (settings?.GetDaySchedulesList() ?? WebsiteSettings.GetDefaultDaySchedules())
+                        .Select(d => new
+                        {
+                            DayOfWeek = (int)d.Day,
+                            DayName = d.Day.ToString(),
+                            IsAvailableForRentals = d.IsAvailableForRentals,
+                            Slots = (d.Slots ?? d.TimeSlots ?? new List<DayScheduleSlotConfig>())
+                                .Where(s => s.IsActive)
+                                .Select(s => new
+                                {
+                                    Name = s.Name,
+                                    StartTime = s.StartTime,
+                                    EndTime = s.EndTime,
+                                    IsActive = s.IsActive
+                                }).ToList()
+                        }).ToList(),
                     ModificationReasonPresets = settings?.GetModificationReasonPresetsList() ?? WebsiteSettings.GetDefaultModificationReasonPresets()
                 });
             }
@@ -707,6 +745,67 @@ namespace GFC.BlazorServer.Controllers
                     request.InternalNotes = payload.InternalNotes;
                 }
 
+                var targetDate = payload.EventDate ?? request.EventDate;
+                var targetStart = payload.StartTime ?? request.StartTime;
+                var targetEnd = payload.EndTime ?? request.EndTime;
+                var targetRoom = payload.RoomSelected ?? request.RoomSelected;
+
+                var isDateTimeChanged = (payload.EventDate.HasValue && payload.EventDate.Value.Date != request.EventDate.Date) ||
+                                       (!string.IsNullOrWhiteSpace(payload.StartTime) && !string.Equals(payload.StartTime, request.StartTime, StringComparison.OrdinalIgnoreCase)) ||
+                                       (!string.IsNullOrWhiteSpace(payload.EndTime) && !string.Equals(payload.EndTime, request.EndTime, StringComparison.OrdinalIgnoreCase)) ||
+                                       (!string.IsNullOrWhiteSpace(payload.RoomSelected) && !string.Equals(payload.RoomSelected, request.RoomSelected, StringComparison.OrdinalIgnoreCase));
+
+                if (isDateTimeChanged)
+                {
+                    var allUnavailable = await _rentalService.GetUnavailableDatesAsync();
+                    var dayEvents = allUnavailable.Where(d => 
+                    {
+                        if (d.Date.Date != targetDate.Date) return false;
+                        if (d.Id != 0 && d.Id == id) return false;
+                        var desc = d.EventType ?? "";
+                        if (!string.IsNullOrWhiteSpace(request.ApplicantName) && desc.Contains(request.ApplicantName, StringComparison.OrdinalIgnoreCase)) return false;
+                        if (!string.IsNullOrWhiteSpace(request.RequesterName) && desc.Contains(request.RequesterName, StringComparison.OrdinalIgnoreCase)) return false;
+                        return true;
+                    }).ToList();
+
+                    var isSecondaryRoom = targetRoom != null && (targetRoom.Contains("Office", StringComparison.OrdinalIgnoreCase) || targetRoom.Contains("Board", StringComparison.OrdinalIgnoreCase) || targetRoom.Contains("Lounge", StringComparison.OrdinalIgnoreCase));
+
+                    if (dayEvents.Any())
+                    {
+                        var locName = targetRoom ?? "Function Hall";
+                        var conflicts = dayEvents.Where(ev =>
+                        {
+                            var desc = ev.EventType ?? "";
+                            var evIsSecondary = desc.Contains("Office", StringComparison.OrdinalIgnoreCase) || desc.Contains("Board", StringComparison.OrdinalIgnoreCase) || desc.Contains("Lounge", StringComparison.OrdinalIgnoreCase);
+
+                            if (isSecondaryRoom && !evIsSecondary) return false;
+                            if (!isSecondaryRoom && evIsSecondary) return false;
+
+                            if (string.IsNullOrWhiteSpace(ev.EventTime) || ev.IsFullDay) return true;
+                            if (string.IsNullOrWhiteSpace(targetStart) || string.IsNullOrWhiteSpace(targetEnd)) return true;
+
+                            var startMin = ParseTimeToMinutes(targetStart);
+                            var endMin = ParseTimeToMinutes(targetEnd);
+                            var parts = ev.EventTime.Split(new[] { "-", "to", "–" }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length == 2)
+                            {
+                                var evSt = ParseTimeToMinutes(parts[0].Trim());
+                                var evEt = ParseTimeToMinutes(parts[1].Trim());
+                                return (startMin < evEt && endMin > evSt);
+                            }
+                            return true;
+                        }).ToList();
+
+                        if (conflicts.Any())
+                        {
+                            var first = conflicts.First();
+                            var desc = first.EventType ?? "Existing Booking / Event";
+                            var timeStr = !string.IsNullOrWhiteSpace(first.EventTime) ? $" ({first.EventTime})" : " (Full Day)";
+                            return BadRequest(new { error = $"Scheduling Conflict: '{desc}'{timeStr} in {locName} already exists on this date/time." });
+                        }
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(payload.ApplicantName))
                 {
                     request.ApplicantName = payload.ApplicantName;
@@ -808,9 +907,13 @@ namespace GFC.BlazorServer.Controllers
                                 sb.AppendLine($"<li><strong>Rental Quote:</strong> ${request.TotalPrice:N2}</li>");
                                 if (request.SecurityDepositAmount > 0)
                                     sb.AppendLine($"<li><strong>Refundable Security Deposit:</strong> ${request.SecurityDepositAmount:N2}</li>");
-                                sb.AppendLine($"<li><strong>Bar / Bartender Service:</strong> {(request.BartenderRequested ? "Yes (Included)" : "No")}</li>");
-                                sb.AppendLine($"<li><strong>Kitchen Access:</strong> {(request.KitchenUsage ? "Yes (Included)" : "No")}</li>");
-                                sb.AppendLine($"<li><strong>A/V Sound &amp; Equipment:</strong> {(request.AvEquipmentUsage ? "Yes (Included)" : "No")}</li>");
+                                foreach (var addon in (settings?.GetAddonsList() ?? RentalPricingDefaults.GetDefaultAddons()).Where(a => a.IsActive))
+                                {
+                                    var isIncluded = (addon.Id == "addon_bar" || addon.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase)) ? request.BartenderRequested :
+                                                     (addon.Id == "addon_kitchen" || addon.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase)) ? request.KitchenUsage :
+                                                     (addon.Id == "addon_av" || addon.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || addon.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase)) ? request.AvEquipmentUsage : false;
+                                    sb.AppendLine($"<li><strong>{addon.Name}:</strong> {(isIncluded ? "Yes (Included)" : "No")}</li>");
+                                }
                                 sb.AppendLine($"</ul>");
                                 sb.AppendLine($"</div>");
                                 sb.AppendLine($"<p>If you have any questions or would like to discuss these changes, please contact the Gloucester Fraternity Club at {settings.ClubPhone ?? "(978) 283-2889"}.</p>");
@@ -841,9 +944,10 @@ namespace GFC.BlazorServer.Controllers
         public class RecordPaymentPayload
         {
             public decimal Amount { get; set; }
-            public string? PaymentMethod { get; set; } // Cash, Check, Credit Card, Venmo, Online
+            public string? PaymentMethod { get; set; } // Cash, Check, Credit Card, Venmo, Online, Waived
             public string? Note { get; set; }
             public bool MarkAsDeposit { get; set; }
+            public bool IsWaived { get; set; }
         }
 
         [HttpPost("mobile/record-payment/{id:int}")]
@@ -860,37 +964,65 @@ namespace GFC.BlazorServer.Controllers
                 var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
 
                 var currentPaid = request.AmountPaid;
-                var newPaid = currentPaid + payload.Amount;
-                request.AmountPaid = newPaid;
+                var isWaiveAction = payload.IsWaived || (payload.PaymentMethod?.Contains("Waive", StringComparison.OrdinalIgnoreCase) == true);
+                var waiveAmt = payload.Amount > 0 ? payload.Amount : Math.Max(0, request.TotalPrice - currentPaid);
 
-                if (payload.MarkAsDeposit)
+                if (isWaiveAction)
                 {
-                    request.SecurityDepositPaid = true;
+                    request.AmountPaid = currentPaid + waiveAmt;
+                    if (request.AmountPaid >= request.TotalPrice || payload.IsWaived)
+                    {
+                        request.IsPaid = true;
+                    }
+                    request.PaymentMethod = "Waived";
+
+                    if (payload.MarkAsDeposit)
+                    {
+                        request.SecurityDepositPaid = true;
+                    }
+
+                    var reasonStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Reason/Note: {payload.Note.Trim()}" : "";
+                    var auditLine = $"[{nowStamp} by {username}]\n• 🎁 Payment/Fee Waived: ${waiveAmt:N2} (Total Recorded: ${request.AmountPaid:N2} of ${request.TotalPrice:N2}){reasonStr}";
+                    request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
+                }
+                else
+                {
+                    var newPaid = currentPaid + payload.Amount;
+                    request.AmountPaid = newPaid;
+
+                    if (payload.MarkAsDeposit)
+                    {
+                        request.SecurityDepositPaid = true;
+                    }
+
+                    if (newPaid >= request.TotalPrice && request.TotalPrice > 0)
+                    {
+                        request.IsPaid = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(payload.PaymentMethod))
+                    {
+                        request.PaymentMethod = payload.PaymentMethod;
+                    }
+
+                    var methodStr = !string.IsNullOrWhiteSpace(payload.PaymentMethod) ? $" via {payload.PaymentMethod}" : "";
+                    var noteStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Note: {payload.Note.Trim()}" : "";
+                    var auditLine = $"[{nowStamp} by {username}]\n• 💵 Payment Recorded: +${payload.Amount:N2}{methodStr} (Total Paid: ${newPaid:N2} of ${request.TotalPrice:N2}){noteStr}";
+                    request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
                 }
 
-                if (newPaid >= request.TotalPrice && request.TotalPrice > 0)
-                {
-                    request.IsPaid = true;
-                }
-
-                if (!string.IsNullOrWhiteSpace(payload.PaymentMethod))
-                {
-                    request.PaymentMethod = payload.PaymentMethod;
-                }
-
-                var methodStr = !string.IsNullOrWhiteSpace(payload.PaymentMethod) ? $" via {payload.PaymentMethod}" : "";
-                var noteStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Note: {payload.Note.Trim()}" : "";
-                var auditLine = $"[{nowStamp} by {username}]\n• 💵 Payment Recorded: +${payload.Amount:N2}{methodStr} (Total Paid: ${newPaid:N2} of ${request.TotalPrice:N2}){noteStr}";
-
-                request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
                 request.StatusChangedBy = username;
                 request.StatusChangedDate = DateTime.UtcNow;
 
                 await _rentalService.UpdateRentalRequestAsync(request);
 
+                var successMsg = isWaiveAction 
+                    ? $"Payment waiver of ${waiveAmt:N2} applied successfully." 
+                    : $"Payment of ${payload.Amount:N2} recorded successfully.";
+
                 return Ok(new { 
                     success = true, 
-                    message = $"Payment of ${payload.Amount:N2} recorded successfully.", 
+                    message = successMsg, 
                     amountPaid = request.AmountPaid,
                     isPaid = request.IsPaid,
                     securityDepositPaid = request.SecurityDepositPaid
@@ -898,7 +1030,7 @@ namespace GFC.BlazorServer.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = "Error recording payment: " + ex.Message });
+                return StatusCode(500, new { error = "Error processing payment: " + ex.Message });
             }
         }
 
@@ -1018,7 +1150,7 @@ Warm regards,
         {
             try
             {
-                var dates = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: false);
+                var dates = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: true);
                 return Ok(dates);
             }
             catch (Exception ex)
@@ -1057,12 +1189,317 @@ Warm regards,
                 var end = !payload.IsFullDay ? payload.EndTime : null;
                 var description = $"Club Event ({locName}): {payload.Reason.Trim()}";
 
+                // Server-side space-aware slot availability validation
+                var targetDate = payload.Date.Date;
+                var unavailable = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: true);
+                var isSecondary = locName.Contains("Office", StringComparison.OrdinalIgnoreCase) ||
+                                  (!string.IsNullOrWhiteSpace(settings.SecondaryFlexibleLocation) && locName.Contains(settings.SecondaryFlexibleLocation, StringComparison.OrdinalIgnoreCase));
+
+                var dayEvents = unavailable.Where(d => {
+                    if (d.Date.Date != targetDate) return false;
+                    var desc = d.EventType ?? string.Empty;
+                    var isEventInSecondary = desc.Contains("Office", StringComparison.OrdinalIgnoreCase) ||
+                                             (!string.IsNullOrWhiteSpace(settings.SecondaryFlexibleLocation) && desc.Contains(settings.SecondaryFlexibleLocation, StringComparison.OrdinalIgnoreCase));
+
+                    // If booking in secondary space, only check conflicts in secondary space
+                    if (isSecondary)
+                    {
+                        return isEventInSecondary;
+                    }
+                    else
+                    {
+                        // If booking in Function Hall, check all bookings except ones exclusively in secondary space
+                        return !isEventInSecondary;
+                    }
+                }).ToList();
+
+                if (dayEvents.Any())
+                {
+                    if (payload.IsFullDay)
+                    {
+                        var firstConflict = dayEvents.First();
+                        var conflictDesc = firstConflict.EventType ?? "Existing Booking / Event";
+                        var conflictTime = !string.IsNullOrWhiteSpace(firstConflict.EventTime) ? $" ({firstConflict.EventTime})" : " (Full Day)";
+                        return BadRequest(new { error = $"Cannot schedule full day event: Conflicting event in {locName} '{conflictDesc}'{conflictTime} already exists on this date." });
+                    }
+                    else if (!string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end))
+                    {
+                        var startMin = ParseTimeToMinutes(start);
+                        var endMin = ParseTimeToMinutes(end);
+
+                        foreach (var ev in dayEvents)
+                        {
+                            if (ev.IsFullDay || string.IsNullOrWhiteSpace(ev.EventTime))
+                            {
+                                var conflictDesc = ev.EventType ?? "Full Day Booking";
+                                return BadRequest(new { error = $"Time conflict: '{conflictDesc}' in {locName} is already scheduled for the full day on this date." });
+                            }
+
+                            var parts = ev.EventTime.Split('-', StringSplitOptions.TrimEntries);
+                            if (parts.Length == 2)
+                            {
+                                var evStart = ParseTimeToMinutes(parts[0]);
+                                var evEnd = ParseTimeToMinutes(parts[1]);
+
+                                if (evStart >= 0 && evEnd >= 0 && startMin < evEnd && endMin > evStart)
+                                {
+                                    var conflictDesc = ev.EventType ?? "Booking";
+                                    return BadRequest(new { error = $"Time slot conflict: The requested hours ({start} - {end}) in {locName} overlap with '{conflictDesc}' ({ev.EventTime})." });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 await _rentalService.AddBlackoutDateAsync(payload.Date, description, start, end);
                 return Ok(new { success = true, message = $"Club event '{payload.Reason}' scheduled in {locName} for {payload.Date:MMM dd, yyyy}." });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { error = "Error creating club event: " + ex.Message });
+            }
+        }
+
+        public class UpdateClubEventPayload
+        {
+            public DateTime Date { get; set; }
+            public string Reason { get; set; } = string.Empty;
+            public string Location { get; set; } = "Function Hall";
+            public string? StartTime { get; set; }
+            public string? EndTime { get; set; }
+            public bool IsFullDay { get; set; } = true;
+        }
+
+        [HttpPut("mobile/club-event/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> UpdateClubEvent(int id, [FromBody] UpdateClubEventPayload payload)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(payload.Reason))
+                {
+                    return BadRequest(new { error = "Event title or reason is required." });
+                }
+
+                var settings = await _settingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
+                var primaryLoc = settings.ManagedRentalLocation ?? "Function Hall";
+                var secondaryLoc = settings.SecondaryFlexibleLocation ?? "Office";
+                var locName = !string.IsNullOrWhiteSpace(payload.Location) ? payload.Location.Trim() : primaryLoc;
+
+                var start = !payload.IsFullDay ? payload.StartTime : null;
+                var end = !payload.IsFullDay ? payload.EndTime : null;
+                var description = $"Club Event ({locName}): {payload.Reason.Trim()}";
+
+                var targetDate = payload.Date.Date;
+                var unavailable = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: true);
+                var isSecondary = locName.Contains("Office", StringComparison.OrdinalIgnoreCase) ||
+                                  (!string.IsNullOrWhiteSpace(settings.SecondaryFlexibleLocation) && locName.Contains(settings.SecondaryFlexibleLocation, StringComparison.OrdinalIgnoreCase));
+
+                var dayEvents = unavailable.Where(d => {
+                    if (d.Id == id) return false; // Exclude currently edited event from conflict check
+                    if (d.Date.Date != targetDate) return false;
+                    var desc = d.EventType ?? string.Empty;
+                    var isEventInSecondary = desc.Contains("Office", StringComparison.OrdinalIgnoreCase) ||
+                                             (!string.IsNullOrWhiteSpace(settings.SecondaryFlexibleLocation) && desc.Contains(settings.SecondaryFlexibleLocation, StringComparison.OrdinalIgnoreCase));
+
+                    if (isSecondary)
+                    {
+                        return isEventInSecondary;
+                    }
+                    else
+                    {
+                        return !isEventInSecondary;
+                    }
+                }).ToList();
+
+                if (dayEvents.Any())
+                {
+                    if (payload.IsFullDay)
+                    {
+                        var firstConflict = dayEvents.First();
+                        var conflictDesc = firstConflict.EventType ?? "Existing Booking / Event";
+                        var conflictTime = !string.IsNullOrWhiteSpace(firstConflict.EventTime) ? $" ({firstConflict.EventTime})" : " (Full Day)";
+                        return BadRequest(new { error = $"Cannot schedule full day event: Conflicting event in {locName} '{conflictDesc}'{conflictTime} already exists on this date." });
+                    }
+                    else if (!string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end))
+                    {
+                        var startMin = ParseTimeToMinutes(start);
+                        var endMin = ParseTimeToMinutes(end);
+
+                        foreach (var ev in dayEvents)
+                        {
+                            if (ev.IsFullDay || string.IsNullOrWhiteSpace(ev.EventTime))
+                            {
+                                var conflictDesc = ev.EventType ?? "Full Day Booking";
+                                return BadRequest(new { error = $"Time conflict: '{conflictDesc}' in {locName} is already scheduled for the full day on this date." });
+                            }
+
+                            var parts = ev.EventTime.Split('-', StringSplitOptions.TrimEntries);
+                            if (parts.Length == 2)
+                            {
+                                var evStart = ParseTimeToMinutes(parts[0]);
+                                var evEnd = ParseTimeToMinutes(parts[1]);
+
+                                if (evStart >= 0 && evEnd >= 0 && startMin < evEnd && endMin > evStart)
+                                {
+                                    var conflictDesc = ev.EventType ?? "Booking";
+                                    return BadRequest(new { error = $"Time slot conflict: The requested hours ({start} - {end}) in {locName} overlap with '{conflictDesc}' ({ev.EventTime})." });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                await _rentalService.UpdateBlackoutDateAsync(id, payload.Date, description, start ?? string.Empty, end ?? string.Empty);
+                return Ok(new { success = true, message = $"Club event '{payload.Reason}' updated successfully in {locName}." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error updating club event: " + ex.Message });
+            }
+        }
+
+        [HttpDelete("mobile/club-event/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> DeleteClubEvent(int id)
+        {
+            try
+            {
+                await _rentalService.RemoveBlackoutDateByIdAsync(id);
+                return Ok(new { success = true, message = "Club event deleted successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error deleting club event: " + ex.Message });
+            }
+        }
+
+        private static int ParseTimeToMinutes(string? timeStr)
+        {
+            if (string.IsNullOrWhiteSpace(timeStr)) return -1;
+            timeStr = timeStr.Trim();
+            if (DateTime.TryParse(timeStr, out var dt))
+            {
+                return dt.Hour * 60 + dt.Minute;
+            }
+            var parts = timeStr.Split(':', StringSplitOptions.TrimEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[0], out var h))
+            {
+                var minPart = parts[1].Split(' ', StringSplitOptions.TrimEntries)[0];
+                if (int.TryParse(minPart, out var m))
+                {
+                    bool isPm = timeStr.EndsWith("PM", StringComparison.OrdinalIgnoreCase);
+                    bool isAm = timeStr.EndsWith("AM", StringComparison.OrdinalIgnoreCase);
+                    if (isPm && h < 12) h += 12;
+                    if (isAm && h == 12) h = 0;
+                    return h * 60 + m;
+                }
+            }
+            return -1;
+        }
+
+        public class LogCorrespondencePayload
+        {
+            public string Type { get; set; } = "call"; // "call", "sms", "email", "note"
+            public string? Outcome { get; set; } // "Spoke with Applicant", "Left Voicemail", "No Answer", "Sent"
+            public string? Notes { get; set; }
+        }
+
+        public class ArchiveRentalPayload
+        {
+            public bool Archive { get; set; } = true;
+            public string? Note { get; set; }
+        }
+
+        [HttpPost("mobile/archive/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> ArchiveRental(int id, [FromBody] ArchiveRentalPayload? payload)
+        {
+            try
+            {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
+                var rawName = User.Identity?.Name;
+                var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
+                var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
+
+                var shouldArchive = payload?.Archive ?? true;
+                if (shouldArchive)
+                {
+                    request.Status = "Archived";
+                    var noteStr = !string.IsNullOrWhiteSpace(payload?.Note) ? $" • Note: {payload.Note.Trim()}" : "";
+                    var logEntry = $"[{nowStamp} by {username}]\n• 📁 Inquiry archived for FAQ & knowledgebase review{noteStr}";
+                    request.InternalNotes = $"{logEntry}\n\n{(request.InternalNotes ?? "")}".Trim();
+                }
+                else
+                {
+                    request.Status = "Inquiry";
+                    var logEntry = $"[{nowStamp} by {username}]\n• 📂 Inquiry unarchived and restored to active inquiries list";
+                    request.InternalNotes = $"{logEntry}\n\n{(request.InternalNotes ?? "")}".Trim();
+                }
+
+                request.StatusChangedBy = username;
+                request.StatusChangedDate = DateTime.UtcNow;
+
+                await _rentalService.UpdateRentalRequestAsync(request);
+                return Ok(new { success = true, message = shouldArchive ? "Inquiry archived successfully." : "Inquiry unarchived.", status = request.Status });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error archiving inquiry: " + ex.Message });
+            }
+        }
+
+        [HttpPost("mobile/log-correspondence/{id:int}")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> LogCorrespondence(int id, [FromBody] LogCorrespondencePayload payload)
+        {
+            try
+            {
+                var request = await _rentalService.GetRentalRequestAsync(id);
+                if (request == null) return NotFound(new { error = "Rental not found." });
+
+                var rawName = User.Identity?.Name;
+                var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
+                var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
+
+                var icon = payload.Type?.ToLowerInvariant() switch
+                {
+                    "call" => "📞",
+                    "sms" => "💬",
+                    "email" => "✉️",
+                    _ => "📝"
+                };
+
+                var typeLabel = payload.Type?.ToLowerInvariant() switch
+                {
+                    "call" => "Phone Call",
+                    "sms" => "SMS / Text Message",
+                    "email" => "Email Communication",
+                    _ => "Note / In-Person"
+                };
+
+                var outcomeStr = !string.IsNullOrWhiteSpace(payload.Outcome) ? $" ({payload.Outcome})" : "";
+                var notesStr = !string.IsNullOrWhiteSpace(payload.Notes) ? $"\n  Note: {payload.Notes.Trim()}" : "";
+
+                var logEntry = $"[{nowStamp} by {username}]\n• {icon} {typeLabel}{outcomeStr}{notesStr}";
+                request.InternalNotes = $"{logEntry}\n\n{(request.InternalNotes ?? "")}".Trim();
+
+                if (string.Equals(request.Status, "Inquiry", StringComparison.OrdinalIgnoreCase))
+                {
+                    request.Status = "Responded";
+                }
+
+                request.StatusChangedBy = username;
+                request.StatusChangedDate = DateTime.UtcNow;
+
+                await _rentalService.UpdateRentalRequestAsync(request);
+                return Ok(new { success = true, message = "Correspondence logged successfully.", internalNotes = request.InternalNotes, status = request.Status });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Error logging correspondence: " + ex.Message });
             }
         }
     }

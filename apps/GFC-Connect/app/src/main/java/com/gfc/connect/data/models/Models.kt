@@ -87,7 +87,10 @@ data class HallRentalDto(
     @SerializedName("verifiedMemberId") val verifiedMemberId: Int?,
     @SerializedName("memberVerificationText") val memberVerificationText: String?,
     @SerializedName("memberVerificationBadge") val memberVerificationBadge: String?,
-    @SerializedName("possibleMembers") val possibleMembers: List<PossibleMemberDto>? = emptyList()
+    @SerializedName("possibleMembers") val possibleMembers: List<PossibleMemberDto>? = emptyList(),
+    @SerializedName("preferredContactMethod") val preferredContactMethod: String? = null,
+    @SerializedName("requestPhoneCall") val requestPhoneCall: Boolean = false,
+    @SerializedName("eventDescription") val eventDescription: String? = null
 )
 
 data class PossibleMemberDto(
@@ -103,7 +106,8 @@ data class RecordPaymentPayload(
     @SerializedName("amount") val amount: Double,
     @SerializedName("paymentMethod") val paymentMethod: String?,
     @SerializedName("note") val note: String?,
-    @SerializedName("markAsDeposit") val markAsDeposit: Boolean = false
+    @SerializedName("markAsDeposit") val markAsDeposit: Boolean = false,
+    @SerializedName("isWaived") val isWaived: Boolean = false
 )
 
 data class PaymentReminderPayload(
@@ -111,6 +115,15 @@ data class PaymentReminderPayload(
 )
 
 data class CreateClubEventPayload(
+    @SerializedName("date") val date: String,
+    @SerializedName("reason") val reason: String,
+    @SerializedName("location") val location: String = "Function Hall",
+    @SerializedName("startTime") val startTime: String?,
+    @SerializedName("endTime") val endTime: String?,
+    @SerializedName("isFullDay") val isFullDay: Boolean = true
+)
+
+data class UpdateClubEventPayload(
     @SerializedName("date") val date: String,
     @SerializedName("reason") val reason: String,
     @SerializedName("location") val location: String = "Function Hall",
@@ -150,6 +163,7 @@ data class InquiryResponse(
 )
 
 data class UnavailableDateDto(
+    @SerializedName("id") val id: Int = 0,
     @SerializedName("date") val date: String,
     @SerializedName("status") val status: String? = "Booked",
     @SerializedName("eventType") val eventType: String? = null,
@@ -206,8 +220,35 @@ data class HallRentalDetailDto(
     @SerializedName("memberVerificationBadge") val memberVerificationBadge: String?,
     @SerializedName("possibleMembers") val possibleMembers: List<PossibleMemberDto>? = emptyList(),
     @SerializedName("availableMatrixTiers") val availableMatrixTiers: List<AvailableMatrixTierDto>? = emptyList(),
-    @SerializedName("modificationReasonPresets") val modificationReasonPresets: List<String>? = emptyList()
+    @SerializedName("availableAddons") val availableAddons: List<AvailableAddonDto>? = emptyList(),
+    @SerializedName("availableDaySchedules") val availableDaySchedules: List<AvailableDayScheduleDto>? = emptyList(),
+    @SerializedName("modificationReasonPresets") val modificationReasonPresets: List<String>? = emptyList(),
+    @SerializedName("preferredContactMethod") val preferredContactMethod: String? = null,
+    @SerializedName("requestPhoneCall") val requestPhoneCall: Boolean = false
 )
+
+data class AvailableDayScheduleDto(
+    @SerializedName("dayOfWeek") val dayOfWeek: Int,
+    @SerializedName("dayName") val dayName: String,
+    @SerializedName("isAvailableForRentals") val isAvailableForRentals: Boolean,
+    @SerializedName("slots") val slots: List<DayScheduleSlotDto>? = emptyList()
+) : java.io.Serializable
+
+data class DayScheduleSlotDto(
+    @SerializedName("name") val name: String?,
+    @SerializedName("startTime") val startTime: String,
+    @SerializedName("endTime") val endTime: String,
+    @SerializedName("isActive") val isActive: Boolean = true
+) : java.io.Serializable
+
+data class AvailableAddonDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("description") val description: String?,
+    @SerializedName("fee") val fee: Double,
+    @SerializedName("isActive") val isActive: Boolean = true,
+    @SerializedName("isSelected") var isSelected: Boolean = false
+) : java.io.Serializable
 
 data class AvailableMatrixTierDto(
     @SerializedName("id") val id: String,
@@ -257,5 +298,23 @@ data class VerifyMemberResponse(
     @SerializedName("statusText") val statusText: String?,
     @SerializedName("badgeType") val badgeType: String?,
     @SerializedName("candidates") val candidates: List<PossibleMemberDto>? = emptyList()
+)
+
+data class LogCorrespondencePayload(
+    @SerializedName("type") val type: String = "call", // "call", "sms", "email", "note"
+    @SerializedName("outcome") val outcome: String? = null,
+    @SerializedName("notes") val notes: String? = null
+)
+
+data class ArchiveRentalPayload(
+    @SerializedName("archive") val archive: Boolean = true,
+    @SerializedName("note") val note: String? = null
+)
+
+data class LogCorrespondenceResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("message") val message: String?,
+    @SerializedName("internalNotes") val internalNotes: String?,
+    @SerializedName("status") val status: String?
 )
 

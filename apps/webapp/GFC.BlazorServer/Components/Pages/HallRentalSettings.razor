@@ -13,6 +13,8 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject IToastService ToastService
+@inject IWebHostEnvironment WebHostEnvironment
+@inject IFirebaseNotificationService FirebaseNotificationService
 @attribute [Authorize]
 @rendermode InteractiveServer
 
@@ -154,6 +156,12 @@
                     <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "embeds", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("embeds")'>
                         <i class="bi bi-wordpress text-primary @(string.Equals(_activeTab, "embeds", StringComparison.OrdinalIgnoreCase) ? "text-white" : "")"></i>
                         <span>WordPress &amp; Embeds</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link py-2 px-3 fw-semibold d-flex align-items-center gap-2 @(string.Equals(_activeTab, "mobile_push", StringComparison.OrdinalIgnoreCase) ? "active bg-primary text-white shadow-sm" : "text-secondary")" @onclick='() => SelectTab("mobile_push")'>
+                        <i class="bi bi-phone-vibrate-fill text-success @(string.Equals(_activeTab, "mobile_push", StringComparison.OrdinalIgnoreCase) ? "text-white" : "")"></i>
+                        <span>📱 GFC Connect Push Alerts</span>
                     </button>
                 </li>
             </ul>
@@ -3798,6 +3806,198 @@
                     </div>
                 </div>
             }
+
+            @* ========================================================================= *@
+            @* TAB: GFC CONNECT MOBILE PUSH ALERTS & FIREBASE SETUP *@
+            @* ========================================================================= *@
+            @if (string.Equals(_activeTab, "mobile_push", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="tab-pane-card animate-fade-in">
+                    <!-- Top Status Banner -->
+                    <div class="card rounded-4 p-4 shadow-sm mb-4 border @(_firebaseConfigured ? "bg-white border-success-subtle" : "bg-white border-warning-subtle")">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center p-3 @(_firebaseConfigured ? "bg-success bg-opacity-10 text-success" : "bg-warning bg-opacity-10 text-warning")" style="width: 54px; height: 54px;">
+                                    <i class="bi @(_firebaseConfigured ? "bi-check-circle-fill fs-2" : "bi-exclamation-triangle-fill fs-2")"></i>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <h5 class="fw-bold mb-0 text-dark">GFC Connect Mobile Push Notification Gateway</h5>
+                                        <span class="badge @(_firebaseConfigured ? "bg-success" : "bg-warning text-dark") px-2.5 py-1">
+                                            @(_firebaseConfigured ? "🟢 LIVE FIREBASE ACTIVE" : "⚠️ SIMULATED MODE (SETUP REQUIRED)")
+                                        </span>
+                                    </div>
+                                    <p class="text-muted small mb-0 mt-1">
+                                        @if (_firebaseConfigured)
+                                        {
+                                            <span>Connected to Google Firebase Project: <strong class="text-dark">@_firebaseProjectId</strong> (@_firebaseClientEmail). Instant alerts are active for all questions and applications.</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Push notifications are currently simulated in logs because Google Firebase credentials are not yet configured on this server.</span>
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-outline-primary d-flex align-items-center gap-2 fw-semibold px-3 py-2 shadow-sm rounded-pill" @onclick="SendHallRentalTestPush" disabled="@_isSendingPushTest">
+                                    @if (_isSendingPushTest)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Sending Test Alert...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-bell-fill text-warning"></i>
+                                        <span>Send Live Test Push Alert</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_firebaseTestResult))
+                        {
+                            <div class="alert @(_firebaseTestSuccess ? "alert-success" : "alert-warning") border-0 shadow-sm mt-3 mb-0 d-flex align-items-center gap-2">
+                                <i class="bi @(_firebaseTestSuccess ? "bi-check-circle-fill" : "bi-exclamation-circle-fill") fs-5"></i>
+                                <span class="small fw-semibold">@_firebaseTestResult</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="row g-4 mb-4">
+                        <!-- UPLOADER 1: Server Gateway Private Key -->
+                        <div class="col-lg-6">
+                            <div class="card border rounded-4 shadow-sm bg-white p-4 h-100 d-flex flex-column">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="p-2 rounded-3 bg-primary bg-opacity-10 text-primary">
+                                            <i class="bi bi-server fs-5"></i>
+                                        </div>
+                                        <h5 class="fw-bold text-dark mb-0">1. Server Key (Private Key)</h5>
+                                    </div>
+                                    <span class="badge @(_firebaseConfigured ? "bg-success" : "bg-warning text-dark") px-2 py-1 small">
+                                        @(_firebaseConfigured ? "🟢 Installed" : "⚠️ Needed")
+                                    </span>
+                                </div>
+                                <p class="text-muted small mb-3">
+                                    Upload the Service Account key (starts with <code class="text-primary fw-bold">gfc-connect-*-adminsdk-*.json</code>). Automatically placed into <code class="text-dark">App_Data/firebase-adminsdk.json</code>.
+                                </p>
+
+                                <div class="p-4 border border-2 border-dashed rounded-4 text-center bg-light mb-3 flex-grow-1 d-flex flex-column justify-content-center align-items-center">
+                                    <i class="bi bi-key-fill text-primary display-6 mb-2"></i>
+                                    <span class="fw-bold text-dark mb-1 small">Select Service Account JSON File</span>
+                                    <span class="text-muted mb-3" style="font-size:0.75rem;">From Firebase Console → Project Settings → Service Accounts</span>
+                                    
+                                    <div class="position-relative">
+                                        <InputFile OnChange="HandleFirebaseFileUpload" accept=".json" class="form-control form-control-sm" />
+                                    </div>
+                                    @if (_isUploadingFirebase)
+                                    {
+                                        <div class="mt-2 text-primary small fw-semibold">
+                                            <span class="spinner-border spinner-border-sm me-1"></span> Installing to App_Data...
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="bg-light p-2.5 rounded-3 border mb-3">
+                                    <div class="d-flex justify-content-between align-items-center small">
+                                        <span class="text-muted"><i class="bi bi-folder-check text-success me-1"></i>Auto Destination:</span>
+                                        <code class="text-dark fw-bold" style="font-size:0.75rem;">App_Data/firebase-adminsdk.json</code>
+                                    </div>
+                                </div>
+
+                                <details class="mt-auto">
+                                    <summary class="text-primary small fw-semibold cursor-pointer mb-2">Or paste JSON text directly</summary>
+                                    <div class="mb-2">
+                                        <textarea class="form-control form-control-sm font-monospace" rows="4" placeholder="Paste { &quot;type&quot;: &quot;service_account&quot;, ... } here..." @bind="_pastedFirebaseJson" style="font-size: 0.75rem;"></textarea>
+                                    </div>
+                                    <button type="button" class="btn btn-primary btn-sm w-100 fw-bold rounded-pill" @onclick="SavePastedFirebaseJson">
+                                        <i class="bi bi-check2-circle me-1"></i> Save &amp; Activate Key
+                                    </button>
+                                </details>
+                            </div>
+                        </div>
+
+                        <!-- UPLOADER 2: Android App Client Config -->
+                        <div class="col-lg-6">
+                            <div class="card border rounded-4 shadow-sm bg-white p-4 h-100 d-flex flex-column">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="p-2 rounded-3 bg-success bg-opacity-10 text-success">
+                                            <i class="bi bi-phone fs-5"></i>
+                                        </div>
+                                        <h5 class="fw-bold text-dark mb-0">2. App Config (google-services.json)</h5>
+                                    </div>
+                                    <span class="badge @(_googleServicesConfigured ? "bg-success" : "bg-warning text-dark") px-2 py-1 small">
+                                        @(_googleServicesConfigured ? "🟢 Installed" : "⚠️ Needed")
+                                    </span>
+                                </div>
+                                <p class="text-muted small mb-3">
+                                    Upload the client file named <code class="text-success fw-bold">google-services.json</code>. Automatically placed into <code class="text-dark">apps/GFC-Connect/app/google-services.json</code>.
+                                </p>
+
+                                <div class="p-4 border border-2 border-dashed rounded-4 text-center bg-light mb-3 flex-grow-1 d-flex flex-column justify-content-center align-items-center">
+                                    <i class="bi bi-android2 text-success display-6 mb-2"></i>
+                                    <span class="fw-bold text-dark mb-1 small">Select google-services.json File</span>
+                                    <span class="text-muted mb-3" style="font-size:0.75rem;">From Firebase Console → Project Settings → General (Your Apps)</span>
+                                    
+                                    <div class="position-relative">
+                                        <InputFile OnChange="HandleGoogleServicesFileUpload" accept=".json" class="form-control form-control-sm" />
+                                    </div>
+                                    @if (_isUploadingGoogleServices)
+                                    {
+                                        <div class="mt-2 text-success small fw-semibold">
+                                            <span class="spinner-border spinner-border-sm me-1"></span> Installing to GFC-Connect/app/...
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="bg-light p-2.5 rounded-3 border mb-3">
+                                    <div class="d-flex justify-content-between align-items-center small">
+                                        <span class="text-muted"><i class="bi bi-folder-check text-success me-1"></i>Auto Destination:</span>
+                                        <code class="text-dark fw-bold" style="font-size:0.75rem;">apps/GFC-Connect/app/google-services.json</code>
+                                    </div>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(_googleServicesProjectId))
+                                {
+                                    <div class="alert alert-success py-2 px-3 small border-0 mb-0 d-flex align-items-center gap-2">
+                                        <i class="bi bi-check-circle-fill text-success"></i>
+                                        <span>Installed for project: <strong>@_googleServicesProjectId</strong> (com.gfc.connect)</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- How-To Guide for Server Migrations -->
+                        <div class="col-12">
+                            <div class="card border rounded-4 shadow-sm bg-white p-4">
+                                <h5 class="fw-bold text-dark mb-3"><i class="bi bi-journal-bookmark-fill text-primary me-2"></i>How to Configure Firebase on Any New Server in 3 Clicks</h5>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="fw-bold text-primary mb-1">1. Open Firebase Console</div>
+                                            <p class="text-muted small mb-0">Go to <a href="https://console.firebase.google.com/" target="_blank" class="fw-semibold">console.firebase.google.com</a> and open your <strong>GFC Connect</strong> project.</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="fw-bold text-primary mb-1">2. Download the 2 Files</div>
+                                            <p class="text-muted small mb-0">Download <strong>google-services.json</strong> under General tab, and <strong>Private Key</strong> under Service Accounts tab.</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="p-3 bg-light rounded-3 border h-100">
+                                            <div class="fw-bold text-primary mb-1">3. Select Files Above</div>
+                                            <p class="text-muted small mb-0">Click the upload boxes above. GFC Studio instantly puts both files in their exact folders automatically!</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
 
         <!-- BOTTOM SAVE ACTION BAR (FIXED) -->
@@ -4811,6 +5011,8 @@
             _activeTab = UrlTab.ToLowerInvariant();
         }
 
+        CheckFirebaseStatus();
+        CheckGoogleServicesStatus();
         await CheckPermissions();
         if (_hasPageAccess || _isAdmin)
         {
@@ -5951,4 +6153,240 @@
             ToastService.ShowInfo($"Copy this into WordPress: {embed}");
         }
     }
+
+    // =========================================================================
+    // GFC CONNECT MOBILE PUSH ALERTS & FIREBASE BACKING METHODS
+    // =========================================================================
+    private bool _firebaseConfigured = false;
+    private string? _firebaseProjectId;
+    private string? _firebaseClientEmail;
+    private string? _pastedFirebaseJson;
+    private bool _isUploadingFirebase = false;
+    private bool _isSendingPushTest = false;
+    private string? _firebaseTestResult;
+    private bool _firebaseTestSuccess = false;
+
+    private void CheckFirebaseStatus()
+    {
+        try
+        {
+            var credentialsPath = Path.Combine(WebHostEnvironment.ContentRootPath, "App_Data", "firebase-adminsdk.json");
+            if (!File.Exists(credentialsPath))
+            {
+                var fallbackPath = Path.Combine(WebHostEnvironment.ContentRootPath, "App_Data", "service-account.json");
+                if (File.Exists(fallbackPath)) credentialsPath = fallbackPath;
+            }
+
+            if (File.Exists(credentialsPath))
+            {
+                var json = File.ReadAllText(credentialsPath);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                _firebaseProjectId = root.TryGetProperty("project_id", out var p) ? p.GetString() : null;
+                _firebaseClientEmail = root.TryGetProperty("client_email", out var e) ? e.GetString() : null;
+                _firebaseConfigured = !string.IsNullOrWhiteSpace(_firebaseProjectId) && !string.IsNullOrWhiteSpace(_firebaseClientEmail);
+            }
+            else
+            {
+                _firebaseConfigured = false;
+                _firebaseProjectId = null;
+                _firebaseClientEmail = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _firebaseConfigured = false;
+            System.Diagnostics.Debug.WriteLine($"[FirebaseStatus] Error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleFirebaseFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        _isUploadingFirebase = true;
+        _firebaseTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 512);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            await SaveFirebaseJsonContentAsync(content);
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"File upload failed: {ex.Message}");
+        }
+        finally
+        {
+            _isUploadingFirebase = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SavePastedFirebaseJson()
+    {
+        if (string.IsNullOrWhiteSpace(_pastedFirebaseJson))
+        {
+            ToastService.ShowWarning("Please paste your Firebase Service Account JSON first.");
+            return;
+        }
+
+        try
+        {
+            await SaveFirebaseJsonContentAsync(_pastedFirebaseJson);
+            _pastedFirebaseJson = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save JSON: {ex.Message}");
+        }
+    }
+
+    private async Task SaveFirebaseJsonContentAsync(string jsonContent)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(jsonContent);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("project_id", out _) || !root.TryGetProperty("client_email", out _) || !root.TryGetProperty("private_key", out _))
+        {
+            throw new InvalidOperationException("Invalid Firebase key: JSON must contain 'project_id', 'client_email', and 'private_key'.");
+        }
+
+        var appDataDir = Path.Combine(WebHostEnvironment.ContentRootPath, "App_Data");
+        if (!Directory.Exists(appDataDir))
+        {
+            Directory.CreateDirectory(appDataDir);
+        }
+
+        var targetPath = Path.Combine(appDataDir, "firebase-adminsdk.json");
+        await File.WriteAllTextAsync(targetPath, jsonContent);
+
+        CheckFirebaseStatus();
+        ToastService.ShowSuccess($"Firebase credentials active! Project: {_firebaseProjectId}");
+    }
+
+    private async Task SendHallRentalTestPush()
+    {
+        _isSendingPushTest = true;
+        _firebaseTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var testCount = await FirebaseNotificationService.BroadcastAsync(
+                "🔔 Hall Rental Push Test",
+                $"Hall Rental test alert sent from GFC Studio at {DateTime.Now:h:mm tt}.",
+                new Dictionary<string, string>
+                {
+                    { "category", "inquiry" },
+                    { "action", "hall_rental_test" },
+                    { "timestamp", DateTime.UtcNow.ToString("o") }
+                }
+            );
+
+            if (_firebaseConfigured)
+            {
+                _firebaseTestSuccess = true;
+                _firebaseTestResult = $"Push notification broadcast dispatched to {testCount} registered device(s) via Firebase HTTP v1 API!";
+                ToastService.ShowSuccess(_firebaseTestResult);
+            }
+            else
+            {
+                _firebaseTestSuccess = false;
+                _firebaseTestResult = "Notification queued in Simulated Mode. Upload or paste your firebase-adminsdk.json key above to enable real network delivery to devices.";
+                ToastService.ShowWarning(_firebaseTestResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            _firebaseTestSuccess = false;
+            _firebaseTestResult = $"Push test failed: {ex.Message}";
+            ToastService.ShowError(_firebaseTestResult);
+        }
+        finally
+        {
+            _isSendingPushTest = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool _googleServicesConfigured = false;
+    private string? _googleServicesProjectId;
+    private bool _isUploadingGoogleServices = false;
+
+    private void CheckGoogleServicesStatus()
+    {
+        try
+        {
+            var targetPath = Path.GetFullPath(Path.Combine(WebHostEnvironment.ContentRootPath, "..", "..", "GFC-Connect", "app", "google-services.json"));
+            if (File.Exists(targetPath))
+            {
+                var json = File.ReadAllText(targetPath);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("project_info", out var pInfo) && pInfo.TryGetProperty("project_id", out var pId))
+                {
+                    _googleServicesProjectId = pId.GetString();
+                    _googleServicesConfigured = !string.IsNullOrWhiteSpace(_googleServicesProjectId) && _googleServicesProjectId != "123456789012";
+                }
+            }
+            else
+            {
+                _googleServicesConfigured = false;
+                _googleServicesProjectId = null;
+            }
+        }
+        catch
+        {
+            _googleServicesConfigured = false;
+            _googleServicesProjectId = null;
+        }
+    }
+
+    private async Task HandleGoogleServicesFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        _isUploadingGoogleServices = true;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 512);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            using var doc = System.Text.Json.JsonDocument.Parse(content);
+            if (!doc.RootElement.TryGetProperty("project_info", out _) || !doc.RootElement.TryGetProperty("client", out _))
+            {
+                throw new InvalidOperationException("Invalid google-services.json: File must be the client configuration file downloaded from Firebase Console.");
+            }
+
+            var targetPath = Path.GetFullPath(Path.Combine(WebHostEnvironment.ContentRootPath, "..", "..", "GFC-Connect", "app", "google-services.json"));
+            var dir = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            await File.WriteAllTextAsync(targetPath, content);
+            CheckGoogleServicesStatus();
+            ToastService.ShowSuccess("google-services.json installed successfully into GFC Connect mobile app!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to install google-services.json: {ex.Message}");
+        }
+        finally
+        {
+            _isUploadingGoogleServices = false;
+            StateHasChanged();
+        }
+    }
 }
+

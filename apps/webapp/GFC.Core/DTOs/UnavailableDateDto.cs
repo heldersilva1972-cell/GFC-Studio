@@ -4,6 +4,7 @@ namespace GFC.Core.DTOs
 {
     public class UnavailableDateDto
     {
+        public int Id { get; set; }
         public DateTime Date { get; set; }
         public string Status { get; set; } = string.Empty; // "Booked", "Pending", "Blackout"
         public string? EventType { get; set; } // e.g., "Wedding", "Birthday Party", etc.

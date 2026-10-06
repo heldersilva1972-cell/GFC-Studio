@@ -35,7 +35,6 @@ android {
             signingConfig = signingConfigs.getByName("debug") // Will be swapped with release keystore for production distribution
         }
         debug {
-            applicationIdSuffix = ".debug"
             isDebuggable = true
         }
     }

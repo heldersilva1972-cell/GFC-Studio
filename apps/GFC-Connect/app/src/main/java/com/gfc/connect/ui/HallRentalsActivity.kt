@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.Typeface
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -261,16 +264,47 @@ class HallRentalsActivity : AppCompatActivity() {
     }
 
     private fun promptApprove(item: HallRentalDto) {
+        val paidAmount = item.amountPaid ?: 0.0
+        val isPaid = item.isPaid == true || (paidAmount >= item.totalPrice && item.totalPrice > 0)
+        val balanceDue = Math.max(0.0, item.totalPrice - paidAmount)
+
         val input = EditText(this).apply {
             hint = "Optional admin note..."
             setPadding(40, 24, 40, 24)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
         }
 
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        if (!isPaid && balanceDue > 0) {
+            val warningTv = TextView(this).apply {
+                text = "⚠️ UNPAID BOOKING WARNING:\nThis rental has an outstanding balance of $${balanceDue.toInt()} (Paid: $${paidAmount.toInt()} of $${item.totalPrice.toInt()}).\n\nAre you sure you want to approve booking for ${item.applicantName} on ${item.eventDate.substringBefore('T')} before full payment is received?"
+                setTextColor(getColor(R.color.gold_accent))
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 0, 0, 16)
+            }
+            dialogContent.addView(warningTv)
+        } else {
+            val infoTv = TextView(this).apply {
+                text = "Approve booking for ${item.applicantName} on ${item.eventDate.substringBefore('T')}?"
+                setTextColor(getColor(R.color.text_primary))
+                textSize = 14f
+                setPadding(0, 0, 0, 16)
+            }
+            dialogContent.addView(infoTv)
+        }
+
+        dialogContent.addView(input)
+
         MaterialAlertDialogBuilder(this)
-            .setTitle("✅ Approve Rental Request")
-            .setMessage("Approve booking for ${item.applicantName} on ${item.eventDate.substringBefore('T')}?")
-            .setView(input)
-            .setPositiveButton("Approve") { _, _ ->
+            .setTitle(if (!isPaid && balanceDue > 0) "⚠️ Approve Unpaid Booking" else "✅ Approve Rental Request")
+            .setView(dialogContent)
+            .setPositiveButton(if (!isPaid && balanceDue > 0) "Approve Without Full Payment" else "Approve") { _, _ ->
                 val note = input.text.toString().trim()
                 executeApproval(item.id, note)
             }
@@ -373,7 +407,7 @@ class HallRentalsActivity : AppCompatActivity() {
                 if (isInquiry) {
                     // Visually distinguish inquiry from regular bookings
                     layoutInquiryBanner.visibility = View.VISIBLE
-                    txtInquiryBannerTitle.text = "GENERAL INQUIRY • NOT A CONFIRMED BOOKING"
+                    txtInquiryBannerTitle.text = "GENERAL INQUIRY"
 
                     // Distinct amber card border to immediately stand out
                     cardRentalItem.strokeColor = getColor(R.color.status_yellow)
@@ -386,12 +420,17 @@ class HallRentalsActivity : AppCompatActivity() {
                     txtItemStatusBadge.setTextColor(getColor(R.color.status_yellow))
                     txtItemStatusBadge.setBackgroundResource(R.drawable.bg_badge_inquiry)
 
-                    txtItemDateRange.text = "📅 Requested: $dateStr (Slot Not Reserved)"
+                    txtItemDateRange.text = "📅 Estimated Target: $dateStr"
                     txtItemDateRange.setTextColor(getColor(R.color.status_yellow))
 
-                    txtItemPrice.text = if (item.totalPrice <= 0.0) "Inquiry" else currencyFormat.format(item.totalPrice)
+                    txtItemPrice.text = "Inquiry"
+                    txtItemPaidBadge.visibility = View.GONE
+                    txtItemRoomGuests.visibility = View.GONE
+                    txtItemMatrixBadge.visibility = View.GONE
+                    txtItemMemberVerifyBadge.visibility = View.GONE
                 } else {
                     layoutInquiryBanner.visibility = View.GONE
+                    txtItemRoomGuests.visibility = View.VISIBLE
 
                     // Standard booking styling
                     cardRentalItem.strokeColor = getColor(R.color.card_dark_stroke)
@@ -408,54 +447,68 @@ class HallRentalsActivity : AppCompatActivity() {
                     txtItemDateRange.setTextColor(getColor(R.color.cyan_accent))
 
                     txtItemPrice.text = currencyFormat.format(item.totalPrice)
+
+                    // Paid Status Badge
+                    val isPaid = item.isPaid == true
+                    val amountPaid = item.amountPaid ?: 0.0
+                    val total = item.totalPrice
+                    val isPaidInFull = isPaid || (amountPaid >= total && total > 0)
+
+                    when {
+                        isPaidInFull -> {
+                            txtItemPaidBadge.text = "PAID"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.emerald_accent))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                        amountPaid > 0 -> {
+                            txtItemPaidBadge.text = "PARTIAL ($${amountPaid.toInt()})"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.status_yellow))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_pill_sync)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                        else -> {
+                            txtItemPaidBadge.text = "UNPAID"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.status_red))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_inquiry)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                    }
+
+                    val barText = if (item.bartenderRequested) " • Bar Included" else ""
+                    txtItemRoomGuests.text = "🏛️ ${item.roomSelected ?: "Function Hall"} • ${item.guestCount} Guests$barText"
+
+                    // Matrix Selected Badge
+                    val matrix = item.matrixSelected ?: if (item.isVerifiedMember) "Member" else "Non-Member"
+                    txtItemMatrixBadge.text = "🏷️ Matrix: $matrix"
+                    txtItemMatrixBadge.visibility = View.VISIBLE
+
+                    // Member Verification Badge
+                    if (item.isVerifiedMember) {
+                        val idText = if (item.verifiedMemberId != null && item.verifiedMemberId > 0) " #${item.verifiedMemberId}" else ""
+                        txtItemMemberVerifyBadge.text = "✓ Verified Member$idText"
+                        txtItemMemberVerifyBadge.setTextColor(getColor(R.color.emerald_accent))
+                        txtItemMemberVerifyBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                        txtItemMemberVerifyBadge.visibility = View.VISIBLE
+                    } else if (item.memberVerificationBadge == "UNVERIFIED_CLAIM") {
+                        txtItemMemberVerifyBadge.text = "⚠️ Claimed (Not in Dir)"
+                        txtItemMemberVerifyBadge.setTextColor(getColor(R.color.status_yellow))
+                        txtItemMemberVerifyBadge.setBackgroundResource(R.drawable.bg_pill_sync)
+                        txtItemMemberVerifyBadge.visibility = View.VISIBLE
+                    } else {
+                        txtItemMemberVerifyBadge.visibility = View.GONE
+                    }
                 }
 
-                val barText = if (item.bartenderRequested) " • Bar Included" else ""
-                txtItemRoomGuests.text = "🏛️ ${item.roomSelected ?: "Function Hall"} • ${item.guestCount} Guests$barText"
                 txtItemApplicant.text = "👤 ${item.applicantName}"
-
-                // Matrix Selected Badge
-                val matrix = item.matrixSelected ?: if (item.isVerifiedMember) "Member" else "Non-Member"
-                txtItemMatrixBadge.text = "🏷️ Matrix: $matrix"
-
-                // Member Verification Badge
-                if (item.isVerifiedMember) {
-                    val idText = if (item.verifiedMemberId != null && item.verifiedMemberId > 0) " #${item.verifiedMemberId}" else ""
-                    txtItemMemberVerifyBadge.text = "✓ Verified Member$idText"
-                    txtItemMemberVerifyBadge.setTextColor(getColor(R.color.emerald_accent))
-                    txtItemMemberVerifyBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
-                    txtItemMemberVerifyBadge.visibility = View.VISIBLE
-                } else if (item.memberVerificationBadge == "UNVERIFIED_CLAIM") {
-                    txtItemMemberVerifyBadge.text = "⚠️ Claimed (Not in Dir)"
-                    txtItemMemberVerifyBadge.setTextColor(getColor(R.color.status_yellow))
-                    txtItemMemberVerifyBadge.setBackgroundResource(R.drawable.bg_pill_sync)
-                    txtItemMemberVerifyBadge.visibility = View.VISIBLE
-                } else {
-                    // Standard non-member booking: hide duplicate badge
-                    txtItemMemberVerifyBadge.visibility = View.GONE
-                }
 
                 // Contact details & Direct Phone Call Button
                 val phone = item.requesterPhone?.trim() ?: ""
                 val email = item.requesterEmail?.trim() ?: ""
                 
-                // Submission Age & Payment Window Tracking
+                // Submission Age Tracking
                 val ageText = getSubmissionAgeText(item.createdAt)
-                val isPaid = item.isPaid == true
-                val amountPaid = item.amountPaid ?: 0.0
-                val total = item.totalPrice
-
-                if (isPaid || (amountPaid >= total && total > 0)) {
-                    txtItemTrackingBadge.text = "✓ Paid in Full"
-                    txtItemTrackingBadge.setTextColor(getColor(R.color.emerald_accent))
-                    txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
-                    txtItemTrackingBadge.visibility = View.VISIBLE
-                } else if (amountPaid > 0) {
-                    txtItemTrackingBadge.text = "💵 Paid: ${currencyFormat.format(amountPaid)}"
-                    txtItemTrackingBadge.setTextColor(getColor(R.color.cyan_accent))
-                    txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_pill_sync)
-                    txtItemTrackingBadge.visibility = View.VISIBLE
-                } else if (ageText.isNotEmpty()) {
+                if (ageText.isNotEmpty()) {
                     txtItemTrackingBadge.text = "⏱️ $ageText"
                     txtItemTrackingBadge.setTextColor(getColor(R.color.text_secondary))
                     txtItemTrackingBadge.setBackgroundResource(R.drawable.bg_pill_sync)

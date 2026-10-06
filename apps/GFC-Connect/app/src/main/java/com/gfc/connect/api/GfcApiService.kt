@@ -66,4 +66,16 @@ interface GfcApiService {
 
     @POST("api/rentals/mobile/club-event")
     suspend fun createClubEvent(@Body payload: CreateClubEventPayload): Response<ApprovalResponse>
+
+    @PUT("api/rentals/mobile/club-event/{id}")
+    suspend fun updateClubEvent(@Path("id") id: Int, @Body payload: UpdateClubEventPayload): Response<ApprovalResponse>
+
+    @DELETE("api/rentals/mobile/club-event/{id}")
+    suspend fun deleteClubEvent(@Path("id") id: Int): Response<ApprovalResponse>
+
+    @POST("api/rentals/mobile/archive/{id}")
+    suspend fun archiveRental(@Path("id") id: Int, @Body payload: ArchiveRentalPayload? = null): Response<ApprovalResponse>
+
+    @POST("api/rentals/mobile/log-correspondence/{id}")
+    suspend fun logCorrespondence(@Path("id") id: Int, @Body payload: LogCorrespondencePayload): Response<LogCorrespondenceResponse>
 }

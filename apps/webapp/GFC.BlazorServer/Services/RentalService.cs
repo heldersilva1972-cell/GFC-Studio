@@ -105,7 +105,7 @@ namespace GFC.BlazorServer.Services
                 await using var context = await _contextFactory.CreateDbContextAsync();
                 
                 var rentalExists = await context.HallRentalRequests
-                    .AnyAsync(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved);
+                    .AnyAsync(r => (r.EventDate.Date == date.Date || r.RequestedDate.Date == date.Date) && r.Status == RentalStatus.Approved);
                     
                 var calendarExists = await context.AvailabilityCalendars
                     .AnyAsync(c => c.Date.Date == date.Date && (c.Status == "Club Event" || c.Status == "Blackout" || c.Status == "Booked"));
@@ -160,7 +160,25 @@ namespace GFC.BlazorServer.Services
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             context.Entry(request).State = EntityState.Modified;
+
+            var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+            if (string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+            {
+                await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Booked", $"{request.ApplicantName} ({request.EventType ?? "Rental"})", request.StartTime, request.EndTime);
+            }
+            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Available");
+            }
+
             await context.SaveChangesAsync();
+
+            if (string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = SyncRentalToGoogleCalendarAsync(request);
+            }
+
+            NotifyCalendarUpdated();
             return true; // Indicate success
         }
 
@@ -170,7 +188,13 @@ namespace GFC.BlazorServer.Services
             var request = await context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
 
-            if (await IsDateAlreadyBookedAsync(request.RequestedDate))
+            var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+
+            // Check if another approved booking exists for the same target date
+            var isDoubleBooked = await context.HallRentalRequests
+                .AnyAsync(r => r.Id != requestId && (r.EventDate.Date == targetDate.Date || r.RequestedDate.Date == targetDate.Date) && r.Status == RentalStatus.Approved);
+
+            if (isDoubleBooked)
             {
                 return false; // Double booking detected
             }
@@ -184,12 +208,14 @@ namespace GFC.BlazorServer.Services
             context.Entry(request).State = EntityState.Modified;
 
             // Update calendar with the SPECIFIC details from the request so it shows correctly on the website
-            var displayTime = request.StartTime != null && request.EndTime != null ? $"{request.StartTime} - {request.EndTime}" : null;
-            await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Booked", request.EventType, request.StartTime, request.EndTime);
+            await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Booked", $"{request.ApplicantName} ({request.EventType ?? "Rental"})", request.StartTime, request.EndTime);
             await context.SaveChangesAsync();
 
             // Fire and forget email notification
             _ = _notificationService.SendRentalConfirmationEmailAsync(request);
+
+            // Sync to Google Calendar
+            _ = SyncRentalToGoogleCalendarAsync(request);
 
             NotifyCalendarUpdated();
             return true;
@@ -201,6 +227,8 @@ namespace GFC.BlazorServer.Services
             var request = await context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
 
+            var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+
             request.Status = RentalStatus.Denied;
             request.DeniedBy = deniedBy;
             request.DenialDate = DateTime.UtcNow;
@@ -210,7 +238,7 @@ namespace GFC.BlazorServer.Services
             context.Entry(request).State = EntityState.Modified;
 
             // Remove from calendar (make available again)
-            await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Available");
+            await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Available");
             await context.SaveChangesAsync();
 
             // Fire and forget email notification
@@ -226,12 +254,174 @@ namespace GFC.BlazorServer.Services
             var request = await context.HallRentalRequests.FindAsync(id);
             if (request != null)
             {
+                var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+
                 // Clean up availability calendar entry so the date is available again
-                await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Available");
+                await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Available");
 
                 context.HallRentalRequests.Remove(request);
                 await context.SaveChangesAsync();
                 NotifyCalendarUpdated();
+            }
+        }
+
+        public async Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request)
+        {
+            if (request == null || _googleCalendarService == null) return;
+            try
+            {
+                var calSettings = await _googleCalendarService.GetSettingsAsync();
+                string? targetCalId = calSettings?.PrimaryGoogleCalendarId?.Trim();
+
+                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings?.PublicCalendarUrl))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success)
+                    {
+                        targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(targetCalId) &&
+                    calSettings != null &&
+                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) &&
+                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey))
+                {
+                    var activeCalSettings = new GoogleCalendarSettings
+                    {
+                        PrimaryGoogleCalendarId = targetCalId,
+                        ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                        ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                        ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                        EnableWriteApi = true,
+                        GoogleEventVisibility = calSettings.GoogleEventVisibility,
+                        EventTitleFields = calSettings.EventTitleFields,
+                        PushApplicantNameToTitle = calSettings.PushApplicantNameToTitle,
+                        PushApplicantNameToDescription = calSettings.PushApplicantNameToDescription,
+                        PushApplicantPhoneToDescription = calSettings.PushApplicantPhoneToDescription,
+                        PushApplicantEmailToDescription = calSettings.PushApplicantEmailToDescription,
+                        PushPricingQuoteToDescription = calSettings.PushPricingQuoteToDescription,
+                        PushGuestCountToDescription = calSettings.PushGuestCountToDescription,
+                        PushServicesToDescription = calSettings.PushServicesToDescription,
+                        PushBarServiceToDescription = calSettings.PushBarServiceToDescription,
+                        BarServiceCalendarDisplayName = calSettings.BarServiceCalendarDisplayName,
+                        PushKitchenUsageToDescription = calSettings.PushKitchenUsageToDescription,
+                        KitchenUsageCalendarDisplayName = calSettings.KitchenUsageCalendarDisplayName,
+                        PushAvEquipmentToDescription = calSettings.PushAvEquipmentToDescription,
+                        AvEquipmentCalendarDisplayName = calSettings.AvEquipmentCalendarDisplayName,
+                        PushAddressToDescription = calSettings.PushAddressToDescription,
+                        PushNotesToDescription = calSettings.PushNotesToDescription
+                    };
+
+                    bool isApproved = string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase);
+                    string titlePrefix = isApproved ? "" : "PENDING: ";
+                    string eventType = string.IsNullOrEmpty(request.EventType) ? "Hall Rental" : request.EventType;
+                    string roomName = string.IsNullOrEmpty(request.RoomSelected) ? "Function Hall" : request.RoomSelected;
+
+                    var eventDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+                    DateTime start = eventDate.Date.AddHours(14);
+                    DateTime end = eventDate.Date.AddHours(19);
+
+                    if (!string.IsNullOrWhiteSpace(request.StartTime))
+                    {
+                        if (DateTime.TryParse($"{eventDate:yyyy-MM-dd} {request.StartTime}", out var parsedStart))
+                            start = parsedStart;
+                    }
+                    if (!string.IsNullOrWhiteSpace(request.EndTime))
+                    {
+                        if (DateTime.TryParse($"{eventDate:yyyy-MM-dd} {request.EndTime}", out var parsedEnd))
+                            end = parsedEnd;
+                    }
+
+                    var services = new List<string>();
+                    if (request.BartenderRequested) services.Add("Bar");
+                    if (request.KitchenUsage) services.Add("Kitchen");
+                    if (request.AvEquipmentUsage) services.Add("AV / Sound");
+
+                    var titleSegments = new List<string>();
+                    var titleFields = calSettings.EventTitleFields ?? GoogleCalendarSettings.GetDefaultGoogleTitleFields();
+                    var enabledOrderedFields = titleFields.Where(f => f.IsEnabled).OrderBy(f => f.Order).ToList();
+
+                    foreach (var field in enabledOrderedFields)
+                    {
+                        switch (field.FieldKey)
+                        {
+                            case "applicant_name":
+                                if (!string.IsNullOrWhiteSpace(request.ApplicantName))
+                                    titleSegments.Add(request.ApplicantName.Trim());
+                                break;
+                            case "event_type":
+                                if (!string.IsNullOrWhiteSpace(eventType))
+                                    titleSegments.Add(eventType.Trim());
+                                break;
+                            case "room_location":
+                                if (!string.IsNullOrWhiteSpace(roomName))
+                                    titleSegments.Add(roomName.Trim());
+                                break;
+                            case "time_window":
+                                if (!string.IsNullOrWhiteSpace(request.StartTime) && !string.IsNullOrWhiteSpace(request.EndTime))
+                                    titleSegments.Add($"{request.StartTime} - {request.EndTime}");
+                                break;
+                            case "services":
+                                if (services.Any())
+                                    titleSegments.Add(string.Join(", ", services));
+                                break;
+                            case "guest_count":
+                                if (request.GuestCount > 0)
+                                    titleSegments.Add($"{request.GuestCount} Guests");
+                                break;
+                            case "pricing_quote":
+                                if (request.TotalPrice > 0)
+                                    titleSegments.Add($"${request.TotalPrice:N0}");
+                                break;
+                            case "contact_phone":
+                                if (!string.IsNullOrWhiteSpace(request.RequesterPhone))
+                                    titleSegments.Add(request.RequesterPhone.Trim());
+                                break;
+                            case "contact_email":
+                                if (!string.IsNullOrWhiteSpace(request.RequesterEmail))
+                                    titleSegments.Add(request.RequesterEmail.Trim());
+                                break;
+                        }
+                    }
+
+                    string eventTitle = titleSegments.Any()
+                        ? $"{titlePrefix}{string.Join(" | ", titleSegments)}"
+                        : $"{titlePrefix}{request.ApplicantName} - {eventType}";
+
+                    var lines = new List<string>();
+                    if (calSettings.PushApplicantNameToDescription && !string.IsNullOrWhiteSpace(request.ApplicantName))
+                        lines.Add($"Applicant: {request.ApplicantName}");
+                    if (calSettings.PushApplicantPhoneToDescription && !string.IsNullOrWhiteSpace(request.RequesterPhone))
+                        lines.Add($"Phone: {request.RequesterPhone}");
+                    if (calSettings.PushApplicantEmailToDescription && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                        lines.Add($"Email: {request.RequesterEmail}");
+                    if (calSettings.PushGuestCountToDescription && request.GuestCount > 0)
+                        lines.Add($"Guest Count: {request.GuestCount}");
+                    if (calSettings.PushPricingQuoteToDescription)
+                        lines.Add($"Total Quote: ${request.TotalPrice:N2}");
+                    if (!string.IsNullOrWhiteSpace(request.RoomSelected))
+                        lines.Add($"Space: {request.RoomSelected}");
+                    if (calSettings.PushServicesToDescription && services.Any())
+                        lines.Add($"Services: {string.Join(", ", services)}");
+                    if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
+                        lines.Add($"Applicant Notes: {request.InternalNotes}");
+
+                    var googleEvt = new CalendarEventItem
+                    {
+                        Title = eventTitle,
+                        Start = start,
+                        End = end,
+                        Location = request.RoomSelected ?? "Function Hall",
+                        Description = lines.Any() ? string.Join("\n", lines) : $"{titlePrefix}{eventType}"
+                    };
+
+                    await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Google Calendar sync warning: {ex.Message}");
             }
         }
 
@@ -331,13 +521,18 @@ namespace GFC.BlazorServer.Services
                 existing.EndTime = endTime;
                 context.Entry(existing).State = EntityState.Modified;
                 await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
             }
         }
 
         public async Task AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
-            var existing = await context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
+            var existing = await context.AvailabilityCalendars.FirstOrDefaultAsync(d => 
+                d.Date.Date == date.Date && 
+                d.Status == "Blackout" && 
+                ((d.Description == null && description == null) || d.Description == description));
+
             if (existing == null)
             {
                 context.AvailabilityCalendars.Add(new AvailabilityCalendar 
@@ -357,6 +552,7 @@ namespace GFC.BlazorServer.Services
                 context.Entry(existing).State = EntityState.Modified;
             }
             await context.SaveChangesAsync();
+            NotifyCalendarUpdated();
         }
 
         public async Task RemoveBlackoutDateAsync(DateTime date)
@@ -367,6 +563,19 @@ namespace GFC.BlazorServer.Services
             {
                 context.AvailabilityCalendars.Remove(existing);
                 await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
+            }
+        }
+
+        public async Task RemoveBlackoutDateByIdAsync(int id)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.AvailabilityCalendars.FindAsync(id);
+            if (existing != null)
+            {
+                context.AvailabilityCalendars.Remove(existing);
+                await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
             }
         }
 
@@ -380,6 +589,7 @@ namespace GFC.BlazorServer.Services
                 .Where(d => d.Status == "Booked" || d.Status == "Blackout")
                 .Select(d => new UnavailableDateDto 
                 { 
+                    Id = d.Id,
                     Date = d.Date, 
                     Status = d.Status == "Blackout" ? "Blackout" : "Booked", 
                     EventType = d.Description ?? "Private Event",
@@ -401,9 +611,10 @@ namespace GFC.BlazorServer.Services
                 {
                     var dto = new UnavailableDateDto
                     {
+                        Id = r.Id,
                         Date = r.RequestedDate,
                         Status = r.Status == "Approved" ? "Booked" : "Pending",
-                        EventType = r.EventType,
+                        EventType = !string.IsNullOrWhiteSpace(r.RoomSelected) ? $"{r.EventType} ({r.RoomSelected})" : r.EventType,
                         EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null,
                         IsFullDay = string.IsNullOrWhiteSpace(r.StartTime) || string.IsNullOrWhiteSpace(r.EndTime)
                     };
@@ -470,6 +681,7 @@ namespace GFC.BlazorServer.Services
                         {
                             results.Add(new UnavailableDateDto
                             {
+                                Id = 0,
                                 Date = evt.Start.Date,
                                 Status = "Booked",
                                 EventType = !string.IsNullOrWhiteSpace(evt.Title) ? evt.Title : "Club Event",
@@ -487,7 +699,7 @@ namespace GFC.BlazorServer.Services
 
             // 4. Return all distinct unavailable interval entries (preserving multiple slots per day)
             return results
-                .GroupBy(x => new { Date = x.Date.Date, EventTime = x.EventTime ?? "FULL_DAY", EventType = x.EventType ?? "" })
+                .GroupBy(x => new { Id = x.Id, Date = x.Date.Date, EventTime = x.EventTime ?? "FULL_DAY", EventType = x.EventType ?? "" })
                 .Select(g => g.First())
                 .ToList();
         }

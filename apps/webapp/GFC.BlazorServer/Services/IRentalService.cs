@@ -28,6 +28,7 @@ namespace GFC.BlazorServer.Services
         Task AddBlackoutDateAsync(System.DateTime date, string? description = null, string? startTime = null, string? endTime = null);
         Task UpdateBlackoutDateAsync(int id, DateTime date, string description, string startTime, string endTime);
         Task RemoveBlackoutDateAsync(System.DateTime date);
+        Task RemoveBlackoutDateByIdAsync(int id);
         Task<List<UnavailableDateDto>> GetUnavailableDatesAsync(bool includeRentalRequests = true);
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);
         Task<HallRentalInquiry> GetInquiryAsync(string resumeToken);
@@ -48,6 +49,7 @@ namespace GFC.BlazorServer.Services
         // Real-Time Calendar Change Notifications
         event System.Action? OnCalendarUpdated;
         void NotifyCalendarUpdated();
+        Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request);
     }
 }
 

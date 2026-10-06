@@ -130,21 +130,6 @@ class SettingsActivity : AppCompatActivity() {
             appSettings.alertClubEvents = isChecked
         }
 
-        binding.switchAlertDoorAccess.isChecked = appSettings.alertDoorAccess
-        binding.switchAlertDoorAccess.setOnCheckedChangeListener { _, isChecked ->
-            appSettings.alertDoorAccess = isChecked
-        }
-
-        binding.switchAlertShiftReports.isChecked = appSettings.alertShiftReports
-        binding.switchAlertShiftReports.setOnCheckedChangeListener { _, isChecked ->
-            appSettings.alertShiftReports = isChecked
-        }
-
-        binding.switchAlertBulletins.isChecked = appSettings.alertBulletins
-        binding.switchAlertBulletins.setOnCheckedChangeListener { _, isChecked ->
-            appSettings.alertBulletins = isChecked
-        }
-
         // Sound & Vibration Checkboxes
         binding.chkAlertSound.isChecked = appSettings.alertSoundEnabled
         binding.chkAlertSound.setOnCheckedChangeListener { _, isChecked ->

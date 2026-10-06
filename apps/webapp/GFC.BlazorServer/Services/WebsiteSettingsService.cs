@@ -221,6 +221,7 @@ namespace GFC.BlazorServer.Services
         {
             try
             {
+                await HealDatabaseAsync();
                 await using var _context = await _contextFactory.CreateDbContextAsync();
 
                 // FORCE all pricing fields to have values
@@ -384,6 +385,7 @@ namespace GFC.BlazorServer.Services
                             [InquiryForkCardBookText], [InquiryForkCardAskTitle], [InquiryForkCardAskText], [EnableInquiryFloatingButton],
                             [InquiryFloatingButtonText], [NotifyOnInquirySubmitted], [SendInquiryConfirmationEmail],
                             [InquiryConfirmationEmailSubject], [InquiryConfirmationEmailBody],
+                            [PaymentReminderEmailSubject], [PaymentReminderEmailBody],
                             [EnableRentalInboundWebhook], [RentalInboundWebhookSecret], [RentalInboundNotifyStaff],
                             [InquiryForkShowTargetDate], [InquiryForkShowOccasion], [InquiryFloatShowEstimatedDate], [InquiryFloatShowGuestEstimate],
                             [EventTypeListsJson], [ManagedRentalLocation], [SecondaryFlexibleLocation],
@@ -401,6 +403,7 @@ namespace GFC.BlazorServer.Services
                             @p68, @p69, @p70,
                             @p71, @p72, @p73, @p74, @p75, @p76,
                             @p77, @p78, @p79, @p80, @p81, @p82, @p83, @p84, @p85, @p86, @p87, @p88, @p89,
+                            @p103, @p104,
                             @p90, @p91, @p92,
                             @p93, @p94, @p95, @p96,
                             @p97, @p98, @p99,
@@ -902,6 +905,15 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ShowMobileHomeButton')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [ShowMobileHomeButton] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PricingGuideJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [PricingGuideJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ApplicationPaymentWindowDays')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [ApplicationPaymentWindowDays] INT NOT NULL DEFAULT 2;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableSubmissionAgeTracking')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableSubmissionAgeTracking] BIT NOT NULL DEFAULT 1;
 
                     IF NOT EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings])
                     BEGIN

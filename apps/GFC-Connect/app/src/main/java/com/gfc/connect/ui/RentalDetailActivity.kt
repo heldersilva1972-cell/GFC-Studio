@@ -1,6 +1,7 @@
 package com.gfc.connect.ui
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
@@ -21,19 +22,26 @@ import com.gfc.connect.R
 import com.gfc.connect.api.ApiClient
 import com.gfc.connect.data.cache.RentalCacheManager
 import com.gfc.connect.data.models.ApprovalActionRequest
+import androidx.core.widget.addTextChangedListener
+import com.gfc.connect.data.models.ArchiveRentalPayload
+import com.gfc.connect.data.models.AvailableAddonDto
 import com.gfc.connect.data.models.AvailableMatrixTierDto
 import com.gfc.connect.data.models.HallRentalDetailDto
+import com.gfc.connect.data.models.LogCorrespondencePayload
 import com.gfc.connect.data.models.PaymentReminderPayload
 import com.gfc.connect.data.models.RecordPaymentPayload
+import com.gfc.connect.data.models.UnavailableDateDto
 import com.gfc.connect.data.models.UpdateRentalPayload
 import com.gfc.connect.databinding.ActivityRentalDetailBinding
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -50,10 +58,18 @@ class RentalDetailActivity : AppCompatActivity() {
     private var rentalId: Int = 0
     private var rentalDetail: HallRentalDetailDto? = null
     private var isEditMode: Boolean = false
+    private var isInquiryMode: Boolean = false
     private var selectedMatrixTierTitle: String? = null
     private var selectedEventCalendar: Calendar = Calendar.getInstance()
+    private var originalEventCalendar: Calendar = Calendar.getInstance()
+    private var originalStartTime: String? = null
+    private var originalEndTime: String? = null
+    private var originalDateStr: String? = null
+    private var cachedUnavailableDates: List<UnavailableDateDto> = emptyList()
+    private var hasActiveConflict: Boolean = false
+    private val dynamicAddonSwitches = mutableMapOf<String, Pair<com.google.android.material.materialswitch.MaterialSwitch, AvailableAddonDto>>()
 
-    private val statusOptions = listOf("Pending", "Approved", "Denied", "Completed", "Cancelled")
+    private val statusOptions = listOf("Pending", "Approved", "Denied", "Completed", "Cancelled", "Inquiry", "Responded", "Archived")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,7 +86,7 @@ class RentalDetailActivity : AppCompatActivity() {
         }
 
         setupToolbar()
-        setupTabs()
+        setupTabs(isInquiry = false)
         setupStatusSpinner()
         setupListeners()
 
@@ -117,14 +133,23 @@ class RentalDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupTabs() {
+    private fun setupTabs(isInquiry: Boolean) {
+        isInquiryMode = isInquiry
         val tabLayout = binding.tabLayoutSections
         tabLayout.removeAllTabs()
-        tabLayout.addTab(tabLayout.newTab().setText("📅 Event"))
-        tabLayout.addTab(tabLayout.newTab().setText("👤 Applicant"))
-        tabLayout.addTab(tabLayout.newTab().setText("💵 Pricing"))
-        tabLayout.addTab(tabLayout.newTab().setText("🛡️ Admin"))
 
+        if (isInquiry) {
+            tabLayout.addTab(tabLayout.newTab().setText("📋 Question"))
+            tabLayout.addTab(tabLayout.newTab().setText("👤 Contact"))
+            tabLayout.addTab(tabLayout.newTab().setText("🛡️ History & Notes"))
+        } else {
+            tabLayout.addTab(tabLayout.newTab().setText("📅 Event"))
+            tabLayout.addTab(tabLayout.newTab().setText("👤 Applicant"))
+            tabLayout.addTab(tabLayout.newTab().setText("💵 Pricing"))
+            tabLayout.addTab(tabLayout.newTab().setText("🛡️ Admin"))
+        }
+
+        tabLayout.clearOnTabSelectedListeners()
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
                 showSection(tab?.position ?: 0)
@@ -135,10 +160,17 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun showSection(position: Int) {
-        binding.sectionEvent.visibility = if (position == 0) View.VISIBLE else View.GONE
-        binding.sectionRenter.visibility = if (position == 1) View.VISIBLE else View.GONE
-        binding.sectionFinancials.visibility = if (position == 2) View.VISIBLE else View.GONE
-        binding.sectionAdmin.visibility = if (position == 3) View.VISIBLE else View.GONE
+        if (isInquiryMode) {
+            binding.sectionEvent.visibility = if (position == 0) View.VISIBLE else View.GONE
+            binding.sectionRenter.visibility = if (position == 1) View.VISIBLE else View.GONE
+            binding.sectionFinancials.visibility = View.GONE
+            binding.sectionAdmin.visibility = if (position == 2) View.VISIBLE else View.GONE
+        } else {
+            binding.sectionEvent.visibility = if (position == 0) View.VISIBLE else View.GONE
+            binding.sectionRenter.visibility = if (position == 1) View.VISIBLE else View.GONE
+            binding.sectionFinancials.visibility = if (position == 2) View.VISIBLE else View.GONE
+            binding.sectionAdmin.visibility = if (position == 3) View.VISIBLE else View.GONE
+        }
         binding.scrollContent.scrollTo(0, 0)
     }
 
@@ -155,44 +187,97 @@ class RentalDetailActivity : AppCompatActivity() {
             val d = selectedEventCalendar.get(Calendar.DAY_OF_MONTH)
 
             DatePickerDialog(this, { _, year, month, dayOfMonth ->
+                val newCal = Calendar.getInstance().apply { set(year, month, dayOfMonth) }
+                val newDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(newCal.time)
                 selectedEventCalendar.set(year, month, dayOfMonth)
                 val sdf = SimpleDateFormat("EEE, MMM dd, yyyy", Locale.US)
                 binding.txtEventDate.text = sdf.format(selectedEventCalendar.time)
+
+                // If date changed: DO NOT prepopulate or preselect times on the new date!
+                if (originalDateStr != null && newDateStr != originalDateStr) {
+                    binding.editStartTime.setText("")
+                    binding.editEndTime.setText("")
+                } else if (originalDateStr != null && newDateStr == originalDateStr) {
+                    // Restored back to original booking date: restore original times!
+                    binding.editStartTime.setText(originalStartTime ?: "")
+                    binding.editEndTime.setText(originalEndTime ?: "")
+                }
+                checkScheduleConflicts()
             }, y, m, d).show()
         }
 
-        // Phone call
-        binding.btnCallRenter.setOnClickListener {
+        // Room text change listener for conflict checking
+        binding.editRoomSelected.addTextChangedListener {
+            if (isEditMode) {
+                checkScheduleConflicts()
+            }
+        }
+
+        // Time Pickers (Start & End Time)
+        binding.editStartTime.setOnClickListener {
+            if (isEditMode) {
+                promptTimePicker(isStartTime = true)
+            }
+        }
+        binding.editEndTime.setOnClickListener {
+            if (isEditMode) {
+                promptTimePicker(isStartTime = false)
+            }
+        }
+
+        // Phone call (Renter section & Inquiry Quick Action)
+        val onCallClick = View.OnClickListener {
             val phone = binding.editPhone.text.toString().trim()
             if (phone.isNotEmpty()) {
                 val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
                 startActivity(intent)
+                promptLogCallOutcome()
             } else {
                 Toast.makeText(this, "No phone number available.", Toast.LENGTH_SHORT).show()
             }
         }
+        binding.btnCallRenter.setOnClickListener(onCallClick)
+        binding.btnInquiryQuickCall.setOnClickListener(onCallClick)
 
-        // SMS
-        binding.btnSmsRenter.setOnClickListener {
+        // SMS (Renter section & Inquiry Quick Action)
+        val onSmsClick = View.OnClickListener {
             val phone = binding.editPhone.text.toString().trim()
             if (phone.isNotEmpty()) {
                 val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$phone"))
                 startActivity(intent)
+                promptLogCorrespondence(type = "sms")
             } else {
                 Toast.makeText(this, "No phone number available.", Toast.LENGTH_SHORT).show()
             }
         }
+        binding.btnSmsRenter.setOnClickListener(onSmsClick)
+        binding.btnInquiryQuickSms.setOnClickListener(onSmsClick)
 
-        // Email
-        binding.btnEmailRenter.setOnClickListener {
+        // Email (Renter section & Inquiry Quick Action)
+        val onEmailClick = View.OnClickListener {
             val email = binding.editEmail.text.toString().trim()
             if (email.isNotEmpty()) {
                 val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email"))
-                intent.putExtra(Intent.EXTRA_SUBJECT, "Gloucester Fraternity Club - Hall Rental Inquiry")
+                val subject = if (isInquiryMode) "Gloucester Fraternity Club - Inquiry Response" else "Gloucester Fraternity Club - Hall Rental Inquiry"
+                intent.putExtra(Intent.EXTRA_SUBJECT, subject)
                 startActivity(intent)
+                promptLogCorrespondence(type = "email")
             } else {
                 Toast.makeText(this, "No email address available.", Toast.LENGTH_SHORT).show()
             }
+        }
+        binding.btnEmailRenter.setOnClickListener(onEmailClick)
+        binding.btnInquiryQuickEmail.setOnClickListener(onEmailClick)
+
+        // Inquiry Quick Action: Direct Log & Archive
+        binding.btnInquiryQuickLog.setOnClickListener {
+            promptLogCorrespondence(type = null)
+        }
+        binding.btnInquiryQuickArchive.setOnClickListener {
+            promptArchiveInquiry()
+        }
+        binding.btnArchiveInquiry.setOnClickListener {
+            promptArchiveInquiry()
         }
 
         // Swipe to Refresh
@@ -213,8 +298,9 @@ class RentalDetailActivity : AppCompatActivity() {
         // Unlink Member
         binding.btnUnlinkMember.setOnClickListener { promptUnlinkMember() }
 
-        // Record Payment & Send Reminder
+        // Record Payment, Waive Payment & Send Reminder
         binding.btnRecordPayment.setOnClickListener { promptRecordPayment() }
+        binding.btnWaivePayment.setOnClickListener { promptWaivePayment() }
         binding.btnSendPaymentReminder.setOnClickListener { promptSendPaymentReminder() }
 
         // Save & Cancel
@@ -223,12 +309,45 @@ class RentalDetailActivity : AppCompatActivity() {
             toggleEditMode(false)
             rentalDetail?.let { populateUI(it) }
         }
+
+        // Paid in Full Switch Styling & Guard
+        val paidThumbTint = ColorStateList(
+            arrayOf(
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
+            ),
+            intArrayOf(
+                getColor(R.color.emerald_accent),
+                getColor(R.color.text_muted)
+            )
+        )
+        val paidTrackTint = ColorStateList(
+            arrayOf(
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
+            ),
+            intArrayOf(
+                getColor(R.color.blue_primary),
+                getColor(R.color.surface_dark_muted)
+            )
+        )
+        binding.switchIsPaid.thumbTintList = paidThumbTint
+        binding.switchIsPaid.trackTintList = paidTrackTint
+        binding.switchIsPaid.isEnabled = true
+        binding.switchIsPaid.isClickable = false
+        binding.switchIsPaid.isFocusable = false
+        binding.switchIsPaid.setOnTouchListener { _, _ -> !isEditMode }
+        binding.switchIsPaid.setOnCheckedChangeListener { _, isChecked ->
+            binding.switchIsPaid.setTextColor(getColor(if (isChecked) R.color.text_primary else R.color.text_secondary))
+        }
     }
 
     private fun loadRentalDetail(silent: Boolean = false) {
         if (!silent) {
             showLoading("Syncing Booking Details...")
         }
+
+        fetchUnavailableDates()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -259,17 +378,56 @@ class RentalDetailActivity : AppCompatActivity() {
     private fun populateUI(item: HallRentalDetailDto) {
         val isInquiry = item.eventType?.contains("Inquiry", ignoreCase = true) == true ||
                         item.status.equals("Inquiry", ignoreCase = true) ||
-                        item.status.equals("Responded", ignoreCase = true)
+                        item.status.equals("Responded", ignoreCase = true) ||
+                        item.status.equals("Archived", ignoreCase = true)
+
+        setupTabs(isInquiry)
 
         // Header
         binding.txtHeaderApplicantName.text = "👤 ${item.applicantName}"
         if (isInquiry) {
             binding.txtHeaderEventType.text = "📋 ${item.eventType ?: "General Inquiry"}"
             binding.txtHeaderEventType.setTextColor(getColor(R.color.status_yellow))
-            binding.txtHeaderStatus.text = "INQUIRY (UNCONFIRMED)"
-            binding.txtHeaderStatus.setTextColor(getColor(R.color.status_yellow))
+            binding.txtHeaderStatus.text = if (item.status.equals("Archived", ignoreCase = true)) "ARCHIVED INQUIRY" else "GENERAL INQUIRY"
+            binding.txtHeaderStatus.setTextColor(getColor(R.color.cyan_accent))
             binding.txtHeaderStatus.setBackgroundResource(R.drawable.bg_badge_inquiry)
+
+            // Dedicated Inquiry Card & Visibility
+            binding.cardInquiryOverview.visibility = View.VISIBLE
+            binding.layoutBookingOnlyEventDetails.visibility = View.GONE
+            binding.lblEventType.text = "Occasion / Inquiry Reason"
+            binding.lblEventDate.text = "Target / Preferred Date"
+
+            // Bind Inquiry Question
+            val question = item.eventDescription?.trim()?.ifEmpty { null } 
+                ?: "No specific inquiry question text recorded."
+            binding.txtInquiryQuestion.text = question
+
+            // Bind Contact Preference
+            val pref = item.preferredContactMethod?.trim().orEmpty()
+            val contactStr = when {
+                pref.equals("both", ignoreCase = true) -> "📞 Phone & ✉️ Email"
+                pref.contains("phone", ignoreCase = true) || item.requestPhoneCall -> "📞 Phone Call"
+                pref.contains("email", ignoreCase = true) -> "✉️ Email"
+                item.requestPhoneCall -> "📞 Phone Call Requested"
+                else -> "✉️ Email"
+            }
+            binding.txtInquiryContactMethodBadge.text = contactStr
+
+            // Quick Archive Buttons
+            val isArchived = item.status.equals("Archived", ignoreCase = true)
+            binding.btnInquiryQuickArchive.text = if (isArchived) "Restore" else "Archive"
+            binding.btnArchiveInquiry.visibility = View.VISIBLE
+            binding.btnArchiveInquiry.text = if (isArchived) "📦 Restore to Active Inquiries" else "📦 Archive to FAQ Pool"
+            binding.btnCancelBooking.visibility = View.GONE
         } else {
+            binding.cardInquiryOverview.visibility = View.GONE
+            binding.layoutBookingOnlyEventDetails.visibility = View.VISIBLE
+            binding.lblEventType.text = "Event Type"
+            binding.lblEventDate.text = "Event Date"
+            binding.btnArchiveInquiry.visibility = View.GONE
+            binding.btnCancelBooking.visibility = View.VISIBLE
+
             binding.txtHeaderEventType.text = item.eventType ?: "Hall Rental"
             binding.txtHeaderEventType.setTextColor(getColor(R.color.cyan_accent))
             binding.txtHeaderStatus.text = item.status
@@ -281,13 +439,17 @@ class RentalDetailActivity : AppCompatActivity() {
         val isPaid = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
         val remaining = Math.max(0.0, item.totalPrice - item.amountPaid)
         
-        if (isPaid) {
+        if (!isInquiry && isPaid) {
             binding.txtHeaderTracking.text = "• ✓ Paid in Full"
             binding.txtHeaderTracking.setTextColor(getColor(R.color.emerald_accent))
             binding.txtHeaderTracking.visibility = View.VISIBLE
-        } else if (item.amountPaid > 0) {
+        } else if (!isInquiry && item.amountPaid > 0) {
             binding.txtHeaderTracking.text = "• 💵 Bal: $${remaining.toInt()}"
             binding.txtHeaderTracking.setTextColor(getColor(R.color.cyan_accent))
+            binding.txtHeaderTracking.visibility = View.VISIBLE
+        } else if (!isInquiry) {
+            binding.txtHeaderTracking.text = "• 🔴 Unpaid"
+            binding.txtHeaderTracking.setTextColor(getColor(R.color.status_red))
             binding.txtHeaderTracking.visibility = View.VISIBLE
         } else if (ageText.isNotEmpty()) {
             binding.txtHeaderTracking.text = "• ⏱️ $ageText"
@@ -297,13 +459,17 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.txtHeaderTracking.visibility = View.GONE
         }
 
-        // Parse Date
+        // Parse Date & Capture Original Booking Baseline
         val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val displayFormat = SimpleDateFormat("EEE, MMM dd, yyyy", Locale.US)
+        val dateStr = item.eventDate.substringBefore('T')
+        originalDateStr = dateStr
+        originalStartTime = item.startTime
+        originalEndTime = item.endTime
         try {
-            val dateStr = item.eventDate.substringBefore('T')
             val parsed = isoFormat.parse(dateStr)
             if (parsed != null) {
+                originalEventCalendar.time = parsed
                 selectedEventCalendar.time = parsed
                 binding.txtEventDate.text = displayFormat.format(parsed)
                 binding.txtHeaderSubtitle.text = "•  ${displayFormat.format(parsed)}"
@@ -317,7 +483,7 @@ class RentalDetailActivity : AppCompatActivity() {
         }
 
         // Event Fields
-        binding.editEventType.setText(item.eventType ?: "Hall Rental")
+        binding.editEventType.setText(item.eventType ?: if (isInquiry) "General Inquiry" else "Hall Rental")
         binding.editStartTime.setText(item.startTime ?: "2:00 PM")
         binding.editEndTime.setText(item.endTime ?: "7:00 PM")
         binding.editRoomSelected.setText(item.roomSelected ?: "Function Hall")
@@ -330,7 +496,9 @@ class RentalDetailActivity : AppCompatActivity() {
         binding.txtCurrentMatrixBadge.text = matrix
 
         // Render Matrix Tiers in Pricing & Financials Tab
-        renderMatrixTiers(item)
+        if (!isInquiry) {
+            renderMatrixTiers(item)
+        }
 
         // Member Verification Card
         if (item.isVerifiedMember) {
@@ -355,7 +523,11 @@ class RentalDetailActivity : AppCompatActivity() {
         }
 
         // Render Possible Candidate Matches
-        renderPossibleCandidates(item)
+        if (!isInquiry) {
+            renderPossibleCandidates(item)
+        } else {
+            binding.layoutCandidatesContainer.visibility = View.GONE
+        }
 
         // Renter Fields
         binding.editApplicantName.setText(item.applicantName)
@@ -382,10 +554,10 @@ class RentalDetailActivity : AppCompatActivity() {
         }
         binding.editAmountPaid.setText(item.amountPaid.toString())
         binding.switchIsPaid.isChecked = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
+        binding.switchIsPaid.setTextColor(getColor(if (binding.switchIsPaid.isChecked) R.color.text_primary else R.color.text_secondary))
 
-        binding.switchBar.isChecked = item.bartenderRequested
-        binding.switchKitchen.isChecked = item.kitchenUsage
-        binding.switchAv.isChecked = item.avEquipmentUsage
+        // Dynamic Add-on Amenities
+        renderAddonSwitches(item)
 
         // Admin & Notes
         val statusIdx = statusOptions.indexOfFirst { it.equals(item.status, ignoreCase = true) }
@@ -413,7 +585,7 @@ class RentalDetailActivity : AppCompatActivity() {
                 if (!item.statusChangedDate.isNullOrBlank()) append(" on ${item.statusChangedDate.substringBefore('T')}")
                 append("\n")
             }
-            if (isEmpty()) append("Pending administrative review.")
+            if (isEmpty()) append(if (isInquiry) "Inquiry active and awaiting response." else "Pending administrative review.")
         }
         binding.txtDecisionInfo.text = decisionInfo.trimEnd()
 
@@ -852,17 +1024,98 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.layoutCandidatesContainer.visibility = View.GONE
         }
 
-        // Recalculate price: base rate + bartender + kitchen + av
-        var total = tier.rateForDate
-        if (binding.switchBar.isChecked) total += 100.0
-        if (binding.switchKitchen.isChecked) total += 50.0
-        if (binding.switchAv.isChecked) total += 25.0
-        binding.editTotalPrice.setText(String.format(Locale.US, "%.2f", total))
+        // Recalculate price dynamically with active add-on amenities
+        recalculateDynamicPrice(tier)
 
         if (!isEditMode) {
             toggleEditMode(true)
         }
         rentalDetail?.let { renderMatrixTiers(it) }
+    }
+
+    private fun renderAddonSwitches(item: HallRentalDetailDto) {
+        binding.layoutAddonsList.removeAllViews()
+        dynamicAddonSwitches.clear()
+
+        val addons = item.availableAddons?.filter { it.isActive } ?: emptyList()
+        if (addons.isEmpty()) {
+            binding.txtNoAddons.visibility = View.VISIBLE
+            return
+        }
+        binding.txtNoAddons.visibility = View.GONE
+
+        val dp4 = (4 * resources.displayMetrics.density).toInt()
+
+        val addonThumbTint = ColorStateList(
+            arrayOf(
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
+            ),
+            intArrayOf(
+                getColor(R.color.cyan_accent),
+                getColor(R.color.text_muted)
+            )
+        )
+        val addonTrackTint = ColorStateList(
+            arrayOf(
+                intArrayOf(android.R.attr.state_checked),
+                intArrayOf(-android.R.attr.state_checked)
+            ),
+            intArrayOf(
+                getColor(R.color.blue_primary),
+                getColor(R.color.surface_dark_muted)
+            )
+        )
+
+        for (addon in addons) {
+            val isInitiallySelected = addon.isSelected || when {
+                addon.id == "addon_bar" || addon.name.contains("Bar", ignoreCase = true) -> item.bartenderRequested
+                addon.id == "addon_kitchen" || addon.name.contains("Kitchen", ignoreCase = true) -> item.kitchenUsage
+                addon.id == "addon_av" || addon.name.contains("AV", ignoreCase = true) || addon.name.contains("Sound", ignoreCase = true) -> item.avEquipmentUsage
+                else -> false
+            }
+
+            val switchView = com.google.android.material.materialswitch.MaterialSwitch(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, dp4, 0, dp4)
+                }
+                text = "${addon.name} (+$${addon.fee.toInt()})"
+                setTextColor(getColor(if (isInitiallySelected) R.color.text_primary else R.color.text_secondary))
+                textSize = 14f
+                thumbTintList = addonThumbTint
+                trackTintList = addonTrackTint
+                isChecked = isInitiallySelected
+                isEnabled = true
+                isClickable = isEditMode
+                isFocusable = isEditMode
+                setOnTouchListener { _, _ -> !isEditMode }
+                setOnCheckedChangeListener { _, isChecked ->
+                    setTextColor(getColor(if (isChecked) R.color.text_primary else R.color.text_secondary))
+                    if (isEditMode) {
+                        recalculateDynamicPrice()
+                    }
+                }
+            }
+
+            binding.layoutAddonsList.addView(switchView)
+            dynamicAddonSwitches[addon.id] = Pair(switchView, addon)
+        }
+    }
+
+    private fun recalculateDynamicPrice(selectedTier: AvailableMatrixTierDto? = null) {
+        val tier = selectedTier ?: rentalDetail?.availableMatrixTiers?.firstOrNull { it.title.equals(selectedMatrixTierTitle, ignoreCase = true) }
+        var total = tier?.rateForDate ?: (rentalDetail?.totalPrice ?: 0.0)
+
+        for ((_, pair) in dynamicAddonSwitches) {
+            val (switch, addon) = pair
+            if (switch.isChecked) {
+                total += addon.fee
+            }
+        }
+        binding.editTotalPrice.setText(String.format(Locale.US, "%.2f", total))
     }
 
     private fun updateStatusBadgeColor(status: String) {
@@ -932,11 +1185,15 @@ class RentalDetailActivity : AppCompatActivity() {
 
         // Enable / Disable inputs
         binding.editEventType.isEnabled = enable
-        binding.editStartTime.isEnabled = enable
-        binding.editEndTime.isEnabled = enable
-        binding.editRoomSelected.isEnabled = enable
+        binding.editStartTime.isClickable = enable
+        binding.editEndTime.isClickable = enable
+        binding.editStartTime.setTextColor(getColor(if (enable) R.color.cyan_accent else R.color.text_primary))
+        binding.editEndTime.setTextColor(getColor(if (enable) R.color.cyan_accent else R.color.text_primary))
+        binding.editRoomSelected.isEnabled = false
+        binding.editRoomSelected.isFocusable = false
         binding.editGuestCount.isEnabled = enable
-        binding.editMatrixSelected.isEnabled = enable
+        binding.editMatrixSelected.isEnabled = false
+        binding.editMatrixSelected.isFocusable = false
 
         binding.editApplicantName.isEnabled = enable
         binding.editPhone.isEnabled = enable
@@ -946,10 +1203,19 @@ class RentalDetailActivity : AppCompatActivity() {
         binding.editTotalPrice.isEnabled = enable
         binding.editSecurityDeposit.isEnabled = enable
         binding.editAmountPaid.isEnabled = enable
-        binding.switchIsPaid.isEnabled = enable
-        binding.switchBar.isEnabled = enable
-        binding.switchKitchen.isEnabled = enable
-        binding.switchAv.isEnabled = enable
+        
+        binding.switchIsPaid.isEnabled = true
+        binding.switchIsPaid.isClickable = enable
+        binding.switchIsPaid.isFocusable = enable
+        binding.switchIsPaid.setOnTouchListener { _, _ -> !enable }
+        
+        for ((_, pair) in dynamicAddonSwitches) {
+            val switch = pair.first
+            switch.isEnabled = true
+            switch.isClickable = enable
+            switch.isFocusable = enable
+            switch.setOnTouchListener { _, _ -> !enable }
+        }
 
         binding.spinnerStatus.isEnabled = enable
         binding.editInternalNotes.isEnabled = enable
@@ -958,6 +1224,12 @@ class RentalDetailActivity : AppCompatActivity() {
 
         if (enable) {
             binding.editEventType.requestFocus()
+            fetchUnavailableDates {
+                checkScheduleConflicts()
+            }
+        } else {
+            binding.cardConflictWarning.visibility = View.GONE
+            binding.layoutQuickSelectSlots.visibility = View.GONE
         }
     }
 
@@ -990,9 +1262,18 @@ class RentalDetailActivity : AppCompatActivity() {
         val newDeposit = binding.editSecurityDeposit.text.toString().toDoubleOrNull()
         val newAmountPaid = binding.editAmountPaid.text.toString().toDoubleOrNull()
         val newIsPaid = binding.switchIsPaid.isChecked
-        val newBar = binding.switchBar.isChecked
-        val newKitchen = binding.switchKitchen.isChecked
-        val newAv = binding.switchAv.isChecked
+        
+        var newBar = false
+        var newKitchen = false
+        var newAv = false
+        for ((_, pair) in dynamicAddonSwitches) {
+            val (switch, addon) = pair
+            val isChecked = switch.isChecked
+            if (addon.id == "addon_bar" || addon.name.contains("Bar", ignoreCase = true)) newBar = isChecked
+            if (addon.id == "addon_kitchen" || addon.name.contains("Kitchen", ignoreCase = true)) newKitchen = isChecked
+            if (addon.id == "addon_av" || addon.name.contains("AV", ignoreCase = true) || addon.name.contains("Sound", ignoreCase = true)) newAv = isChecked
+        }
+
         val newStatus = binding.spinnerStatus.selectedItem?.toString()
         val newNotes = binding.editInternalNotes.text.toString().trim()
         val newMatrix = selectedMatrixTierTitle ?: binding.editMatrixSelected.text.toString().trim().ifEmpty { null }
@@ -1021,6 +1302,10 @@ class RentalDetailActivity : AppCompatActivity() {
 
             if (newStatus != null && !cur.status.equals(newStatus, ignoreCase = true)) {
                 diffs.add("🛡️ Status: ${cur.status} ➔ $newStatus")
+                if (newStatus.equals("Approved", ignoreCase = true) && !newIsPaid && ((newTotal ?: cur.totalPrice) > (newAmountPaid ?: cur.amountPaid))) {
+                    val unpaidAmount = ((newTotal ?: cur.totalPrice) - (newAmountPaid ?: cur.amountPaid)).toInt()
+                    diffs.add("⚠️ Approving with UNPAID balance of $$unpaidAmount")
+                }
             }
 
             if (newGuests != null && cur.guestCount != newGuests) {
@@ -1031,15 +1316,20 @@ class RentalDetailActivity : AppCompatActivity() {
                 diffs.add("🚪 Room: ${cur.roomSelected ?: "Function Hall"} ➔ $newRoom")
             }
 
-            if (cur.bartenderRequested != newBar) {
-                diffs.add("🍸 Bartender Service: ${if (newBar) "Added" else "Removed"}")
+            for ((_, pair) in dynamicAddonSwitches) {
+                val (switch, addon) = pair
+                val isChecked = switch.isChecked
+                val oldChecked = when {
+                    addon.id == "addon_bar" || addon.name.contains("Bar", ignoreCase = true) -> cur.bartenderRequested
+                    addon.id == "addon_kitchen" || addon.name.contains("Kitchen", ignoreCase = true) -> cur.kitchenUsage
+                    addon.id == "addon_av" || addon.name.contains("AV", ignoreCase = true) || addon.name.contains("Sound", ignoreCase = true) -> cur.avEquipmentUsage
+                    else -> addon.isSelected
+                }
+                if (oldChecked != isChecked) {
+                    diffs.add("➕ ${addon.name}: ${if (isChecked) "Added (+$${addon.fee.toInt()})" else "Removed"}")
+                }
             }
-            if (cur.kitchenUsage != newKitchen) {
-                diffs.add("🍳 Kitchen Access: ${if (newKitchen) "Added" else "Removed"}")
-            }
-            if (cur.avEquipmentUsage != newAv) {
-                diffs.add("🔊 A/V Equipment: ${if (newAv) "Added" else "Removed"}")
-            }
+
             if (cur.isPaid != newIsPaid) {
                 diffs.add("💳 Payment Status: ${if (newIsPaid) "Marked as Paid" else "Unpaid"}")
             }
@@ -1176,8 +1466,23 @@ class RentalDetailActivity : AppCompatActivity() {
         }
         dialogContent.addView(emailCheckBox)
 
+        if (hasActiveConflict) {
+            val conflictBanner = TextView(this).apply {
+                text = "⚠️ CALENDAR CONFLICT DETECTED:\n${binding.txtConflictDetails.text}"
+                setTextColor(getColor(R.color.status_red))
+                setBackgroundResource(R.drawable.bg_surface_card)
+                setPadding(24, 20, 24, 20)
+                setTypeface(null, Typeface.BOLD)
+                textSize = 12f
+                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                lp.setMargins(0, 0, 0, 16)
+                layoutParams = lp
+            }
+            dialogContent.addView(conflictBanner, 0)
+        }
+
         MaterialAlertDialogBuilder(this)
-            .setTitle("📝 Review & Confirm Changes")
+            .setTitle(if (hasActiveConflict) "⚠️ Review Changes (Conflict Warning)" else "📝 Review & Confirm Changes")
             .setView(dialogContent)
             .setPositiveButton("Confirm & Save") { _, _ ->
                 val chosenReason = reasonNoteInput.text.toString().trim().ifEmpty { null }
@@ -1224,7 +1529,20 @@ class RentalDetailActivity : AppCompatActivity() {
                         toggleEditMode(false)
                         loadRentalDetail()
                     } else {
-                        Toast.makeText(this@RentalDetailActivity, "Failed to save changes.", Toast.LENGTH_SHORT).show()
+                        val errBody = response.errorBody()?.string()
+                        val errMsg = try {
+                            if (!errBody.isNullOrBlank()) {
+                                val json = JSONObject(errBody)
+                                json.optString("error").ifEmpty { json.optString("message", "Failed to save changes.") }
+                            } else "Failed to save changes."
+                        } catch (_: Exception) {
+                            errBody ?: "Failed to save changes."
+                        }
+                        MaterialAlertDialogBuilder(this@RentalDetailActivity)
+                            .setTitle("⚠️ Cannot Save Changes")
+                            .setMessage(errMsg)
+                            .setPositiveButton("OK", null)
+                            .show()
                     }
                 }
             } catch (e: Exception) {
@@ -1237,21 +1555,83 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptApprove() {
+        val item = rentalDetail
+        val paidAmount = item?.amountPaid ?: 0.0
+        val totalQuote = item?.totalPrice ?: 0.0
+        val isPaid = item?.isPaid == true || (paidAmount >= totalQuote && totalQuote > 0)
+        val balanceDue = Math.max(0.0, totalQuote - paidAmount)
+
         val input = EditText(this).apply {
             hint = "Optional approval note..."
             setPadding(40, 24, 40, 24)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
         }
 
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        if (!isPaid && balanceDue > 0) {
+            val warningTv = TextView(this).apply {
+                text = "⚠️ UNPAID BOOKING WARNING:\nThis rental has an outstanding balance of $${balanceDue.toInt()} (Paid: $${paidAmount.toInt()} of $${totalQuote.toInt()}).\n\nAre you sure you want to approve this booking before full payment is received?"
+                setTextColor(getColor(R.color.gold_accent))
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 0, 0, 16)
+            }
+            dialogContent.addView(warningTv)
+        } else {
+            val infoTv = TextView(this).apply {
+                text = "Confirm approval for this hall rental booking?"
+                setTextColor(getColor(R.color.text_primary))
+                textSize = 14f
+                setPadding(0, 0, 0, 16)
+            }
+            dialogContent.addView(infoTv)
+        }
+
+        dialogContent.addView(input)
+
         MaterialAlertDialogBuilder(this)
-            .setTitle("✅ Approve Rental Request")
-            .setMessage("Confirm approval for this hall rental?")
-            .setView(input)
-            .setPositiveButton("Approve") { _, _ ->
+            .setTitle(if (!isPaid && balanceDue > 0) "⚠️ Approve Unpaid Booking" else "✅ Approve Rental Request")
+            .setView(dialogContent)
+            .setPositiveButton(if (!isPaid && balanceDue > 0) "Approve Without Full Payment" else "Approve") { _, _ ->
                 val note = input.text.toString().trim()
                 executeApproval(note)
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun promptTimePicker(isStartTime: Boolean) {
+        val currentText = if (isStartTime) binding.editStartTime.text.toString().trim() else binding.editEndTime.text.toString().trim()
+        val cal = Calendar.getInstance()
+        try {
+            val sdf = SimpleDateFormat("h:mm a", Locale.US)
+            val parsed = sdf.parse(currentText)
+            if (parsed != null) cal.time = parsed
+        } catch (_: Exception) {
+            cal.set(Calendar.HOUR_OF_DAY, if (isStartTime) 14 else 22)
+            cal.set(Calendar.MINUTE, 0)
+        }
+
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+
+        TimePickerDialog(this, { _, h, m ->
+            val selected = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+            }
+            val timeStr = SimpleDateFormat("h:mm a", Locale.US).format(selected.time)
+            if (isStartTime) {
+                binding.editStartTime.setText(timeStr)
+            } else {
+                binding.editEndTime.setText(timeStr)
+            }
+        }, hour, minute, false).show()
     }
 
     private fun executeApproval(note: String) {
@@ -1440,7 +1820,7 @@ class RentalDetailActivity : AppCompatActivity() {
         val amountInput = EditText(this).apply {
             hint = "Payment Amount ($)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(if (remaining > 0) String.format(Locale.US, "%.2f", remaining) else "")
+            setText("")
             setPadding(20, 20, 20, 20)
             setBackgroundResource(R.drawable.bg_edittext_dark)
             setTextColor(getColor(R.color.text_primary))
@@ -1478,7 +1858,7 @@ class RentalDetailActivity : AppCompatActivity() {
 
         // Payment Method Dropdown/Spinner
         val methodSpinner = android.widget.Spinner(this).apply {
-            val methods = listOf("Cash", "Check", "Credit Card", "Venmo", "Online", "Other")
+            val methods = listOf("Cash", "Check", "Credit Card", "Venmo", "Online", "Waived / Complimentary", "Other")
             adapter = android.widget.ArrayAdapter(this@RentalDetailActivity, android.R.layout.simple_spinner_dropdown_item, methods)
             setBackgroundResource(R.drawable.bg_spinner_dark)
             setPadding(20, 20, 20, 20)
@@ -1521,34 +1901,195 @@ class RentalDetailActivity : AppCompatActivity() {
                 val method = methodSpinner.selectedItem?.toString() ?: "Cash"
                 val note = noteInput.text.toString().trim().ifEmpty { null }
                 val isDep = depositCheck?.isChecked ?: false
-                executeRecordPayment(amt, method, note, isDep)
+
+                if (method.contains("Waived", ignoreCase = true)) {
+                    confirmWaivePayment(amt, note, isDep)
+                } else {
+                    executeRecordPayment(amt, method, note, isDep, isWaived = false)
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun executeRecordPayment(amount: Double, method: String, note: String?, markAsDeposit: Boolean) {
-        showLoading("Recording Payment...")
+    private fun promptWaivePayment() {
+        val item = rentalDetail ?: return
+        val currentPaid = item.amountPaid
+        val total = item.totalPrice
+        val remaining = Math.max(0.0, total - currentPaid)
+        val deposit = item.securityDepositAmount
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        val summaryTv = TextView(this).apply {
+            text = "Total Price: $${total.toInt()}  •  Paid: $${currentPaid.toInt()}  •  Remaining Balance: $${remaining.toInt()}"
+            setTextColor(getColor(R.color.status_yellow))
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 16)
+        }
+        dialogView.addView(summaryTv)
+
+        val lblAmt = TextView(this).apply {
+            text = "Amount to Waive ($):"
+            setTextColor(getColor(R.color.text_primary))
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 8)
+        }
+        dialogView.addView(lblAmt)
+
+        val amountInput = EditText(this).apply {
+            hint = "Waiver Amount ($)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(if (remaining > 0) String.format(Locale.US, "%.2f", remaining) else String.format(Locale.US, "%.2f", total))
+            setPadding(20, 20, 20, 20)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
+        }
+        dialogView.addView(amountInput)
+
+        // Presets row
+        val presetsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 12)
+        }
+        if (remaining > 0) {
+            val btnFull = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Full Balance ($${remaining.toInt()})"
+                textSize = 11f
+                setOnClickListener { amountInput.setText(String.format(Locale.US, "%.2f", remaining)) }
+            }
+            presetsLayout.addView(btnFull)
+        }
+        dialogView.addView(presetsLayout)
+
+        val lblReason = TextView(this).apply {
+            text = "Waiver Reason (Required):"
+            setTextColor(getColor(R.color.text_primary))
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 8, 0, 8)
+        }
+        dialogView.addView(lblReason)
+
+        val reasonPresets = listOf(
+            "-- Select reason preset (Optional) --",
+            "Board of Directors / Officer Authorization",
+            "Complimentary Member Booking",
+            "Charity / Community Non-Profit Event",
+            "Facility Maintenance / Schedule Compensation",
+            "Dispute Resolution / Customer Goodwill",
+            "Other / Custom Authorization"
+        )
+        val noteInput = EditText(this).apply {
+            hint = "Type waiver reason & authorization notes..."
+            setPadding(20, 20, 20, 20)
+            minLines = 2
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
+            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = 12
+            }
+            layoutParams = params
+        }
+
+        val reasonSpinner = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@RentalDetailActivity, android.R.layout.simple_spinner_dropdown_item, reasonPresets)
+            setBackgroundResource(R.drawable.bg_spinner_dark)
+            setPadding(20, 20, 20, 20)
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (position > 0 && !reasonPresets[position].contains("Other", ignoreCase = true)) {
+                        noteInput.setText(reasonPresets[position])
+                    }
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        }
+        dialogView.addView(reasonSpinner)
+        dialogView.addView(noteInput)
+
+        val depositCheck = if (item.requireSecurityDeposit) {
+            android.widget.CheckBox(this).apply {
+                text = "Mark Security Deposit as Waived / Covered"
+                isChecked = !item.securityDepositPaid
+                setTextColor(getColor(R.color.text_primary))
+                val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = 12
+                }
+                layoutParams = params
+            }.also { dialogView.addView(it) }
+        } else null
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🎁 Waive Payment / Fees")
+            .setView(dialogView)
+            .setPositiveButton("Continue") { _, _ ->
+                val amt = amountInput.text.toString().toDoubleOrNull() ?: 0.0
+                if (amt <= 0.0) {
+                    Toast.makeText(this, "Please enter a valid waiver amount.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val reason = noteInput.text.toString().trim()
+                if (reason.isEmpty()) {
+                    Toast.makeText(this, "A reason is required to waive payment.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val isDep = depositCheck?.isChecked ?: false
+                confirmWaivePayment(amt, reason, isDep)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmWaivePayment(amount: Double, reason: String?, markAsDeposit: Boolean) {
+        val item = rentalDetail ?: return
+        val applicant = item.applicantName
+        val reasonText = if (!reason.isNullOrBlank()) reason else "Administrative waiver"
+
+        val confirmationMessage = "Are you sure you want to WAIVE $${amount.toInt()} for $applicant?\n\n" +
+                "• Amount: $${String.format(Locale.US, "%.2f", amount)}\n" +
+                "• Reason: $reasonText\n" +
+                (if (markAsDeposit) "• Security Deposit: Waived / Covered\n\n" else "\n") +
+                "This action will record a fee waiver on this booking and update the payment status."
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("⚠️ Confirm Payment Waiver")
+            .setMessage(confirmationMessage)
+            .setPositiveButton("Yes, Waive Payment") { _, _ ->
+                executeRecordPayment(amount, "Waived", reason, markAsDeposit, isWaived = true)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeRecordPayment(amount: Double, method: String, note: String?, markAsDeposit: Boolean, isWaived: Boolean = false) {
+        showLoading(if (isWaived) "Applying Payment Waiver..." else "Recording Payment...")
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val payload = RecordPaymentPayload(amount, method, note, markAsDeposit)
+                val payload = RecordPaymentPayload(amount, method, note, markAsDeposit, isWaived)
                 val response = ApiClient.service.recordPayment(rentalId, payload)
                 withContext(Dispatchers.Main) {
                     hideLoading()
                     if (response.isSuccessful && response.body()?.success == true) {
-                        Toast.makeText(this@RentalDetailActivity, "💵 Payment recorded successfully!", Toast.LENGTH_LONG).show()
+                        val msg = if (isWaived) "🎁 Payment waiver applied successfully!" else "💵 Payment recorded successfully!"
+                        Toast.makeText(this@RentalDetailActivity, msg, Toast.LENGTH_LONG).show()
                         loadRentalDetail()
                     } else {
                         val errMsg = try {
                             val errJson = response.errorBody()?.string()
                             if (!errJson.isNullOrBlank()) {
                                 val obj = org.json.JSONObject(errJson)
-                                obj.optString("error", obj.optString("message", "Failed to record payment."))
+                                obj.optString("error", obj.optString("message", "Failed to process payment."))
                             } else {
-                                response.body()?.message ?: "Failed to record payment."
+                                response.body()?.message ?: "Failed to process payment."
                             }
                         } catch (e: Exception) {
-                            response.body()?.message ?: "Failed to record payment."
+                            response.body()?.message ?: "Failed to process payment."
                         }
                         Toast.makeText(this@RentalDetailActivity, "❌ $errMsg", Toast.LENGTH_LONG).show()
                     }
@@ -1621,5 +2162,489 @@ class RentalDetailActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun promptLogCallOutcome() {
+        val outcomes = arrayOf("Spoke with Applicant", "Left Voicemail", "No Answer / Busy", "Follow-up Required")
+        var selectedIndex = 0
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        val noteInput = EditText(this).apply {
+            hint = "Optional call summary / notes..."
+            setTextColor(getColor(R.color.text_primary))
+            setHintTextColor(getColor(R.color.text_muted))
+            textSize = 14f
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setPadding(20, 20, 20, 20)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 16
+            }
+            layoutParams = params
+        }
+        dialogView.addView(noteInput)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("📞 Log Call Outcome")
+            .setSingleChoiceItems(outcomes, selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setView(dialogView)
+            .setPositiveButton("Save Record") { _, _ ->
+                val outcome = outcomes[selectedIndex]
+                val note = noteInput.text.toString().trim().ifEmpty { null }
+                executeLogCorrespondence("call", outcome, note)
+            }
+            .setNegativeButton("Skip", null)
+            .show()
+    }
+
+    private fun promptLogCorrespondence(type: String? = null) {
+        val types = arrayOf("Phone Call", "SMS / Text Message", "Email", "Internal Staff Note")
+        val typeKeys = arrayOf("call", "sms", "email", "note")
+        var selectedTypeIndex = if (type != null) typeKeys.indexOf(type).coerceAtLeast(0) else 0
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
+        val outcomeInput = EditText(this).apply {
+            hint = when (type) {
+                "sms" -> "e.g., Sent inquiry response & availability details"
+                "email" -> "e.g., Sent quote & pricing breakdown"
+                else -> "Summary outcome / topic..."
+            }
+            setTextColor(getColor(R.color.text_primary))
+            setHintTextColor(getColor(R.color.text_muted))
+            textSize = 14f
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setPadding(20, 20, 20, 20)
+        }
+        dialogView.addView(outcomeInput)
+
+        val noteInput = EditText(this).apply {
+            hint = "Additional correspondence notes (optional)..."
+            setTextColor(getColor(R.color.text_primary))
+            setHintTextColor(getColor(R.color.text_muted))
+            textSize = 14f
+            minLines = 2
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setPadding(20, 20, 20, 20)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 16
+            }
+            layoutParams = params
+        }
+        dialogView.addView(noteInput)
+
+        val title = when (type) {
+            "sms" -> "💬 Log SMS / Text Message"
+            "email" -> "✉️ Log Email Sent"
+            else -> "📝 Log Correspondence & Reply"
+        }
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setView(dialogView)
+            .setPositiveButton("Save Record") { _, _ ->
+                val chosenType = typeKeys[selectedTypeIndex]
+                val outcome = outcomeInput.text.toString().trim().ifEmpty { 
+                    when (chosenType) {
+                        "sms" -> "SMS Message Sent"
+                        "email" -> "Email Sent"
+                        "call" -> "Phone Call"
+                        else -> "Staff Note"
+                    }
+                }
+                val note = noteInput.text.toString().trim().ifEmpty { null }
+                executeLogCorrespondence(chosenType, outcome, note)
+            }
+            .setNegativeButton("Cancel", null)
+
+        if (type == null) {
+            builder.setSingleChoiceItems(types, selectedTypeIndex) { _, which ->
+                selectedTypeIndex = which
+            }
+        }
+
+        builder.show()
+    }
+
+    private fun executeLogCorrespondence(type: String, outcome: String?, notes: String?) {
+        showLoading("Logging Correspondence...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val payload = LogCorrespondencePayload(type = type, outcome = outcome, notes = notes)
+                val response = ApiClient.service.logCorrespondence(rentalId, payload)
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@RentalDetailActivity, "📝 Correspondence logged successfully!", Toast.LENGTH_SHORT).show()
+                        loadRentalDetail()
+                    } else {
+                        Toast.makeText(this@RentalDetailActivity, "Failed to log correspondence.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun promptArchiveInquiry() {
+        val isArchived = rentalDetail?.status.equals("Archived", ignoreCase = true)
+        val title = if (isArchived) "📦 Restore Inquiry" else "📦 Archive Inquiry to FAQ Pool"
+        val message = if (isArchived) {
+            "Restore this inquiry back to active inquiries list?"
+        } else {
+            "Archive this inquiry into the FAQ Review & Reference Pool?\n\nThis marks the inquiry as answered/archived and moves it out of active inquiries."
+        }
+        val buttonText = if (isArchived) "Restore" else "Archive"
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(buttonText) { _, _ ->
+                executeArchiveInquiry(!isArchived)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeArchiveInquiry(archive: Boolean) {
+        showLoading(if (archive) "Archiving Inquiry..." else "Restoring Inquiry...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val payload = ArchiveRentalPayload(archive = archive)
+                val response = ApiClient.service.archiveRental(rentalId, payload)
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        val msg = if (archive) "Inquiry archived to FAQ pool." else "Inquiry restored to active list."
+                        Toast.makeText(this@RentalDetailActivity, msg, Toast.LENGTH_SHORT).show()
+                        loadRentalDetail()
+                    } else {
+                        Toast.makeText(this@RentalDetailActivity, "Failed to update inquiry archive status.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    Toast.makeText(this@RentalDetailActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun fetchUnavailableDates(onComplete: (() -> Unit)? = null) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val resp = ApiClient.service.getUnavailableDates()
+                if (resp.isSuccessful && resp.body() != null) {
+                    cachedUnavailableDates = resp.body()!!
+                    withContext(Dispatchers.Main) {
+                        checkScheduleConflicts()
+                        onComplete?.invoke()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    enum class DaySlotStatus {
+        ORIGINAL_BOOKING,
+        AVAILABLE,
+        BOOKED
+    }
+
+    data class DaySlotEvaluation(
+        val name: String,
+        val startTime: String,
+        val endTime: String,
+        val status: DaySlotStatus,
+        val bookedReason: String? = null
+    )
+
+    private fun checkScheduleConflicts() {
+        if (!isEditMode || isInquiryMode) {
+            binding.cardConflictWarning.visibility = View.GONE
+            binding.layoutQuickSelectSlots.visibility = View.GONE
+            hasActiveConflict = false
+            return
+        }
+
+        val targetDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedEventCalendar.time)
+        val targetStart = binding.editStartTime.text.toString().trim()
+        val targetEnd = binding.editEndTime.text.toString().trim()
+        val targetRoom = binding.editRoomSelected.text.toString().trim().ifEmpty { "Function Hall" }
+
+        val isSecondaryRoom = targetRoom.contains("Office", ignoreCase = true) ||
+                targetRoom.contains("Board", ignoreCase = true) ||
+                targetRoom.contains("Lounge", ignoreCase = true)
+
+        val cur = rentalDetail
+        val origDate = originalDateStr ?: cur?.eventDate?.substringBefore('T')
+        val origTime = if (!originalStartTime.isNullOrBlank() && !originalEndTime.isNullOrBlank()) "$originalStartTime - $originalEndTime" else null
+        val origApplicant = cur?.applicantName?.lowercase(Locale.US) ?: ""
+
+        // Filter out self and get all other events on the same day for this room type
+        val otherEventsOnDate = cachedUnavailableDates.filter { ev ->
+            val evDate = ev.date.substringBefore('T')
+            if (evDate != targetDateStr) return@filter false
+            
+            // 1. Check ID
+            if (ev.id != 0 && ev.id == rentalId) return@filter false
+
+            // 2. Check if this is the current booking itself represented in external feeds/calendars
+            val desc = ev.eventType ?: ""
+            if (origDate == targetDateStr && origApplicant.isNotBlank() && desc.lowercase(Locale.US).contains(origApplicant)) {
+                return@filter false
+            }
+            if (origDate == targetDateStr && origTime != null && ev.eventTime == origTime && (desc.contains("Rental", ignoreCase = true) || desc.contains(cur?.eventType ?: "", ignoreCase = true))) {
+                return@filter false
+            }
+
+            // 3. Room matching
+            val evIsSecondary = desc.contains("Office", ignoreCase = true) ||
+                    desc.contains("Board", ignoreCase = true) ||
+                    desc.contains("Lounge", ignoreCase = true)
+
+            if (isSecondaryRoom && !evIsSecondary) return@filter false
+            if (!isSecondaryRoom && evIsSecondary) return@filter false
+
+            true
+        }
+
+        // Calculate all slot states (Original Booking, Available, and Booked)
+        val allDaySlots = computeAllDaySlotEvaluations(otherEventsOnDate)
+        renderQuickSlotChips(allDaySlots)
+
+        // Evaluate if the currently entered Start/End time has a collision
+        if (targetStart.isBlank() || targetEnd.isBlank()) {
+            hasActiveConflict = false
+            binding.cardConflictWarning.visibility = View.GONE
+            return
+        }
+
+        val startMin = parseTimeToMinutes(targetStart)
+        val endMin = parseTimeToMinutes(targetEnd)
+
+        val conflicts = otherEventsOnDate.filter { ev ->
+            val evTime = ev.eventTime
+            if (evTime.isNullOrBlank()) return@filter true
+
+            val parts = evTime.split("-", "to", "–")
+            if (parts.size == 2) {
+                val evSt = parseTimeToMinutes(parts[0].trim())
+                val evEt = parseTimeToMinutes(parts[1].trim())
+                return@filter (startMin < evEt && endMin > evSt)
+            }
+            true
+        }
+
+        if (conflicts.isNotEmpty()) {
+            hasActiveConflict = true
+            binding.cardConflictWarning.setCardBackgroundColor(android.graphics.Color.parseColor("#2A1515"))
+            binding.cardConflictWarning.strokeColor = getColor(R.color.status_red)
+            binding.txtConflictTitle.text = "⚠️ Schedule Conflict"
+            binding.txtConflictTitle.setTextColor(getColor(R.color.status_red))
+            binding.txtConflictBadge.text = "BOOKED"
+            binding.txtConflictBadge.setTextColor(getColor(R.color.status_red))
+            binding.txtConflictDetails.setTextColor(android.graphics.Color.parseColor("#FFCCCC"))
+
+            val sb = StringBuilder()
+            conflicts.forEach { c ->
+                val desc = c.eventType ?: "Booked Event / Rental"
+                val timeInfo = if (!c.eventTime.isNullOrBlank()) " (${c.eventTime})" else " (Full Day)"
+                sb.append("• $desc$timeInfo in $targetRoom is already scheduled.\n")
+            }
+            binding.txtConflictDetails.text = sb.toString().trim()
+            binding.cardConflictWarning.visibility = View.VISIBLE
+        } else {
+            hasActiveConflict = false
+            binding.cardConflictWarning.visibility = View.GONE
+        }
+    }
+
+    private fun renderQuickSlotChips(evaluatedSlots: List<DaySlotEvaluation>) {
+        binding.chipGroupQuickSlots.removeAllViews()
+        if (!isEditMode || isInquiryMode || evaluatedSlots.isEmpty()) {
+            binding.layoutQuickSelectSlots.visibility = View.GONE
+            return
+        }
+
+        val targetDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedEventCalendar.time)
+        val isOriginalDate = (originalDateStr != null && targetDateStr == originalDateStr)
+        val dayName = SimpleDateFormat("EEEE", Locale.US).format(selectedEventCalendar.time)
+        val displayFormat = SimpleDateFormat("EEE, MMM dd, yyyy", Locale.US)
+
+        binding.lblQuickSlotsTitle.text = "🕒 Daily Schedule ($dayName Slots - Tap to select):"
+
+        if (!isOriginalDate && originalDateStr != null) {
+            val origDateDisplay = displayFormat.format(originalEventCalendar.time)
+            binding.txtOriginalBookingReminder.text = "📌 Original Booking was: $origDateDisplay (${originalStartTime ?: "N/A"} – ${originalEndTime ?: "N/A"})"
+            binding.txtOriginalBookingReminder.visibility = View.VISIBLE
+        } else {
+            binding.txtOriginalBookingReminder.visibility = View.GONE
+        }
+
+        binding.layoutQuickSelectSlots.visibility = View.VISIBLE
+
+        for (slot in evaluatedSlots) {
+            val chip = Chip(this).apply {
+                isCheckable = false
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+
+                when (slot.status) {
+                    DaySlotStatus.ORIGINAL_BOOKING -> {
+                        text = "📌 ${slot.name}: ${slot.startTime} – ${slot.endTime} (Original Booking)"
+                        chipBackgroundColor = ColorStateList.valueOf(android.graphics.Color.parseColor("#142938"))
+                        chipStrokeColor = ColorStateList.valueOf(getColor(R.color.cyan_accent))
+                        chipStrokeWidth = 2f
+                        setTextColor(getColor(R.color.cyan_accent))
+                        isClickable = true
+                        setOnClickListener {
+                            binding.editStartTime.setText(slot.startTime)
+                            binding.editEndTime.setText(slot.endTime)
+                            checkScheduleConflicts()
+                            Toast.makeText(this@RentalDetailActivity, "Restored original slot: ${slot.startTime} – ${slot.endTime}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    DaySlotStatus.AVAILABLE -> {
+                        text = "🟢 ${slot.name}: ${slot.startTime} – ${slot.endTime} (Available)"
+                        chipBackgroundColor = ColorStateList.valueOf(android.graphics.Color.parseColor("#153326"))
+                        chipStrokeColor = ColorStateList.valueOf(getColor(R.color.emerald_accent))
+                        chipStrokeWidth = 2f
+                        setTextColor(getColor(R.color.emerald_accent))
+                        isClickable = true
+                        setOnClickListener {
+                            binding.editStartTime.setText(slot.startTime)
+                            binding.editEndTime.setText(slot.endTime)
+                            checkScheduleConflicts()
+                            Toast.makeText(this@RentalDetailActivity, "Selected: ${slot.startTime} – ${slot.endTime}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    DaySlotStatus.BOOKED -> {
+                        val reason = slot.bookedReason ?: "Existing Booking"
+                        text = "🔴 ${slot.name}: ${slot.startTime} – ${slot.endTime} (Booked: $reason)"
+                        chipBackgroundColor = ColorStateList.valueOf(android.graphics.Color.parseColor("#2A1515"))
+                        chipStrokeColor = ColorStateList.valueOf(getColor(R.color.status_red))
+                        chipStrokeWidth = 1.5f
+                        setTextColor(android.graphics.Color.parseColor("#FFAAAA"))
+                        isClickable = true
+                        setOnClickListener {
+                            Toast.makeText(this@RentalDetailActivity, "⛔ Unavailable: Slot is booked for '$reason'.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            binding.chipGroupQuickSlots.addView(chip)
+        }
+    }
+
+    private fun computeAllDaySlotEvaluations(bookedEvents: List<UnavailableDateDto>): List<DaySlotEvaluation> {
+        val targetDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedEventCalendar.time)
+        val isOriginalDate = (originalDateStr != null && targetDateStr == originalDateStr)
+        val origSt = originalStartTime
+        val origEt = originalEndTime
+
+        // 1. Get Day-of-Week (0 = Sunday, 1 = Monday ... 6 = Saturday)
+        val dayOfWeek = selectedEventCalendar.get(Calendar.DAY_OF_WEEK) - 1
+        val configuredDay = rentalDetail?.availableDaySchedules?.firstOrNull { it.dayOfWeek == dayOfWeek }
+
+        val candidateSlots = mutableListOf<Triple<String, String, String>>()
+        if (configuredDay != null && !configuredDay.slots.isNullOrEmpty()) {
+            for (s in configuredDay.slots.filter { it.isActive }) {
+                candidateSlots.add(Triple(s.name ?: "Block", s.startTime.trim(), s.endTime.trim()))
+            }
+        }
+
+        if (candidateSlots.isEmpty()) {
+            candidateSlots.add(Triple("Morning Block", "9:00 AM", "1:00 PM"))
+            candidateSlots.add(Triple("Afternoon Block", "12:00 PM", "5:00 PM"))
+            candidateSlots.add(Triple("Evening Block", "6:00 PM", "11:00 PM"))
+        }
+
+        val bookedRanges = bookedEvents.mapNotNull { ev ->
+            val evTime = ev.eventTime
+            if (evTime.isNullOrBlank() || (!evTime.contains("-") && !evTime.contains("to") && !evTime.contains("–"))) {
+                Pair(Pair(0, 24 * 60), ev.eventType ?: "Booked Event")
+            } else {
+                val parts = evTime.split("-", "to", "–")
+                if (parts.size == 2) {
+                    Pair(Pair(parseTimeToMinutes(parts[0].trim()), parseTimeToMinutes(parts[1].trim())), ev.eventType ?: "Booked Event")
+                } else null
+            }
+        }
+
+        val results = mutableListOf<DaySlotEvaluation>()
+        for ((name, start, end) in candidateSlots) {
+            val candStart = parseTimeToMinutes(start)
+            val candEnd = parseTimeToMinutes(end)
+
+            // Check if this slot matches the original booking
+            val isOriginalSlot = isOriginalDate && (
+                start.equals(origSt, ignoreCase = true) ||
+                (origSt != null && origEt != null &&
+                 candStart == parseTimeToMinutes(origSt) &&
+                 candEnd == parseTimeToMinutes(origEt))
+            )
+
+            if (isOriginalSlot) {
+                results.add(DaySlotEvaluation(name, start, end, DaySlotStatus.ORIGINAL_BOOKING))
+            } else {
+                val collision = bookedRanges.firstOrNull { b -> candStart < b.first.second && candEnd > b.first.first }
+                if (collision != null) {
+                    results.add(DaySlotEvaluation(name, start, end, DaySlotStatus.BOOKED, collision.second))
+                } else {
+                    results.add(DaySlotEvaluation(name, start, end, DaySlotStatus.AVAILABLE))
+                }
+            }
+        }
+        return results
+    }
+
+    private fun formatMinutesToTime(minutes: Int): String {
+        val h = (minutes / 60) % 24
+        val m = minutes % 60
+        val isPm = h >= 12
+        val displayH = if (h == 0) 12 else if (h > 12) h - 12 else h
+        return if (m == 0) {
+            String.format(Locale.US, "%d:00 %s", displayH, if (isPm) "PM" else "AM")
+        } else {
+            String.format(Locale.US, "%d:%02d %s", displayH, m, if (isPm) "PM" else "AM")
+        }
+    }
+
+    private fun parseTimeToMinutes(timeStr: String): Int {
+        try {
+            val clean = timeStr.trim().uppercase(Locale.US)
+            val isPm = clean.contains("PM")
+            val isAm = clean.contains("AM")
+            val digits = clean.replace("AM", "").replace("PM", "").trim()
+            val parts = digits.split(":")
+            if (parts.isNotEmpty()) {
+                var hours = parts[0].toInt()
+                val minutes = if (parts.size > 1) parts[1].toInt() else 0
+                if (isPm && hours < 12) hours += 12
+                if (isAm && hours == 12) hours = 0
+                return hours * 60 + minutes
+            }
+        } catch (_: Exception) {}
+        return 0
     }
 }
