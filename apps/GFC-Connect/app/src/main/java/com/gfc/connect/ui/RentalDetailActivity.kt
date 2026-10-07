@@ -50,6 +50,7 @@ class RentalDetailActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_RENTAL_ID = "extra_rental_id"
+        const val EXTRA_IS_INQUIRY = "extra_is_inquiry"
     }
 
     private lateinit var binding: ActivityRentalDetailBinding
@@ -71,12 +72,16 @@ class RentalDetailActivity : AppCompatActivity() {
 
     private val statusOptions = listOf("Pending", "Approved", "Denied", "Completed", "Cancelled", "Inquiry", "Responded", "Archived")
 
+    private lateinit var networkMonitor: com.gfc.connect.api.NetworkMonitor
+    private var isOfflineMode: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityRentalDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         cacheManager = RentalCacheManager(this)
+        networkMonitor = com.gfc.connect.api.NetworkMonitor(this)
 
         rentalId = intent.getIntExtra(EXTRA_RENTAL_ID, 0)
         if (rentalId == 0) {
@@ -85,8 +90,12 @@ class RentalDetailActivity : AppCompatActivity() {
             return
         }
 
+        val initialIsInquiry = intent.getBooleanExtra(EXTRA_IS_INQUIRY, false)
         setupToolbar()
-        setupTabs(isInquiry = false)
+        setupTabs(isInquiry = initialIsInquiry)
+        if (initialIsInquiry) {
+            binding.btnToggleEdit.visibility = View.GONE
+        }
         setupStatusSpinner()
         setupListeners()
 
@@ -96,9 +105,21 @@ class RentalDetailActivity : AppCompatActivity() {
             rentalDetail = cached
             populateUI(cached)
         }
+        updateLastSyncLabel()
 
         // 2. Fresh Network Sync
         loadRentalDetail(silent = cached != null)
+        observeNetwork()
+    }
+
+    private fun observeNetwork() {
+        lifecycleScope.launch {
+            networkMonitor.observeNetworkState().collect { online ->
+                if (online && isOfflineMode) {
+                    loadRentalDetail(silent = true)
+                }
+            }
+        }
     }
 
     private fun setupToolbar() {
@@ -342,6 +363,16 @@ class RentalDetailActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateLastSyncLabel() {
+        val syncTime = cacheManager.getLastSyncTime()
+        if (syncTime > 0) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.US)
+            binding.toolbarDetail.subtitle = "Synced: ${sdf.format(Date(syncTime))}"
+        } else {
+            binding.toolbarDetail.subtitle = null
+        }
+    }
+
     private fun loadRentalDetail(silent: Boolean = false) {
         if (!silent) {
             showLoading("Syncing Booking Details...")
@@ -355,18 +386,24 @@ class RentalDetailActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     hideLoading()
                     if (response.isSuccessful && response.body() != null) {
+                        isOfflineMode = false
                         rentalDetail = response.body()
                         rentalDetail?.let {
                             cacheManager.saveRentalDetail(it)
                             populateUI(it)
                         }
+                        updateLastSyncLabel()
                     } else if (rentalDetail == null) {
+                        isOfflineMode = true
+                        updateLastSyncLabel()
                         Toast.makeText(this@RentalDetailActivity, "Failed to load booking details.", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     hideLoading()
+                    isOfflineMode = true
+                    updateLastSyncLabel()
                     if (rentalDetail == null) {
                         Toast.makeText(this@RentalDetailActivity, "Offline: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                     }
@@ -382,6 +419,7 @@ class RentalDetailActivity : AppCompatActivity() {
                         item.status.equals("Archived", ignoreCase = true)
 
         setupTabs(isInquiry)
+        binding.btnToggleEdit.visibility = if (isInquiry) View.GONE else View.VISIBLE
 
         // Header
         binding.txtHeaderApplicantName.text = "👤 ${item.applicantName}"
@@ -553,6 +591,7 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.editSecurityDeposit.setText("0")
         }
         binding.editAmountPaid.setText(item.amountPaid.toString())
+        binding.txtBalanceSummary.text = "Original Amount Due: ${currencyFormat.format(item.totalPrice)}\nPayments Received: ${currencyFormat.format(item.amountPaid)}\nRemaining Balance: ${currencyFormat.format(Math.max(0.0, item.totalPrice - item.amountPaid))}"
         binding.switchIsPaid.isChecked = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
         binding.switchIsPaid.setTextColor(getColor(if (binding.switchIsPaid.isChecked) R.color.text_primary else R.color.text_secondary))
 
@@ -1178,6 +1217,15 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun toggleEditMode(enable: Boolean) {
+        if (enable && (isOfflineMode || !networkMonitor.isOnline)) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. Editing booking details is disabled while offline to avoid conflicting changes. Please connect to the network to edit.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         isEditMode = enable
         binding.btnToggleEdit.text = if (enable) "Done" else "Edit"
         binding.cardSaveBar.visibility = if (enable) View.VISIBLE else View.GONE
@@ -1554,7 +1602,20 @@ class RentalDetailActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkOfflineAndAlert(): Boolean {
+        if (isOfflineMode || !networkMonitor.isOnline) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. Booking actions, payments, and edits cannot be submitted while offline. Please connect to the network to perform this action.")
+                .setPositiveButton("OK", null)
+                .show()
+            return true
+        }
+        return false
+    }
+
     private fun promptApprove() {
+        if (checkOfflineAndAlert()) return
         val item = rentalDetail
         val paidAmount = item?.amountPaid ?: 0.0
         val totalQuote = item?.totalPrice ?: 0.0
@@ -1658,6 +1719,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptDeny() {
+        if (checkOfflineAndAlert()) return
         val input = EditText(this).apply {
             hint = "Reason for denial..."
             setPadding(40, 24, 40, 24)
@@ -1699,6 +1761,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptCancel() {
+        if (checkOfflineAndAlert()) return
         val input = EditText(this).apply {
             hint = "Optional cancellation reason..."
             setPadding(40, 24, 40, 24)
@@ -1742,6 +1805,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptDelete() {
+        if (checkOfflineAndAlert()) return
         val applicantName = rentalDetail?.applicantName ?: "this record"
 
         MaterialAlertDialogBuilder(this)
@@ -1797,6 +1861,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptRecordPayment() {
+        if (checkOfflineAndAlert()) return
         val item = rentalDetail ?: return
         val currentPaid = item.amountPaid
         val total = item.totalPrice
@@ -1913,6 +1978,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptWaivePayment() {
+        if (checkOfflineAndAlert()) return
         val item = rentalDetail ?: return
         val currentPaid = item.amountPaid
         val total = item.totalPrice
@@ -2104,6 +2170,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptSendPaymentReminder() {
+        if (checkOfflineAndAlert()) return
         val item = rentalDetail ?: return
         val email = item.requesterEmail?.trim().orEmpty()
         if (email.isEmpty()) {
@@ -2165,6 +2232,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptLogCallOutcome() {
+        if (checkOfflineAndAlert()) return
         val outcomes = arrayOf("Spoke with Applicant", "Left Voicemail", "No Answer / Busy", "Follow-up Required")
         var selectedIndex = 0
 
@@ -2206,6 +2274,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptLogCorrespondence(type: String? = null) {
+        if (checkOfflineAndAlert()) return
         val types = arrayOf("Phone Call", "SMS / Text Message", "Email", "Internal Staff Note")
         val typeKeys = arrayOf("call", "sms", "email", "note")
         var selectedTypeIndex = if (type != null) typeKeys.indexOf(type).coerceAtLeast(0) else 0
@@ -2305,6 +2374,7 @@ class RentalDetailActivity : AppCompatActivity() {
     }
 
     private fun promptArchiveInquiry() {
+        if (checkOfflineAndAlert()) return
         val isArchived = rentalDetail?.status.equals("Archived", ignoreCase = true)
         val title = if (isArchived) "📦 Restore Inquiry" else "📦 Archive Inquiry to FAQ Pool"
         val message = if (isArchived) {

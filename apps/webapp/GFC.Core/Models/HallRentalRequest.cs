@@ -39,6 +39,9 @@ namespace GFC.Core.Models
         public bool AvEquipmentUsage { get; set; }
         public bool RequiresSetupTime { get; set; }
         public bool SecurityDepositPaid { get; set; }
+
+        /// <summary>Id of the Google Calendar event pushed for this rental (null until first sync).</summary>
+        public string? GoogleEventId { get; set; }
         public decimal SecurityDepositAmount { get; set; }
         public DateTime RequestedDate { get; set; }
         

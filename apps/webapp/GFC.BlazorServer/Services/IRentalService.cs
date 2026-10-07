@@ -50,6 +50,7 @@ namespace GFC.BlazorServer.Services
         event System.Action? OnCalendarUpdated;
         void NotifyCalendarUpdated();
         Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request);
+        Task RemoveRentalFromGoogleCalendarAsync(HallRentalRequest request);
     }
 }
 

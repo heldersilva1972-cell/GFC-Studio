@@ -48,6 +48,23 @@ class RentalCacheManager(context: Context) {
         }
     }
 
+    fun saveUnavailableDates(items: List<com.gfc.connect.data.models.UnavailableDateDto>) {
+        val json = gson.toJson(items)
+        prefs.edit()
+            .putString(KEY_UNAVAILABLE_DATES, json)
+            .apply()
+    }
+
+    fun getUnavailableDates(): List<com.gfc.connect.data.models.UnavailableDateDto> {
+        val json = prefs.getString(KEY_UNAVAILABLE_DATES, null) ?: return emptyList()
+        val type = object : TypeToken<List<com.gfc.connect.data.models.UnavailableDateDto>>() {}.type
+        return try {
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     fun getLastSyncTime(): Long = prefs.getLong(KEY_LAST_SYNC, 0L)
 
     fun clearCache() {
@@ -57,6 +74,7 @@ class RentalCacheManager(context: Context) {
     companion object {
         private const val PREFS_NAME = "gfc_rentals_local_cache"
         private const val KEY_RENTALS_LIST = "cache_rentals_list"
+        private const val KEY_UNAVAILABLE_DATES = "cache_unavailable_dates"
         private const val KEY_RENTAL_DETAIL_PREFIX = "cache_rental_detail_"
         private const val KEY_LAST_SYNC = "cache_last_sync_timestamp"
     }

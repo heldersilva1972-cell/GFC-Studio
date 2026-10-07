@@ -964,6 +964,23 @@ namespace GFC.BlazorServer.Controllers
                 var nowStamp = DateTime.Now.ToString("yyyy-MM-dd h:mm tt");
 
                 var currentPaid = request.AmountPaid;
+
+                // Back-fill legacy payments that were recorded only on the request (no ledger rows)
+                var existingLedger = (await _rentalService.GetPaymentsForRequestAsync(id)).ToList();
+                var ledgerSum = existingLedger.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+                if (currentPaid > ledgerSum)
+                {
+                    await _rentalService.RecordPaymentAsync(new HallRentalPayment
+                    {
+                        HallRentalRequestId = id,
+                        PaymentType = "Rental Fee",
+                        Amount = currentPaid - ledgerSum,
+                        PaymentDate = request.PaymentDate ?? DateTime.Today,
+                        PaymentMethod = request.PaymentMethod ?? "Other",
+                        RecordedBy = username,
+                        Notes = "Prior payments recorded before ledger sync"
+                    });
+                }
                 var isWaiveAction = payload.IsWaived || (payload.PaymentMethod?.Contains("Waive", StringComparison.OrdinalIgnoreCase) == true);
                 var waiveAmt = payload.Amount > 0 ? payload.Amount : Math.Max(0, request.TotalPrice - currentPaid);
 
@@ -1015,6 +1032,22 @@ namespace GFC.BlazorServer.Controllers
                 request.StatusChangedDate = DateTime.UtcNow;
 
                 await _rentalService.UpdateRentalRequestAsync(request);
+
+                // Record in the payments ledger so the webapp Hall Rentals page shows it
+                var ledgerAmount = isWaiveAction ? waiveAmt : payload.Amount;
+                if (ledgerAmount > 0)
+                {
+                    await _rentalService.RecordPaymentAsync(new HallRentalPayment
+                    {
+                        HallRentalRequestId = id,
+                        PaymentType = payload.MarkAsDeposit ? "Security Deposit" : "Rental Fee",
+                        Amount = ledgerAmount,
+                        PaymentDate = DateTime.Today,
+                        PaymentMethod = isWaiveAction ? "Waived" : (payload.PaymentMethod ?? "Other"),
+                        RecordedBy = username,
+                        Notes = payload.Note
+                    });
+                }
 
                 var successMsg = isWaiveAction 
                     ? $"Payment waiver of ${waiveAmt:N2} applied successfully." 

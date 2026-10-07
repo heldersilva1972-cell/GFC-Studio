@@ -144,6 +144,17 @@ class HallRentalsActivity : AppCompatActivity() {
             allRentals.addAll(cached)
             applyFilter()
         }
+        updateLastSyncLabel()
+    }
+
+    private fun updateLastSyncLabel() {
+        val syncTime = cacheManager.getLastSyncTime()
+        if (syncTime > 0) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.US)
+            binding.toolbarRentals.subtitle = "Synced: ${sdf.format(Date(syncTime))}"
+        } else {
+            binding.toolbarRentals.subtitle = null
+        }
     }
 
     private fun observeNetwork() {
@@ -225,6 +236,7 @@ class HallRentalsActivity : AppCompatActivity() {
                         // Save to local offline cache
                         cacheManager.saveRentals(remoteRentals)
 
+                        updateLastSyncLabel()
                         applyFilter()
 
                         if (isManual) {
@@ -246,6 +258,7 @@ class HallRentalsActivity : AppCompatActivity() {
 
     private fun handleFetchFailure(isManual: Boolean, reason: String) {
         isOfflineMode = true
+        updateLastSyncLabel()
 
         // If we have cached records on disk, show offline banner and keep cached data on screen
         if (allRentals.isNotEmpty()) {
@@ -264,6 +277,15 @@ class HallRentalsActivity : AppCompatActivity() {
     }
 
     private fun promptApprove(item: HallRentalDto) {
+        if (isOfflineMode || !networkMonitor.isOnline) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. Changes, approvals, and denials cannot be submitted while offline. Please connect to the network to perform this action.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         val paidAmount = item.amountPaid ?: 0.0
         val isPaid = item.isPaid == true || (paidAmount >= item.totalPrice && item.totalPrice > 0)
         val balanceDue = Math.max(0.0, item.totalPrice - paidAmount)
@@ -336,6 +358,15 @@ class HallRentalsActivity : AppCompatActivity() {
     }
 
     private fun promptDeny(item: HallRentalDto) {
+        if (isOfflineMode || !networkMonitor.isOnline) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. Changes, approvals, and denials cannot be submitted while offline. Please connect to the network to perform this action.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         val input = EditText(this).apply {
             hint = "Reason for denial..."
             setPadding(40, 24, 40, 24)
@@ -423,13 +454,32 @@ class HallRentalsActivity : AppCompatActivity() {
                     txtItemDateRange.text = "📅 Estimated Target: $dateStr"
                     txtItemDateRange.setTextColor(getColor(R.color.status_yellow))
 
-                    txtItemPrice.text = "Inquiry"
+                    // Dedicated Inquiry message preview & preference
+                    val question = item.eventDescription?.trim()?.ifEmpty { null }
+                        ?: "No inquiry message text recorded."
+                    txtItemInquiryQuestion.text = question
+
+                    val pref = item.preferredContactMethod?.trim().orEmpty()
+                    val prefStr = when {
+                        pref.equals("both", ignoreCase = true) -> "📞 Phone & ✉️ Email"
+                        pref.contains("phone", ignoreCase = true) || item.requestPhoneCall -> "📞 Phone Call"
+                        pref.contains("email", ignoreCase = true) -> "✉️ Email"
+                        item.requestPhoneCall -> "📞 Phone Call Requested"
+                        else -> "✉️ Email"
+                    }
+                    txtItemInquiryPrefBadge.text = prefStr
+                    layoutInquiryContent.visibility = View.VISIBLE
+
+                    // Inquiries don't have pricing or room setups
+                    layoutRightPriceCol.visibility = View.GONE
                     txtItemPaidBadge.visibility = View.GONE
                     txtItemRoomGuests.visibility = View.GONE
                     txtItemMatrixBadge.visibility = View.GONE
                     txtItemMemberVerifyBadge.visibility = View.GONE
                 } else {
                     layoutInquiryBanner.visibility = View.GONE
+                    layoutInquiryContent.visibility = View.GONE
+                    layoutRightPriceCol.visibility = View.VISIBLE
                     txtItemRoomGuests.visibility = View.VISIBLE
 
                     // Standard booking styling
@@ -551,6 +601,7 @@ class HallRentalsActivity : AppCompatActivity() {
                 root.setOnClickListener {
                     val intent = Intent(this@HallRentalsActivity, RentalDetailActivity::class.java).apply {
                         putExtra(RentalDetailActivity.EXTRA_RENTAL_ID, item.id)
+                        putExtra(RentalDetailActivity.EXTRA_IS_INQUIRY, isInquiry)
                     }
                     startActivity(intent)
                 }

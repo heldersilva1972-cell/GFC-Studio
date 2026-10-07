@@ -160,6 +160,8 @@ namespace GFC.BlazorServer.Services
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             context.Entry(request).State = EntityState.Modified;
+            // The Google event id is owned by the sync process; never overwrite it with a stale value
+            context.Entry(request).Property(r => r.GoogleEventId).IsModified = false;
 
             var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
             if (string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
@@ -176,6 +178,10 @@ namespace GFC.BlazorServer.Services
             if (string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
             {
                 _ = SyncRentalToGoogleCalendarAsync(request);
+            }
+            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = RemoveRentalFromGoogleCalendarAsync(request);
             }
 
             NotifyCalendarUpdated();
@@ -243,6 +249,7 @@ namespace GFC.BlazorServer.Services
 
             // Fire and forget email notification
             _ = _notificationService.SendRentalDenialEmailAsync(request, "Request denied by administrator");
+            await RemoveRentalFromGoogleCalendarAsync(request);
 
             NotifyCalendarUpdated();
             return true;
@@ -261,6 +268,7 @@ namespace GFC.BlazorServer.Services
 
                 context.HallRentalRequests.Remove(request);
                 await context.SaveChangesAsync();
+                await RemoveRentalFromGoogleCalendarAsync(request);
                 NotifyCalendarUpdated();
             }
         }
@@ -268,6 +276,16 @@ namespace GFC.BlazorServer.Services
         public async Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request)
         {
             if (request == null || _googleCalendarService == null) return;
+
+            // Inquiries should never be synced to the calendar
+            if (string.Equals(request.Status, RentalStatus.Inquiry, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.Status, "Responded", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.Status, "Archived", StringComparison.OrdinalIgnoreCase) ||
+                (request.EventType != null && request.EventType.Contains("Inquiry", StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
             try
             {
                 var calSettings = await _googleCalendarService.GetSettingsAsync();
@@ -416,12 +434,120 @@ namespace GFC.BlazorServer.Services
                         Description = lines.Any() ? string.Join("\n", lines) : $"{titlePrefix}{eventType}"
                     };
 
-                    await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                    // Replace the previously pushed event (by id when known) so approve/update never duplicates
+                    if (!string.IsNullOrWhiteSpace(request.GoogleEventId))
+                        await _googleCalendarService.DeleteGoogleEventAsync(request.GoogleEventId, activeCalSettings);
+                    else
+                        await RemoveMatchingGoogleEventsAsync(request, calSettings, activeCalSettings);
+
+                    var created = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                    if (created.Success && !string.IsNullOrWhiteSpace(created.EventId))
+                    {
+                        request.GoogleEventId = created.EventId;
+                        await using var idContext = await _contextFactory.CreateDbContextAsync();
+                        var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                        if (dbReq != null)
+                        {
+                            dbReq.GoogleEventId = created.EventId;
+                            await idContext.SaveChangesAsync();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[RentalService] Google Calendar sync warning: {ex.Message}");
+            }
+        }
+
+        private async Task RemoveMatchingGoogleEventsAsync(HallRentalRequest request, GoogleCalendarSettings readSettings, GoogleCalendarSettings writeSettings)
+        {
+            try
+            {
+                var eventDate = (request.EventDate != default ? request.EventDate : request.RequestedDate).Date;
+                var name = (request.ApplicantName ?? "").Trim();
+                var parenIdx = name.IndexOf('(');
+                if (parenIdx > 0) name = name.Substring(0, parenIdx).Trim();
+                if (string.IsNullOrWhiteSpace(name)) return;
+
+                var events = new List<CalendarEventItem>();
+                if (readSettings.Feeds != null && readSettings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+                {
+                    var fetched = await _googleCalendarService.FetchAllFeedsAsync(readSettings);
+                    if (fetched != null) events.AddRange(fetched);
+                }
+                else if (!string.IsNullOrWhiteSpace(readSettings.PublicCalendarUrl))
+                {
+                    var fetched = await _googleCalendarService.FetchEventsFromUrlAsync(readSettings.PublicCalendarUrl);
+                    if (fetched != null) events.AddRange(fetched);
+                }
+
+                var matches = events.Where(e =>
+                        !string.IsNullOrWhiteSpace(e.GoogleEventId) &&
+                        !e.GoogleEventId.StartsWith("db-") &&
+                        e.Start.Date == eventDate &&
+                        (e.Title ?? "").Contains(name, StringComparison.OrdinalIgnoreCase))
+                    .Select(e => e.GoogleEventId!)
+                    .Distinct()
+                    .ToList();
+
+                foreach (var id in matches)
+                {
+                    await _googleCalendarService.DeleteGoogleEventAsync(id, writeSettings);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Google duplicate cleanup warning: {ex.Message}");
+            }
+        }
+
+        public async Task RemoveRentalFromGoogleCalendarAsync(HallRentalRequest request)
+        {
+            if (request == null || _googleCalendarService == null) return;
+            try
+            {
+                var calSettings = await _googleCalendarService.GetSettingsAsync();
+                if (calSettings == null ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey)) return;
+
+                string? targetCalId = calSettings.PrimaryGoogleCalendarId?.Trim();
+                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success) targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                }
+                if (string.IsNullOrWhiteSpace(targetCalId)) return;
+
+                var writeSettings = new GoogleCalendarSettings
+                {
+                    PrimaryGoogleCalendarId = targetCalId,
+                    ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                    ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                    ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                    EnableWriteApi = true
+                };
+                if (!string.IsNullOrWhiteSpace(request.GoogleEventId))
+                {
+                    await _googleCalendarService.DeleteGoogleEventAsync(request.GoogleEventId, writeSettings);
+                    await using var idContext = await _contextFactory.CreateDbContextAsync();
+                    var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                    if (dbReq != null)
+                    {
+                        dbReq.GoogleEventId = null;
+                        await idContext.SaveChangesAsync();
+                    }
+                    request.GoogleEventId = null;
+                }
+                else
+                {
+                    await RemoveMatchingGoogleEventsAsync(request, calSettings, writeSettings);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Google removal warning: {ex.Message}");
             }
         }
 
@@ -571,7 +697,8 @@ namespace GFC.BlazorServer.Services
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var existing = await context.AvailabilityCalendars.FindAsync(id);
-            if (existing != null)
+            // Never remove a "Booked" mirror row of an approved rental via the club-event path
+            if (existing != null && existing.Status != "Booked")
             {
                 context.AvailabilityCalendars.Remove(existing);
                 await context.SaveChangesAsync();
@@ -586,7 +713,7 @@ namespace GFC.BlazorServer.Services
 
             // 1. Get manually blocked/booked dates (Blackouts/Club Events from AvailabilityCalendars table)
             var calendarDates = await context.AvailabilityCalendars
-                .Where(d => d.Status == "Booked" || d.Status == "Blackout")
+                .Where(d => d.Status == "Blackout")
                 .Select(d => new UnavailableDateDto 
                 { 
                     Id = d.Id,
@@ -604,7 +731,9 @@ namespace GFC.BlazorServer.Services
             if (includeRentalRequests)
             {
                 var requestDates = await context.HallRentalRequests
-                    .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
+                    .Where(r => r.Status != "Denied" && r.Status != "Cancelled" &&
+                                r.Status != "Inquiry" && r.Status != "Responded" && r.Status != "Archived" &&
+                                (r.EventType == null || !r.EventType.Contains("Inquiry")))
                     .ToListAsync();
                 
                 foreach (var r in requestDates)
@@ -612,7 +741,7 @@ namespace GFC.BlazorServer.Services
                     var dto = new UnavailableDateDto
                     {
                         Id = r.Id,
-                        Date = r.RequestedDate,
+                        Date = r.EventDate != default ? r.EventDate : r.RequestedDate,
                         Status = r.Status == "Approved" ? "Booked" : "Pending",
                         EventType = !string.IsNullOrWhiteSpace(r.RoomSelected) ? $"{r.EventType} ({r.RoomSelected})" : r.EventType,
                         EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null,
@@ -663,6 +792,12 @@ namespace GFC.BlazorServer.Services
                     foreach (var evt in externalEvents)
                     {
                         if (string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // Never map inquiries from external calendars
+                        if (evt.Title != null && evt.Title.Contains("Inquiry", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (evt.Description != null && evt.Description.Contains("Inquiry", StringComparison.OrdinalIgnoreCase))
                             continue;
 
                         // Check if event is all day or has specific times

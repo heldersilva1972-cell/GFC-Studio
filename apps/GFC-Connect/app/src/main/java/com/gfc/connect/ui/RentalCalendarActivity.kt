@@ -40,6 +40,8 @@ class RentalCalendarActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityRentalCalendarBinding
     private lateinit var cacheManager: RentalCacheManager
+    private lateinit var networkMonitor: com.gfc.connect.api.NetworkMonitor
+    private var isOfflineMode: Boolean = false
 
     private val rentalsList = mutableListOf<HallRentalDto>()
     private val unavailableDatesList = mutableListOf<UnavailableDateDto>()
@@ -52,7 +54,8 @@ class RentalCalendarActivity : AppCompatActivity() {
         val isCurrentMonth: Boolean,
         val hasBooked: Boolean,
         val hasPending: Boolean,
-        val hasClubEvent: Boolean
+        val hasClubEvent: Boolean,
+        val hasBarService: Boolean = false
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,12 +64,24 @@ class RentalCalendarActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         cacheManager = RentalCacheManager(this)
+        networkMonitor = com.gfc.connect.api.NetworkMonitor(this)
 
         setupToolbar()
         setupSwipeRefresh()
         setupCalendar()
         setupFab()
         loadData()
+        observeNetwork()
+    }
+
+    private fun observeNetwork() {
+        lifecycleScope.launch {
+            networkMonitor.observeNetworkState().collect { online ->
+                if (online && isOfflineMode) {
+                    loadData()
+                }
+            }
+        }
     }
 
     private fun setupSwipeRefresh() {
@@ -154,6 +169,11 @@ class RentalCalendarActivity : AppCompatActivity() {
 
             val matchingUnavailable = unavailableDatesList.filter { unavail ->
                 unavail.date.substringBefore('T') == dateStr &&
+                !unavail.status.equals("Inquiry", ignoreCase = true) &&
+                !unavail.status.equals("Responded", ignoreCase = true) &&
+                !unavail.status.equals("Archived", ignoreCase = true) &&
+                unavail.eventType?.contains("Inquiry", ignoreCase = true) != true &&
+                unavail.reason?.contains("Inquiry", ignoreCase = true) != true &&
                 !matchingRentals.any { r ->
                     (unavail.eventType != null && unavail.eventType.equals(r.eventType, ignoreCase = true)) ||
                     (unavail.eventTime != null && unavail.eventTime.contains(r.startTime ?: "", ignoreCase = true))
@@ -171,6 +191,7 @@ class RentalCalendarActivity : AppCompatActivity() {
             }
 
             val hasClubEvent = matchingUnavailable.isNotEmpty()
+            val hasBarService = matchingRentals.any { it.bartenderRequested }
 
             days.add(
                 CalendarDayModel(
@@ -179,7 +200,8 @@ class RentalCalendarActivity : AppCompatActivity() {
                     isCurrentMonth = true,
                     hasBooked = hasBooked,
                     hasPending = hasPending,
-                    hasClubEvent = hasClubEvent
+                    hasClubEvent = hasClubEvent,
+                    hasBarService = hasBarService
                 )
             )
         }
@@ -192,6 +214,7 @@ class RentalCalendarActivity : AppCompatActivity() {
     ) : RecyclerView.Adapter<CalendarDayAdapter.DayViewHolder>() {
 
         inner class DayViewHolder(val view: View) : RecyclerView.ViewHolder(view) {
+            val layoutDayCell: View = view.findViewById(R.id.layoutDayCell)
             val txtDay: TextView = view.findViewById(R.id.txtDayNumber)
             val dotEmerald: View = view.findViewById(R.id.dotEmerald)
             val dotYellow: View = view.findViewById(R.id.dotYellow)
@@ -208,6 +231,7 @@ class RentalCalendarActivity : AppCompatActivity() {
             if (model == null) {
                 holder.txtDay.text = ""
                 holder.txtDay.background = null
+                holder.layoutDayCell.background = null
                 holder.dotEmerald.visibility = View.GONE
                 holder.dotYellow.visibility = View.GONE
                 holder.dotPurple.visibility = View.GONE
@@ -219,12 +243,20 @@ class RentalCalendarActivity : AppCompatActivity() {
             holder.txtDay.text = model.dayNumber.toString()
             val isSelected = model.dateString == selectedDateString
 
+            // Selected Day Circle Styling
             if (isSelected) {
                 holder.txtDay.setBackgroundResource(R.drawable.bg_calendar_day_selected)
                 holder.txtDay.setTextColor(getColor(R.color.bg_dark))
             } else {
                 holder.txtDay.background = null
                 holder.txtDay.setTextColor(getColor(R.color.text_primary))
+            }
+
+            // Day Cell Background: Subtle Amber tint if Bar Service is requested
+            if (model.hasBarService) {
+                holder.layoutDayCell.setBackgroundResource(R.drawable.bg_calendar_day_bar)
+            } else {
+                holder.layoutDayCell.setBackgroundResource(android.R.color.transparent)
             }
 
             holder.dotEmerald.visibility = if (model.hasBooked) View.VISIBLE else View.GONE
@@ -247,16 +279,34 @@ class RentalCalendarActivity : AppCompatActivity() {
         override fun getItemCount(): Int = days.size
     }
 
+    private fun updateLastSyncLabel() {
+        val syncTime = cacheManager.getLastSyncTime()
+        if (syncTime > 0) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.US)
+            binding.toolbarCalendar.subtitle = "Synced: ${sdf.format(Date(syncTime))}"
+        } else {
+            binding.toolbarCalendar.subtitle = null
+        }
+    }
+
     private fun loadData() {
         // 1. Instant Cache
         val cached = cacheManager.getRentals()
-        if (cached.isNotEmpty()) {
-            rentalsList.clear()
-            rentalsList.addAll(cached)
+        val cachedUnavail = cacheManager.getUnavailableDates()
+        if (cached.isNotEmpty() || cachedUnavail.isNotEmpty()) {
+            if (cached.isNotEmpty()) {
+                rentalsList.clear()
+                rentalsList.addAll(cached)
+            }
+            if (cachedUnavail.isNotEmpty()) {
+                unavailableDatesList.clear()
+                unavailableDatesList.addAll(cachedUnavail)
+            }
             updateSummaryCounters()
             renderCalendarMonth()
             renderScheduleForSelectedDate()
         }
+        updateLastSyncLabel()
 
         // 2. Fresh Network Sync
         lifecycleScope.launch(Dispatchers.IO) {
@@ -268,23 +318,29 @@ class RentalCalendarActivity : AppCompatActivity() {
                     binding.swipeRefreshCalendar.isRefreshing = false
 
                     if (rentalsResponse.isSuccessful && rentalsResponse.body() != null) {
+                        isOfflineMode = false
                         rentalsList.clear()
                         rentalsList.addAll(rentalsResponse.body()!!)
                         cacheManager.saveRentals(rentalsList)
                     }
 
                     if (unavailResponse.isSuccessful && unavailResponse.body() != null) {
+                        isOfflineMode = false
                         unavailableDatesList.clear()
                         unavailableDatesList.addAll(unavailResponse.body()!!)
+                        cacheManager.saveUnavailableDates(unavailableDatesList)
                     }
 
+                    updateLastSyncLabel()
                     updateSummaryCounters()
                     renderCalendarMonth()
                     renderScheduleForSelectedDate()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
+                    isOfflineMode = true
                     binding.swipeRefreshCalendar.isRefreshing = false
+                    updateLastSyncLabel()
                 }
             }
         }
@@ -364,6 +420,11 @@ class RentalCalendarActivity : AppCompatActivity() {
 
         val matchingUnavailable = unavailableDatesList.filter { unavail ->
             unavail.date.substringBefore('T') == selectedDateString &&
+            !unavail.status.equals("Inquiry", ignoreCase = true) &&
+            !unavail.status.equals("Responded", ignoreCase = true) &&
+            !unavail.status.equals("Archived", ignoreCase = true) &&
+            unavail.eventType?.contains("Inquiry", ignoreCase = true) != true &&
+            unavail.reason?.contains("Inquiry", ignoreCase = true) != true &&
             !matchingRentals.any { r ->
                 (unavail.eventType != null && unavail.eventType.equals(r.eventType, ignoreCase = true)) ||
                 (unavail.eventTime != null && unavail.eventTime.contains(r.startTime ?: "", ignoreCase = true))
@@ -503,10 +564,11 @@ class RentalCalendarActivity : AppCompatActivity() {
                     }
                     addView(topRow)
 
-                    // Event Details
+                    // Event Details (with prominent Bar Service indicator if selected)
+                    val barTag = if (rental.bartenderRequested) " • 🍸 Bar Included" else ""
                     val detailsTv = TextView(context).apply {
-                        text = "🏛️ ${rental.roomSelected ?: "Function Hall"} • ${rental.eventType ?: "Rental"} • ${rental.guestCount} Guests"
-                        setTextColor(getColor(R.color.text_secondary))
+                        text = "🏛️ ${rental.roomSelected ?: "Function Hall"} • ${rental.eventType ?: "Rental"} • ${rental.guestCount} Guests$barTag"
+                        setTextColor(if (rental.bartenderRequested) getColor(R.color.gold_accent) else getColor(R.color.text_secondary))
                         textSize = 12f
                         setPadding(0, dp8 / 2, 0, 0)
                     }
@@ -714,6 +776,11 @@ class RentalCalendarActivity : AppCompatActivity() {
 
         val matchingUnavailable = unavailableDatesList.filter { unavail ->
             if (unavail.date.substringBefore('T') != dateStr) return@filter false
+            if (unavail.status.equals("Inquiry", ignoreCase = true) ||
+                unavail.status.equals("Responded", ignoreCase = true) ||
+                unavail.status.equals("Archived", ignoreCase = true) ||
+                unavail.eventType?.contains("Inquiry", ignoreCase = true) == true ||
+                unavail.reason?.contains("Inquiry", ignoreCase = true) == true) return@filter false
 
             // Exclude the event currently being edited
             if (excludeEvent != null) {
@@ -793,6 +860,15 @@ class RentalCalendarActivity : AppCompatActivity() {
     }
 
     private fun promptCreateClubEvent() {
+        if (isOfflineMode || !networkMonitor.isOnline) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. New club events cannot be created while offline. Please connect to the network to schedule events.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         val dp8 = (8 * resources.displayMetrics.density).toInt()
         val dp12 = (12 * resources.displayMetrics.density).toInt()
         val dp16 = (16 * resources.displayMetrics.density).toInt()
@@ -1208,6 +1284,15 @@ class RentalCalendarActivity : AppCompatActivity() {
     }
 
     private fun promptEditClubEvent(unavail: UnavailableDateDto) {
+        if (isOfflineMode || !networkMonitor.isOnline) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("⚠️ Offline Mode (View Only)")
+                .setMessage("You are currently disconnected from the server. Club events cannot be edited or deleted while offline. Please connect to the network to make changes.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
         val dp8 = (8 * resources.displayMetrics.density).toInt()
         val dp12 = (12 * resources.displayMetrics.density).toInt()
         val dp16 = (16 * resources.displayMetrics.density).toInt()
