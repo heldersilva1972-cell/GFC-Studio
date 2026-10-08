@@ -365,6 +365,7 @@ namespace GFC.BlazorServer.Controllers
                             r.SecurityDepositAmount,
                             RequireSecurityDeposit = settings.RequireSecurityDeposit,
                             r.AmountPaid,
+                            AmountWaived = (r.PaymentMethod == "Waived" && r.AmountPaid == 0 && r.IsPaid) ? (double)r.TotalPrice : 0.0,
                             r.IsPaid,
                             Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
                             r.BartenderRequested,
@@ -406,12 +407,19 @@ namespace GFC.BlazorServer.Controllers
                 var rawName = User.Identity?.Name;
                 var username = !string.IsNullOrWhiteSpace(rawName) ? $"{rawName} (GFC Connect)" : "Admin (GFC Connect)";
                 var notes = !string.IsNullOrWhiteSpace(body?.Notes) ? body.Notes : "Approved via GFC Connect";
+                
+                var existing = await _rentalService.GetRentalRequestAsync(id);
+                if (existing == null)
+                {
+                    return NotFound(new { error = "Rental request not found." });
+                }
+
                 var success = await _rentalService.ApproveRentalRequestAsync(id, notes, username);
                 if (success)
                 {
                     return Ok(new { success = true, message = "Rental approved successfully." });
                 }
-                return BadRequest(new { error = "Could not approve rental request." });
+                return BadRequest(new { error = "Could not approve rental request. The date may already have another approved booking (double-booking blocked)." });
             }
             catch (Exception ex)
             {
@@ -551,6 +559,14 @@ namespace GFC.BlazorServer.Controllers
                                  string.Equals(matrix, c.AssociatedRenterType, StringComparison.OrdinalIgnoreCase)
                 }).ToList();
 
+                var payments = (await _rentalService.GetPaymentsForRequestAsync(id)).ToList();
+                decimal actualPaid = payments
+                    .Where(p => p.PaymentType != "Waived" && p.PaymentMethod != "Waived")
+                    .Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+                decimal amountWaived = payments
+                    .Where(p => p.PaymentType == "Waived" || p.PaymentMethod == "Waived")
+                    .Sum(p => p.Amount);
+
                 return Ok(new
                 {
                     r.Id,
@@ -580,7 +596,8 @@ namespace GFC.BlazorServer.Controllers
                     SecurityDepositAmount = (settings?.RequireSecurityDeposit == true ? r.SecurityDepositAmount : 0m),
                     RequireSecurityDeposit = settings?.RequireSecurityDeposit ?? true,
                     r.TotalPrice,
-                    r.AmountPaid,
+                    AmountPaid = (double)Math.Max(0, actualPaid),
+                    AmountWaived = (double)amountWaived,
                     r.IsPaid,
                     r.PaymentMethod,
                     Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
@@ -986,21 +1003,19 @@ namespace GFC.BlazorServer.Controllers
 
                 if (isWaiveAction)
                 {
-                    request.AmountPaid = currentPaid + waiveAmt;
-                    if (request.AmountPaid >= request.TotalPrice || payload.IsWaived)
-                    {
-                        request.IsPaid = true;
-                    }
-                    request.PaymentMethod = "Waived";
+                    // Waived amount satisfies booking balance, but is NOT money collected
+                    var reasonStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Reason/Note: {payload.Note.Trim()}" : "";
+                    var auditLine = $"[{nowStamp} by {username}]\n• 🎁 Payment/Fee Waived: ${waiveAmt:N2} (Actual Cash Paid: ${currentPaid:N2} of ${request.TotalPrice:N2}){reasonStr}";
+                    request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
 
                     if (payload.MarkAsDeposit)
                     {
                         request.SecurityDepositPaid = true;
                     }
-
-                    var reasonStr = !string.IsNullOrWhiteSpace(payload.Note) ? $" • Reason/Note: {payload.Note.Trim()}" : "";
-                    var auditLine = $"[{nowStamp} by {username}]\n• 🎁 Payment/Fee Waived: ${waiveAmt:N2} (Total Recorded: ${request.AmountPaid:N2} of ${request.TotalPrice:N2}){reasonStr}";
-                    request.InternalNotes = $"{auditLine}\n\n{(request.InternalNotes ?? "")}".Trim();
+                    if (string.IsNullOrWhiteSpace(request.PaymentMethod))
+                    {
+                        request.PaymentMethod = "Waived";
+                    }
                 }
                 else
                 {
@@ -1033,19 +1048,19 @@ namespace GFC.BlazorServer.Controllers
 
                 await _rentalService.UpdateRentalRequestAsync(request);
 
-                // Record in the payments ledger so the webapp Hall Rentals page shows it
+                // Record in the payments ledger so the webapp Hall Rentals page and audit log show it
                 var ledgerAmount = isWaiveAction ? waiveAmt : payload.Amount;
                 if (ledgerAmount > 0)
                 {
                     await _rentalService.RecordPaymentAsync(new HallRentalPayment
                     {
                         HallRentalRequestId = id,
-                        PaymentType = payload.MarkAsDeposit ? "Security Deposit" : "Rental Fee",
+                        PaymentType = isWaiveAction ? "Waived" : (payload.MarkAsDeposit ? "Security Deposit" : "Rental Fee"),
                         Amount = ledgerAmount,
                         PaymentDate = DateTime.Today,
                         PaymentMethod = isWaiveAction ? "Waived" : (payload.PaymentMethod ?? "Other"),
                         RecordedBy = username,
-                        Notes = payload.Note
+                        Notes = isWaiveAction ? (!string.IsNullOrWhiteSpace(payload.Note) ? $"Fee Waived: {payload.Note}" : "Fee Waived") : payload.Note
                     });
                 }
 

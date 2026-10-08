@@ -145,28 +145,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
-        binding.cardDoorAccess.setOnClickListener {
-            showFeatureToast("Door Access", "Accessing digital key & facility door controls...")
-        }
-
-        binding.cardClubNews.setOnClickListener {
-            showFeatureToast("Club News", "Loading bulletins, announcements, and events...")
-        }
-
-        binding.cardMemberDues.setOnClickListener {
-            showFeatureToast("Member Dues", "Opening dues payment & renewal portal...")
-        }
-
-        binding.cardShiftReports.setOnClickListener {
-            showFeatureToast("Shift Reports", "Opening daily bartender shift reporting...")
-        }
-
-        binding.cardSettings.setOnClickListener {
-            val intent = Intent(this, SettingsActivity::class.java)
-            startActivity(intent)
-        }
-
-        binding.btnNotificationBell.setOnClickListener {
+        binding.btnSettings.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
@@ -247,12 +226,8 @@ class MainActivity : AppCompatActivity() {
     private fun applyPermissionVisibility() {
         val storage = GfcConnectApp.instance.tokenStorage
 
-        // Check if user has specific permissions (or fallback to visible for general cards)
+        // Check if user has hall-rentals permission (or fallback to visible)
         binding.cardHallRentals.visibility = if (storage.hasPermission("hall-rentals")) View.VISIBLE else View.GONE
-        binding.cardDoorAccess.visibility = if (storage.hasPermission("door-access")) View.VISIBLE else View.GONE
-        binding.cardShiftReports.visibility = if (storage.hasPermission("shift-reports")) View.VISIBLE else View.GONE
-        binding.cardMemberDues.visibility = if (storage.hasPermission("member-dues")) View.VISIBLE else View.GONE
-        binding.cardClubNews.visibility = if (storage.hasPermission("club-news")) View.VISIBLE else View.VISIBLE
     }
 
     private fun pairWithSetupCode(code: String) {

@@ -1,4 +1,3 @@
-// [MODIFIED]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using GFC.BlazorServer.Data.Entities;
@@ -195,6 +194,12 @@ namespace GFC.BlazorServer.Services
             if (request == null) return false;
 
             var targetDate = request.EventDate != default ? request.EventDate : request.RequestedDate;
+
+            // If already approved, return true (idempotent success)
+            if (string.Equals(request.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
 
             // Check if another approved booking exists for the same target date
             var isDoubleBooked = await context.HallRentalRequests
@@ -434,22 +439,43 @@ namespace GFC.BlazorServer.Services
                         Description = lines.Any() ? string.Join("\n", lines) : $"{titlePrefix}{eventType}"
                     };
 
-                    // Replace the previously pushed event (by id when known) so approve/update never duplicates
+                    // Fast Update: If GoogleEventId is known, update directly via PATCH (~200ms) with zero deletion delay
                     if (!string.IsNullOrWhiteSpace(request.GoogleEventId))
-                        await _googleCalendarService.DeleteGoogleEventAsync(request.GoogleEventId, activeCalSettings);
+                    {
+                        var updateRes = await _googleCalendarService.UpdateGoogleEventAsync(request.GoogleEventId, googleEvt, activeCalSettings);
+                        if (!updateRes.Success)
+                        {
+                            // If event was removed from Google externally (404/not found), re-create it
+                            var created = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                            if (created.Success && !string.IsNullOrWhiteSpace(created.EventId))
+                            {
+                                request.GoogleEventId = created.EventId;
+                                await using var idContext = await _contextFactory.CreateDbContextAsync();
+                                var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                                if (dbReq != null)
+                                {
+                                    dbReq.GoogleEventId = created.EventId;
+                                    await idContext.SaveChangesAsync();
+                                }
+                            }
+                        }
+                    }
                     else
+                    {
+                        // Clean up any untracked duplicate on the target date before creating fresh event
                         await RemoveMatchingGoogleEventsAsync(request, calSettings, activeCalSettings);
 
-                    var created = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
-                    if (created.Success && !string.IsNullOrWhiteSpace(created.EventId))
-                    {
-                        request.GoogleEventId = created.EventId;
-                        await using var idContext = await _contextFactory.CreateDbContextAsync();
-                        var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
-                        if (dbReq != null)
+                        var created = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                        if (created.Success && !string.IsNullOrWhiteSpace(created.EventId))
                         {
-                            dbReq.GoogleEventId = created.EventId;
-                            await idContext.SaveChangesAsync();
+                            request.GoogleEventId = created.EventId;
+                            await using var idContext = await _contextFactory.CreateDbContextAsync();
+                            var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                            if (dbReq != null)
+                            {
+                                dbReq.GoogleEventId = created.EventId;
+                                await idContext.SaveChangesAsync();
+                            }
                         }
                     }
                 }
@@ -928,18 +954,36 @@ namespace GFC.BlazorServer.Services
             var req = await context.HallRentalRequests.FindAsync(payment.HallRentalRequestId);
             if (req != null)
             {
-                // Calculate total paid across non-refund payments
+                // Calculate actual funds received (exclude Waived fees from money received)
                 var existingPayments = await context.HallRentalPayments
                     .Where(p => p.HallRentalRequestId == payment.HallRentalRequestId)
                     .ToListAsync();
+                if (!existingPayments.Any(p => p.Id == payment.Id))
+                {
+                    existingPayments.Add(payment);
+                }
 
-                decimal total = existingPayments.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount) + 
-                                (payment.PaymentType == "Refund" ? -payment.Amount : payment.Amount);
+                // Actual cash/check/card received
+                decimal actualPaid = existingPayments
+                    .Where(p => p.PaymentType != "Waived" && p.PaymentMethod != "Waived")
+                    .Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
 
-                req.AmountPaid = Math.Max(0, total);
-                req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                decimal waivedTotal = existingPayments
+                    .Where(p => p.PaymentType == "Waived" || p.PaymentMethod == "Waived")
+                    .Sum(p => p.Amount);
+
+                req.AmountPaid = Math.Max(0, actualPaid);
+                // An event is fully paid/satisfied if actual payments + waived amounts meet or exceed the total price
+                req.IsPaid = (req.AmountPaid + waivedTotal) >= req.TotalPrice && req.TotalPrice > 0;
                 req.PaymentDate = payment.PaymentDate;
-                req.PaymentMethod = payment.PaymentMethod;
+                if (payment.PaymentType != "Waived" && payment.PaymentMethod != "Waived")
+                {
+                    req.PaymentMethod = payment.PaymentMethod;
+                }
+                else if (string.IsNullOrWhiteSpace(req.PaymentMethod))
+                {
+                    req.PaymentMethod = "Waived";
+                }
 
                 if (payment.PaymentType == "Security Deposit")
                 {
@@ -973,6 +1017,15 @@ namespace GFC.BlazorServer.Services
                 System.Diagnostics.Debug.WriteLine($"[RentalService] Payment push notification warning: {ex.Message}");
             }
 
+            // Instantly notify webapp UI (Blazor FullCalendar & Hall Rentals list)
+            NotifyCalendarUpdated();
+
+            // Sync updated payment balance & status to Google Calendar
+            if (req != null && string.Equals(req.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = SyncRentalToGoogleCalendarAsync(req);
+            }
+
             return payment;
         }
 
@@ -1000,11 +1053,24 @@ namespace GFC.BlazorServer.Services
                         .Where(p => p.HallRentalRequestId == existing.HallRentalRequestId)
                         .ToListAsync();
 
-                    decimal total = allPayments.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
-                    req.AmountPaid = Math.Max(0, total);
-                    req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                    decimal actualPaid = allPayments
+                        .Where(p => p.PaymentType != "Waived" && p.PaymentMethod != "Waived")
+                        .Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+
+                    decimal waivedTotal = allPayments
+                        .Where(p => p.PaymentType == "Waived" || p.PaymentMethod == "Waived")
+                        .Sum(p => p.Amount);
+
+                    req.AmountPaid = Math.Max(0, actualPaid);
+                    req.IsPaid = (req.AmountPaid + waivedTotal) >= req.TotalPrice && req.TotalPrice > 0;
                     context.Entry(req).State = EntityState.Modified;
                     await context.SaveChangesAsync();
+
+                    NotifyCalendarUpdated();
+                    if (string.Equals(req.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _ = SyncRentalToGoogleCalendarAsync(req);
+                    }
                 }
             }
             return payment;
@@ -1028,11 +1094,24 @@ namespace GFC.BlazorServer.Services
                     .Where(p => p.HallRentalRequestId == reqId)
                     .ToListAsync();
 
-                decimal total = remaining.Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
-                req.AmountPaid = Math.Max(0, total);
-                req.IsPaid = req.AmountPaid >= req.TotalPrice && req.TotalPrice > 0;
+                decimal actualPaid = remaining
+                    .Where(p => p.PaymentType != "Waived" && p.PaymentMethod != "Waived")
+                    .Sum(p => p.PaymentType == "Refund" ? -p.Amount : p.Amount);
+
+                decimal waivedTotal = remaining
+                    .Where(p => p.PaymentType == "Waived" || p.PaymentMethod == "Waived")
+                    .Sum(p => p.Amount);
+
+                req.AmountPaid = Math.Max(0, actualPaid);
+                req.IsPaid = (req.AmountPaid + waivedTotal) >= req.TotalPrice && req.TotalPrice > 0;
                 context.Entry(req).State = EntityState.Modified;
                 await context.SaveChangesAsync();
+
+                NotifyCalendarUpdated();
+                if (string.Equals(req.Status, RentalStatus.Approved, StringComparison.OrdinalIgnoreCase))
+                {
+                    _ = SyncRentalToGoogleCalendarAsync(req);
+                }
             }
 
             return true;

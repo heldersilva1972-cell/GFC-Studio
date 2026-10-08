@@ -474,15 +474,16 @@ class RentalDetailActivity : AppCompatActivity() {
 
         // Submission Age & Tracking Header
         val ageText = getSubmissionAgeText(item.createdAt ?: item.createdDate)
-        val isPaid = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
-        val remaining = Math.max(0.0, item.totalPrice - item.amountPaid)
+        val waivedTotal = item.amountWaived ?: 0.0
+        val isPaid = item.isPaid || ((item.amountPaid + waivedTotal) >= item.totalPrice && item.totalPrice > 0)
+        val remainingBal = Math.max(0.0, item.totalPrice - waivedTotal - item.amountPaid)
         
         if (!isInquiry && isPaid) {
-            binding.txtHeaderTracking.text = "• ✓ Paid in Full"
-            binding.txtHeaderTracking.setTextColor(getColor(R.color.emerald_accent))
+            binding.txtHeaderTracking.text = if (waivedTotal >= item.totalPrice && item.amountPaid == 0.0) "• 🎁 Fee Waived" else "• ✓ Paid in Full"
+            binding.txtHeaderTracking.setTextColor(if (waivedTotal >= item.totalPrice && item.amountPaid == 0.0) getColor(R.color.purple_accent) else getColor(R.color.emerald_accent))
             binding.txtHeaderTracking.visibility = View.VISIBLE
-        } else if (!isInquiry && item.amountPaid > 0) {
-            binding.txtHeaderTracking.text = "• 💵 Bal: $${remaining.toInt()}"
+        } else if (!isInquiry && (item.amountPaid > 0 || waivedTotal > 0)) {
+            binding.txtHeaderTracking.text = "• 💵 Bal: $${remainingBal.toInt()}"
             binding.txtHeaderTracking.setTextColor(getColor(R.color.cyan_accent))
             binding.txtHeaderTracking.visibility = View.VISIBLE
         } else if (!isInquiry) {
@@ -591,8 +592,18 @@ class RentalDetailActivity : AppCompatActivity() {
             binding.editSecurityDeposit.setText("0")
         }
         binding.editAmountPaid.setText(item.amountPaid.toString())
-        binding.txtBalanceSummary.text = "Original Amount Due: ${currencyFormat.format(item.totalPrice)}\nPayments Received: ${currencyFormat.format(item.amountPaid)}\nRemaining Balance: ${currencyFormat.format(Math.max(0.0, item.totalPrice - item.amountPaid))}"
-        binding.switchIsPaid.isChecked = item.isPaid || (item.amountPaid >= item.totalPrice && item.totalPrice > 0)
+        val waived = item.amountWaived ?: 0.0
+        val remaining = Math.max(0.0, item.totalPrice - waived - item.amountPaid)
+        val balanceSummary = buildString {
+            append("Original Amount Due: ${currencyFormat.format(item.totalPrice)}\n")
+            if (waived > 0.0) {
+                append("🎁 Amount Waived: -${currencyFormat.format(waived)}\n")
+            }
+            append("Payments Received: ${currencyFormat.format(item.amountPaid)}\n")
+            append("Remaining Balance: ${currencyFormat.format(remaining)}")
+        }
+        binding.txtBalanceSummary.text = balanceSummary
+        binding.switchIsPaid.isChecked = item.isPaid || (remaining <= 0.0 && item.totalPrice > 0.0)
         binding.switchIsPaid.setTextColor(getColor(if (binding.switchIsPaid.isChecked) R.color.text_primary else R.color.text_secondary))
 
         // Dynamic Add-on Amenities
@@ -1706,7 +1717,20 @@ class RentalDetailActivity : AppCompatActivity() {
                         Toast.makeText(this@RentalDetailActivity, "✅ Rental approved!", Toast.LENGTH_SHORT).show()
                         loadRentalDetail()
                     } else {
-                        Toast.makeText(this@RentalDetailActivity, "Approval failed.", Toast.LENGTH_SHORT).show()
+                        val errBody = response.errorBody()?.string()
+                        val errMsg = try {
+                            if (!errBody.isNullOrBlank()) {
+                                val json = org.json.JSONObject(errBody)
+                                json.optString("error").ifEmpty { json.optString("message", "Approval failed.") }
+                            } else "Approval failed."
+                        } catch (_: Exception) {
+                            errBody ?: "Approval failed."
+                        }
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@RentalDetailActivity)
+                            .setTitle("⚠️ Cannot Approve Rental")
+                            .setMessage(errMsg)
+                            .setPositiveButton("OK", null)
+                            .show()
                     }
                 }
             } catch (e: Exception) {
@@ -1748,7 +1772,20 @@ class RentalDetailActivity : AppCompatActivity() {
                         Toast.makeText(this@RentalDetailActivity, "Rental denied.", Toast.LENGTH_SHORT).show()
                         loadRentalDetail()
                     } else {
-                        Toast.makeText(this@RentalDetailActivity, "Denial failed.", Toast.LENGTH_SHORT).show()
+                        val errBody = response.errorBody()?.string()
+                        val errMsg = try {
+                            if (!errBody.isNullOrBlank()) {
+                                val json = org.json.JSONObject(errBody)
+                                json.optString("error").ifEmpty { json.optString("message", "Denial failed.") }
+                            } else "Denial failed."
+                        } catch (_: Exception) {
+                            errBody ?: "Denial failed."
+                        }
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@RentalDetailActivity)
+                            .setTitle("⚠️ Cannot Deny Rental")
+                            .setMessage(errMsg)
+                            .setPositiveButton("OK", null)
+                            .show()
                     }
                 }
             } catch (e: Exception) {
@@ -1982,7 +2019,8 @@ class RentalDetailActivity : AppCompatActivity() {
         val item = rentalDetail ?: return
         val currentPaid = item.amountPaid
         val total = item.totalPrice
-        val remaining = Math.max(0.0, total - currentPaid)
+        val alreadyWaived = item.amountWaived ?: 0.0
+        val remaining = Math.max(0.0, total - alreadyWaived - currentPaid)
         val deposit = item.securityDepositAmount
 
         val dialogView = LinearLayout(this).apply {
@@ -1991,7 +2029,8 @@ class RentalDetailActivity : AppCompatActivity() {
         }
 
         val summaryTv = TextView(this).apply {
-            text = "Total Price: $${total.toInt()}  •  Paid: $${currentPaid.toInt()}  •  Remaining Balance: $${remaining.toInt()}"
+            val waiverNote = if (alreadyWaived > 0.0) "  •  Waived: $${alreadyWaived.toInt()}" else ""
+            text = "Total Price: $${total.toInt()}$waiverNote  •  Paid: $${currentPaid.toInt()}  •  Remaining Balance: $${remaining.toInt()}"
             setTextColor(getColor(R.color.status_yellow))
             textSize = 13f
             setTypeface(null, Typeface.BOLD)

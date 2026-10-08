@@ -17,5 +17,6 @@ namespace GFC.Core.Models
         public string? GoogleEventId { get; set; }
         public string? CalendarId { get; set; }
         public DateTime? CreatedDate { get; set; }
+        public int? RentalRequestId { get; set; }
     }
 }

@@ -501,14 +501,33 @@ class HallRentalsActivity : AppCompatActivity() {
                     // Paid Status Badge
                     val isPaid = item.isPaid == true
                     val amountPaid = item.amountPaid ?: 0.0
+                    val amountWaived = item.amountWaived ?: 0.0
                     val total = item.totalPrice
-                    val isPaidInFull = isPaid || (amountPaid >= total && total > 0)
+                    val isFullySatisfied = isPaid || ((amountPaid + amountWaived) >= total && total > 0)
 
                     when {
-                        isPaidInFull -> {
+                        isFullySatisfied && amountWaived >= total && amountPaid == 0.0 -> {
+                            txtItemPaidBadge.text = "WAIVED"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.purple_accent))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_inquiry)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                        isFullySatisfied && amountWaived > 0.0 -> {
+                            txtItemPaidBadge.text = "PAID (WAIVED)"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.emerald_accent))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                        isFullySatisfied -> {
                             txtItemPaidBadge.text = "PAID"
                             txtItemPaidBadge.setTextColor(getColor(R.color.emerald_accent))
                             txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                            txtItemPaidBadge.visibility = View.VISIBLE
+                        }
+                        amountWaived > 0.0 && amountPaid == 0.0 -> {
+                            txtItemPaidBadge.text = "WAIVED ($${amountWaived.toInt()})"
+                            txtItemPaidBadge.setTextColor(getColor(R.color.purple_accent))
+                            txtItemPaidBadge.setBackgroundResource(R.drawable.bg_badge_inquiry)
                             txtItemPaidBadge.visibility = View.VISIBLE
                         }
                         amountPaid > 0 -> {

@@ -303,7 +303,9 @@
                                     @foreach (var evt in dayEvents.Take(3))
                                     {
                                         var isClub = IsClubEvent(evt);
-                                        var isPending = !isClub && evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
+                                        var matchedReq = isClub ? null : FindMatchingRentalRequest(evt);
+                                        var isApproved = !isClub && ((matchedReq != null && string.Equals(matchedReq.Status, "Approved", StringComparison.OrdinalIgnoreCase)) || evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase));
+                                        var isPending = !isClub && !isApproved && (evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase) || (matchedReq != null && string.Equals(matchedReq.Status, "Pending", StringComparison.OrdinalIgnoreCase)));
                                         var payStatus = isClub ? "Club Event" : GetEventPaymentStatus(evt);
                                         var appData = ParseApplicationDetails(evt);
 
@@ -330,6 +332,14 @@
                                                             <i class="bi bi-shield-shaded me-0.5"></i>CLUB
                                                         </span>
                                                     }
+                                                }
+                                                else if (payStatus == "Waived")
+                                                {
+                                                    <span class="badge py-0 px-1 fw-bold" style="font-size: 0.65rem; background-color: #7c3aed !important; color: #ffffff !important; border: 1px solid #6d28d9 !important;" title="Fee Waived">WAIVED</span>
+                                                }
+                                                else if (payStatus.Contains("Waiver Applied", StringComparison.OrdinalIgnoreCase) || payStatus == "Partially Waived")
+                                                {
+                                                    <span class="badge py-0 px-1 fw-bold" style="font-size: 0.65rem; background-color: #9333ea !important; color: #ffffff !important; border: 1px solid #7e22ce !important;" title="@payStatus">WAIVED+</span>
                                                 }
                                                 else if (payStatus == "Paid")
                                                 {
@@ -415,7 +425,15 @@
                                                             if (!isClub)
                                                             {
                                                                 <div class="card-row-item">
-                                                                    @if (payStatus == "Paid")
+                                                                    @if (payStatus == "Waived")
+                                                                    {
+                                                                        <span class="badge py-0 px-1 fw-bold" style="font-size: 0.65rem; background-color: #7c3aed !important; color: #ffffff !important; border: 1px solid #6d28d9 !important;">WAIVED</span>
+                                                                    }
+                                                                    else if (payStatus.Contains("Waiver", StringComparison.OrdinalIgnoreCase) || payStatus == "Partially Waived")
+                                                                    {
+                                                                        <span class="badge py-0 px-1 fw-bold" style="font-size: 0.65rem; background-color: #9333ea !important; color: #ffffff !important; border: 1px solid #7e22ce !important;">WAIVED+</span>
+                                                                    }
+                                                                    else if (payStatus == "Paid")
                                                                     {
                                                                         <span class="badge bg-success text-white py-0 px-1 fw-bold" style="font-size: 0.65rem;">PAID FULL</span>
                                                                     }
@@ -556,13 +574,13 @@
                                     {
                                         var isClub = IsClubEvent(evt);
                                         var details = ParseApplicationDetails(evt);
-                                        var isArchivedInquiry = string.Equals(evt.Status, "ARCHIVED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("ARCHIVED INQUIRY", StringComparison.OrdinalIgnoreCase);
-                                        var isInquiry = !isArchivedInquiry && (string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "RESPONDED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase));
-                                        var isCancelled = string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase);
-                                        var isPending = !isClub && !isInquiry && !isArchivedInquiry && evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase);
-                                        var isApproved = !isClub && evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase);
                                         var paySummary = GetEventPaymentSummary(evt);
                                         var matchedReq = isClub ? null : FindMatchingRentalRequest(evt);
+                                        var isArchivedInquiry = string.Equals(evt.Status, "ARCHIVED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("ARCHIVED INQUIRY", StringComparison.OrdinalIgnoreCase);
+                                        var isInquiry = !isArchivedInquiry && (string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "RESPONDED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase));
+                                        var isCancelled = string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase) || (matchedReq != null && string.Equals(matchedReq.Status, "Cancelled", StringComparison.OrdinalIgnoreCase));
+                                        var isApproved = !isClub && !isCancelled && ((matchedReq != null && string.Equals(matchedReq.Status, "Approved", StringComparison.OrdinalIgnoreCase)) || evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase));
+                                        var isPending = !isClub && !isInquiry && !isArchivedInquiry && !isApproved && !isCancelled && (evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase) || (matchedReq != null && string.Equals(matchedReq.Status, "Pending", StringComparison.OrdinalIgnoreCase)));
                                         bool hasCallRequested = !isClub && (details.RequestPhoneCall ||
                                             (matchedReq != null && (matchedReq.RequestPhoneCall || string.Equals(matchedReq.PreferredContactMethod, "Phone", StringComparison.OrdinalIgnoreCase) || matchedReq.InternalNotes?.Contains("Call", StringComparison.OrdinalIgnoreCase) == true || matchedReq.EventDescription?.Contains("call", StringComparison.OrdinalIgnoreCase) == true)) ||
                                             (evt.Description != null && (evt.Description.Contains("Call Requested", StringComparison.OrdinalIgnoreCase) || evt.Description.Contains("Phone Callback Requested: Yes", StringComparison.OrdinalIgnoreCase) || evt.Description.Contains("Preferred Contact Method: Phone", StringComparison.OrdinalIgnoreCase) || evt.Description.Contains("Request Phone Call: Yes", StringComparison.OrdinalIgnoreCase))));
@@ -671,6 +689,18 @@
                                                             @if (isClub || isInquiry || isArchivedInquiry)
                                                             {
                                                                 <span class="text-muted small">—</span>
+                                                            }
+                                                            else if (paySummary.Status == "Waived")
+                                                            {
+                                                                <span class="badge px-2 py-1 rounded-pill fw-bold shadow-sm" style="background-color: #7c3aed !important; color: #ffffff !important; border: 1px solid #6d28d9 !important;">
+                                                                    <i class="bi bi-gift-fill me-1"></i>Waived
+                                                                </span>
+                                                            }
+                                                            else if (paySummary.Status.Contains("Waiver", StringComparison.OrdinalIgnoreCase) || paySummary.Status == "Partially Waived")
+                                                            {
+                                                                <span class="badge px-2 py-1 rounded-pill fw-bold shadow-sm" style="background-color: #9333ea !important; color: #ffffff !important; border: 1px solid #7e22ce !important;">
+                                                                    <i class="bi bi-gift-fill me-1"></i>Waived ($@paySummary.AmountWaived.ToString("N0"))
+                                                                </span>
                                                             }
                                                             else if (paySummary.Status == "Paid")
                                                             {
@@ -2137,7 +2167,7 @@
                             <div class="card-header section-header-success py-2 px-3 fw-bold d-flex justify-content-between align-items-center">
                                 <span><i class="bi bi-currency-dollar text-success me-2 fs-5"></i>Financial &amp; Payment Breakdown</span>
                                 <div class="d-flex align-items-center gap-2">
-                                    <span class="badge @(modalPaySummary.Status == "Paid" ? "bg-success text-white" : (modalPaySummary.Status == "Deposit Paid" ? "bg-primary text-white" : (modalPaySummary.Status == "Partial" ? "bg-warning text-dark" : "bg-light text-dark border border-secondary shadow-sm"))) px-3 py-1 fs-6 fw-bold" style="@(modalPaySummary.Status == "Unpaid" ? "color: #1e293b !important; background-color: #f1f5f9 !important; border-color: #94a3b8 !important;" : "")">
+                                    <span class="badge @(modalPaySummary.Status == "Waived" ? "" : (modalPaySummary.Status == "Paid" ? "bg-success text-white" : (modalPaySummary.Status == "Deposit Paid" ? "bg-primary text-white" : (modalPaySummary.Status.StartsWith("Partial") ? "bg-warning text-dark" : "bg-light text-dark border border-secondary shadow-sm")))) px-3 py-1 fs-6 fw-bold" style="@(modalPaySummary.Status == "Waived" || modalPaySummary.Status.Contains("Waiver") ? "background-color: #7c3aed !important; color: #ffffff !important;" : (modalPaySummary.Status == "Unpaid" ? "color: #1e293b !important; background-color: #f1f5f9 !important; border-color: #94a3b8 !important;" : ""))">
                                         Payment Status: @modalPaySummary.Status.ToUpper()
                                     </span>
                                     @if (_editingSection != "Financial")
@@ -2188,29 +2218,39 @@
                                 else
                                 {
                                     var showDepositCol = _webSettings?.RequireSecurityDeposit == true;
+                                    var hasWaiver = modalPaySummary.AmountWaived > 0;
                                     <div class="row g-3 text-center">
-                                        <div class="@(showDepositCol ? "col-md-3 col-6" : "col-md-4 col-12")">
+                                        <div class="@(hasWaiver ? "col-md-auto col-6 flex-fill" : (showDepositCol ? "col-md-3 col-6" : "col-md-4 col-12"))">
                                             <div class="p-2 bg-light rounded border">
-                                                <small class="text-muted d-block">Agreed Total Price</small>
+                                                <small class="text-muted d-block">Original Total Price</small>
                                                 <strong class="fs-5 text-dark">$@modalPaySummary.TotalPrice.ToString("N2")</strong>
                                             </div>
                                         </div>
+                                        @if (hasWaiver)
+                                        {
+                                            <div class="col-md-auto col-6 flex-fill">
+                                                <div class="p-2 bg-purple bg-opacity-10 rounded border border-purple-subtle" style="background-color: #f3e8ff; border-color: #d8b4fe;">
+                                                    <small class="fw-semibold d-block" style="color: #6b21a8;"><i class="bi bi-gift me-1"></i>Amount Waived</small>
+                                                    <strong class="fs-5" style="color: #6b21a8;">-$@modalPaySummary.AmountWaived.ToString("N2")</strong>
+                                                </div>
+                                            </div>
+                                        }
                                         @if (showDepositCol)
                                         {
-                                            <div class="col-md-3 col-6">
+                                            <div class="@(hasWaiver ? "col-md-auto col-6 flex-fill" : "col-md-3 col-6")">
                                                 <div class="p-2 bg-light rounded border">
                                                     <small class="text-muted d-block">Security Deposit</small>
                                                     <strong class="fs-5 text-warning-emphasis">$@modalPaySummary.DepositRequired.ToString("N2")</strong>
                                                 </div>
                                             </div>
                                         }
-                                        <div class="@(showDepositCol ? "col-md-3 col-6" : "col-md-4 col-6")">
+                                        <div class="@(hasWaiver ? "col-md-auto col-6 flex-fill" : (showDepositCol ? "col-md-3 col-6" : "col-md-4 col-6"))">
                                             <div class="p-2 bg-success bg-opacity-10 rounded border border-success-subtle">
                                                 <small class="text-success fw-semibold d-block">Total Paid to Date</small>
                                                 <strong class="fs-5 text-success">$@modalPaySummary.TotalPaid.ToString("N2")</strong>
                                             </div>
                                         </div>
-                                        <div class="@(showDepositCol ? "col-md-3 col-6" : "col-md-4 col-6")">
+                                        <div class="@(hasWaiver ? "col-md-auto col-6 flex-fill" : (showDepositCol ? "col-md-3 col-6" : "col-md-4 col-6"))">
                                             <div class="p-2 @(modalPaySummary.RemainingBalance > 0 ? "bg-danger bg-opacity-10 border border-danger-subtle" : "bg-light border") rounded">
                                                 <small class="@(modalPaySummary.RemainingBalance > 0 ? "text-danger fw-semibold" : "text-muted") d-block">Remaining Balance</small>
                                                 <strong class="fs-5 @(modalPaySummary.RemainingBalance > 0 ? "text-danger" : "text-success")">$@modalPaySummary.RemainingBalance.ToString("N2")</strong>
@@ -2251,14 +2291,23 @@
                                                     <tr>
                                                         <td class="small">@p.PaymentDate.ToString("MM/dd/yyyy")</td>
                                                         <td>
-                                                            <span class="badge @(p.PaymentType == "Security Deposit" ? "bg-warning text-dark" : (p.PaymentType == "Refund" ? "bg-danger" : "bg-success"))">
-                                                                @p.PaymentType
-                                                            </span>
+                                                            @if (p.PaymentType == "Waived" || p.PaymentMethod == "Waived")
+                                                            {
+                                                                <span class="badge" style="background-color: #7c3aed; color: #ffffff;">
+                                                                    <i class="bi bi-gift me-1"></i>Waived
+                                                                </span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge @(p.PaymentType == "Security Deposit" ? "bg-warning text-dark" : (p.PaymentType == "Refund" ? "bg-danger" : "bg-success"))">
+                                                                    @p.PaymentType
+                                                                </span>
+                                                            }
                                                         </td>
                                                         <td class="small">@p.PaymentMethod</td>
                                                         <td class="small font-monospace">@(string.IsNullOrEmpty(p.ReferenceOrCheckNumber) ? "—" : p.ReferenceOrCheckNumber)</td>
-                                                        <td class="fw-bold @(p.PaymentType == "Refund" ? "text-danger" : "text-success")">
-                                                            @(p.PaymentType == "Refund" ? "-" : "")$@p.Amount.ToString("N2")
+                                                        <td class="fw-bold @(p.PaymentType == "Waived" || p.PaymentMethod == "Waived" ? "text-purple" : (p.PaymentType == "Refund" ? "text-danger" : "text-success"))" style="@(p.PaymentType == "Waived" || p.PaymentMethod == "Waived" ? "color: #7c3aed !important;" : "")">
+                                                            @(p.PaymentType == "Refund" ? "-" : (p.PaymentType == "Waived" || p.PaymentMethod == "Waived" ? "[Waived] " : ""))@p.Amount.ToString("N2")
                                                         </td>
                                                         <td class="small text-muted">@p.RecordedBy</td>
                                                         <td class="text-end">
@@ -4311,6 +4360,7 @@
                                 {
                                     <option value="Security Deposit">Deposit</option>
                                 }
+                                <option value="Waived">Waived / Fee Waiver</option>
                                 @if (_paymentModel.PaymentType == "Refund" || _isEditingExistingPayment)
                                 {
                                     <option value="Refund">Refund / Return</option>
@@ -4341,6 +4391,7 @@
                                     <option value="Venmo / Zelle">Venmo / Zelle</option>
                                     <option value="Credit / Debit Card">Credit / Debit Card</option>
                                     <option value="Dropped Off / In-Person">Dropped Off / In-Person</option>
+                                    <option value="Waived">Waived</option>
                                 </select>
                             </div>
                             <div class="col-6">
@@ -5896,6 +5947,14 @@
             await InvokeAsync(async () =>
             {
                 await LoadSettingsAndEvents();
+                if (_selectedEvent != null && !_isEditingBooking)
+                {
+                    await LoadPaymentsForSelectedEvent(_selectedEvent);
+                }
+                else
+                {
+                    await LoadAllRequestsAndPayments();
+                }
                 StateHasChanged();
             });
         }
@@ -6097,6 +6156,7 @@
                         calendarEvents.Add(new CalendarEventItem
                         {
                             GoogleEventId = $"db-rental-{req.Id}",
+                            RentalRequestId = req.Id,
                             Title = title,
                             Start = start,
                             End = end,
@@ -6110,6 +6170,13 @@
                     }
                     else
                     {
+                        existing.RentalRequestId = req.Id;
+                        if (isApproved)
+                        {
+                            existing.Title = title;
+                            existing.Status = "CONFIRMED";
+                            existing.ColorCategory = "badge-success";
+                        }
                         if (existing.CreatedDate == null)
                         {
                             existing.CreatedDate = req.CreatedDate != default ? req.CreatedDate : (req.RequestedDate != default ? req.RequestedDate : null);
@@ -6181,8 +6248,13 @@
             }
 
             // Global deduplication pass across merged feeds and database items
+            // Sort database items first so their accurate database metadata & RentalRequestId take precedence
+            var sortedCalendarEvents = calendarEvents
+                .OrderByDescending(e => !string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId.StartsWith("db-rental-"))
+                .ToList();
+
             var distinctList = new List<CalendarEventItem>();
-            foreach (var evt in calendarEvents)
+            foreach (var evt in sortedCalendarEvents)
             {
                 // Distinct database records with explicit IDs should never be discarded by fuzzy deduplication
                 if (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && (evt.GoogleEventId.StartsWith("db-rental-") || evt.GoogleEventId.StartsWith("db-blackout-")))
@@ -6245,6 +6317,9 @@
             _events = distinctList;
             _lastPageRefreshLocal = DateTime.Now;
             _settings.TotalEventsCount = _events.Count;
+
+            // Ensure payments ledger cache is loaded so GetEventPaymentSummary computes accurate status
+            await LoadAllRequestsAndPayments();
         }
         catch (Exception ex)
         {
@@ -7499,10 +7574,11 @@
 
     public class PaymentSummary
     {
-        public string Status { get; set; } = "Unpaid"; // Paid, Deposit Paid, Partial, Unpaid
+        public string Status { get; set; } = "Unpaid"; // Paid, Deposit Paid, Partial, Waived, Partially Waived, Unpaid
         public decimal TotalPrice { get; set; }
         public decimal DepositRequired { get; set; }
         public decimal TotalPaid { get; set; }
+        public decimal AmountWaived { get; set; }
         public decimal RemainingBalance { get; set; }
     }
 
@@ -7532,6 +7608,12 @@
         }
 
         // 0. Direct match by database ID if available
+        if (evt.RentalRequestId.HasValue && evt.RentalRequestId.Value > 0)
+        {
+            var match = _cachedRentalRequests.FirstOrDefault(r => r.Id == evt.RentalRequestId.Value);
+            if (match != null) return match;
+        }
+
         if (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && evt.GoogleEventId.StartsWith("db-rental-") && int.TryParse(evt.GoogleEventId.Substring("db-rental-".Length), out int dbId))
         {
             var match = _cachedRentalRequests.FirstOrDefault(r => r.Id == dbId);
@@ -7632,25 +7714,54 @@
             ? _allPayments.Where(p => p.HallRentalRequestId == matchedReq.Id).ToList()
             : new List<HallRentalPayment>();
 
-        decimal totalPaid = payments.Where(p => p.PaymentType != "Refund").Sum(p => p.Amount) - 
-                            payments.Where(p => p.PaymentType == "Refund").Sum(p => p.Amount);
+        // Actual cash/check/card received (excluding waivers and refunds)
+        decimal actualPaid = payments.Where(p => p.PaymentType != "Refund" && p.PaymentType != "Waived" && p.PaymentMethod != "Waived").Sum(p => p.Amount) - 
+                             payments.Where(p => p.PaymentType == "Refund").Sum(p => p.Amount);
+
+        // Amount waived (distinct from cash collected)
+        decimal amountWaived = payments.Where(p => p.PaymentType == "Waived" || p.PaymentMethod == "Waived").Sum(p => p.Amount);
+
+        // Fallback: if ledger entry was not recorded or payments list is empty but request is flagged as Waived
+        if (amountWaived == 0 && matchedReq != null && (string.Equals(matchedReq.PaymentMethod, "Waived", StringComparison.OrdinalIgnoreCase) || (matchedReq.IsPaid && matchedReq.AmountPaid == 0 && totalPrice > 0)))
+        {
+            amountWaived = totalPrice;
+        }
+
+        // Remaining balance after accounting for waivers and actual cash paid
+        decimal remainingBalance = Math.Max(0, totalPrice - amountWaived - actualPaid);
 
         summary.TotalPrice = totalPrice;
         summary.DepositRequired = depositAmount;
-        summary.TotalPaid = totalPaid;
-        summary.RemainingBalance = Math.Max(0, totalPrice - totalPaid);
+        summary.TotalPaid = Math.Max(0, actualPaid);
+        summary.AmountWaived = amountWaived;
+        summary.RemainingBalance = remainingBalance;
 
-        if (totalPaid >= totalPrice && totalPrice > 0)
+        if (remainingBalance <= 0 && totalPrice > 0)
         {
-            summary.Status = "Paid";
+            if (amountWaived >= totalPrice && actualPaid == 0)
+            {
+                summary.Status = "Waived";
+            }
+            else if (amountWaived > 0)
+            {
+                summary.Status = "Paid (Waiver Applied)";
+            }
+            else
+            {
+                summary.Status = "Paid";
+            }
         }
-        else if (depositEnabled && totalPaid >= depositAmount && depositAmount > 0)
+        else if (amountWaived > 0 && actualPaid == 0)
+        {
+            summary.Status = "Partially Waived";
+        }
+        else if (actualPaid > 0)
+        {
+            summary.Status = amountWaived > 0 ? "Partial (Waiver Applied)" : "Partial";
+        }
+        else if (depositEnabled && actualPaid >= depositAmount && depositAmount > 0)
         {
             summary.Status = "Deposit Paid";
-        }
-        else if (totalPaid > 0)
-        {
-            summary.Status = "Partial";
         }
         else
         {
@@ -8756,6 +8867,8 @@
             }
 
             await LoadAllRequestsAndPayments();
+            await LoadSettingsAndEvents();
+            StateHasChanged();
             ToastService.ShowSuccess("Booking approved and calendar updated successfully!");
             _showApproveBookingConfirmModal = false;
         }
@@ -9331,11 +9444,13 @@ Warm regards,
         }
         else if (_filterCategory == "PAID")
         {
-            if (GetEventPaymentStatus(e) != "Paid") return false;
+            var st = GetEventPaymentStatus(e);
+            if (st != "Paid" && st != "Waived" && !st.StartsWith("Paid (Waiver", StringComparison.OrdinalIgnoreCase)) return false;
         }
         else if (_filterCategory == "UNPAID")
         {
-            if (GetEventPaymentStatus(e) == "Paid") return false;
+            var st = GetEventPaymentStatus(e);
+            if (st == "Paid" || st == "Waived" || st.StartsWith("Paid (Waiver", StringComparison.OrdinalIgnoreCase)) return false;
         }
         else if (_filterCategory == "APPLICATIONS")
         {
@@ -9375,17 +9490,18 @@ Warm regards,
 
     private bool IsEventPending(CalendarEventItem evt)
     {
-        if (evt.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase)) return true;
-        if (string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase)) return true;
-        
-        var appData = ParseApplicationDetails(evt);
-        var cleanTitle = GetCleanTitle(evt);
-        var matched = _cachedRentalRequests.FirstOrDefault(r => 
-            r.EventDate.Date == evt.Start.Date && 
-            (string.Equals(r.ApplicantName, appData.ApplicantName, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(r.ApplicantName, cleanTitle, StringComparison.OrdinalIgnoreCase)));
-        
-        return matched != null && string.Equals(matched.Status, "Pending", StringComparison.OrdinalIgnoreCase);
+        var matched = FindMatchingRentalRequest(evt);
+        if (matched != null)
+        {
+            if (string.Equals(matched.Status, "Approved", StringComparison.OrdinalIgnoreCase)) return false;
+            if (string.Equals(matched.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) return false;
+            return string.Equals(matched.Status, "Pending", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase) || evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return evt.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase);
     }
 
     private List<CalendarEventItem> GetEventsForDate(DateTime date)
@@ -10708,10 +10824,17 @@ Warm regards,
                 return evt.IsAllDay ? "All-day" : $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}";
 
             case "event_status":
+                var matched = FindMatchingRentalRequest(evt);
+                if (matched != null)
+                {
+                    if (string.Equals(matched.Status, "Approved", StringComparison.OrdinalIgnoreCase)) return "Approved";
+                    if (string.Equals(matched.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)) return "Cancelled";
+                    if (string.Equals(matched.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return "Pending";
+                }
+                if (evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "CONFIRMED", StringComparison.OrdinalIgnoreCase))
+                    return "Approved";
                 if (evt.Title.StartsWith("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase))
                     return "Pending";
-                if (evt.Title.StartsWith("APPROVED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
-                    return "Approved";
                 if (evt.Title.StartsWith("INQUIRY", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "INQUIRY", StringComparison.OrdinalIgnoreCase) || evt.Source == "General Inquiry")
                     return "Inquiry";
                 if (evt.Title.StartsWith("CANCELLED", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
