@@ -167,7 +167,9 @@ namespace GFC.BlazorServer.Services
             {
                 await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Booked", $"{request.ApplicantName} ({request.EventType ?? "Rental"})", request.StartTime, request.EndTime);
             }
-            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || 
+                     string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(request.Status, RentalStatus.Pending, StringComparison.OrdinalIgnoreCase))
             {
                 await UpdateCalendarAvailabilityInternalAsync(context, targetDate, "Available");
             }
@@ -178,7 +180,9 @@ namespace GFC.BlazorServer.Services
             {
                 _ = SyncRentalToGoogleCalendarAsync(request);
             }
-            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(request.Status, RentalStatus.Denied, StringComparison.OrdinalIgnoreCase) || 
+                     string.Equals(request.Status, "Cancelled", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(request.Status, RentalStatus.Pending, StringComparison.OrdinalIgnoreCase))
             {
                 _ = RemoveRentalFromGoogleCalendarAsync(request);
             }

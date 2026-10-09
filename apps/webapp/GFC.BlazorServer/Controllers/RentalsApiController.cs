@@ -859,6 +859,13 @@ namespace GFC.BlazorServer.Controllers
                             request.DeniedBy = username;
                             request.DenialDate = DateTime.UtcNow;
                         }
+                        else if (string.Equals(payload.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                        {
+                            request.ApprovedBy = null;
+                            request.ApprovalDate = null;
+                            request.DeniedBy = null;
+                            request.DenialDate = null;
+                        }
                     }
                     request.Status = payload.Status;
                 }

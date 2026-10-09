@@ -361,41 +361,41 @@ class HallRentalsActivity : AppCompatActivity() {
         if (isOfflineMode || !networkMonitor.isOnline) {
             MaterialAlertDialogBuilder(this)
                 .setTitle("⚠️ Offline Mode (View Only)")
-                .setMessage("You are currently disconnected from the server. Changes, approvals, and denials cannot be submitted while offline. Please connect to the network to perform this action.")
+                .setMessage("You are currently disconnected from the server. Changes, approvals, and cancellations cannot be submitted while offline. Please connect to the network to perform this action.")
                 .setPositiveButton("OK", null)
                 .show()
             return
         }
 
         val input = EditText(this).apply {
-            hint = "Reason for denial..."
+            hint = "Optional cancellation reason..."
             setPadding(40, 24, 40, 24)
         }
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("❌ Deny Rental Request")
-            .setMessage("Are you sure you want to deny this request from ${item.applicantName}?")
+            .setTitle("⚠️ Cancel Hall Rental")
+            .setMessage("Are you sure you want to cancel the rental request for ${item.applicantName}?\n\nThis will mark the request as Cancelled and release the date on the calendar.")
             .setView(input)
-            .setPositiveButton("Deny Request") { _, _ ->
+            .setPositiveButton("Cancel Request") { _, _ ->
                 val reason = input.text.toString().trim()
-                executeDenial(item.id, reason)
+                executeCancel(item.id, reason)
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Keep Active", null)
             .show()
     }
 
-    private fun executeDenial(id: Int, reason: String) {
+    private fun executeCancel(id: Int, reason: String) {
         binding.progressRentals.visibility = View.VISIBLE
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = ApiClient.service.denyRental(id, ApprovalActionRequest(reason))
+                val response = ApiClient.service.cancelRental(id, ApprovalActionRequest(reason))
                 withContext(Dispatchers.Main) {
                     binding.progressRentals.visibility = View.GONE
                     if (response.isSuccessful && response.body()?.success == true) {
-                        Toast.makeText(this@HallRentalsActivity, "Rental request denied.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@HallRentalsActivity, "Rental request cancelled.", Toast.LENGTH_SHORT).show()
                         loadRentals(silent = false)
                     } else {
-                        Toast.makeText(this@HallRentalsActivity, "Failed to deny rental.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@HallRentalsActivity, "Failed to cancel rental.", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {

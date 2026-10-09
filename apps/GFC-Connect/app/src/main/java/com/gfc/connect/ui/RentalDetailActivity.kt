@@ -308,9 +308,10 @@ class RentalDetailActivity : AppCompatActivity() {
             loadRentalDetail(silent = true)
         }
 
-        // Approve / Deny from detail
+        // Approve / Cancel / Revert from detail
         binding.btnApproveDetail.setOnClickListener { promptApprove() }
-        binding.btnDenyDetail.setOnClickListener { promptDeny() }
+        binding.btnDenyDetail.setOnClickListener { promptCancel() }
+        binding.btnRevertToPending.setOnClickListener { promptRevertToPending() }
 
         // Cancel / Delete from detail
         binding.btnCancelBooking.setOnClickListener { promptCancel() }
@@ -639,9 +640,14 @@ class RentalDetailActivity : AppCompatActivity() {
         }
         binding.txtDecisionInfo.text = decisionInfo.trimEnd()
 
-        // Approve / Deny buttons ONLY appear for actionable PENDING booking applications (never on inquiries or already-decided bookings)
-        val canShowApprovalButtons = !isInquiry && item.status.equals("Pending", ignoreCase = true)
-        binding.layoutQuickActions.visibility = if (canShowApprovalButtons) View.VISIBLE else View.GONE
+        // Quick Action buttons:
+        // - Approve & Cancel buttons appear for actionable PENDING booking applications
+        // - Revert to Pending button appears when a booking is APPROVED
+        val isPending = !isInquiry && item.status.equals("Pending", ignoreCase = true)
+        val isApproved = !isInquiry && item.status.equals("Approved", ignoreCase = true)
+
+        binding.layoutQuickActions.visibility = if (isPending) View.VISIBLE else View.GONE
+        binding.btnRevertToPending.visibility = if (isApproved) View.VISIBLE else View.GONE
     }
 
     private fun renderPossibleCandidates(item: HallRentalDetailDto) {
@@ -1742,47 +1748,89 @@ class RentalDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun promptDeny() {
+    private fun promptRevertToPending() {
         if (checkOfflineAndAlert()) return
+        val applicantName = rentalDetail?.applicantName ?: "this booking"
+
         val input = EditText(this).apply {
-            hint = "Reason for denial..."
+            hint = "Optional reason note (e.g., approved by accident)..."
             setPadding(40, 24, 40, 24)
+            setBackgroundResource(R.drawable.bg_edittext_dark)
+            setTextColor(getColor(R.color.text_primary))
+        }
+
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+            addView(TextView(this@RentalDetailActivity).apply {
+                text = "Are you sure you want to revert the approval for $applicantName?\n\nThis will return the booking status back to Pending, reset the approval record, and release the reservation on the calendar."
+                setTextColor(getColor(R.color.text_secondary))
+                textSize = 14f
+                setPadding(0, 0, 0, 16)
+            })
+            addView(input)
         }
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("⛔ Deny Rental Request")
-            .setMessage("Are you sure you want to deny this hall rental?")
-            .setView(input)
-            .setPositiveButton("Deny") { _, _ ->
-                val note = input.text.toString().trim()
-                executeDeny(note)
+            .setTitle("↩️ Revert to Pending (Unapprove)")
+            .setView(dialogContent)
+            .setPositiveButton("Revert to Pending") { _, _ ->
+                val reason = input.text.toString().trim().ifEmpty { "Reverted approval back to Pending" }
+                executeRevertToPending(reason)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun executeDeny(note: String) {
-        showLoading("Denying Booking...")
+    private fun executeRevertToPending(reason: String) {
+        val current = rentalDetail ?: return
+        showLoading("Reverting to Pending...")
+
+        val payload = UpdateRentalPayload(
+            applicantName = current.applicantName,
+            requesterPhone = current.requesterPhone,
+            requesterEmail = current.requesterEmail,
+            requesterAddress = current.requesterAddress,
+            eventDate = current.eventDate,
+            eventType = current.eventType,
+            startTime = current.startTime,
+            endTime = current.endTime,
+            roomSelected = current.roomSelected,
+            guestCount = current.guestCount,
+            totalPrice = current.totalPrice,
+            securityDepositAmount = current.securityDepositAmount,
+            amountPaid = current.amountPaid,
+            isPaid = current.isPaid,
+            bartenderRequested = current.bartenderRequested,
+            kitchenUsage = current.kitchenUsage,
+            avEquipmentUsage = current.avEquipmentUsage,
+            status = "Pending",
+            internalNotes = current.internalNotes,
+            matrixSelected = current.renterType,
+            sendUpdateEmail = false,
+            changeReasonNote = reason
+        )
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = ApiClient.service.denyRental(rentalId, ApprovalActionRequest(note))
+                val response = ApiClient.service.updateRental(rentalId, payload)
                 withContext(Dispatchers.Main) {
                     hideLoading()
                     if (response.isSuccessful && response.body()?.success == true) {
-                        Toast.makeText(this@RentalDetailActivity, "Rental denied.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@RentalDetailActivity, "↩️ Booking reverted to Pending and calendar released.", Toast.LENGTH_LONG).show()
                         loadRentalDetail()
                     } else {
                         val errBody = response.errorBody()?.string()
                         val errMsg = try {
                             if (!errBody.isNullOrBlank()) {
-                                val json = org.json.JSONObject(errBody)
-                                json.optString("error").ifEmpty { json.optString("message", "Denial failed.") }
-                            } else "Denial failed."
+                                val json = JSONObject(errBody)
+                                json.optString("error").ifEmpty { json.optString("message", "Failed to revert booking.") }
+                            } else "Failed to revert booking."
                         } catch (_: Exception) {
-                            errBody ?: "Denial failed."
+                            errBody ?: "Failed to revert booking."
                         }
-                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@RentalDetailActivity)
-                            .setTitle("⚠️ Cannot Deny Rental")
+                        MaterialAlertDialogBuilder(this@RentalDetailActivity)
+                            .setTitle("⚠️ Cannot Revert Booking")
                             .setMessage(errMsg)
                             .setPositiveButton("OK", null)
                             .show()

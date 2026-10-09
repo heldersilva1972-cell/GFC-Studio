@@ -62,6 +62,9 @@ namespace GFC.Core.Models
         public bool ShowAlternateDateField { get; set; } = true;
         public bool RequireAlternateDate { get; set; } = false;
 
+        // Form Layout Mode (False = New Guided 3-Step Wizard, True = Classic Single-Page Form)
+        public bool UseClassicRentalForm { get; set; } = false;
+
         // Dedicated Policies & Agreements
         public string RentalTermsAndConditionsText { get; set; } = @"The person executing this agreement expressly represents that he or she is TWENTY-ONE (21) years of age or older.
 
