@@ -221,11 +221,12 @@ namespace GFC.BlazorServer.Models
         {
             return new List<CalendarFieldDisplayConfig>
             {
-                new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Start and end time (e.g., 2:00 PM - 7:00 PM)", IsEnabled = true, Order = 1 },
-                new() { FieldKey = "event_title", Label = "Event Title / Designation", Description = "Event title or rental designation", IsEnabled = true, Order = 2 },
-                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall, Coalition Room, etc.", IsEnabled = true, Order = 3 },
-                new() { FieldKey = "booking_status", Label = "Booking Status Badge (Pending / Reserved)", Description = "Dynamic PENDING / RESERVED status pill", IsEnabled = true, Order = 4 },
-                new() { FieldKey = "public_notes", Label = "Public Description / Note", Description = "Event details or public summary", IsEnabled = false, Order = 5 }
+                new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Start and end time (e.g., 2 PM - 7 PM)", IsEnabled = true, Order = 1 },
+                new() { FieldKey = "applicant_name", Label = "Applicant / Organization Name", Description = "Full name of applicant or organization", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "event_type", Label = "Event Type / Occasion", Description = "Category or occasion of celebration", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall, Coalition Room, etc.", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "booking_status", Label = "Booking Status Badge (Pending / Reserved)", Description = "Dynamic PENDING / RESERVED status pill", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "public_notes", Label = "Public Description / Note", Description = "Event details or public summary", IsEnabled = false, Order = 6 }
             };
         }
 

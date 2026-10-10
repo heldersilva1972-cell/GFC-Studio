@@ -54,6 +54,7 @@
     private CalendarSettings _settings = new();
     private WebsiteSettings? _webSettings;
     private List<CalendarEventItem> _events = new();
+    private List<HallRentalRequest> _dbRentalRequests = new();
     private bool _isLoading = true;
     private bool _initialised = false;
     private string? _errorMessage;
@@ -153,6 +154,7 @@
             try
             {
                 var dbRequests = await RentalService.GetRentalRequestsAsync();
+                _dbRentalRequests = dbRequests.ToList();
                 
                 // Exclude cancelled/denied requests from calendar
                 var cancelledRequests = dbRequests.Where(r => 
@@ -201,17 +203,22 @@
                         calendarEvents.Add(new CalendarEventItem
                         {
                             GoogleEventId = $"db-rental-{req.Id}",
+                            RentalRequestId = req.Id,
                             Title = !string.IsNullOrWhiteSpace(req.EventType) ? req.EventType : "Hall Rental",
                             Start = start,
                             End = end,
                             Location = req.RoomSelected ?? "Main Function Hall",
                             Source = "Rental Booking",
                             Status = "Approved",
-                            Description = $"Reserved: {req.RoomSelected ?? "Main Function Hall"}"
+                            Description = $"Applicant: {req.ApplicantName}\nReserved: {req.RoomSelected ?? "Main Function Hall"}"
                         });
                     }
                     else
                     {
+                        if (existing.RentalRequestId == null || existing.RentalRequestId == 0)
+                        {
+                            existing.RentalRequestId = req.Id;
+                        }
                         if (string.IsNullOrWhiteSpace(existing.Location) && !string.IsNullOrWhiteSpace(req.RoomSelected))
                         {
                             existing.Location = req.RoomSelected;
@@ -491,9 +498,10 @@
             // Independent Modal action buttons
             showModalBookButton     = _settings.ShowModalBookButton,
             modalBookButtonText     = _settings.ModalBookButtonText ?? "Book this Hall",
-            modalBookButtonUrl      = _settings.ModalBookButtonUrl ?? "/rentals/apply",
+            modalBookButtonUrl      = _settings.ModalBookButtonUrl ?? _settings.HeaderBookButtonUrl ?? "/rentals/apply",
             showModalQuestionButton = _settings.ShowModalQuestionButton,
             modalQuestionButtonText = _settings.ModalQuestionButtonText ?? "Ask a Question",
+            modalQuestionButtonUrl  = _settings.ModalQuestionButtonUrl ?? _settings.HeaderQuestionButtonUrl ?? "/rentals/apply?mode=inquiry",
             daySchedules            = (_webSettings?.GetDaySchedulesList() ?? WebsiteSettings.GetDefaultDaySchedules())
                                         .Select(d => new
                                         {
@@ -538,10 +546,82 @@
                     rawTitle = rawTitle.Substring(8).Trim();
                 }
 
+                // Parse separate applicantName and eventType from linked DB request, title, or description
+                string applicantName = "";
+                string eventType = "";
+
+                if (isClub)
+                {
+                    eventType = rawTitle;
+                }
+                else
+                {
+                    // 1. If title has delimiters (e.g., "Helder Silva | Anniversary" or "Helder Silva - Anniversary"), split first
+                    if (rawTitle.Contains(" | "))
+                    {
+                        var parts = rawTitle.Split(" | ", 2, StringSplitOptions.TrimEntries);
+                        applicantName = parts[0];
+                        if (parts.Length > 1) eventType = parts[1];
+                    }
+                    else if (rawTitle.Contains(" - "))
+                    {
+                        var parts = rawTitle.Split(" - ", 2, StringSplitOptions.TrimEntries);
+                        applicantName = parts[0];
+                        eventType = parts[1];
+                    }
+
+                    // 2. Try resolving or enriching from matched database rental request
+                    HallRentalRequest? matchedReq = null;
+                    if (e.RentalRequestId.HasValue && e.RentalRequestId.Value > 0)
+                    {
+                        matchedReq = _dbRentalRequests.FirstOrDefault(r => r.Id == e.RentalRequestId.Value);
+                    }
+                    if (matchedReq == null && !string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId.StartsWith("db-rental-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(e.GoogleEventId.Substring("db-rental-".Length), out int reqId))
+                        {
+                            matchedReq = _dbRentalRequests.FirstOrDefault(r => r.Id == reqId);
+                        }
+                    }
+                    if (matchedReq == null)
+                    {
+                        matchedReq = _dbRentalRequests.FirstOrDefault(r => 
+                            r.EventDate.Date == e.Start.Date && 
+                            (!string.IsNullOrWhiteSpace(r.ApplicantName) && rawTitle.Contains(r.ApplicantName, StringComparison.OrdinalIgnoreCase) ||
+                             !string.IsNullOrWhiteSpace(r.EventType) && rawTitle.Contains(r.EventType, StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    if (matchedReq != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(applicantName))
+                            applicantName = matchedReq.ApplicantName?.Trim() ?? "";
+                        if (string.IsNullOrWhiteSpace(eventType))
+                            eventType = !string.IsNullOrWhiteSpace(matchedReq.EventType) ? matchedReq.EventType.Trim() : "";
+                    }
+
+                    // 3. Check description fallback for "Applicant: XYZ"
+                    if (string.IsNullOrWhiteSpace(applicantName) && !string.IsNullOrEmpty(e.Description) && e.Description.Contains("Applicant:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(e.Description, @"Applicant:\s*([^\r\n]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success)
+                        {
+                            applicantName = match.Groups[1].Value.Trim();
+                        }
+                    }
+
+                    // If event type is still empty after separating, use rawTitle
+                    if (string.IsNullOrWhiteSpace(eventType))
+                    {
+                        eventType = string.IsNullOrWhiteSpace(applicantName) ? rawTitle : "";
+                    }
+                }
+
                 return new
                 {
                     id                = e.GoogleEventId ?? Guid.NewGuid().ToString("N"),
                     title             = rawTitle,
+                    applicantName     = applicantName,
+                    eventType         = eventType,
                     status            = status,
                     isClubEvent       = isClub,
                     isSecondarySpace  = isSecSpace,

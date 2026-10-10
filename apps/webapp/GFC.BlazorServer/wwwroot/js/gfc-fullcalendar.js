@@ -98,11 +98,16 @@ window.GfcFullCalendar = (function () {
 
             /* Calendar light-theme button overrides */
             .gfc-calendar-wrap .fc { font-family: 'Inter', -apple-system, sans-serif; }
+            .gfc-calendar-wrap {
+                container-type: inline-size;
+            }
             .gfc-calendar-wrap .fc-header-toolbar {
                 display: flex !important;
                 align-items: center !important;
                 justify-content: space-between !important;
                 margin-bottom: 12px !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
             }
             .gfc-calendar-wrap .fc-toolbar-chunk:first-child {
                 flex: 0 0 auto;
@@ -113,7 +118,7 @@ window.GfcFullCalendar = (function () {
                 display: inline-flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                gap: 14px !important;
+                gap: 10px !important;
             }
             .gfc-calendar-wrap .fc-toolbar-chunk:last-child {
                 flex: 0 0 auto;
@@ -123,11 +128,70 @@ window.GfcFullCalendar = (function () {
                 font-weight: 800;
                 color: #1a1a1a;
                 text-align: center;
-                font-size: 1.2rem;
+                font-size: 1.15rem;
                 display: inline-block;
                 margin: 0 !important;
-                min-width: 170px;
+                min-width: 140px;
             }
+
+            /* Responsive container queries: adapt automatically when container shrinks */
+            @container (max-width: 520px) {
+                .gfc-calendar-wrap .fc-header-toolbar {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    flex-wrap: nowrap !important;
+                    gap: 6px !important;
+                    margin-bottom: 8px !important;
+                    width: 100% !important;
+                    padding: 0 4px !important;
+                }
+                .gfc-calendar-wrap .fc-toolbar-chunk:first-child {
+                    display: block !important;
+                    flex: 0 0 auto !important;
+                }
+                .gfc-calendar-wrap .fc-toolbar-chunk:nth-child(2) {
+                    display: block !important;
+                    flex: 1 1 auto !important;
+                    text-align: center !important;
+                }
+                .gfc-calendar-wrap .fc-toolbar-chunk:last-child {
+                    display: block !important;
+                    flex: 0 0 auto !important;
+                }
+                .gfc-calendar-wrap .fc-toolbar-title {
+                    font-size: 0.95rem !important;
+                    font-weight: 700 !important;
+                    margin: 0 auto !important;
+                    text-align: center !important;
+                    white-space: nowrap !important;
+                }
+                .gfc-calendar-wrap .fc-button {
+                    padding: 5px 10px !important;
+                    font-size: 0.80rem !important;
+                    white-space: nowrap !important;
+                }
+                .gfc-calendar-wrap .fc-col-header-cell-cushion {
+                    font-size: 0.72rem !important;
+                    padding: 4px 1px !important;
+                }
+                .gfc-calendar-wrap .fc-daygrid-day-number {
+                    font-size: 0.80rem !important;
+                    padding: 3px 5px !important;
+                }
+            }
+
+            @container (max-width: 380px) {
+                .gfc-calendar-wrap .fc-col-header-cell-cushion {
+                    font-size: 0.65rem !important;
+                    letter-spacing: -0.02em;
+                }
+                .gfc-calendar-wrap .fc-daygrid-day-number {
+                    font-size: 0.75rem !important;
+                    padding: 2px 3px !important;
+                }
+            }
+
             .gfc-calendar-wrap .fc-button {
                 background: #fff !important;
                 border: 1px solid #d0ccc4 !important;
@@ -645,8 +709,8 @@ window.GfcFullCalendar = (function () {
                             ✨ ${openMsg}
                         </div>
                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                            ${showBook ? `<a href="/rentals/apply?date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3);">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
-                            ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" target="_blank" rel="noopener" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</a>` : ''}
+                            ${showBook ? `<a href="${(config.modalBookButtonUrl || '/rentals/apply') + ((config.modalBookButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3);">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
+                            ${showInq ? `<a href="${(config.modalQuestionButtonUrl || '/rentals/apply?mode=inquiry') + ((config.modalQuestionButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</a>` : ''}
                         </div>
                     </div>`;
             }
@@ -737,11 +801,23 @@ window.GfcFullCalendar = (function () {
             }
         }
 
-        const formatTime = (d) => d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+        const formatTime = (d) => {
+            if (!d) return '';
+            // Display hours with AM/PM without minutes (e.g. 2 PM, 7 PM) to fit cleanly on month calendar grid
+            const h = d.getHours();
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const h12 = h % 12 || 12;
+            const m = d.getMinutes();
+            // If there are non-zero minutes (e.g., 2:30 PM), include them; otherwise omit :00
+            return m > 0 ? `${h12}:${m < 10 ? '0' : ''}${m} ${ampm}` : `${h12} ${ampm}`;
+        };
         let timeStr = '';
         if (!allDay && start) {
             timeStr = formatTime(start) + (end ? ' - ' + formatTime(end) : '');
         }
+
+        const applicantName = event.extendedProps?.applicantName || '';
+        const eventType = event.extendedProps?.eventType || '';
 
         if (isCompact) {
             // Single-line compact badge
@@ -763,6 +839,16 @@ window.GfcFullCalendar = (function () {
                         lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.75rem;"><i class="bi bi-clock me-1"></i>${timeStr}</div>`);
                     } else if (allDay) {
                         lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.75rem;"><i class="bi bi-calendar-event me-1"></i>All Day</div>`);
+                    }
+                    break;
+                case 'applicant_name':
+                    if (applicantName) {
+                        lines.push(`<div class="gfc-fc-card-line fw-bold text-dark" style="font-size:0.80rem;"><i class="bi bi-person me-1"></i>${applicantName}</div>`);
+                    }
+                    break;
+                case 'event_type':
+                    if (eventType) {
+                        lines.push(`<div class="gfc-fc-card-line text-muted fw-semibold" style="font-size:0.74rem;"><i class="bi bi-tag me-1"></i>${eventType}</div>`);
                     }
                     break;
                 case 'event_title':
@@ -908,8 +994,8 @@ window.GfcFullCalendar = (function () {
                               </div>
                               <div class="small fw-bold text-success mb-2" style="font-size:0.88rem; color:#14532d !important; text-align:left;">✨ ${openMsg}</div>
                               <div class="gfc-mobile-action-btns" style="margin-top:10px;">
-                                ${showBook ? `<a href="/rentals/apply?date=${dateStr}" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
-                                ${showInq ? `<a href="/rentals/apply?mode=inquiry&date=${dateStr}" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</a>` : ''}
+                                ${showBook ? `<a href="${(config.modalBookButtonUrl || '/rentals/apply') + ((config.modalBookButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
+                                ${showInq ? `<a href="${(config.modalQuestionButtonUrl || '/rentals/apply?mode=inquiry') + ((config.modalQuestionButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</a>` : ''}
                               </div>
                             </div>`;
             }
@@ -963,6 +1049,8 @@ window.GfcFullCalendar = (function () {
                 borderColor:     bg,
                 textColor:       fg,
                 extendedProps:   {
+                    applicantName:     e.applicantName     || e.extendedProps?.applicantName || '',
+                    eventType:         e.eventType         || e.extendedProps?.eventType || '',
                     status:            e.status            || e.extendedProps?.status || 'Approved',
                     isClubEvent:       isClub,
                     isSecondarySpace:  isSec,
@@ -997,14 +1085,10 @@ window.GfcFullCalendar = (function () {
                     prev: '< Prev',
                     next: 'Next >'
                 },
-                headerToolbar: isMobile ? {
+                headerToolbar: {
                     left:   'prev',
                     center: 'title',
                     right:  'next'
-                } : {
-                    left:   '',
-                    center: 'prev title next',
-                    right:  'dayGridMonth,listMonth'
                 },
                 height:       'auto',
                 nowIndicator: true,
@@ -1115,6 +1199,14 @@ window.GfcFullCalendar = (function () {
                     if (todayEl) todayEl.classList.add('gfc-mobile-selected-day');
                     renderMobileDayDrawer(todayStr, containerId);
                 }, 100);
+            }
+
+            // Dynamically adapt FullCalendar size when container is resized (e.g. preview mode or mobile screen flip)
+            if (window.ResizeObserver && el) {
+                const ro = new ResizeObserver(() => {
+                    try { cal.updateSize(); } catch (e) { }
+                });
+                ro.observe(el);
             }
 
             // Auto-refresh every refreshMs if requested

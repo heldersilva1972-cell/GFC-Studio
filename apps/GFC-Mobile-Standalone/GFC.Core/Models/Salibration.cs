@@ -25,6 +25,15 @@ public class SalibrationTicket
     public DateTime? WonAt { get; set; }
 }
 
+public class SalibrationRollConfig
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Label { get; set; } = "Main Roll";
+    public string Prefix { get; set; } = "1987";
+    public int DigitCount { get; set; } = 3;
+    public string ColorBadge { get; set; } = "primary"; // primary (blue), danger (red), success (green), warning (amber), purple
+}
+
 public class SalibrationSettings
 {
     public string PageTitle { get; set; } = "Sal-ibration";
@@ -32,6 +41,27 @@ public class SalibrationSettings
     public int VariableDigitCount { get; set; } = 3;
     public string ThankYouMessage { get; set; } = "Thank you so much for your generosity and incredible support! Your contribution makes a real difference in our community fundraiser. We’ve saved your numbers — good luck in the drawing! 🌟";
     public int ThankYouDisplaySeconds { get; set; } = 5;
+    public List<SalibrationRollConfig> RollConfigs { get; set; } = new();
+
+    public List<SalibrationRollConfig> GetActiveRollConfigs()
+    {
+        if (RollConfigs != null && RollConfigs.Count > 0)
+        {
+            return RollConfigs;
+        }
+
+        return new List<SalibrationRollConfig>
+        {
+            new SalibrationRollConfig
+            {
+                Id = "default-1",
+                Label = "Main Roll",
+                Prefix = string.IsNullOrEmpty(TicketPrefix) ? "1987" : TicketPrefix,
+                DigitCount = VariableDigitCount > 0 ? VariableDigitCount : 3,
+                ColorBadge = "primary"
+            }
+        };
+    }
 }
 
 public class SalibrationWinnerResult

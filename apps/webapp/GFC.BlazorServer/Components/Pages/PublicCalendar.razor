@@ -2,7 +2,11 @@
 @using GFC.BlazorServer.Components.Shared
 @using GFC.BlazorServer.Models
 @using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
 @inject CalendarSettingsService SettingsService
+@inject IRentalService RentalService
+@inject IWebsiteSettingsService WebsiteSettingsService
 @layout GFC.BlazorServer.Components.Layout.PublicCalendarLayout
 @rendermode InteractiveServer
 
@@ -56,47 +60,50 @@ else
 {
     <div class="gfc-pub-cal-page">
 
-        @* ── Header ─────────────────────────────────────────────── *@
-        <header class="gfc-pub-cal-header">
-            <div class="gfc-pub-cal-header-inner">
-                <a href="https://gloucesterfraternityclub.com" class="gfc-pub-cal-logo-wrap text-decoration-none" title="Visit GFC Home Website">
-                    <img src="~/images/gfc-logo.png"
-                         onerror="this.style.display='none'"
-                         alt="Gloucester Fraternity Club"
-                         class="gfc-pub-cal-logo" />
-                    <div class="gfc-pub-cal-title-wrap">
-                        <span class="gfc-pub-cal-club">Gloucester Fraternity Club</span>
-                        <span class="gfc-pub-cal-subtitle">Hall Rental Calendar</span>
+        @* ── Header (Hidden when embedded into WordPress) ─────────── *@
+        @if (!IsEmbed)
+        {
+            <header class="gfc-pub-cal-header">
+                <div class="gfc-pub-cal-header-inner">
+                    <a href="https://gloucesterfraternityclub.com" class="gfc-pub-cal-logo-wrap text-decoration-none" title="Visit GFC Home Website">
+                        <img src="~/images/gfc-logo.png"
+                             onerror="this.style.display='none'"
+                             alt="Gloucester Fraternity Club"
+                             class="gfc-pub-cal-logo" />
+                        <div class="gfc-pub-cal-title-wrap">
+                            <span class="gfc-pub-cal-club">Gloucester Fraternity Club</span>
+                            <span class="gfc-pub-cal-subtitle">Hall Rental Calendar</span>
+                        </div>
+                    </a>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        @if (_settings.ShowHeaderHomeButton)
+                        {
+                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonUrl) ? _settings.HeaderHomeButtonUrl : "https://gloucesterfraternityclub.com")"
+                               class="gfc-pub-cal-home-btn"
+                               title="Return to GFC Home Website">
+                                🏠 @(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonText) ? _settings.HeaderHomeButtonText : "GFC Home")
+                            </a>
+                        }
+                        @if (_settings.ShowHeaderQuestionButton)
+                        {
+                            <button type="button"
+                                    class="gfc-pub-cal-question-btn"
+                                    @onclick="ToggleInquiryForm">
+                                ❓ @(!string.IsNullOrWhiteSpace(_settings.HeaderQuestionButtonText) ? _settings.HeaderQuestionButtonText : "Ask a Question")
+                            </button>
+                        }
+                        @if (_settings.ShowHeaderBookButton)
+                        {
+                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply")"
+                               target="_blank" rel="noopener"
+                               class="gfc-pub-cal-book-btn">
+                                📅 @(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonText) ? _settings.HeaderBookButtonText : "Book the Hall")
+                            </a>
+                        }
                     </div>
-                </a>
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    @if (_settings.ShowHeaderHomeButton)
-                    {
-                        <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonUrl) ? _settings.HeaderHomeButtonUrl : "https://gloucesterfraternityclub.com")"
-                           class="gfc-pub-cal-home-btn"
-                           title="Return to GFC Home Website">
-                            🏠 @(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonText) ? _settings.HeaderHomeButtonText : "GFC Home")
-                        </a>
-                    }
-                    @if (_settings.ShowHeaderQuestionButton)
-                    {
-                        <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderQuestionButtonUrl) ? _settings.HeaderQuestionButtonUrl : "/rentals/apply?mode=inquiry")"
-                           target="_blank" rel="noopener"
-                           class="gfc-pub-cal-question-btn">
-                            ❓ @(!string.IsNullOrWhiteSpace(_settings.HeaderQuestionButtonText) ? _settings.HeaderQuestionButtonText : "Ask a Question")
-                        </a>
-                    }
-                    @if (_settings.ShowHeaderBookButton)
-                    {
-                        <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply")"
-                           target="_blank" rel="noopener"
-                           class="gfc-pub-cal-book-btn">
-                            📅 @(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonText) ? _settings.HeaderBookButtonText : "Book the Hall")
-                        </a>
-                    }
                 </div>
-            </div>
-        </header>
+            </header>
+        }
 
         @* ── Info / Notice banner ─────────────────────────────────── *@
         @if (_settings.ShowHeaderNoticeBanner && !string.IsNullOrWhiteSpace(_settings.HeaderNoticeBannerText))
@@ -114,18 +121,171 @@ else
             </div>
         }
 
+        @* ── INLINE ASK A QUESTION / INQUIRY SECTION (Matches RentalsApply) ── *@
+        @if (_showInquiryForm)
+        {
+            <div class="container-fluid p-3 p-md-4" style="max-width: 860px; margin: 0 auto; width: 100%;">
+                @if (_isInquirySubmitted)
+                {
+                    <div class="card shadow-sm border-0 submission-success-card text-center p-4 p-md-5 bg-white rounded-4 mb-4">
+                        <div class="success-icon mb-3">
+                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3.5rem;"></i>
+                        </div>
+                        <h3 class="fw-bold text-dark mb-2">Question Received!</h3>
+                        <p class="text-muted mb-4 lead fs-6">
+                            Thank you, <strong>@_inquiryModel.ApplicantName</strong>. Our rental team has received your message and will review it and get back to you directly 
+                            @if (_inquiryModel.RequestPhoneCall && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterPhone))
+                            {
+                                <span>by phone at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong> (or email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>)</span>
+                            }
+                            else
+                            {
+                                <span>at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong></span>
+                            }.
+                        </p>
+                        <div class="summary-box p-3 p-md-4 bg-light rounded-4 text-start mx-auto mb-4 border" style="max-width: 580px;">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                                <h6 class="fw-bold text-dark mb-0"><i class="bi bi-chat-left-text me-2 text-primary"></i>Your Question</h6>
+                                @if (_inquiryModel.RequestPhoneCall)
+                                {
+                                    <span class="badge bg-success-subtle text-success border border-success px-2 py-1 rounded-pill small">
+                                        <i class="bi bi-telephone-fill me-1"></i>Phone Callback Requested
+                                    </span>
+                                }
+                            </div>
+                            <p class="small text-dark mb-0 font-monospace" style="white-space: pre-wrap;">@_inquiryModel.EventDescription</p>
+                        </div>
+                        <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
+                            <button type="button" class="btn btn-primary px-4 fw-bold shadow-sm" @onclick="CloseInquiryForm">
+                                <i class="bi bi-calendar3 me-1"></i> Back to Calendar
+                            </button>
+                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply")" target="_top" class="btn btn-outline-success px-4 fw-bold">
+                                <i class="bi bi-calendar2-plus me-1"></i> Book the Hall
+                            </a>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card shadow-sm border-0 bg-white rounded-4 overflow-hidden mb-4">
+                        <div class="card-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0 fw-bold text-dark">
+                                    <i class="bi bi-question-circle-fill text-warning me-2"></i>Ask a Question / General Inquiry
+                                </h5>
+                                <small class="text-muted">Have a question about rules, dates, or catering before reserving? Let us know below!</small>
+                            </div>
+                            <button type="button" class="btn-close" aria-label="Close" @onclick="CloseInquiryForm"></button>
+                        </div>
+
+                        <div class="card-body p-4">
+                            @if (!string.IsNullOrEmpty(_inquiryErrorMessage))
+                            {
+                                <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 d-flex align-items-center gap-2">
+                                    <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+                                    <div>@_inquiryErrorMessage</div>
+                                </div>
+                            }
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-dark mb-1">Your Name / Organization *</label>
+                                    <input type="text" class="form-control" placeholder="e.g. Jane Doe" @bind="_inquiryModel.ApplicantName" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-dark mb-1">Email Address *</label>
+                                    <input type="email" class="form-control" placeholder="e.g. jane.doe@example.com" @bind="_inquiryModel.RequesterEmail" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-dark mb-1">Target Date or Timeframe (Optional)</label>
+                                    <input type="date" class="form-control" value="@(_inquiryModel.EventDate > DateTime.MinValue ? _inquiryModel.EventDate.ToString("yyyy-MM-dd") : "")" @onchange="OnInquiryDateChanged" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold small text-dark mb-1">Occasion / Event Type (Optional)</label>
+                                    <input type="text" class="form-control" placeholder="e.g. Birthday Party, Shower, Meeting" @bind="_inquiryModel.EventType" />
+                                </div>
+
+                                <!-- Contact Preference (Email, Phone, or Both) -->
+                                <div class="col-12">
+                                    <div class="p-3 bg-light rounded-3 border">
+                                        <label class="form-label fw-bold small text-dark mb-2 d-block">How would you prefer us to contact you?</label>
+                                        <div class="d-flex gap-4 mb-2 flex-wrap">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqEmail" checked="@(_inquiryContactPreference == "Email")" @onchange='() => _inquiryContactPreference = "Email"' />
+                                                <label class="form-check-label small text-dark" for="calInqEmail">
+                                                    <i class="bi bi-envelope-fill text-secondary me-1"></i>Email only
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqPhone" checked="@(_inquiryContactPreference == "Phone")" @onchange='() => _inquiryContactPreference = "Phone"' />
+                                                <label class="form-check-label small text-dark fw-bold" for="calInqPhone">
+                                                    <i class="bi bi-telephone-fill text-primary me-1"></i>Phone call
+                                                </label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqBoth" checked="@(_inquiryContactPreference == "Both")" @onchange='() => _inquiryContactPreference = "Both"' />
+                                                <label class="form-check-label small text-dark fw-bold" for="calInqBoth">
+                                                    <i class="bi bi-chat-square-dots-fill text-success me-1"></i>Both (Phone &amp; Email)
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        @if (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both")
+                                        {
+                                            <div class="mt-2 pt-2 border-top">
+                                                <label class="form-label fw-bold small text-dark mb-1">Phone Number *</label>
+                                                <input type="tel" class="form-control form-control-sm" placeholder="e.g. (978) 555-0123" value="@_inquiryModel.RequesterPhone" @onchange="OnInquiryPhoneChanged" />
+                                                <small class="text-muted" style="font-size: 0.75rem;">A 10-digit phone number is required for telephone callbacks.</small>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label fw-bold small text-dark mb-1">Your Question or Message *</label>
+                                    <textarea class="form-control" rows="5" placeholder="Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)..." @bind="_inquiryModel.EventDescription"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-4 pt-3 border-top">
+                                <button type="button" class="btn btn-outline-secondary" @onclick="CloseInquiryForm">
+                                    <i class="bi bi-calendar3 me-1 text-primary"></i>Back to Calendar
+                                </button>
+                                <button type="button" class="btn btn-primary px-4 fw-bold shadow-sm d-flex align-items-center gap-2" @onclick="HandleInquirySubmit" disabled="@_isInquirySubmitting">
+                                    @if (_isInquirySubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Sending Question...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-send-fill"></i>
+                                        <span>Submit Question</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
         @* ── Calendar ────────────────────────────────────────────── *@
-        <main class="gfc-pub-cal-main">
+        <main class="gfc-pub-cal-main" style="@(_showInquiryForm ? "display:none;" : "")">
             <FullCalendarWrapper Standalone="true" RefreshIntervalMs="300000" />
         </main>
 
         @* ── Footer ──────────────────────────────────────────────── *@
-        <footer class="gfc-pub-cal-footer">
-            <span>© @DateTime.Now.Year Gloucester Fraternity Club</span>
-            <a href="https://gloucesterfraternityclub.com/" target="_blank" rel="noopener">
-                Visit our Website
-            </a>
-        </footer>
+        @if (!IsEmbed)
+        {
+            <footer class="gfc-pub-cal-footer">
+                <span>© @DateTime.Now.Year Gloucester Fraternity Club</span>
+                <a href="https://gloucesterfraternityclub.com/" target="_blank" rel="noopener">
+                    Visit our Website
+                </a>
+            </footer>
+        }
     </div>
 }
 
@@ -475,7 +635,24 @@ else
     [SupplyParameterFromQuery(Name = "view")]
     public string? View { get; set; }
 
+    [SupplyParameterFromQuery(Name = "embed")]
+    public string? Embed { get; set; }
+
+    [SupplyParameterFromQuery(Name = "inquiry")]
+    public string? InquiryQuery { get; set; }
+
+    private bool IsEmbed => 
+        string.Equals(Embed, "true", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Embed, "1", StringComparison.OrdinalIgnoreCase);
+
     private CalendarSettings _settings = new();
+
+    private bool _showInquiryForm = false;
+    private bool _isInquirySubmitted = false;
+    private bool _isInquirySubmitting = false;
+    private string? _inquiryErrorMessage;
+    private string _inquiryContactPreference = "Email";
+    private HallRentalRequest _inquiryModel = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -486,6 +663,117 @@ else
         catch
         {
             _settings = new CalendarSettings();
+        }
+
+        if (string.Equals(InquiryQuery, "true", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(InquiryQuery, "1", StringComparison.OrdinalIgnoreCase))
+        {
+            _showInquiryForm = true;
+        }
+    }
+
+    private void ToggleInquiryForm()
+    {
+        _showInquiryForm = !_showInquiryForm;
+        if (!_showInquiryForm)
+        {
+            _isInquirySubmitted = false;
+            _inquiryErrorMessage = null;
+        }
+    }
+
+    private void CloseInquiryForm()
+    {
+        _showInquiryForm = false;
+        _isInquirySubmitted = false;
+        _inquiryErrorMessage = null;
+    }
+
+    private void OnInquiryPhoneChanged(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString() ?? "";
+        _inquiryModel.RequesterPhone = FormatPhoneNumber(raw);
+    }
+
+    private void OnInquiryDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var dt))
+        {
+            _inquiryModel.EventDate = dt;
+        }
+    }
+
+    private static string FormatPhoneNumber(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+        var digits = System.Text.RegularExpressions.Regex.Replace(input, @"\D", "");
+        if (digits.Length == 10)
+        {
+            return $"({digits.Substring(0, 3)}) {digits.Substring(3, 3)}-{digits.Substring(6, 4)}";
+        }
+        else if (digits.Length == 11 && digits.StartsWith("1"))
+        {
+            return $"({digits.Substring(1, 3)}) {digits.Substring(4, 3)}-{digits.Substring(7, 4)}";
+        }
+        else if (digits.Length == 7)
+        {
+            return $"{digits.Substring(0, 3)}-{digits.Substring(3, 4)}";
+        }
+        return input.Trim();
+    }
+
+    private async Task HandleInquirySubmit()
+    {
+        _inquiryErrorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(_inquiryModel.ApplicantName))
+        {
+            _inquiryErrorMessage = "Please provide your name or organization name.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_inquiryModel.RequesterEmail) || !_inquiryModel.RequesterEmail.Contains("@"))
+        {
+            _inquiryErrorMessage = "Please provide a valid email address so we can reach you.";
+            return;
+        }
+
+        if (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both")
+        {
+            var digits = new string((_inquiryModel.RequesterPhone ?? "").Where(char.IsDigit).ToArray());
+            if (digits.Length < 10)
+            {
+                _inquiryErrorMessage = "Please provide a valid 10-digit phone number so we can call you.";
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(_inquiryModel.EventDescription))
+        {
+            _inquiryErrorMessage = "Please enter your question or inquiry message.";
+            return;
+        }
+
+        _isInquirySubmitting = true;
+        try
+        {
+            var webSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+            bool isTest = (webSettings?.EnableSandboxMode == true) || (webSettings?.FormIngestionMode == "Simulation");
+            _inquiryModel.RequesterName = _inquiryModel.ApplicantName;
+            _inquiryModel.RequestPhoneCall = (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both");
+            _inquiryModel.PreferredContactMethod = _inquiryContactPreference;
+
+            await RentalService.SubmitGeneralInquiryAsync(_inquiryModel, isTest);
+            _isInquirySubmitted = true;
+        }
+        catch (Exception ex)
+        {
+            var detail = ex.InnerException != null ? $"{ex.Message} (Details: {ex.InnerException.Message})" : ex.Message;
+            _inquiryErrorMessage = "Error submitting inquiry: " + detail;
+        }
+        finally
+        {
+            _isInquirySubmitting = false;
         }
     }
 }
