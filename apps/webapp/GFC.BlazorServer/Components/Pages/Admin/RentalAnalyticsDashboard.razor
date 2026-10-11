@@ -1,0 +1,400 @@
+@page "/hall-rentals/analytics"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IRentalAnalyticsService AnalyticsService
+@inject IJSRuntime JSRuntime
+@rendermode InteractiveServer
+
+<PageTitle>Hall Rental Traffic &amp; Analytics — GFC Studio</PageTitle>
+
+<div class="container-fluid py-3 px-4">
+    <!-- Top Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2 pb-3 border-bottom">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h4 class="fw-bold mb-0 text-dark">
+                    <i class="bi bi-graph-up-arrow text-primary me-2"></i>Hall Rental Traffic &amp; Visitor Insights
+                </h4>
+                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2.5 py-1">
+                    <i class="bi bi-broadcast me-1"></i>Live Tracking Active
+                </span>
+            </div>
+            <small class="text-muted">
+                Track visitor volume, device usage, drop-off points, and engagement across the Calendar, Application Form, and Pricing Guide.
+            </small>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm fw-semibold" style="width: 140px;" @onchange="OnRangeChanged">
+                <option value="7">Last 7 Days</option>
+                <option value="30" selected>Last 30 Days</option>
+                <option value="90">Last 90 Days</option>
+                <option value="365">This Year</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 shadow-sm" @onclick="LoadDataAsync">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>Refresh</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" @onclick="ConfirmClearAsync" title="Reset all tracking logs">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="small text-muted mt-2">Aggregating visitor telemetry...</div>
+        </div>
+    }
+    else if (_summary != null)
+    {
+        <!-- KPI CARDS -->
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="card border rounded-4 p-3 shadow-sm bg-white h-100">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-semibold">Total Page Views</span>
+                        <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                            <i class="bi bi-eye-fill"></i>
+                        </div>
+                    </div>
+                    <div class="fs-3 fw-bold text-dark mb-1">@_summary.TotalViews.ToString("N0")</div>
+                    <div class="small text-muted">Across all rental portals</div>
+                </div>
+            </div>
+
+            <div class="col-sm-6 col-xl-3">
+                <div class="card border rounded-4 p-3 shadow-sm bg-white h-100">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-semibold">Unique Visitors</span>
+                        <div class="rounded-circle bg-success bg-opacity-10 text-success p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                            <i class="bi bi-people-fill"></i>
+                        </div>
+                    </div>
+                    <div class="fs-3 fw-bold text-dark mb-1">@_summary.UniqueVisitors.ToString("N0")</div>
+                    <div class="small text-muted">Distinct IP addresses tracked</div>
+                </div>
+            </div>
+
+            <div class="col-sm-6 col-xl-3">
+                <div class="card border rounded-4 p-3 shadow-sm bg-white h-100">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-semibold">Mobile vs. Desktop</span>
+                        <div class="rounded-circle bg-info bg-opacity-10 text-info p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                            <i class="bi bi-phone"></i>
+                        </div>
+                    </div>
+                    <div class="fs-3 fw-bold text-dark mb-1">@_summary.MobilePercentage% <span class="fs-6 fw-normal text-muted">Mobile</span></div>
+                    <div class="small text-muted">Desktop: @_summary.DesktopPercentage% (@_summary.DesktopViews views)</div>
+                </div>
+            </div>
+
+            <div class="col-sm-6 col-xl-3">
+                <div class="card border rounded-4 p-3 shadow-sm bg-white h-100">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-semibold">Avg. Engagement Time</span>
+                        <div class="rounded-circle bg-warning bg-opacity-10 text-warning p-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                            <i class="bi bi-clock-history"></i>
+                        </div>
+                    </div>
+                    <div class="fs-3 fw-bold text-dark mb-1">@FormatDuration(_summary.AvgDurationSeconds)</div>
+                    <div class="small text-muted">Time spent browsing on page</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BREAKDOWN ROW: Pages & Funnel -->
+        <div class="row g-4 mb-4">
+            <!-- Portals Viewed -->
+            <div class="col-lg-6">
+                <div class="card border rounded-4 shadow-sm bg-white p-4 h-100">
+                    <h6 class="fw-bold text-dark mb-3"><i class="bi bi-diagram-3-fill text-primary me-2"></i>Traffic By Rental Feature</h6>
+                    <div class="d-flex flex-column gap-3">
+                        <div>
+                            <div class="d-flex justify-content-between small fw-semibold mb-1">
+                                <span><i class="bi bi-calendar3 text-warning me-1"></i>Public Calendar Views</span>
+                                <span class="text-dark">@_summary.CalendarViews</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-warning" role="progressbar" style="width: @(CalculatePct(_summary.CalendarViews, _summary.TotalViews))%"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="d-flex justify-content-between small fw-semibold mb-1">
+                                <span><i class="bi bi-file-earmark-text text-primary me-1"></i>Rental Application Form</span>
+                                <span class="text-dark">@_summary.ApplicationViews</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-primary" role="progressbar" style="width: @(CalculatePct(_summary.ApplicationViews, _summary.TotalViews))%"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="d-flex justify-content-between small fw-semibold mb-1">
+                                <span><i class="bi bi-tag text-success me-1"></i>Pricing Guide / Matrices</span>
+                                <span class="text-dark">@_summary.PricingGuideViews</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-success" role="progressbar" style="width: @(CalculatePct(_summary.PricingGuideViews, _summary.TotalViews))%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-top mt-4">
+                        <h6 class="fw-bold text-dark mb-2 small"><i class="bi bi-signpost-2 text-primary me-1"></i>Top Referral Sources</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var refSource in _summary.TopReferrers)
+                            {
+                                <span class="badge bg-light text-secondary border px-2.5 py-1.5 fw-normal">
+                                    <strong class="text-dark">@refSource.Key:</strong> @refSource.Value
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Application Conversion Funnel -->
+            <div class="col-lg-6">
+                <div class="card border rounded-4 shadow-sm bg-white p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-bold text-dark mb-0"><i class="bi bi-funnel-fill text-primary me-2"></i>Application Drop-off Funnel</h6>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Conversion Analysis</span>
+                    </div>
+
+                    <div class="d-flex flex-column gap-3">
+                        <div class="p-2.5 rounded-3 bg-light border">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-dark"><i class="bi bi-1-circle text-primary me-1"></i>Step 1: Event Date &amp; Slot Selected</span>
+                                <span class="badge bg-white text-dark border">@_summary.FunnelStep1Views visits</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar bg-primary" style="width: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 rounded-3 bg-light border">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-dark"><i class="bi bi-2-circle text-primary me-1"></i>Step 2: Pricing &amp; Add-ons Chosen</span>
+                                <span class="badge bg-white text-dark border">@_summary.FunnelStep2Views visits</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar bg-info" style="width: @(CalculatePct(_summary.FunnelStep2Views, Math.Max(1, _summary.FunnelStep1Views)))%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 rounded-3 bg-light border">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-dark"><i class="bi bi-3-circle text-primary me-1"></i>Step 3: Review &amp; Signed Policy</span>
+                                <span class="badge bg-white text-dark border">@_summary.FunnelStep3Views visits</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar bg-warning" style="width: @(CalculatePct(_summary.FunnelStep3Views, Math.Max(1, _summary.FunnelStep1Views)))%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 rounded-3 bg-success bg-opacity-10 border border-success border-opacity-25">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small text-success"><i class="bi bi-check-circle-fill text-success me-1"></i>Completed Applications Submitted</span>
+                                <span class="badge bg-success text-white">@_summary.FunnelSubmissions submitted</span>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar bg-success" style="width: @(CalculatePct(_summary.FunnelSubmissions, Math.Max(1, _summary.FunnelStep1Views)))%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 rounded-3 bg-info bg-opacity-10 border border-info border-opacity-25">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-bold small text-info text-dark"><i class="bi bi-question-circle-fill text-info me-1"></i>Questions &amp; Inquiries Sent</span>
+                                <span class="badge bg-info text-white">@_summary.InquiriesSent inquiries</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RECENT VISITOR LIVE LOG TABLE -->
+        <div class="card border rounded-4 shadow-sm bg-white overflow-hidden">
+            <div class="card-header bg-white py-3 px-4 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h6 class="fw-bold text-dark mb-0"><i class="bi bi-card-list text-primary me-2"></i>Live Visitor Stream &amp; IP Logs</h6>
+                    <small class="text-muted">Real-time log of the latest 50 visitor sessions with IP address, device, location, and interaction path.</small>
+                </div>
+                <span class="badge bg-light text-secondary border">@_summary.RecentSessions.Count Sessions Displayed</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size: 0.82rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">Time</th>
+                            <th>IP Address</th>
+                            <th>Location</th>
+                            <th>Page Viewed</th>
+                            <th>Device / Browser</th>
+                            <th>Visit #</th>
+                            <th>Duration</th>
+                            <th>Actions &amp; Events</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_summary.RecentSessions.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center py-4 text-muted">
+                                    No visitor telemetry recorded yet. Visits will appear here live when guests view your calendar or booking form.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var s in _summary.RecentSessions)
+                            {
+                                <tr>
+                                    <td class="ps-4 text-muted font-monospace" style="font-size: 0.78rem;">
+                                        @s.Timestamp.ToLocalTime().ToString("MMM dd, h:mm tt")
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border font-monospace">@s.IpAddress</span>
+                                    </td>
+                                    <td>
+                                        <i class="bi bi-geo-alt text-danger me-1"></i>
+                                        <span>@s.City, @s.Region</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(GetPageBadgeClass(s.Page)) px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                            @(string.IsNullOrWhiteSpace(s.Page) ? "Public Calendar" : s.Page)
+                                        </span>
+                                        @if (s.IsEmbedded)
+                                        {
+                                            <span class="badge bg-dark bg-opacity-75 text-white border ms-1 fw-semibold" style="font-size: 0.68rem;">WP Embed</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <i class="bi @(s.DeviceType == "Mobile" ? "bi-phone text-info" : s.DeviceType == "Tablet" ? "bi-tablet text-warning" : "bi-laptop text-primary") me-1"></i>
+                                        <strong>@s.DeviceType</strong> (@s.Browser / @s.OperatingSystem)
+                                    </td>
+                                    <td>
+                                        @if (s.VisitCountForIp > 1)
+                                        {
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                                <i class="bi bi-repeat me-1"></i>@s.VisitCountForIp visits
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-secondary border">1st visit</span>
+                                        }
+                                    </td>
+                                    <td class="text-muted">
+                                        @FormatDuration(s.DurationSeconds)
+                                    </td>
+                                    <td>
+                                        @if (s.Actions.Count > 0)
+                                        {
+                                            <div class="d-flex flex-wrap gap-1" style="max-width: 280px;">
+                                                @foreach (var act in s.Actions.Take(3))
+                                                {
+                                                    <span class="badge bg-light text-secondary border text-truncate" style="max-width: 220px;" title="@act">
+                                                        @act
+                                                    </span>
+                                                }
+                                                @if (s.Actions.Count > 3)
+                                                {
+                                                    <span class="badge bg-light text-muted border">+@(s.Actions.Count - 3) more</span>
+                                                }
+                                            </div>
+                                        }
+                                        else if (s.DidSubmit)
+                                        {
+                                            <span class="badge bg-success text-white"><i class="bi bi-check-lg me-1"></i>Submitted Form</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Browsed Page</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private int _days = 30;
+    private RentalAnalyticsSummary? _summary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _summary = await AnalyticsService.GetSummaryAsync(_days);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Analytics] Error loading summary: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnRangeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var days))
+        {
+            _days = days;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task ConfirmClearAsync()
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to clear all rental visitor analytics history?");
+        if (confirmed)
+        {
+            await AnalyticsService.ClearAnalyticsAsync();
+            await LoadDataAsync();
+        }
+    }
+
+    private static double CalculatePct(int part, int total)
+    {
+        if (total <= 0) return 0;
+        return Math.Round((double)part / total * 100, 1);
+    }
+
+    private static string FormatDuration(int seconds)
+    {
+        if (seconds < 60) return $"{seconds}s";
+        int mins = seconds / 60;
+        int rem = seconds % 60;
+        return $"{mins}m {rem}s";
+    }
+
+    private static string GetPageBadgeClass(string page)
+    {
+        if (page.Contains("Calendar", StringComparison.OrdinalIgnoreCase)) 
+            return "bg-warning text-dark border border-warning shadow-sm";
+        if (page.Contains("Application", StringComparison.OrdinalIgnoreCase)) 
+            return "bg-primary text-white border border-primary shadow-sm";
+        if (page.Contains("Pricing", StringComparison.OrdinalIgnoreCase)) 
+            return "bg-success text-white border border-success shadow-sm";
+        return "bg-secondary text-white border";
+    }
+}

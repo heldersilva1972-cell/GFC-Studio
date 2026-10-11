@@ -713,6 +713,12 @@ window.GfcFullCalendar = (function () {
                         ${sourceHtml}
                     </div>`;
             });
+        } else if (dateStr < new Date().toLocaleDateString('en-CA')) {
+            eventsHtml = `
+                <div style="padding:16px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:12px;">
+                    <div style="font-size:1.3rem; margin-bottom:4px;">📅</div>
+                    <div style="font-weight:600; color:#64748b; font-size:0.90rem;">No events were booked for this date.</div>
+                </div>`;
         } else {
             eventsHtml = `
                 <div style="padding:18px 16px; text-align:center; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; margin-bottom:12px;">
@@ -726,14 +732,24 @@ window.GfcFullCalendar = (function () {
         let actionsHtml = '';
         const availInfo = checkDateAvailability(dateStr, events, config);
 
+        // Determine if selected date is in the past (before current date)
+        const todayStr = new Date().toLocaleDateString('en-CA'); // Local YYYY-MM-DD
+        const isPastDate = dateStr < todayStr;
+
         if (availInfo.isFullyBooked) {
             actionsHtml += `
                 <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:14px 16px; margin-top:14px; text-align:center;">
                     <div style="font-size:0.92rem; font-weight:700; color:#991b1b; margin-bottom:2px;">🚫 Date is Fully Booked</div>
                     <div style="font-size:0.82rem; color:#b91c1c;">All available time slots for this date are currently reserved or pending. Please select another date.</div>
                 </div>`;
+        } else if (isPastDate) {
+            // Selected date has passed — cannot book a past date
+            actionsHtml += `
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:12px 14px; margin-top:14px; text-align:center;">
+                    <div style="font-size:0.85rem; font-weight:600; color:#64748b;">⏳ This date has passed.</div>
+                </div>`;
         } else {
-            const showBook = config.mobileShowBookAvailableSlot !== false && config.showModalBookButton !== false;
+            const showBook = config.mobileShowBookAvailableSlot !== false && config.showModalBookButton !== false && !isPastDate;
             const showInq  = config.mobileShowQuestionAvailableSlot !== false && config.showModalQuestionButton !== false;
 
             if (showBook || showInq) {
@@ -754,7 +770,7 @@ window.GfcFullCalendar = (function () {
                             ✨ ${openMsg}
                         </div>
                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                            ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" target="_top" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3); text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
+                            ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" onclick="window.gfcSetBookingDate('${dateStr}')" target="_top" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3); text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
                             ${showInq ? `<button type="button" onclick="window.gfcTriggerInquiry('${dateStr}', '${containerId}')" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</button>` : ''}
                         </div>
                     </div>`;
@@ -789,6 +805,14 @@ window.GfcFullCalendar = (function () {
     }
 
     function resolveBookUrl(config, dateStr) {
+        // Store selected date in both localStorage and sessionStorage so the application detects it regardless of iframe isolation
+        try {
+            if (dateStr) {
+                localStorage.setItem('gfc_selected_event_date', dateStr);
+                sessionStorage.setItem('gfc_selected_event_date', dateStr);
+            }
+        } catch(e) {}
+
         let rawUrl = config.modalBookButtonUrl || '';
         const isInIframe = window.parent && window.parent !== window;
         
@@ -822,6 +846,15 @@ window.GfcFullCalendar = (function () {
         const sep = rawUrl.includes('?') ? '&' : '?';
         return rawUrl + sep + 'date=' + encodeURIComponent(dateStr);
     }
+
+    window.gfcSetBookingDate = function(dateStr) {
+        try {
+            if (dateStr) {
+                localStorage.setItem('gfc_selected_event_date', dateStr);
+                sessionStorage.setItem('gfc_selected_event_date', dateStr);
+            }
+        } catch(e) {}
+    };
 
     window.gfcTriggerInquiry = function(dateStr, containerId) {
         closeModal();
@@ -1050,6 +1083,11 @@ window.GfcFullCalendar = (function () {
                               ${sourceHtml}
                             </div>`;
             });
+        } else if (dateStr < new Date().toLocaleDateString('en-CA')) {
+            content += `<div class="p-3 text-center text-muted small bg-light rounded-3 mb-2">
+                          <i class="bi bi-calendar-event text-secondary fs-5 d-block mb-1"></i>
+                          <span>No events were booked for this date.</span>
+                        </div>`;
         } else {
             content += `<div class="p-3 text-center text-muted small bg-light rounded-3 mb-2">
                           <i class="bi bi-calendar-check text-success fs-5 d-block mb-1"></i>
@@ -1059,14 +1097,20 @@ window.GfcFullCalendar = (function () {
 
         // Available slots prompt & Action Buttons
         const availInfo = checkDateAvailability(dateStr, events, config);
+        const todayStr = new Date().toLocaleDateString('en-CA'); // Local YYYY-MM-DD
+        const isPastDate = dateStr < todayStr;
 
         if (availInfo.isFullyBooked) {
             content += `<div class="p-3 text-center rounded-3 mb-2" style="background:#fef2f2; border:1px solid #fecaca;">
                           <div class="small fw-bold text-danger mb-1">🚫 Date is Fully Booked</div>
                           <div class="text-muted" style="font-size:0.78rem;">All available time slots for this date are currently reserved or pending.</div>
                         </div>`;
+        } else if (isPastDate) {
+            content += `<div class="p-3 text-center rounded-3 mb-2" style="background:#f8fafc; border:1px solid #e2e8f0;">
+                          <div class="small text-muted fw-semibold">⏳ This date has passed.</div>
+                        </div>`;
         } else {
-            const showBook = config.mobileShowBookAvailableSlot !== false;
+            const showBook = config.mobileShowBookAvailableSlot !== false && !isPastDate;
             const showInq  = config.mobileShowQuestionAvailableSlot !== false;
 
             if (showBook || showInq) {
@@ -1083,7 +1127,7 @@ window.GfcFullCalendar = (function () {
                               </div>
                               <div class="small fw-bold text-success mb-2" style="font-size:0.88rem; color:#14532d !important; text-align:left;">✨ ${openMsg}</div>
                               <div class="gfc-mobile-action-btns" style="margin-top:10px;">
-                                ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" target="_top" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
+                                ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" onclick="window.gfcSetBookingDate('${dateStr}')" target="_top" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
                                 ${showInq ? `<button type="button" onclick="window.gfcTriggerInquiry('${dateStr}', '${containerId}')" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</button>` : ''}
                               </div>
                             </div>`;

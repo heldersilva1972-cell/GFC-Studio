@@ -1,0 +1,632 @@
+@page "/hall-rentals/policy-guide"
+@page "/rentals/policy-guide"
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services
+@using System.Text.Json
+@using Microsoft.AspNetCore.WebUtilities
+@inject IWebsiteSettingsService SettingsService
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@inject IJSRuntime JSRuntime
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@layout GFC.BlazorServer.Components.Layout.EmptyLayout
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@rendermode InteractiveServer
+
+<script src="/js/gfc-rental-tracker.js"></script>
+
+<div class="gfc-policy-guide-page @(_isEmbedded ? "p-0 bg-transparent" : "min-vh-100 bg-slate-100 py-3 py-md-4 px-2 px-md-3")">
+    <div class="mx-auto" style="@(_isEmbedded ? "max-width: 100%;" : "max-width: 900px;")">
+
+        <!-- Top Admin Toolbar (Visible ONLY to authenticated GFC Studio staff, never on public/embeds) -->
+        @if (!_isEmbedded && _isAuthenticated)
+        {
+            <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-white rounded-4 border shadow-sm no-print flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2.5 py-1">
+                        <i class="bi bi-shield-check me-1"></i>Official Policy Guide
+                    </span>
+                    <span class="text-muted small d-none d-sm-inline">Gloucester Fraternity Club</span>
+                </div>
+                
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    @if (_isEditing)
+                    {
+                        <button type="button" class="btn btn-sm btn-success fw-bold d-flex align-items-center gap-1.5 shadow-sm px-3" @onclick="() => _showSaveConfirm = true" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle"></i>
+                                <span>Save Changes</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelEditing">
+                            <span>Cancel</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary d-flex align-items-center gap-1.5 shadow-sm fw-semibold px-3" @onclick="() => _isEditing = true">
+                            <i class="bi bi-pencil-square"></i>
+                            <span>Edit Policy Guide</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="CopyEmbedSnippet">
+                            <i class="bi bi-code-slash text-primary"></i>
+                            <span>Copy WP Embed Code</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()" title="Print Policy Guide">
+                            <i class="bi bi-printer"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="ClosePage" title="Close / Return to Hall Rentals">
+                            <i class="bi bi-x-lg"></i>
+                            <span>Close</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- CONFIRMATION MODAL -->
+        @if (_showSaveConfirm)
+        {
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 1060;" role="dialog">
+                <div class="modal-dialog modal-dialog-centered" style="max-width: 480px;">
+                    <div class="modal-content border-0 shadow-2xl rounded-4 overflow-hidden">
+                        <div class="modal-header bg-light border-bottom px-4 py-3">
+                            <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                                <i class="bi bi-question-circle-fill text-primary"></i>
+                                <span>Confirm Save Changes</span>
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="() => _showSaveConfirm = false"></button>
+                        </div>
+                        <div class="modal-body px-4 py-4 text-center">
+                            <div class="mb-3">
+                                <i class="bi bi-file-earmark-check-fill text-primary" style="font-size: 3rem;"></i>
+                            </div>
+                            <h6 class="fw-bold text-dark mb-2">Save Rental Agreement & Policy Guide?</h6>
+                            <p class="text-muted small mb-0">
+                                This will update the official rental policies and immediately sync clauses to the Gloucester Fraternity Club website.
+                            </p>
+                        </div>
+                        <div class="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-3" @onclick="() => _showSaveConfirm = false" disabled="@_isSaving">
+                                Cancel
+                            </button>
+                            <button type="button" class="btn btn-sm btn-success fw-bold px-4 shadow-sm d-flex align-items-center gap-1.5" @onclick="ConfirmAndSavePolicyGuideAsync" disabled="@_isSaving">
+                                @if (_isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check-lg"></i>
+                                    <span>Yes, Save Changes</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="text-center py-5 bg-white rounded-4 border shadow-sm">
+                <div class="spinner-border text-primary mb-2" role="status"></div>
+                <div class="text-muted small">Loading Official Policy Guide...</div>
+            </div>
+        }
+        else if (_model != null)
+        {
+            <!-- MAIN CARD CHASSIS -->
+            <div class="gfc-policy-guide-card shadow-2xl rounded-4 overflow-hidden border">
+                
+                <!-- 1. HEADER BANNER -->
+                <div class="gfc-policy-header px-4 py-4 text-center position-relative">
+                    @if (_isEditing)
+                    {
+                        <div class="mx-auto" style="max-width: 580px;">
+                            <label class="form-label text-muted small fw-bold mb-1">Guide Title</label>
+                            <input type="text" class="form-control form-control-sm text-center fw-bold bg-white text-dark border mb-2" @bind="_model.HeaderTitle" placeholder="Guide Title (e.g. HALL RENTAL AGREEMENT & POLICY GUIDE)" />
+                            <label class="form-label text-muted small fw-bold mb-1">Subtitle</label>
+                            <input type="text" class="form-control form-control-sm text-center bg-white text-muted border mb-2" @bind="_model.HeaderSubtitle" placeholder="Subtitle (e.g. Gloucester Fraternity Club)" />
+                            <label class="form-label text-muted small fw-bold mb-1">Introduction Paragraph</label>
+                            <textarea class="form-control form-control-sm bg-white text-dark border" rows="3" @bind="_model.IntroText" placeholder="Introductory welcome and instructions..."></textarea>
+                        </div>
+                    }
+                    else
+                    {
+                        <h2 class="gfc-header-title fw-bolder mb-1 letter-spacing-1 text-dark">@_model.HeaderTitle</h2>
+                        <p class="gfc-header-subtitle mb-2 text-muted small fw-semibold">@_model.HeaderSubtitle</p>
+                        @if (!string.IsNullOrWhiteSpace(_model.IntroText))
+                        {
+                            <div class="gfc-intro-bubble mx-auto mt-3 p-3 rounded-3 text-start">
+                                <i class="bi bi-info-circle-fill text-primary me-2"></i>
+                                <span>@_model.IntroText</span>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <!-- 2. POLICY SECTIONS -->
+                <div class="gfc-sections-container p-3 p-md-4">
+                    @if (_isEditing)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <span class="fw-bold text-dark small text-uppercase">Policy Sections</span>
+                            <button type="button" class="btn btn-xs btn-outline-primary" @onclick="AddSection">
+                                <i class="bi bi-plus-circle me-1"></i>Add Section
+                            </button>
+                        </div>
+                    }
+
+                    <div class="d-flex flex-column gap-3">
+                        @for (int sIdx = 0; sIdx < _model.Sections.Count; sIdx++)
+                        {
+                            var sectionIndex = sIdx;
+                            var section = _model.Sections[sectionIndex];
+
+                            <div class="gfc-policy-section-card rounded-3 p-3 p-md-4 border">
+                                @if (_isEditing)
+                                {
+                                    <div class="p-2 mb-3 bg-white rounded border">
+                                        <div class="row g-2 align-items-center">
+                                            <div class="col-auto">
+                                                <input type="text" class="form-control form-control-sm text-center fw-bold" style="width: 50px;" @bind="section.Number" placeholder="#" />
+                                            </div>
+                                            <div class="col">
+                                                <input type="text" class="form-control form-control-sm fw-bold text-uppercase" @bind="section.Title" placeholder="Section Title (e.g. RESERVATIONS & PAYMENT)" />
+                                            </div>
+                                            <div class="col-auto">
+                                                <button type="button" class="btn btn-sm btn-outline-danger" title="Delete Section" @onclick="() => RemoveSection(sectionIndex)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+                                        <span class="gfc-section-badge fw-bold">@section.Number</span>
+                                        <h4 class="gfc-section-title fw-bold mb-0 text-dark">@section.Title</h4>
+                                    </div>
+                                }
+
+                                <!-- Section Clauses -->
+                                <div class="gfc-clauses-list d-flex flex-column gap-2.5">
+                                    @for (int cIdx = 0; cIdx < section.Clauses.Count; cIdx++)
+                                    {
+                                        var clauseIndex = cIdx;
+                                        var clause = section.Clauses[clauseIndex];
+
+                                        @if (_isEditing)
+                                        {
+                                            <div class="p-2 bg-white rounded border">
+                                                <div class="d-flex gap-2 align-items-start mb-1">
+                                                    <input type="text" class="form-control form-control-sm fw-bold flex-grow-1" @bind="clause.Label" placeholder="Clause Label (e.g. Tentative Dates)" />
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete Clause" @onclick="() => RemoveClause(section, clauseIndex)">
+                                                        <i class="bi bi-x-lg"></i>
+                                                    </button>
+                                                </div>
+                                                <textarea class="form-control form-control-sm text-muted" rows="2" @bind="clause.Text" placeholder="Clause details / text..."></textarea>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="gfc-clause-item d-flex align-items-start gap-2.5">
+                                                <div class="gfc-clause-bullet mt-1.5 flex-shrink-0"></div>
+                                                <div class="gfc-clause-body flex-grow-1">
+                                                    @if (!string.IsNullOrWhiteSpace(clause.Label))
+                                                    {
+                                                        <strong class="text-dark me-1">@clause.Label:</strong>
+                                                    }
+                                                    <span class="text-secondary">@clause.Text</span>
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+
+                                    @if (_isEditing)
+                                    {
+                                        <button type="button" class="btn btn-xs btn-outline-secondary align-self-start mt-2" @onclick="() => AddClause(section)">
+                                            <i class="bi bi-plus me-1"></i>Add Clause
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- 3. FOOTER CONTACT CARD -->
+                <div class="gfc-policy-contact-strip p-3 p-md-4 border-top">
+                    @if (_isEditing)
+                    {
+                        <div class="bg-white p-3 rounded-3 border">
+                            <h6 class="fw-bold text-dark mb-2">Hall Manager Contact Card</h6>
+                            <div class="row g-2 mb-2">
+                                <div class="col-sm-4">
+                                    <label class="form-label text-muted small fw-bold mb-1">Role</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.ContactRole" placeholder="e.g. Hall Manager" />
+                                </div>
+                                <div class="col-sm-4">
+                                    <label class="form-label text-muted small fw-bold mb-1">Name</label>
+                                    <input type="text" class="form-control form-control-sm fw-bold" @bind="_model.ContactName" placeholder="e.g. Michael Stanger" />
+                                </div>
+                                <div class="col-sm-4">
+                                    <label class="form-label text-muted small fw-bold mb-1">Phone</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.ContactPhone" placeholder="e.g. 978-283-2889" />
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-sm-6">
+                                    <label class="form-label text-muted small fw-bold mb-1">Email Button Label</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.ContactEmailLabel" placeholder="e.g. Contact us via Email" />
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label text-muted small fw-bold mb-1">Contact Link URL</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.ContactEmailUrl" placeholder="https://..." />
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="gfc-manager-card d-flex flex-column flex-sm-row justify-content-between align-items-center gap-3 p-3 rounded-3">
+                            <div class="d-flex align-items-center gap-3 text-start">
+                                <div class="gfc-manager-avatar flex-shrink-0 d-flex align-items-center justify-content-center">
+                                    <i class="bi bi-person-badge text-primary fs-3"></i>
+                                </div>
+                                <div>
+                                    <div class="text-uppercase small fw-bold text-muted" style="letter-spacing: 0.5px;">@_model.ContactRole</div>
+                                    <h5 class="fw-bold mb-0 text-dark">@_model.ContactName</h5>
+                                    @if (!string.IsNullOrWhiteSpace(_model.ContactPhone))
+                                    {
+                                        <a href="tel:@_model.ContactPhone" class="text-primary text-decoration-none fw-bold small d-inline-flex align-items-center gap-1 mt-1">
+                                            <i class="bi bi-telephone-fill"></i>
+                                            <span>@_model.ContactPhone</span>
+                                        </a>
+                                    }
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_model.ContactEmailUrl))
+                            {
+                                <a href="@_model.ContactEmailUrl" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm fw-semibold rounded-pill px-3 py-1.5 d-flex align-items-center gap-1.5 shadow-sm">
+                                    <i class="bi bi-envelope"></i>
+                                    <span>@_model.ContactEmailLabel</span>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+
+            </div>
+        }
+
+    </div>
+</div>
+
+<style>
+    .gfc-policy-guide-page {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #1e293b;
+    }
+
+    .gfc-policy-guide-card {
+        background: #ffffff;
+        border-color: #e2e8f0;
+    }
+
+    /* HEADER BANNER */
+    .gfc-policy-header {
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .gfc-header-title {
+        font-size: 1.35rem;
+        letter-spacing: 0.5px;
+        color: #0f172a;
+    }
+    .gfc-header-subtitle {
+        color: #64748b;
+        font-size: 0.85rem;
+    }
+    .gfc-intro-bubble {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        color: #334155;
+        max-width: 720px;
+    }
+
+    /* SECTIONS */
+    .gfc-policy-section-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        transition: box-shadow 0.2s ease;
+    }
+    .gfc-policy-section-card:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .gfc-section-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: #0284c7;
+        color: #ffffff;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+    }
+    .gfc-section-title {
+        font-size: 1rem;
+        letter-spacing: 0.3px;
+        color: #0f172a;
+    }
+
+    /* CLAUSES */
+    .gfc-clause-item {
+        font-size: 0.865rem;
+        line-height: 1.55;
+    }
+    .gfc-clause-bullet {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #0284c7;
+        opacity: 0.7;
+    }
+
+    /* CONTACT CARD */
+    .gfc-policy-contact-strip {
+        background: #fafaf9;
+    }
+    .gfc-manager-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+    }
+    .gfc-manager-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #e0f2fe;
+    }
+
+    .btn-xs {
+        padding: 0.15rem 0.45rem;
+        font-size: 0.75rem;
+        border-radius: 0.25rem;
+    }
+
+    @@media print {
+        .no-print { display: none !important; }
+        .gfc-policy-guide-page { background: #ffffff !important; padding: 0 !important; }
+        .gfc-policy-guide-card { border: none !important; box-shadow: none !important; }
+    }
+</style>
+
+@code {
+    private GfcRentalPolicyGuideModel _model = new();
+    private WebsiteSettings? _settings;
+    private bool _isLoading = true;
+    private bool _isEditing = false;
+    private bool _showSaveConfirm = false;
+    private bool _isSaving = false;
+    private bool _isEmbedded = false;
+    private bool _isAuthenticated = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var uri = new Uri(Navigation.Uri);
+            var query = QueryHelpers.ParseQuery(uri.Query);
+            if (query.TryGetValue("embed", out var embedVal))
+            {
+                _isEmbedded = embedVal.ToString().Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                              embedVal.ToString().Equals("1", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Check authentication state for secure admin toolbar display
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isAuthenticated = authState.User?.Identity?.IsAuthenticated ?? false;
+
+            _settings = await SettingsService.GetWebsiteSettingsAsync();
+            if (_settings != null)
+            {
+                _model = _settings.GetRentalPolicyGuideModel();
+            }
+            else
+            {
+                _model = GfcRentalPolicyGuideModel.GetDefault();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error initializing HallRentalPolicyGuide: {ex.Message}");
+            _model = GfcRentalPolicyGuideModel.GetDefault();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_isEmbedded)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    (function() {
+                        function reportHeight() {
+                            var height = document.documentElement.scrollHeight || document.body.scrollHeight;
+                            if (window.parent && window.parent !== window) {
+                                window.parent.postMessage({ type: 'gfc-policy-guide-resize', height: height }, '*');
+                            }
+                        }
+                        reportHeight();
+                        setTimeout(reportHeight, 300);
+                        setTimeout(reportHeight, 1000);
+                        window.addEventListener('resize', reportHeight);
+                    })();
+                ");
+            }
+            catch
+            {
+                // Ignore script errors in sandboxed contexts
+            }
+        }
+    }
+
+    private void AddSection()
+    {
+        var nextNum = (_model.Sections.Count + 1).ToString();
+        _model.Sections.Add(new GfcPolicySection
+        {
+            Number = nextNum,
+            Title = "NEW POLICY SECTION",
+            Clauses = new List<GfcPolicyClause>
+            {
+                new GfcPolicyClause { Label = "Policy Rule", Text = "Enter policy rules and stipulations here." }
+            }
+        });
+    }
+
+    private void RemoveSection(int index)
+    {
+        if (index >= 0 && index < _model.Sections.Count)
+        {
+            _model.Sections.RemoveAt(index);
+        }
+    }
+
+    private void AddClause(GfcPolicySection section)
+    {
+        section.Clauses.Add(new GfcPolicyClause
+        {
+            Label = "New Clause",
+            Text = "Description of policy rule."
+        });
+    }
+
+    private void RemoveClause(GfcPolicySection section, int clauseIndex)
+    {
+        if (clauseIndex >= 0 && clauseIndex < section.Clauses.Count)
+        {
+            section.Clauses.RemoveAt(clauseIndex);
+        }
+    }
+
+    private async Task ConfirmAndSavePolicyGuideAsync()
+    {
+        _showSaveConfirm = false;
+        await SavePolicyGuideAsync();
+    }
+
+    private async Task SavePolicyGuideAsync()
+    {
+        // Enforce server-side security check
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!(authState.User?.Identity?.IsAuthenticated ?? false))
+        {
+            ToastService.ShowError("Unauthorized: You must be logged into GFC Studio to modify policies.");
+            _isEditing = false;
+            return;
+        }
+
+        try
+        {
+            _isSaving = true;
+            _settings ??= await SettingsService.GetWebsiteSettingsAsync();
+            if (_settings != null)
+            {
+                _settings.SetRentalPolicyGuideModel(_model);
+                await SettingsService.UpdateWebsiteSettingsAsync(_settings);
+                ToastService.ShowSuccess("Hall Rental Policy Guide saved successfully!");
+                _isEditing = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error saving Policy Guide: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task CancelEditing()
+    {
+        _showSaveConfirm = false;
+        _isEditing = false;
+        _settings = await SettingsService.GetWebsiteSettingsAsync();
+        if (_settings != null)
+        {
+            _model = _settings.GetRentalPolicyGuideModel();
+        }
+    }
+
+    private async Task CopyEmbedSnippet()
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var iframeId = "gfc-rental-policy-frame";
+        var snippet = $@"<!-- Gloucester Fraternity Club - Hall Rental Policy Guide Embed -->
+<iframe id=""{iframeId}"" 
+        src=""{baseUrl}/hall-rentals/policy-guide?embed=true"" 
+        style=""width: 100%; border: none; min-height: 850px; overflow: hidden; display: block;"" 
+        scrolling=""no""></iframe>
+<script>
+  window.addEventListener('message', function(e) {{
+    if (e.data && e.data.type === 'gfc-policy-guide-resize' && e.data.height) {{
+      var frame = document.getElementById('{iframeId}');
+      if (frame) {{
+        frame.style.height = (e.data.height + 20) + 'px';
+      }}
+    }}
+  }});
+</script>";
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", snippet);
+            ToastService.ShowSuccess("WordPress embed code copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo($"Embed code ready: {snippet}");
+        }
+    }
+
+    private async Task ClosePage()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                (function() {
+                    if (window.history.length > 1) {
+                        window.history.back();
+                    } else {
+                        window.location.href = '/hall-rentals';
+                    }
+                })();
+            ");
+        }
+        catch
+        {
+            Navigation.NavigateTo("/hall-rentals");
+        }
+    }
+}

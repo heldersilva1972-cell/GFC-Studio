@@ -7,6 +7,7 @@
 @inject CalendarSettingsService SettingsService
 @inject IRentalService RentalService
 @inject IWebsiteSettingsService WebsiteSettingsService
+@inject IJSRuntime JSRuntime
 @layout GFC.BlazorServer.Components.Layout.PublicCalendarLayout
 @rendermode InteractiveServer
 
@@ -787,6 +788,8 @@ else
     }
 </style>
 
+<script src="/js/gfc-rental-tracker.js"></script>
+
 @code {
     [SupplyParameterFromQuery(Name = "view")]
     public string? View { get; set; }
@@ -832,6 +835,18 @@ else
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", $"if (window.GfcRentalTracker) {{ window.GfcRentalTracker.init('Public Calendar', {(IsEmbed ? "true" : "false")}); }}");
+            }
+            catch { }
+        }
+    }
+
     private void ToggleInquiryForm()
     {
         _showInquiryForm = !_showInquiryForm;
@@ -839,6 +854,10 @@ else
         {
             _isInquirySubmitted = false;
             _inquiryErrorMessage = null;
+        }
+        else
+        {
+            try { JSRuntime.InvokeVoidAsync("eval", "if (window.gfcTrackAction) { window.gfcTrackAction('Opened Ask a Question'); }"); } catch {}
         }
     }
 
@@ -858,6 +877,7 @@ else
         _isInquirySubmitted = false;
         _inquiryErrorMessage = null;
         _showInquiryForm = true;
+        try { JSRuntime.InvokeVoidAsync("eval", $"if (window.gfcTrackAction) {{ window.gfcTrackAction('Clicked Ask a Question for {dateStr}'); }}"); } catch {}
         StateHasChanged();
     }
 
@@ -985,6 +1005,7 @@ else
 
             await RentalService.SubmitGeneralInquiryAsync(_inquiryModel, isTest);
             _isInquirySubmitted = true;
+            try { await JSRuntime.InvokeVoidAsync("eval", "if (window.gfcTrackAction) { window.gfcTrackAction('Submitted Question / Inquiry'); }"); } catch {}
         }
         catch (Exception ex)
         {

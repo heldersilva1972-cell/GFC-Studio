@@ -40,6 +40,8 @@ namespace GFC.Core.Models
         public string? RoomsJson { get; set; }
         public string? AddonsJson { get; set; }
         public string? PricingGuideJson { get; set; }
+        public string? LiquorMenuJson { get; set; }
+        public string? RentalPolicyGuideJson { get; set; }
 
         // Master Engine Mode (True = Legacy, False = Matrix Tier Engine)
         public bool UseLegacyPricingEngine { get; set; } = false;
@@ -610,6 +612,73 @@ Warm regards,
                 defaults[3].Content = RentalKitchenPolicyText;
             }
             return defaults;
+        }
+
+        public GfcRateSheetModel GetRateSheetModel()
+        {
+            if (!string.IsNullOrWhiteSpace(PricingGuideJson))
+            {
+                try
+                {
+                    var custom = JsonSerializer.Deserialize<GfcRateSheetModel>(PricingGuideJson);
+                    if (custom != null && custom.Days != null && custom.Days.Count > 0)
+                    {
+                        custom.Normalize();
+                        return custom;
+                    }
+                }
+                catch { }
+            }
+            return GfcRateSheetModel.GetDefault();
+        }
+
+        public void SetRateSheetModel(GfcRateSheetModel model)
+        {
+            PricingGuideJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        public LiquorMenuModel GetLiquorMenuModel()
+        {
+            if (!string.IsNullOrWhiteSpace(LiquorMenuJson))
+            {
+                try
+                {
+                    var custom = JsonSerializer.Deserialize<LiquorMenuModel>(LiquorMenuJson);
+                    if (custom != null && custom.Categories != null && custom.Categories.Count > 0)
+                    {
+                        return custom;
+                    }
+                }
+                catch { }
+            }
+            return LiquorMenuModel.GetDefault();
+        }
+
+        public void SetLiquorMenuModel(LiquorMenuModel model)
+        {
+            LiquorMenuJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        public GfcRentalPolicyGuideModel GetRentalPolicyGuideModel()
+        {
+            if (!string.IsNullOrWhiteSpace(RentalPolicyGuideJson))
+            {
+                try
+                {
+                    var custom = JsonSerializer.Deserialize<GfcRentalPolicyGuideModel>(RentalPolicyGuideJson);
+                    if (custom != null && custom.Sections != null && custom.Sections.Count > 0)
+                    {
+                        return custom;
+                    }
+                }
+                catch { }
+            }
+            return GfcRentalPolicyGuideModel.GetDefault();
+        }
+
+        public void SetRentalPolicyGuideModel(GfcRentalPolicyGuideModel model)
+        {
+            RentalPolicyGuideJson = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true });
         }
 
         public RentalPricingGuideModel GetPricingGuideModel()

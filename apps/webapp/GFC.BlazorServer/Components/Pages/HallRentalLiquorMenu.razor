@@ -1,0 +1,579 @@
+@page "/hall-rentals/liquor-menu"
+@page "/rentals/liquor-menu"
+@page "/hall-rentals/liquor-on-hand"
+@page "/rentals/liquor-on-hand"
+
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services
+@using System.Text.Json
+@using Microsoft.AspNetCore.WebUtilities
+@inject IWebsiteSettingsService SettingsService
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@layout GFC.BlazorServer.Components.Layout.EmptyLayout
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@rendermode InteractiveServer
+
+<PageTitle>Gloucester Fraternity Club – Upstairs Bar & Liquor On Hand</PageTitle>
+
+<div class="gfc-liquor-wrapper @(_isEmbed ? "gfc-embed-mode" : "py-4 px-2 px-md-4")">
+    <div class="container-xl" style="max-width: 1080px;">
+
+        <!-- ADMIN CONTROLS / TOOLBAR (Visible ONLY to authenticated GFC Studio staff, never on public/embeds) -->
+        @if (!_isEmbed && _isAuthenticated)
+        {
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4 p-3 bg-white rounded-3 shadow-sm border">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1.5 fw-bold">
+                        <i class="bi bi-cup-straw me-1"></i>Upstairs Bar Inventory
+                    </span>
+                    <span class="text-muted small">| Official Liquor On Hand & Bar Offerings</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    @if (_isEditing)
+                    {
+                        <button type="button" class="btn btn-sm btn-success d-flex align-items-center gap-1.5 shadow-sm fw-semibold px-3" @onclick="() => _showSaveConfirm = true" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle"></i>
+                                <span>Save Changes</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5" @onclick="CancelEditing" disabled="@_isSaving">
+                            <i class="bi bi-x-circle"></i>
+                            <span>Cancel</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary d-flex align-items-center gap-1.5 shadow-sm fw-semibold px-3" @onclick="() => _isEditing = true">
+                            <i class="bi bi-pencil-square"></i>
+                            <span>Edit Bar Offerings</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="CopyEmbedSnippet">
+                            <i class="bi bi-code-slash text-primary"></i>
+                            <span>Copy WP Embed Code</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()" title="Print List">
+                            <i class="bi bi-printer"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="ClosePage" title="Close / Return to Hall Rentals">
+                            <i class="bi bi-x-lg"></i>
+                            <span>Close</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- CONFIRMATION MODAL -->
+        @if (_showSaveConfirm)
+        {
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 1060;" role="dialog">
+                <div class="modal-dialog modal-dialog-centered" style="max-width: 480px;">
+                    <div class="modal-content border-0 shadow-2xl rounded-4 overflow-hidden">
+                        <div class="modal-header bg-light border-bottom px-4 py-3">
+                            <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                                <i class="bi bi-question-circle-fill text-primary"></i>
+                                <span>Confirm Save Changes</span>
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="() => _showSaveConfirm = false"></button>
+                        </div>
+                        <div class="modal-body px-4 py-4 text-center">
+                            <div class="mb-3">
+                                <i class="bi bi-cup-straw text-primary" style="font-size: 3rem;"></i>
+                            </div>
+                            <h6 class="fw-bold text-dark mb-2">Save Liquor & Bar Offerings?</h6>
+                            <p class="text-muted small mb-0">
+                                This will update the official upstairs bar list and immediately sync items to the Gloucester Fraternity Club website.
+                            </p>
+                        </div>
+                        <div class="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-3" @onclick="() => _showSaveConfirm = false" disabled="@_isSaving">
+                                Cancel
+                            </button>
+                            <button type="button" class="btn btn-sm btn-success fw-bold px-4 shadow-sm d-flex align-items-center gap-1.5" @onclick="ConfirmAndSaveMenuAsync" disabled="@_isSaving">
+                                @if (_isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check-lg"></i>
+                                    <span>Yes, Save Changes</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="text-center py-5 bg-white rounded-4 border shadow-sm">
+                <div class="spinner-border text-primary mb-2" role="status"></div>
+                <div class="text-muted small">Loading Bar & Beverage Offerings...</div>
+            </div>
+        }
+        else if (_model != null)
+        {
+            <!-- MAIN CONTENT CHASSIS -->
+            <div class="gfc-liquor-card shadow-sm rounded-4 overflow-hidden border bg-white p-3 p-md-4">
+                
+                <!-- HEADER & INTRO TEXT -->
+                <div class="text-center mb-4">
+                    @if (_isEditing)
+                    {
+                        <div class="bg-light p-3 rounded-3 border mb-3 text-start">
+                            <div class="mb-2">
+                                <label class="form-label text-muted small fw-bold mb-1">Introductory Heading</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_model.IntroText" placeholder="Below is our current selection..." />
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="form-label text-muted small fw-bold mb-1">Contact Prompt</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.SubIntroText" placeholder="Looking for something specific..." />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-muted small fw-bold mb-1">Email Address</label>
+                                    <input type="email" class="form-control form-control-sm fw-bold text-primary" @bind="_model.ContactEmail" placeholder="hallrental@gloucesterfraternityclub.com" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label text-muted small fw-bold mb-1">Contact Note</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.ContactEmailNote" placeholder="with your request..." />
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="gfc-intro-title mb-2 text-dark">
+                            @_model.IntroText
+                        </p>
+                        <p class="gfc-intro-sub mb-3 text-muted">
+                            @_model.SubIntroText
+                            <a href="mailto:@_model.ContactEmail" class="gfc-contact-link fw-semibold ms-1">
+                                @_model.ContactEmail
+                            </a>
+                            <span class="ms-1">@_model.ContactEmailNote</span>
+                        </p>
+                    }
+                </div>
+
+                <!-- CATEGORIES GRID -->
+                <div class="gfc-categories-grid">
+                    @for (int cIndex = 0; cIndex < _model.Categories.Count; cIndex++)
+                    {
+                        var category = _model.Categories[cIndex];
+                        <div class="gfc-category-card shadow-sm rounded-4 overflow-hidden border bg-white d-flex flex-column">
+                            
+                            <!-- Category Modern Header -->
+                            <div class="gfc-category-card-header px-3.5 py-2.5 d-flex align-items-center justify-content-between border-bottom">
+                                @if (_isEditing)
+                                {
+                                    <input type="text" class="form-control form-control-sm fw-bold text-dark me-2" @bind="category.Name" placeholder="Category Name" />
+                                    <button type="button" class="btn btn-sm btn-outline-danger px-2" @onclick="() => RemoveCategory(category)" title="Remove Category">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="gfc-category-title fw-bold">
+                                        @category.Name
+                                    </div>
+                                }
+                            </div>
+
+                            <!-- Category Items List -->
+                            <div class="p-3 flex-grow-1">
+                                @if (_isEditing)
+                                {
+                                    <div class="d-flex flex-column gap-1.5 mb-2">
+                                        @for (int i = 0; i < category.Items.Count; i++)
+                                        {
+                                            var itemIndex = i;
+                                            <div class="d-flex align-items-center gap-1.5">
+                                                <input type="text" class="form-control form-control-xs py-1" value="@category.Items[itemIndex]" @onchange="(e) => UpdateItem(category, itemIndex, e.Value?.ToString())" />
+                                                <button type="button" class="btn btn-xs btn-outline-danger px-1.5 py-0.5" @onclick="() => RemoveItem(category, itemIndex)" title="Remove Item">
+                                                    <i class="bi bi-x-lg" style="font-size: 0.75rem;"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <button type="button" class="btn btn-xs btn-outline-primary d-flex align-items-center gap-1 mt-2" @onclick="() => AddItem(category)">
+                                        <i class="bi bi-plus-circle"></i>
+                                        <span>Add Item</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <ul class="gfc-items-list mb-0 ps-3">
+                                        @foreach (var item in category.Items)
+                                        {
+                                            <li class="gfc-item-line">@item</li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (_isEditing)
+                {
+                    <div class="mt-4 pt-3 border-top text-center">
+                        <button type="button" class="btn btn-sm btn-outline-primary fw-semibold d-inline-flex align-items-center gap-1.5 shadow-sm px-3" @onclick="AddCategory">
+                            <i class="bi bi-folder-plus"></i>
+                            <span>Add New Beverage Category</span>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    /* Chassis & Modern Warm Light Typography */
+    .gfc-liquor-wrapper {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: transparent;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .gfc-embed-mode {
+        background-color: transparent !important;
+        padding: 0 !important;
+        min-height: auto !important;
+        overflow-x: hidden;
+    }
+    .gfc-liquor-card {
+        background: #ffffff;
+        border: 1px solid #e8e6df !important;
+        border-radius: 20px !important;
+        box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02) !important;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .gfc-intro-title {
+        font-size: 15px;
+        line-height: 1.6;
+        color: #334155;
+        font-weight: 500;
+    }
+    .gfc-intro-sub {
+        font-size: 13.5px;
+        line-height: 1.6;
+        color: #64748b;
+    }
+    .gfc-contact-link {
+        color: #0369a1;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        word-break: break-all;
+    }
+    .gfc-contact-link:hover {
+        color: #0284c7;
+    }
+
+    /* Responsive Grid Layout */
+    .gfc-categories-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
+        text-align: left;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Modern Soft Floating Cards */
+    .gfc-category-card {
+        background: #ffffff;
+        border: 1px solid #ebe8e1 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03) !important;
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+        overflow: hidden;
+        min-width: 0; /* Prevents flex/grid clipping on narrow mobile */
+    }
+    .gfc-category-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06) !important;
+        border-color: #dfdbd0 !important;
+    }
+
+    /* Soft Warm Header Strip */
+    .gfc-category-card-header {
+        background: linear-gradient(180deg, #faf9f6 0%, #f4f2ec 100%);
+        border-color: #ebe7de !important;
+        padding: 10px 16px;
+    }
+    .gfc-category-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: #1e293b;
+        letter-spacing: 0.02em;
+    }
+
+    /* Fluid Modern Items List */
+    .gfc-items-list {
+        line-height: 1.8;
+        font-size: 13.5px;
+        color: #475569;
+        list-style-position: outside;
+        padding-left: 20px !important; /* Ensures bullets never get cut off */
+        margin: 0;
+    }
+    .gfc-item-line {
+        padding: 1px 0;
+        transition: color 0.15s ease;
+    }
+    .gfc-item-line:hover {
+        color: #0f172a;
+    }
+
+    /* Mobile specific refinements */
+    @@media (max-width: 576px) {
+        .gfc-categories-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+        .gfc-liquor-card {
+            padding: 14px !important;
+            border-radius: 14px !important;
+        }
+        .gfc-intro-title {
+            font-size: 14px;
+        }
+        .gfc-intro-sub {
+            font-size: 12.5px;
+        }
+    }
+
+    .btn-xs {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        border-radius: 6px;
+    }
+    .form-control-xs {
+        font-size: 0.80rem;
+    }
+</style>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "embed")]
+    public bool? EmbedQuery { get; set; }
+
+    private bool _isEmbed => EmbedQuery == true;
+    private bool _isLoading = true;
+    private bool _isEditing = false;
+    private bool _showSaveConfirm = false;
+    private bool _isSaving = false;
+    private bool _isAuthenticated = false;
+
+    private WebsiteSettings? _settings;
+    private LiquorMenuModel? _model;
+    private LiquorMenuModel? _originalModel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isAuthenticated = authState.User?.Identity?.IsAuthenticated == true;
+        }
+        catch
+        {
+            _isAuthenticated = false;
+        }
+
+        try
+        {
+            _settings = await SettingsService.GetWebsiteSettingsAsync();
+            _model = _settings.GetLiquorMenuModel();
+            _originalModel = CloneModel(_model);
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to load liquor menu: {ex.Message}");
+            _model = LiquorMenuModel.GetDefault();
+            _originalModel = CloneModel(_model);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_isEmbed)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    setTimeout(function() {
+                        var h = document.body.scrollHeight || document.documentElement.scrollHeight;
+                        window.parent.postMessage({ type: 'gfc-liquor-menu-resize', height: h }, '*');
+                    }, 100);
+                ");
+            }
+            catch { }
+        }
+    }
+
+    private async Task ConfirmAndSaveMenuAsync()
+    {
+        _showSaveConfirm = false;
+        await SaveMenuAsync();
+    }
+
+    private async Task SaveMenuAsync()
+    {
+        if (_model == null) return;
+        if (!_isAuthenticated)
+        {
+            ToastService.ShowError("Unauthorized: You must be logged into GFC Studio to save changes.");
+            _isEditing = false;
+            return;
+        }
+        _isSaving = true;
+        try
+        {
+            _settings ??= await SettingsService.GetWebsiteSettingsAsync();
+            _settings.SetLiquorMenuModel(_model);
+            await SettingsService.UpdateWebsiteSettingsAsync(_settings);
+            _originalModel = CloneModel(_model);
+            _isEditing = false;
+            ToastService.ShowSuccess("Liquor & bar offerings saved successfully!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save offerings: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void CancelEditing()
+    {
+        _showSaveConfirm = false;
+        if (_originalModel != null)
+        {
+            _model = CloneModel(_originalModel);
+        }
+        _isEditing = false;
+    }
+
+    private void AddCategory()
+    {
+        if (_model == null) return;
+        _model.Categories.Add(new LiquorCategoryItem
+        {
+            Name = "New Category",
+            Items = new List<string> { "Item Name" }
+        });
+    }
+
+    private void RemoveCategory(LiquorCategoryItem cat)
+    {
+        if (_model == null) return;
+        _model.Categories.Remove(cat);
+    }
+
+    private void AddItem(LiquorCategoryItem cat)
+    {
+        cat.Items.Add("New Item");
+    }
+
+    private void RemoveItem(LiquorCategoryItem cat, int index)
+    {
+        if (index >= 0 && index < cat.Items.Count)
+        {
+            cat.Items.RemoveAt(index);
+        }
+    }
+
+    private void UpdateItem(LiquorCategoryItem cat, int index, string? val)
+    {
+        if (index >= 0 && index < cat.Items.Count)
+        {
+            cat.Items[index] = val ?? string.Empty;
+        }
+    }
+
+    private async Task CopyEmbedSnippet()
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var iframeId = "gfc-liquor-menu-frame";
+        var snippet = $@"<iframe id=""{iframeId}"" src=""{baseUrl}/hall-rentals/liquor-menu?embed=true"" width=""100%"" height=""1250"" frameborder=""0"" scrolling=""no"" style=""width:100%; min-height:1250px; border:none; display:block; overflow:hidden;"" title=""Gloucester Fraternity Club – Upstairs Bar & Liquor On Hand""></iframe>
+<script>
+window.addEventListener('message', function(e) {{
+  if (e.data && e.data.type === 'gfc-liquor-menu-resize' && e.data.height) {{
+    var f = document.getElementById('{iframeId}');
+    if (f) {{
+      f.style.height = (e.data.height + 20) + 'px';
+      f.style.minHeight = (e.data.height + 20) + 'px';
+    }}
+  }}
+}});
+</script>";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", snippet);
+            ToastService.ShowSuccess("WordPress embed code copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo($"Embed code ready: {snippet}");
+        }
+    }
+
+    private async Task ClosePage()
+    {
+        try
+        {
+            var closed = await JSRuntime.InvokeAsync<bool>("eval", @"
+                if (window.opener && !window.opener.closed) {
+                    window.close();
+                    true;
+                } else if (history.length > 1) {
+                    history.back();
+                    true;
+                } else {
+                    false;
+                }
+            ");
+
+            if (!closed)
+            {
+                Navigation.NavigateTo("/hall-rentals");
+            }
+        }
+        catch
+        {
+            Navigation.NavigateTo("/hall-rentals");
+        }
+    }
+
+    private static LiquorMenuModel CloneModel(LiquorMenuModel src)
+    {
+        var json = JsonSerializer.Serialize(src);
+        return JsonSerializer.Deserialize<LiquorMenuModel>(json) ?? LiquorMenuModel.GetDefault();
+    }
+}

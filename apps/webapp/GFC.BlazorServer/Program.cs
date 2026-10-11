@@ -358,6 +358,7 @@ public class Program
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
+        builder.Services.AddSingleton<IRentalAnalyticsService, RentalAnalyticsService>();
         builder.Services.AddScoped<IRentalEmailDispatcher, RentalEmailDispatcher>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();

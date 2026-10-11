@@ -2,91 +2,670 @@
 @page "/rentals/pricing-guide"
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
-@using GFC.BlazorServer.Components.Shared
+@using GFC.BlazorServer.Services
 @using System.Text.Json
 @using Microsoft.AspNetCore.WebUtilities
 @inject IWebsiteSettingsService SettingsService
 @inject NavigationManager Navigation
 @inject IToastService ToastService
+@inject IJSRuntime JSRuntime
+@inject CustomAuthenticationStateProvider AuthStateProvider
 @layout GFC.BlazorServer.Components.Layout.EmptyLayout
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @rendermode InteractiveServer
 
-<div class="standalone-pricing-guide-window @(_isEmbedded ? "p-0 bg-transparent" : "min-vh-100 bg-light py-3 px-2 px-md-4")">
-    <div class="mx-auto" style="@(_isEmbedded ? "max-width: 100%;" : "max-width: 960px;")">
-        <!-- Clean Standalone Bar (Hidden during embed or print) -->
-        @if (!_isEmbedded)
+<script src="/js/gfc-rental-tracker.js"></script>
+
+<div class="gfc-rate-sheet-page @(_isEmbedded ? "p-0 bg-transparent" : "min-vh-100 bg-slate-100 py-3 py-md-4 px-2 px-md-3")">
+    <div class="mx-auto" style="@(_isEmbedded ? "max-width: 100%;" : "max-width: 900px;")">
+
+        <!-- Top Admin Toolbar (Visible ONLY to authenticated GFC Studio staff, never on public/embeds) -->
+        @if (!_isEmbedded && _isAuthenticated)
         {
-            <div class="d-flex justify-content-between align-items-center mb-3 no-print p-2 bg-white rounded-3 border shadow-sm">
+            <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-white rounded-4 border shadow-sm no-print flex-wrap gap-2">
                 <div class="d-flex align-items-center gap-2">
-                    <span class="fw-bold text-dark"><i class="bi bi-bar-chart-fill text-primary me-2"></i>GFC Hall Rental Pricing Guide</span>
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2.5 py-1">
+                        <i class="bi bi-shield-check me-1"></i>Official Rate Sheet
+                    </span>
+                    <span class="text-muted small d-none d-sm-inline">Gloucester Fraternity Club</span>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary" onclick="window.close()" title="Close Tab">
-                    <i class="bi bi-x-lg me-1"></i>Close Window
-                </button>
+                
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    @if (_isEditing)
+                    {
+                        <button type="button" class="btn btn-sm btn-success fw-bold d-flex align-items-center gap-1.5 shadow-sm px-3" @onclick="() => _showSaveConfirm = true" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle"></i>
+                                <span>Save Changes</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelEditing">
+                            <span>Cancel</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary d-flex align-items-center gap-1.5 shadow-sm fw-semibold px-3" @onclick="() => _isEditing = true">
+                            <i class="bi bi-pencil-square"></i>
+                            <span>Edit Rate Sheet</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="CopyEmbedSnippet">
+                            <i class="bi bi-code-slash text-primary"></i>
+                            <span>Copy WP Embed Code</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()" title="Print Rate Sheet">
+                            <i class="bi bi-printer"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 shadow-sm" @onclick="ClosePage" title="Close / Return to Hall Rentals">
+                            <i class="bi bi-x-lg"></i>
+                            <span>Close</span>
+                        </button>
+                    }
+                </div>
             </div>
         }
 
-    @if (_isLoading)
-    {
-        <div class="text-center py-5 bg-white rounded-4 border shadow-sm">
-            <div class="spinner-border text-primary mb-2" role="status"></div>
-            <div class="text-muted small">Loading Pricing Guide...</div>
-        </div>
-    }
-    else
-    {
-        <RentalPricingGuideView 
-            Settings="_settings" 
-            ShowFullPageLink="false" 
-            HideToolbar="_isEmbedded"
-            InitialSectionFilter="@_sectionFilter"
-            InitialMode="@_initialMode"
-            OnCustomGuideSaved="HandleCustomGuideSaved" />
-    }
+        <!-- CONFIRMATION MODAL -->
+        @if (_showSaveConfirm)
+        {
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 1060;" role="dialog">
+                <div class="modal-dialog modal-dialog-centered" style="max-width: 480px;">
+                    <div class="modal-content border-0 shadow-2xl rounded-4 overflow-hidden">
+                        <div class="modal-header bg-light border-bottom px-4 py-3">
+                            <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                                <i class="bi bi-question-circle-fill text-primary"></i>
+                                <span>Confirm Save Changes</span>
+                            </h5>
+                            <button type="button" class="btn-close" @onclick="() => _showSaveConfirm = false"></button>
+                        </div>
+                        <div class="modal-body px-4 py-4 text-center">
+                            <div class="mb-3">
+                                <i class="bi bi-shield-check text-success" style="font-size: 3rem;"></i>
+                            </div>
+                            <h6 class="fw-bold text-dark mb-2">Save Hall Rental Pricing Guide?</h6>
+                            <p class="text-muted small mb-0">
+                                This will update the official pricing sheet and immediately sync live rates to the Gloucester Fraternity Club website.
+                            </p>
+                        </div>
+                        <div class="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-3" @onclick="() => _showSaveConfirm = false" disabled="@_isSaving">
+                                Cancel
+                            </button>
+                            <button type="button" class="btn btn-sm btn-success fw-bold px-4 shadow-sm d-flex align-items-center gap-1.5" @onclick="ConfirmAndSaveRateSheetAsync" disabled="@_isSaving">
+                                @if (_isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-check-lg"></i>
+                                    <span>Yes, Save Changes</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="text-center py-5 bg-white rounded-4 border shadow-sm">
+                <div class="spinner-border text-primary mb-2" role="status"></div>
+                <div class="text-muted small">Loading Official Rate Sheet...</div>
+            </div>
+        }
+        else if (_model != null)
+        {
+            <!-- MAIN CARD CHASSIS -->
+            <div class="gfc-rate-sheet-card shadow-2xl rounded-4 overflow-hidden border">
+                
+                <!-- 1. HEADER BANNER -->
+                <div class="gfc-rate-header px-4 py-4 text-center position-relative">
+                    @if (_isEditing)
+                    {
+                        <div class="mx-auto" style="max-width: 540px;">
+                            <label class="form-label text-muted small fw-bold mb-1">Sheet Title</label>
+                            <input type="text" class="form-control form-control-sm text-center fw-bold bg-white text-dark border mb-2" @bind="_model.HeaderTitle" placeholder="Header Title (e.g. GLOUCESTER FRATERNITY CLUB)" />
+                            <label class="form-label text-muted small fw-bold mb-1">Sheet Subtitle</label>
+                            <input type="text" class="form-control form-control-sm text-center bg-white text-muted border" @bind="_model.HeaderSubtitle" placeholder="Subtitle (e.g. Hall Rental Rates & Standard Time Blocks)" />
+                        </div>
+                    }
+                    else
+                    {
+                        <h2 class="gfc-header-title fw-bolder mb-1 letter-spacing-1 text-dark">@_model.HeaderTitle</h2>
+                        <p class="gfc-header-subtitle mb-0 text-muted small fw-semibold">@_model.HeaderSubtitle</p>
+                    }
+                </div>
+
+                <!-- 2. TIME BLOCKS CAPSULES STRIP -->
+                <div class="gfc-time-strip p-3 p-md-4 border-bottom">
+                    @if (_isEditing)
+                    {
+                        <div class="bg-light p-3 rounded-3 border">
+                            <div class="row g-2 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label text-muted small fw-bold mb-1">Time Blocks Section Title</label>
+                                    <input type="text" class="form-control form-control-sm fw-bold" @bind="_model.TimeBlockTitle" placeholder="e.g. STANDARD TIME BLOCKS (APPLIES ALL DAYS)" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-muted small fw-bold mb-1">Section Subtitle / Description</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_model.TimeBlockDescription" placeholder="e.g. Rentals are reserved in 6-hour fixed blocks." />
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-sm-6">
+                                    <div class="p-2.5 bg-white rounded-2 border">
+                                        <label class="form-label text-muted small fw-bold mb-1">First Block (e.g. Daytime)</label>
+                                        <div class="d-flex gap-2">
+                                            <input type="text" class="form-control form-control-sm fw-semibold" @bind="_model.DaytimeBlockTitle" placeholder="Title (e.g. Daytime Block:)" />
+                                            <input type="text" class="form-control form-control-sm text-primary fw-bold" @bind="_model.DaytimeBlockHours" placeholder="Hours (e.g. 10:00 AM – 4:00 PM)" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="p-2.5 bg-white rounded-2 border">
+                                        <label class="form-label text-muted small fw-bold mb-1">Second Block (e.g. Evening)</label>
+                                        <div class="d-flex gap-2">
+                                            <input type="text" class="form-control form-control-sm fw-semibold" @bind="_model.EveningBlockTitle" placeholder="Title (e.g. Evening Block:)" />
+                                            <input type="text" class="form-control form-control-sm text-primary fw-bold" @bind="_model.EveningBlockHours" placeholder="Hours (e.g. 5:00 PM – 11:00 PM)" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                            <div>
+                                <div class="fw-bolder text-dark small letter-spacing-1">@_model.TimeBlockTitle</div>
+                                <div class="text-muted small" style="font-size: 0.82rem;">@_model.TimeBlockDescription</div>
+                            </div>
+
+                            <!-- Time block pills -->
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <!-- Daytime Block Pill -->
+                                <div class="gfc-capsule-pill shadow-sm">
+                                    <div class="gfc-capsule-label">@_model.DaytimeBlockTitle</div>
+                                    <div class="gfc-capsule-hours">@_model.DaytimeBlockHours</div>
+                                </div>
+
+                                <!-- Evening Block Pill -->
+                                <div class="gfc-capsule-pill shadow-sm">
+                                    <div class="gfc-capsule-label">@_model.EveningBlockTitle</div>
+                                    <div class="gfc-capsule-hours">@_model.EveningBlockHours</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- 3. MAIN RATES TABLE -->
+                <div class="gfc-table-container px-3 px-md-4 py-2">
+                    <div class="table-responsive">
+                        <table class="table gfc-rate-table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="ps-2 py-3 text-muted fw-bold" style="width: 28%; font-size: 0.85rem;">DAY</th>
+                                    <th class="text-end py-3" style="width: 24%;">
+                                        @if (_isEditing)
+                                        {
+                                            <input type="text" class="form-control form-control-sm text-end fw-bold" @bind="_model.Col1Header" />
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-bolder text-dark" style="font-size: 0.95rem;">@_model.Col1Header</span>
+                                        }
+                                    </th>
+                                    <th class="text-end py-3" style="width: 24%;">
+                                        @if (_isEditing)
+                                        {
+                                            <input type="text" class="form-control form-control-sm text-end fw-bold" @bind="_model.Col2Header" />
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-bolder text-dark" style="font-size: 0.95rem;">@_model.Col2Header</span>
+                                        }
+                                    </th>
+                                    <th class="text-end pe-2 py-3" style="width: 24%;">
+                                        @if (_isEditing)
+                                        {
+                                            <input type="text" class="form-control form-control-sm text-end fw-bold" @bind="_model.Col3Header" />
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-bolder text-dark" style="font-size: 0.95rem;">@_model.Col3Header</span>
+                                        }
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var day in _model.Days)
+                                {
+                                    <tr class="gfc-table-row">
+                                        <td class="ps-2 py-3 fw-bold text-dark fs-6">
+                                            @day.DayName
+                                        </td>
+
+                                        <!-- Col 1 (Non-Members) -->
+                                        <td class="text-end py-3">
+                                            @if (_isEditing)
+                                            {
+                                                <div class="d-flex align-items-center justify-content-end gap-1">
+                                                    <input type="text" class="form-control form-control-sm text-end fw-bold" style="width: 100px;" @bind="day.Col1Price" />
+                                                    <button type="button" class="btn btn-xs @(day.Col1IsUnavailable ? "btn-danger" : "btn-outline-secondary")" @onclick="() => ToggleDayAvail(day, 1)" title="Toggle Availability">
+                                                        <i class="bi bi-slash-circle"></i>
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @if (day.Col1IsUnavailable || string.Equals(day.Col1Price, "Not Available", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <span class="text-muted fst-italic" style="font-size: 0.88rem;">Not Available</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="fw-bolder text-dark fs-6 font-monospace">@day.Col1Price</span>
+                                                }
+                                            }
+                                        </td>
+
+                                        <!-- Col 2 (Members) -->
+                                        <td class="text-end py-3">
+                                            @if (_isEditing)
+                                            {
+                                                <div class="d-flex align-items-center justify-content-end gap-1">
+                                                    <input type="text" class="form-control form-control-sm text-end fw-bold" style="width: 100px;" @bind="day.Col2Price" />
+                                                    <button type="button" class="btn btn-xs @(day.Col2IsUnavailable ? "btn-danger" : "btn-outline-secondary")" @onclick="() => ToggleDayAvail(day, 2)" title="Toggle Availability">
+                                                        <i class="bi bi-slash-circle"></i>
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @if (day.Col2IsUnavailable || string.Equals(day.Col2Price, "Not Available", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <span class="text-muted fst-italic" style="font-size: 0.88rem;">Not Available</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="fw-bolder text-dark fs-6 font-monospace">@day.Col2Price</span>
+                                                }
+                                            }
+                                        </td>
+
+                                        <!-- Col 3 (Non-Profits) -->
+                                        <td class="text-end pe-2 py-3">
+                                            @if (_isEditing)
+                                            {
+                                                <div class="d-flex align-items-center justify-content-end gap-1">
+                                                    <input type="text" class="form-control form-control-sm text-end fw-bold" style="width: 100px;" @bind="day.Col3Price" />
+                                                    <button type="button" class="btn btn-xs @(day.Col3IsUnavailable ? "btn-danger" : "btn-outline-secondary")" @onclick="() => ToggleDayAvail(day, 3)" title="Toggle Availability">
+                                                        <i class="bi bi-slash-circle"></i>
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @if (day.Col3IsUnavailable || string.Equals(day.Col3Price, "Not Available", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <span class="text-muted fst-italic" style="font-size: 0.88rem;">Not Available</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="fw-bolder text-dark fs-6 font-monospace">@day.Col3Price</span>
+                                                }
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 4. BOTTOM ADD-ON CARDS (MODERN FLOATING ACCENTS) -->
+                <div class="px-3 px-md-4 py-3 bg-light bg-opacity-50 border-top">
+                    <div class="row g-3">
+                        <!-- Bar Service Options Card (Signature Gold Accent) -->
+                        <div class="col-md-6">
+                            <div class="gfc-modern-option-card gfc-card-gold h-100 shadow-sm rounded-4 overflow-hidden bg-white border">
+                                <div class="gfc-option-card-header gfc-gold-header px-3 py-2 text-white d-flex align-items-center justify-content-between">
+                                    @if (_isEditing)
+                                    {
+                                        <input type="text" class="form-control form-control-xs fw-bold text-white bg-transparent border-0 p-0" @bind="_model.BarCardTitle" placeholder="Card Title" />
+                                    }
+                                    else
+                                    {
+                                        <span class="fw-bolder small letter-spacing-1 text-white">
+                                            <i class="bi bi-cup-straw me-1.5"></i>@_model.BarCardTitle
+                                        </span>
+                                    }
+                                </div>
+                                <div class="p-3">
+                                    @if (_model.BarServices != null && _model.BarServices.Count > 0)
+                                    {
+                                        @for (int i = 0; i < _model.BarServices.Count; i++)
+                                        {
+                                            var item = _model.BarServices[i];
+                                            <div class="@(i > 0 ? "pt-3 mt-3 border-top" : "")">
+                                                @if (_isEditing)
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-center gap-2 mb-1.5">
+                                                        <input type="text" class="form-control form-control-sm fw-bold" @bind="item.Name" placeholder="Option Name (e.g. Bar Service Package)" />
+                                                        <input type="text" class="form-control form-control-sm fw-bold text-end" style="width: 90px;" @bind="item.Price" placeholder="Price" />
+                                                        <button type="button" class="btn btn-sm btn-outline-danger px-2" @onclick="() => RemoveBarService(item)" title="Remove this option">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                    <textarea class="form-control form-control-sm text-muted" rows="2" @bind="item.Description" placeholder="Description of this service option"></textarea>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                                                        <span class="fw-bold text-dark fs-6">@item.Name</span>
+                                                        <span class="badge bg-warning-subtle text-dark border border-warning-subtle fw-bolder fs-6 font-monospace px-2.5 py-1">@item.Price</span>
+                                                    </div>
+                                                    <div class="text-muted small" style="font-size: 0.80rem; line-height: 1.45;">
+                                                        @foreach (var line in (item.Description ?? "").Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                                                        {
+                                                            <div>@line</div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                    else if (!_isEditing)
+                                    {
+                                        <div class="text-muted small fst-italic py-2">No bar options configured.</div>
+                                    }
+
+                                    @if (_isEditing)
+                                    {
+                                        <div class="mt-3 pt-2 border-top">
+                                            <button type="button" class="btn btn-xs btn-outline-warning text-dark fw-semibold d-flex align-items-center gap-1 shadow-sm" @onclick="AddBarService">
+                                                <i class="bi bi-plus-circle"></i>
+                                                <span>Add Bar Service Option</span>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Additional Services Card (Forest Green Accent) -->
+                        <div class="col-md-6">
+                            <div class="gfc-modern-option-card gfc-card-green h-100 shadow-sm rounded-4 overflow-hidden bg-white border">
+                                <div class="gfc-option-card-header gfc-green-header px-3 py-2 text-white d-flex align-items-center justify-content-between">
+                                    @if (_isEditing)
+                                    {
+                                        <input type="text" class="form-control form-control-xs fw-bold text-white bg-transparent border-0 p-0" @bind="_model.AddonCardTitle" placeholder="Card Title" />
+                                    }
+                                    else
+                                    {
+                                        <span class="fw-bolder small letter-spacing-1 text-white">
+                                            <i class="bi bi-stars me-1.5"></i>@_model.AddonCardTitle
+                                        </span>
+                                    }
+                                </div>
+                                <div class="p-3">
+                                    @if (_model.AdditionalServices != null && _model.AdditionalServices.Count > 0)
+                                    {
+                                        @for (int i = 0; i < _model.AdditionalServices.Count; i++)
+                                        {
+                                            var item = _model.AdditionalServices[i];
+                                            <div class="@(i > 0 ? "pt-3 mt-3 border-top" : "")">
+                                                @if (_isEditing)
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-center gap-2 mb-1.5">
+                                                        <input type="text" class="form-control form-control-sm fw-bold" @bind="item.Name" placeholder="Service Name (e.g. Day-Before Decorating)" />
+                                                        <input type="text" class="form-control form-control-sm fw-bold text-end" style="width: 90px;" @bind="item.Price" placeholder="Price" />
+                                                        <button type="button" class="btn btn-sm btn-outline-danger px-2" @onclick="() => RemoveAdditionalService(item)" title="Remove this service">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                    <textarea class="form-control form-control-sm text-muted" rows="2" @bind="item.Description" placeholder="Description of this additional service"></textarea>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                                                        <span class="fw-bold text-dark fs-6">@item.Name</span>
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle fw-bolder fs-6 font-monospace px-2.5 py-1">@item.Price</span>
+                                                    </div>
+                                                    <div class="text-muted small" style="font-size: 0.80rem; line-height: 1.45;">
+                                                        @foreach (var line in (item.Description ?? "").Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                                                        {
+                                                            <div>@line</div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                    else if (!_isEditing)
+                                    {
+                                        <div class="text-muted small fst-italic py-2">No additional services configured.</div>
+                                    }
+
+                                    @if (_isEditing)
+                                    {
+                                        <div class="mt-3 pt-2 border-top">
+                                            <button type="button" class="btn btn-xs btn-outline-success fw-semibold d-flex align-items-center gap-1 shadow-sm" @onclick="AddAdditionalService">
+                                                <i class="bi bi-plus-circle"></i>
+                                                <span>Add Additional Service</span>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. FOOTER DISCLAIMER -->
+                <div class="p-3 p-md-4 bg-white border-top text-muted small" style="font-size: 0.78rem; line-height: 1.5;">
+                    @if (_isEditing)
+                    {
+                        <textarea class="form-control form-control-sm text-muted" rows="2" @bind="_model.FooterDisclaimer"></textarea>
+                    }
+                    else
+                    {
+                        <span>@_model.FooterDisclaimer</span>
+                    }
+                </div>
+            </div>
+        }
     </div>
 </div>
 
+<style>
+    .letter-spacing-1 {
+        letter-spacing: 0.04em;
+    }
+
+    /* Outer Chassis - Light, Soft, Floating */
+    .gfc-rate-sheet-card {
+        background: #ffffff;
+        border: 1px solid #e8e6df !important;
+        box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+
+    /* Top Light Elegant Header */
+    .gfc-rate-header {
+        background: linear-gradient(180deg, #faf9f5 0%, #f4f1e8 100%);
+        border-bottom: 1.5px solid #e8e3d5;
+    }
+    .gfc-header-title {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 1.35rem;
+        letter-spacing: 0.06em;
+        color: #1e293b !important;
+    }
+    .gfc-header-subtitle {
+        color: #78716c !important;
+        font-size: 0.88rem;
+    }
+
+    /* Time Blocks Strip - Light & Subtle */
+    .gfc-time-strip {
+        background: #ffffff;
+        border-color: #f1efe9 !important;
+    }
+    .gfc-capsule-pill {
+        background: #faf8f5;
+        color: #1e293b;
+        padding: 6px 16px;
+        border-radius: 999px;
+        border: 1.5px solid #e2ded4;
+        min-width: 155px;
+        text-align: center;
+        transition: all 0.2s ease;
+    }
+    .gfc-capsule-pill:hover {
+        border-color: #C49A49;
+        background: #ffffff;
+    }
+    .gfc-capsule-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #a07830;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 2px;
+    }
+    .gfc-capsule-hours {
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: #1e293b;
+    }
+
+    /* Rates Table - Clean & Airy */
+    .gfc-rate-table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    .gfc-rate-table thead th {
+        border-bottom: 1.5px solid #e8e6df;
+        letter-spacing: 0.04em;
+        font-size: 0.80rem;
+        color: #64748b;
+    }
+    .gfc-table-row {
+        border-bottom: 1px solid #f4f2eb;
+        transition: background-color 0.15s ease;
+    }
+    .gfc-table-row:hover {
+        background-color: #faf9f5;
+    }
+    .gfc-table-row td {
+        padding-top: 13px;
+        padding-bottom: 13px;
+    }
+
+    /* Option Cards - Soft Pastel Accents */
+    .gfc-modern-option-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border-radius: 16px !important;
+    }
+    .gfc-modern-option-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05) !important;
+    }
+    .gfc-card-gold {
+        border: 1.5px solid #e8dfc8 !important;
+        background: #fffdf9 !important;
+    }
+    .gfc-card-green {
+        border: 1.5px solid #d1fae5 !important;
+        background: #fcfdfc !important;
+    }
+    .gfc-gold-header {
+        background: #fbf5e6;
+        border-bottom: 1px solid #ece2cb;
+        color: #855d14 !important;
+    }
+    .gfc-green-header {
+        background: #ecfdf5;
+        border-bottom: 1px solid #d1fae5;
+        color: #166534 !important;
+    }
+
+    @@media print {
+        .no-print { display: none !important; }
+        .gfc-rate-sheet-card { box-shadow: none !important; border: 1px solid #ccc !important; }
+    }
+</style>
+
 @code {
     private WebsiteSettings? _settings;
+    private GfcRateSheetModel? _model;
+    private GfcRateSheetModel? _originalModel;
     private bool _isLoading = true;
+    private bool _isSaving = false;
+    private bool _isEditing = false;
+    private bool _showSaveConfirm = false;
     private bool _isEmbedded = false;
-    private string? _sectionFilter = null;
-    private string? _initialMode = null;
+    private bool _isAuthenticated = false;
 
     protected override async Task OnInitializedAsync()
     {
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         var query = QueryHelpers.ParseQuery(uri.Query);
 
-        if (query.TryGetValue("embed", out var embedVal) && embedVal == "true")
+        if (query.TryGetValue("embed", out var embedVal) && (embedVal == "true" || embedVal == "1"))
         {
             _isEmbedded = true;
         }
 
-        if (query.TryGetValue("section", out var sectionVal))
+        try
         {
-            _sectionFilter = sectionVal.ToString();
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isAuthenticated = authState.User?.Identity?.IsAuthenticated == true;
+        }
+        catch
+        {
+            _isAuthenticated = false;
         }
 
-        if (query.TryGetValue("mode", out var modeVal))
-        {
-            _initialMode = modeVal.ToString();
-        }
-
-        await LoadSettingsAsync();
+        await LoadDataAsync();
     }
 
-    private async Task LoadSettingsAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", $"if (window.GfcRentalTracker) {{ window.GfcRentalTracker.init('Pricing Guide', {(_isEmbedded ? "true" : "false")}); }}");
+            }
+            catch { }
+        }
+    }
+
+    private async Task LoadDataAsync()
     {
         _isLoading = true;
         try
         {
             _settings = await SettingsService.GetWebsiteSettingsAsync();
+            _model = _settings.GetRateSheetModel();
+            _originalModel = CloneModel(_model);
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Failed to load settings: {ex.Message}");
+            ToastService.ShowError($"Failed to load rate sheet: {ex.Message}");
+            _model = GfcRateSheetModel.GetDefault();
+            _originalModel = CloneModel(_model);
         }
         finally
         {
@@ -94,12 +673,154 @@
         }
     }
 
-    private async Task HandleCustomGuideSaved(RentalPricingGuideModel model)
+    private async Task ConfirmAndSaveRateSheetAsync()
     {
-        if (_settings != null)
+        _showSaveConfirm = false;
+        await SaveRateSheetAsync();
+    }
+
+    private async Task SaveRateSheetAsync()
+    {
+        if (_model == null) return;
+        if (!_isAuthenticated)
         {
-            _settings.PricingGuideJson = JsonSerializer.Serialize(model);
-            await SettingsService.UpdateWebsiteSettingsAsync(_settings);
+            ToastService.ShowError("Unauthorized: You must be logged into GFC Studio to save changes.");
+            _isEditing = false;
+            return;
         }
+        _isSaving = true;
+        try
+        {
+            _settings ??= await SettingsService.GetWebsiteSettingsAsync();
+            _settings.SetRateSheetModel(_model);
+            await SettingsService.UpdateWebsiteSettingsAsync(_settings);
+            _originalModel = CloneModel(_model);
+            _isEditing = false;
+            ToastService.ShowSuccess("Pricing guide & rate sheet saved successfully!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save rate sheet: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void CancelEditing()
+    {
+        _showSaveConfirm = false;
+        if (_originalModel != null)
+        {
+            _model = CloneModel(_originalModel);
+        }
+        _isEditing = false;
+    }
+
+    private void ToggleDayAvail(GfcRateDayRow day, int col)
+    {
+        if (col == 1)
+        {
+            day.Col1IsUnavailable = !day.Col1IsUnavailable;
+            if (day.Col1IsUnavailable) day.Col1Price = "Not Available";
+            else day.Col1Price = "$500";
+        }
+        else if (col == 2)
+        {
+            day.Col2IsUnavailable = !day.Col2IsUnavailable;
+            if (day.Col2IsUnavailable) day.Col2Price = "Not Available";
+            else day.Col2Price = "$400";
+        }
+        else if (col == 3)
+        {
+            day.Col3IsUnavailable = !day.Col3IsUnavailable;
+            if (day.Col3IsUnavailable) day.Col3Price = "Not Available";
+            else day.Col3Price = "$150";
+        }
+    }
+
+    private async Task CopyEmbedSnippet()
+    {
+        var baseUrl = Navigation.BaseUri.TrimEnd('/');
+        var iframeId = "gfc-pricing-guide-frame";
+        var snippet = $"<iframe id=\"{iframeId}\" src=\"{baseUrl}/hall-rentals/pricing-guide?embed=true\" width=\"100%\" height=\"950\" frameborder=\"0\" scrolling=\"no\" style=\"width:100%; min-height:950px; border:none; display:block; overflow:hidden;\" title=\"Gloucester Fraternity Club – Hall Rental Pricing Guide\"></iframe>";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", snippet);
+            ToastService.ShowSuccess("WordPress embed code copied to clipboard!");
+        }
+        catch
+        {
+            ToastService.ShowInfo($"Embed code ready: {snippet}");
+        }
+    }
+
+    private void AddBarService()
+    {
+        if (_model == null) return;
+        _model.BarServices.Add(new GfcServiceOptionItem
+        {
+            Name = "New Bar Option",
+            Price = "$100",
+            Description = "Description of bar option or beverage service."
+        });
+    }
+
+    private void RemoveBarService(GfcServiceOptionItem item)
+    {
+        if (_model == null) return;
+        _model.BarServices.Remove(item);
+    }
+
+    private void AddAdditionalService()
+    {
+        if (_model == null) return;
+        _model.AdditionalServices.Add(new GfcServiceOptionItem
+        {
+            Name = "New Additional Service",
+            Price = "$100",
+            Description = "Description of additional service."
+        });
+    }
+
+    private void RemoveAdditionalService(GfcServiceOptionItem item)
+    {
+        if (_model == null) return;
+        _model.AdditionalServices.Remove(item);
+    }
+
+    private async Task ClosePage()
+    {
+        try
+        {
+            // If opened via window.open (e.g. from calendar or external launcher), close it
+            var closed = await JSRuntime.InvokeAsync<bool>("eval", @"
+                if (window.opener && !window.opener.closed) {
+                    window.close();
+                    true;
+                } else if (history.length > 1) {
+                    history.back();
+                    true;
+                } else {
+                    false;
+                }
+            ");
+
+            if (!closed)
+            {
+                Navigation.NavigateTo("/hall-rentals");
+            }
+        }
+        catch
+        {
+            Navigation.NavigateTo("/hall-rentals");
+        }
+    }
+
+    private static GfcRateSheetModel CloneModel(GfcRateSheetModel src)
+    {
+        var json = JsonSerializer.Serialize(src);
+        return JsonSerializer.Deserialize<GfcRateSheetModel>(json) ?? GfcRateSheetModel.GetDefault();
     }
 }
