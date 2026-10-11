@@ -709,8 +709,8 @@ window.GfcFullCalendar = (function () {
                             ✨ ${openMsg}
                         </div>
                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                            ${showBook ? `<a href="${(config.modalBookButtonUrl || '/rentals/apply') + ((config.modalBookButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3);">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
-                            ${showInq ? `<a href="${(config.modalQuestionButtonUrl || '/rentals/apply?mode=inquiry') + ((config.modalQuestionButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</a>` : ''}
+                            ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" target="_top" class="gfc-modal-cta" style="flex:1.2; min-width:140px; margin-top:0; font-size:0.92rem; padding:10px 14px; background:linear-gradient(135deg, #16a34a, #15803d); box-shadow:0 3px 10px rgba(22,163,74,0.3); text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || config.modalBookButtonText || 'Book Available Slot'}</a>` : ''}
+                            ${showInq ? `<button type="button" onclick="window.gfcTriggerInquiry('${dateStr}', '${containerId}')" class="gfc-modal-cta" style="flex:1; min-width:130px; margin-top:0; font-size:0.90rem; padding:10px 14px; background:#ffffff; color:#166534; border:1.5px solid #86efac; box-shadow:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">❓ ${config.mobileQuestionAvailableSlotText || config.modalQuestionButtonText || 'Ask a Question'}</button>` : ''}
                         </div>
                     </div>`;
             }
@@ -743,6 +743,31 @@ window.GfcFullCalendar = (function () {
         if (overlay) overlay.style.display = 'none';
         if (modal)   modal.style.display   = 'none';
     }
+
+    function resolveBookUrl(config, dateStr) {
+        let rawUrl = config.modalBookButtonUrl || '';
+        if (!rawUrl || rawUrl === '/rentals/apply') {
+            const isLiveSite = window.location.hostname.includes('gloucesterfraternityclub.com');
+            const isInIframe = window.parent && window.parent !== window;
+            if (isLiveSite || isInIframe) {
+                rawUrl = 'https://gloucesterfraternityclub.com/discovery/?page_id=5305';
+            } else {
+                rawUrl = '/rentals/apply';
+            }
+        }
+        const sep = rawUrl.includes('?') ? '&' : '?';
+        return rawUrl + sep + 'date=' + encodeURIComponent(dateStr);
+    }
+
+    window.gfcTriggerInquiry = function(dateStr, containerId) {
+        closeModal();
+        const config = _configs[containerId] || {};
+        if (config.dotNetRef && typeof config.dotNetRef.invokeMethodAsync === 'function') {
+            config.dotNetRef.invokeMethodAsync('TriggerInquiry', dateStr).catch(() => {});
+        } else {
+            window.dispatchEvent(new CustomEvent('gfc-open-inquiry', { detail: { date: dateStr } }));
+        }
+    };
 
     function isMobileViewport(containerId) {
         const el = document.getElementById(containerId);
@@ -994,8 +1019,8 @@ window.GfcFullCalendar = (function () {
                               </div>
                               <div class="small fw-bold text-success mb-2" style="font-size:0.88rem; color:#14532d !important; text-align:left;">✨ ${openMsg}</div>
                               <div class="gfc-mobile-action-btns" style="margin-top:10px;">
-                                ${showBook ? `<a href="${(config.modalBookButtonUrl || '/rentals/apply') + ((config.modalBookButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
-                                ${showInq ? `<a href="${(config.modalQuestionButtonUrl || '/rentals/apply?mode=inquiry') + ((config.modalQuestionButtonUrl || '').includes('?') ? '&' : '?') + 'date=' + dateStr}" target="_top" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</a>` : ''}
+                                ${showBook ? `<a href="${resolveBookUrl(config, dateStr)}" target="_top" class="gfc-mobile-action-btn" style="background:linear-gradient(135deg, #16a34a, #15803d); color:#ffffff !important; box-shadow:0 3px 10px rgba(22,163,74,0.3); font-weight:700; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">📅 ${config.mobileBookAvailableSlotText || 'Book Available Slot'}</a>` : ''}
+                                ${showInq ? `<button type="button" onclick="window.gfcTriggerInquiry('${dateStr}', '${containerId}')" class="gfc-mobile-action-btn" style="background:#ffffff; color:#166534 !important; border:1.5px solid #86efac; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">❓ ${config.mobileQuestionAvailableSlotText || 'Ask a Question'}</button>` : ''}
                               </div>
                             </div>`;
             }

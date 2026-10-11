@@ -58,7 +58,7 @@
 }
 else
 {
-    <div class="gfc-pub-cal-page">
+    <div class="gfc-pub-cal-page @(_showInquiryForm ? "gfc-pub-cal-inquiry-active" : "")">
 
         @* ── Header (Hidden when embedded into WordPress) ─────────── *@
         @if (!IsEmbed)
@@ -105,8 +105,8 @@ else
             </header>
         }
 
-        @* ── Info / Notice banner ─────────────────────────────────── *@
-        @if (_settings.ShowHeaderNoticeBanner && !string.IsNullOrWhiteSpace(_settings.HeaderNoticeBannerText))
+        @* ── Info / Notice banner (Only shown when viewing the calendar) ───────────────────────── *@
+        @if (!_showInquiryForm && _settings.ShowHeaderNoticeBanner && !string.IsNullOrWhiteSpace(_settings.HeaderNoticeBannerText))
         {
             <div class="gfc-pub-cal-banner">
                 <div class="gfc-pub-cal-banner-content">
@@ -124,7 +124,7 @@ else
         @* ── INLINE ASK A QUESTION / INQUIRY SECTION (Matches RentalsApply) ── *@
         @if (_showInquiryForm)
         {
-            <div class="container-fluid p-3 p-md-4" style="max-width: 860px; margin: 0 auto; width: 100%;">
+            <div class="gfc-pub-cal-inquiry-wrapper" style="max-width: 860px; margin: 0 auto; width: 100%;">
                 @if (_isInquirySubmitted)
                 {
                     <div class="card shadow-sm border-0 submission-success-card text-center p-4 p-md-5 bg-white rounded-4 mb-4">
@@ -134,24 +134,50 @@ else
                         <h3 class="fw-bold text-dark mb-2">Question Received!</h3>
                         <p class="text-muted mb-4 lead fs-6">
                             Thank you, <strong>@_inquiryModel.ApplicantName</strong>. Our rental team has received your message and will review it and get back to you directly 
-                            @if (_inquiryModel.RequestPhoneCall && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterPhone))
+                            @if ((_prefPhone || _prefText) && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterPhone))
                             {
-                                <span>by phone at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong> (or email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>)</span>
+                                var channels = new List<string>();
+                                if (_prefPhone) channels.Add("phone call");
+                                if (_prefText) channels.Add("text message");
+                                string phoneModes = string.Join(" or ", channels);
+
+                                if (_prefEmail && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterEmail))
+                                {
+                                    <span>by <strong class="text-dark">@phoneModes</strong> at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong> and email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.</span>
+                                }
+                                else
+                                {
+                                    <span>by <strong class="text-dark">@phoneModes</strong> at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong>.</span>
+                                }
                             }
                             else
                             {
-                                <span>at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong></span>
-                            }.
+                                <span>by email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.</span>
+                            }
                         </p>
                         <div class="summary-box p-3 p-md-4 bg-light rounded-4 text-start mx-auto mb-4 border" style="max-width: 580px;">
-                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2 flex-wrap gap-1">
                                 <h6 class="fw-bold text-dark mb-0"><i class="bi bi-chat-left-text me-2 text-primary"></i>Your Question</h6>
-                                @if (_inquiryModel.RequestPhoneCall)
-                                {
-                                    <span class="badge bg-success-subtle text-success border border-success px-2 py-1 rounded-pill small">
-                                        <i class="bi bi-telephone-fill me-1"></i>Phone Callback Requested
-                                    </span>
-                                }
+                                <div class="d-flex gap-1 flex-wrap">
+                                    @if (_prefEmail)
+                                    {
+                                        <span class="badge bg-secondary-subtle text-secondary border px-2 py-1 rounded-pill small">
+                                            <i class="bi bi-envelope-fill me-1"></i>Email
+                                        </span>
+                                    }
+                                    @if (_prefPhone)
+                                    {
+                                        <span class="badge bg-primary-subtle text-primary border border-primary px-2 py-1 rounded-pill small">
+                                            <i class="bi bi-telephone-fill me-1"></i>Phone Call
+                                        </span>
+                                    }
+                                    @if (_prefText)
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success px-2 py-1 rounded-pill small">
+                                            <i class="bi bi-chat-dots-fill me-1"></i>Text / SMS
+                                        </span>
+                                    }
+                                </div>
                             </div>
                             <p class="small text-dark mb-0 font-monospace" style="white-space: pre-wrap;">@_inquiryModel.EventDescription</p>
                         </div>
@@ -159,7 +185,7 @@ else
                             <button type="button" class="btn btn-primary px-4 fw-bold shadow-sm" @onclick="CloseInquiryForm">
                                 <i class="bi bi-calendar3 me-1"></i> Back to Calendar
                             </button>
-                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply")" target="_top" class="btn btn-outline-success px-4 fw-bold">
+                            <a href="@GetBookingUrl()" target="_top" class="btn btn-outline-success px-4 fw-bold">
                                 <i class="bi bi-calendar2-plus me-1"></i> Book the Hall
                             </a>
                         </div>
@@ -197,46 +223,69 @@ else
                                     <input type="email" class="form-control" placeholder="e.g. jane.doe@example.com" @bind="_inquiryModel.RequesterEmail" />
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label class="form-label fw-bold small text-dark mb-1">Target Date or Timeframe (Optional)</label>
-                                    <input type="date" class="form-control" value="@(_inquiryModel.EventDate > DateTime.MinValue ? _inquiryModel.EventDate.ToString("yyyy-MM-dd") : "")" @onchange="OnInquiryDateChanged" />
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-bold small text-dark mb-1">Occasion / Event Type (Optional)</label>
-                                    <input type="text" class="form-control" placeholder="e.g. Birthday Party, Shower, Meeting" @bind="_inquiryModel.EventType" />
-                                </div>
+                                <!-- Optional Target Date & Occasion (Controlled by Pre-Booking Inquiry settings) -->
+                                @if (_webSettings?.InquiryForkShowTargetDate != false)
+                                {
+                                    <div class="@(_webSettings?.InquiryForkShowOccasion != false ? "col-md-6" : "col-12")">
+                                        <label class="form-label fw-bold small text-dark mb-1">Target Date or Timeframe (Optional)</label>
+                                        <input type="date" class="form-control" value="@(_inquiryModel.EventDate > DateTime.MinValue ? _inquiryModel.EventDate.ToString("yyyy-MM-dd") : "")" @onchange="OnInquiryDateChanged" />
+                                    </div>
+                                }
+                                @if (_webSettings?.InquiryForkShowOccasion != false)
+                                {
+                                    <div class="@(_webSettings?.InquiryForkShowTargetDate != false ? "col-md-6" : "col-12")">
+                                        <label class="form-label fw-bold small text-dark mb-1">Occasion / Event Type (Optional)</label>
+                                        <input type="text" class="form-control" placeholder="e.g. Birthday Party, Shower, Meeting" @bind="_inquiryModel.EventType" />
+                                    </div>
+                                }
 
-                                <!-- Contact Preference (Email, Phone, or Both) -->
+                                <!-- Contact Preference (Multi-select Checkboxes) -->
                                 <div class="col-12">
                                     <div class="p-3 bg-light rounded-3 border">
-                                        <label class="form-label fw-bold small text-dark mb-2 d-block">How would you prefer us to contact you?</label>
-                                        <div class="d-flex gap-4 mb-2 flex-wrap">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqEmail" checked="@(_inquiryContactPreference == "Email")" @onchange='() => _inquiryContactPreference = "Email"' />
-                                                <label class="form-check-label small text-dark" for="calInqEmail">
-                                                    <i class="bi bi-envelope-fill text-secondary me-1"></i>Email only
+                                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                                            <label class="form-label fw-bold small text-dark mb-0">
+                                                <i class="bi bi-send-check text-primary me-1"></i>How would you prefer us to contact you?
+                                            </label>
+                                            <span class="badge bg-white text-muted border px-2 py-1" style="font-size: 0.72rem; font-weight: normal;">
+                                                Check all that apply
+                                            </span>
+                                        </div>
+                                        
+                                        <div class="row g-2 mb-2">
+                                            <div class="col-sm-4">
+                                                <label class="d-flex align-items-center gap-2 p-2 rounded-3 border w-100 mb-0 user-select-none cursor-pointer @(_prefEmail ? "bg-primary-subtle border-primary text-primary-emphasis fw-bold" : "bg-white text-dark")" 
+                                                       style="cursor: pointer; transition: all 0.15s ease;">
+                                                    <input type="checkbox" class="form-check-input mt-0" checked="@_prefEmail" @onchange='() => ToggleContactPref("Email")' />
+                                                    <i class="bi bi-envelope-fill @(_prefEmail ? "text-primary" : "text-muted")"></i>
+                                                    <span class="small">Email</span>
                                                 </label>
                                             </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqPhone" checked="@(_inquiryContactPreference == "Phone")" @onchange='() => _inquiryContactPreference = "Phone"' />
-                                                <label class="form-check-label small text-dark fw-bold" for="calInqPhone">
-                                                    <i class="bi bi-telephone-fill text-primary me-1"></i>Phone call
+                                            <div class="col-sm-4">
+                                                <label class="d-flex align-items-center gap-2 p-2 rounded-3 border w-100 mb-0 user-select-none cursor-pointer @(_prefPhone ? "bg-primary-subtle border-primary text-primary-emphasis fw-bold" : "bg-white text-dark")" 
+                                                       style="cursor: pointer; transition: all 0.15s ease;">
+                                                    <input type="checkbox" class="form-check-input mt-0" checked="@_prefPhone" @onchange='() => ToggleContactPref("Phone")' />
+                                                    <i class="bi bi-telephone-fill @(_prefPhone ? "text-primary" : "text-muted")"></i>
+                                                    <span class="small">Phone Call</span>
                                                 </label>
                                             </div>
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="calInqPref" id="calInqBoth" checked="@(_inquiryContactPreference == "Both")" @onchange='() => _inquiryContactPreference = "Both"' />
-                                                <label class="form-check-label small text-dark fw-bold" for="calInqBoth">
-                                                    <i class="bi bi-chat-square-dots-fill text-success me-1"></i>Both (Phone &amp; Email)
+                                            <div class="col-sm-4">
+                                                <label class="d-flex align-items-center gap-2 p-2 rounded-3 border w-100 mb-0 user-select-none cursor-pointer @(_prefText ? "bg-primary-subtle border-primary text-primary-emphasis fw-bold" : "bg-white text-dark")" 
+                                                       style="cursor: pointer; transition: all 0.15s ease;">
+                                                    <input type="checkbox" class="form-check-input mt-0" checked="@_prefText" @onchange='() => ToggleContactPref("Text")' />
+                                                    <i class="bi bi-chat-dots-fill @(_prefText ? "text-primary" : "text-muted")"></i>
+                                                    <span class="small">Text / SMS</span>
                                                 </label>
                                             </div>
                                         </div>
 
-                                        @if (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both")
+                                        @if (_prefPhone || _prefText)
                                         {
                                             <div class="mt-2 pt-2 border-top">
-                                                <label class="form-label fw-bold small text-dark mb-1">Phone Number *</label>
+                                                <label class="form-label fw-bold small text-dark mb-1">
+                                                    Phone Number * @(_prefText && !_prefPhone ? "(Mobile for SMS)" : "")
+                                                </label>
                                                 <input type="tel" class="form-control form-control-sm" placeholder="e.g. (978) 555-0123" value="@_inquiryModel.RequesterPhone" @onchange="OnInquiryPhoneChanged" />
-                                                <small class="text-muted" style="font-size: 0.75rem;">A 10-digit phone number is required for telephone callbacks.</small>
+                                                <small class="text-muted" style="font-size: 0.75rem;">A 10-digit phone number is required for phone calls and text messages.</small>
                                             </div>
                                         }
                                     </div>
@@ -244,7 +293,7 @@ else
 
                                 <div class="col-12">
                                     <label class="form-label fw-bold small text-dark mb-1">Your Question or Message *</label>
-                                    <textarea class="form-control" rows="5" placeholder="Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)..." @bind="_inquiryModel.EventDescription"></textarea>
+                                    <textarea class="form-control" rows="5" placeholder="@(_webSettings?.InquiryDescriptionPlaceholder ?? "Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)...")" @bind="_inquiryModel.EventDescription"></textarea>
                                 </div>
                             </div>
 
@@ -273,7 +322,7 @@ else
 
         @* ── Calendar ────────────────────────────────────────────── *@
         <main class="gfc-pub-cal-main" style="@(_showInquiryForm ? "display:none;" : "")">
-            <FullCalendarWrapper Standalone="true" RefreshIntervalMs="300000" />
+            <FullCalendarWrapper Standalone="true" RefreshIntervalMs="300000" OnInquiryRequested="OpenInquiryForDate" />
         </main>
 
         @* ── Footer ──────────────────────────────────────────────── *@
@@ -293,11 +342,20 @@ else
     /* ── Reset / Base ─────────────────────────────────────────── */
     .gfc-pub-cal-page {
         min-height: 100vh;
-        background: #f5f5f0;
+        background: transparent;
         display: flex;
         flex-direction: column;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         color: #1a1a1a;
+    }
+    .gfc-pub-cal-page.gfc-pub-cal-inquiry-active {
+        background: transparent !important;
+        min-height: auto;
+    }
+    .gfc-pub-cal-inquiry-wrapper {
+        padding: 0 !important;
+        margin-top: 10px !important;
+        margin-bottom: 20px !important;
     }
 
     /* ── Header ───────────────────────────────────────────────── */
@@ -646,12 +704,15 @@ else
         string.Equals(Embed, "1", StringComparison.OrdinalIgnoreCase);
 
     private CalendarSettings _settings = new();
+    private WebsiteSettings? _webSettings;
 
     private bool _showInquiryForm = false;
     private bool _isInquirySubmitted = false;
     private bool _isInquirySubmitting = false;
     private string? _inquiryErrorMessage;
-    private string _inquiryContactPreference = "Email";
+    private bool _prefEmail = true;
+    private bool _prefPhone = false;
+    private bool _prefText = false;
     private HallRentalRequest _inquiryModel = new();
 
     protected override async Task OnInitializedAsync()
@@ -659,6 +720,7 @@ else
         try
         {
             _settings = await SettingsService.GetAsync();
+            _webSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
         }
         catch
         {
@@ -689,10 +751,70 @@ else
         _inquiryErrorMessage = null;
     }
 
+    private void OpenInquiryForDate(string dateStr)
+    {
+        if (DateTime.TryParse(dateStr, out var dt))
+        {
+            _inquiryModel.EventDate = dt;
+        }
+        _isInquirySubmitted = false;
+        _inquiryErrorMessage = null;
+        _showInquiryForm = true;
+        StateHasChanged();
+    }
+
+    private string GetBookingUrl()
+    {
+        var rawUrl = !string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply";
+        if (rawUrl == "/rentals/apply" && IsEmbed)
+        {
+            rawUrl = "https://gloucesterfraternityclub.com/discovery/?page_id=5305";
+        }
+        if (_inquiryModel.EventDate > DateTime.MinValue)
+        {
+            var sep = rawUrl.Contains("?") ? "&" : "?";
+            return $"{rawUrl}{sep}date={_inquiryModel.EventDate:yyyy-MM-dd}";
+        }
+        return rawUrl;
+    }
+
     private void OnInquiryPhoneChanged(ChangeEventArgs e)
     {
         var raw = e.Value?.ToString() ?? "";
         _inquiryModel.RequesterPhone = FormatPhoneNumber(raw);
+    }
+
+    private void ToggleContactPref(string pref)
+    {
+        if (pref == "Email")
+        {
+            _prefEmail = !_prefEmail;
+        }
+        else if (pref == "Phone")
+        {
+            _prefPhone = !_prefPhone;
+        }
+        else if (pref == "Text")
+        {
+            _prefText = !_prefText;
+        }
+
+        // Ensure at least one preference is selected
+        if (!_prefEmail && !_prefPhone && !_prefText)
+        {
+            _prefEmail = true;
+        }
+
+        StateHasChanged();
+    }
+
+    private string GetFormattedContactPreferences()
+    {
+        var list = new List<string>();
+        if (_prefEmail) list.Add("Email");
+        if (_prefPhone) list.Add("Phone Call");
+        if (_prefText) list.Add("Text / SMS");
+        return string.Join(", ", list);
     }
 
     private void OnInquiryDateChanged(ChangeEventArgs e)
@@ -738,12 +860,12 @@ else
             return;
         }
 
-        if (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both")
+        if (_prefPhone || _prefText)
         {
             var digits = new string((_inquiryModel.RequesterPhone ?? "").Where(char.IsDigit).ToArray());
             if (digits.Length < 10)
             {
-                _inquiryErrorMessage = "Please provide a valid 10-digit phone number so we can call you.";
+                _inquiryErrorMessage = "Please provide a valid 10-digit phone number for phone calls or text messages.";
                 return;
             }
         }
@@ -760,8 +882,8 @@ else
             var webSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
             bool isTest = (webSettings?.EnableSandboxMode == true) || (webSettings?.FormIngestionMode == "Simulation");
             _inquiryModel.RequesterName = _inquiryModel.ApplicantName;
-            _inquiryModel.RequestPhoneCall = (_inquiryContactPreference == "Phone" || _inquiryContactPreference == "Both");
-            _inquiryModel.PreferredContactMethod = _inquiryContactPreference;
+            _inquiryModel.RequestPhoneCall = _prefPhone || _prefText;
+            _inquiryModel.PreferredContactMethod = GetFormattedContactPreferences();
 
             await RentalService.SubmitGeneralInquiryAsync(_inquiryModel, isTest);
             _isInquirySubmitted = true;

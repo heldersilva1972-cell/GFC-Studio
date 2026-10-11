@@ -158,6 +158,7 @@ namespace GFC.BlazorServer.Services
                                 case "inquiryforkcardasktext": settings.InquiryForkCardAskText = val?.ToString() ?? "Ask about catering, rules, bar service, or date availability without filling out an entire contract."; break;
                                 case "inquiryforkshowtargetdate": settings.InquiryForkShowTargetDate = Convert.ToBoolean(val); break;
                                 case "inquiryforkshowoccasion": settings.InquiryForkShowOccasion = Convert.ToBoolean(val); break;
+                                case "inquirydescriptionplaceholder": settings.InquiryDescriptionPlaceholder = val?.ToString() ?? "Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)..."; break;
                                 case "enableinquiryfloatingbutton": settings.EnableInquiryFloatingButton = Convert.ToBoolean(val); break;
                                 case "hideinquiryfloatingbuttononmobile": settings.HideInquiryFloatingButtonOnMobile = Convert.ToBoolean(val); break;
                                 case "showhomebutton": settings.ShowHomeButton = Convert.ToBoolean(val); break;
@@ -344,6 +345,7 @@ namespace GFC.BlazorServer.Services
                             [RentalInboundNotifyStaff] = @p92,
                             [InquiryForkShowTargetDate] = @p93,
                             [InquiryForkShowOccasion] = @p94,
+                            [InquiryDescriptionPlaceholder] = @p105,
                             [InquiryFloatShowGuestEstimate] = @p96,
                             [EventTypeListsJson] = @p97,
                             [ManagedRentalLocation] = @p98,
@@ -390,7 +392,8 @@ namespace GFC.BlazorServer.Services
                             [InquiryForkShowTargetDate], [InquiryForkShowOccasion], [InquiryFloatShowEstimatedDate], [InquiryFloatShowGuestEstimate],
                             [EventTypeListsJson], [ManagedRentalLocation], [SecondaryFlexibleLocation],
                             [HideInquiryFloatingButtonOnMobile],
-                            [ShowHomeButton], [ShowMobileHomeButton]
+                            [ShowHomeButton], [ShowMobileHomeButton],
+                            [InquiryDescriptionPlaceholder]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -408,7 +411,8 @@ namespace GFC.BlazorServer.Services
                             @p93, @p94, @p95, @p96,
                             @p97, @p98, @p99,
                             @p100,
-                            @p101, @p102
+                            @p101, @p102,
+                            @p105
                         );
                     END";
 
@@ -518,7 +522,8 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p101", System.Data.SqlDbType.Bit) { Value = settings.ShowHomeButton },
                     new Microsoft.Data.SqlClient.SqlParameter("@p102", System.Data.SqlDbType.Bit) { Value = settings.ShowMobileHomeButton },
                     new Microsoft.Data.SqlClient.SqlParameter("@p103", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PaymentReminderEmailSubject ?? "Payment Reminder - {ClubName} Hall Rental for {EventDate}" },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p104", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PaymentReminderEmailBody ?? DBNull.Value }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p104", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PaymentReminderEmailBody ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p105", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryDescriptionPlaceholder ?? "Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)..." }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -887,6 +892,9 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryForkShowOccasion')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryForkShowOccasion] BIT NOT NULL DEFAULT 1;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryDescriptionPlaceholder')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryDescriptionPlaceholder] NVARCHAR(500) NOT NULL DEFAULT 'Tell us what you''d like to know (e.g. catering questions, setup times, specific date availability, etc.)...';
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'InquiryFloatShowEstimatedDate')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [InquiryFloatShowEstimatedDate] BIT NOT NULL DEFAULT 1;

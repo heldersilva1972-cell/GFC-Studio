@@ -1611,20 +1611,19 @@ namespace GFC.BlazorServer.Services
                         var recipients = settings.GetRecipientsList();
                         if (recipients.Any())
                         {
-                            string phonePreferenceBadge = inquiry.RequestPhoneCall
-                                ? "<span style='background-color:#16a34a; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>📞 Phone Call Requested</span>"
-                                : "<span style='background-color:#64748b; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>✉️ Email Preferred</span>";
+                            string contactPref = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod) ? inquiry.PreferredContactMethod : (inquiry.RequestPhoneCall ? "Phone" : "Email");
+                            string phonePreferenceBadge = $"<span style='background-color:#0284c7; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>Preferred: {contactPref}</span>";
 
-                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] {(inquiry.RequestPhoneCall ? "[PHONE CALLBACK REQUESTED] " : "")}Question from {inquiry.ApplicantName}";
+                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] {(inquiry.RequestPhoneCall ? "[CALLBACK/SMS REQUESTED] " : "")}Question from {inquiry.ApplicantName}";
                             string staffBody = $@"
                                 <div style='font-family: Arial, sans-serif; max-width: 600px;'>
                                     <h3 style='color: #0d1b2a;'>New Pre-Booking Question / Inquiry Received</h3>
-                                    {(inquiry.RequestPhoneCall ? "<div style='background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:10px 14px; border-radius:6px; margin-bottom:16px; font-weight:bold; color:#15803d;'>📞 The visitor has requested a phone callback.</div>" : "")}
+                                    {(inquiry.RequestPhoneCall ? $"<div style='background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:10px 14px; border-radius:6px; margin-bottom:16px; font-weight:bold; color:#15803d;'>📞 Preferred Contact Method(s): {contactPref}</div>" : "")}
                                     <p>A visitor submitted a general question on the Hall Rental page:</p>
                                     <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
                                         <tr><td style='padding: 6px; font-weight: bold; width: 35%; border-bottom: 1px solid #e2e8f0;'>Name:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.ApplicantName}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Email:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'><a href='mailto:{inquiry.RequesterEmail}'>{inquiry.RequesterEmail}</a></td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Contact Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.RequesterPhone} {phonePreferenceBadge}</td></tr>
+                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Contact Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.RequesterPhone) ? "N/A" : inquiry.RequesterPhone)} {phonePreferenceBadge}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Target Date:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("dddd, MMMM dd, yyyy") : "Flexible / Not Specified")}</td></tr>
                                         <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Event Type / Guest Est:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.EventType) ? "General Question" : inquiry.EventType)} {(inquiry.GuestCount > 0 ? $"({inquiry.GuestCount} guests)" : "")}</td></tr>
                                     </table>
@@ -1652,15 +1651,20 @@ namespace GFC.BlazorServer.Services
             try
             {
                 string eventDateStr = newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
+                string contactPrefSummary = !string.IsNullOrWhiteSpace(newInquiry.PreferredContactMethod)
+                    ? newInquiry.PreferredContactMethod
+                    : (newInquiry.RequestPhoneCall ? "Phone" : "Email");
+
                 await _firebaseNotificationService.BroadcastAsync(
                     "💬 New Rental Inquiry Received",
-                    $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}): {(newInquiry.RequestPhoneCall ? "📞 Phone Call Requested" : "✉️ Email")}",
+                    $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}) • Preferred: {contactPrefSummary}",
                     new Dictionary<string, string>
                     {
                         { "category", "inquiry" },
                         { "rental_id", newInquiry.Id.ToString() },
                         { "applicant_name", newInquiry.ApplicantName ?? "" },
-                        { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" }
+                        { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" },
+                        { "contact_pref", contactPrefSummary }
                     }
                 );
             }

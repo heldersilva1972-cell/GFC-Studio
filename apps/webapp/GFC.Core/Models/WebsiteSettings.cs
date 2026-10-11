@@ -141,6 +141,7 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         // Field Visibility for Pre-Booking Inquiry (Option A)
         public bool InquiryForkShowTargetDate { get; set; } = true;
         public bool InquiryForkShowOccasion { get; set; } = true;
+        public string InquiryDescriptionPlaceholder { get; set; } = "Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)...";
 
         public bool EnableInquiryFloatingButton { get; set; } = true;
         public bool HideInquiryFloatingButtonOnMobile { get; set; } = false;
