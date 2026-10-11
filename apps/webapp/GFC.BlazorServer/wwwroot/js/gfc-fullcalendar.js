@@ -509,8 +509,7 @@ window.GfcFullCalendar = (function () {
 
         document.getElementById('gfc-modal-body').innerHTML = `${rowsHtml}`;
 
-        document.getElementById('gfc-cal-modal-overlay').style.display = 'block';
-        document.getElementById('gfc-cal-modal').style.display = 'block';
+        positionModalInView();
     }
 
     function parseTimeToMinutes(timeStr) {
@@ -598,6 +597,52 @@ window.GfcFullCalendar = (function () {
         }
 
         return { isFullyBooked: false, reason: events.length > 0 ? 'partial' : 'empty', remainingCount: 1, openSlots: [] };
+    }
+
+    function positionModalInView() {
+        const modal = document.getElementById('gfc-cal-modal');
+        const overlay = document.getElementById('gfc-cal-modal-overlay');
+        if (!modal || !overlay) return;
+
+        overlay.style.display = 'block';
+        modal.style.display = 'block';
+
+        // Check if embedded in an iframe
+        const isEmbedded = window.parent && window.parent !== window;
+        if (isEmbedded) {
+            // Expand overlay to cover full scrollable document in iframe
+            overlay.style.position = 'absolute';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 1200) + 'px';
+
+            // In an iframe (such as on WordPress), notify parent page to bring modal into view
+            try {
+                window.parent.postMessage({ type: 'gfc-calendar-date-selected' }, '*');
+            } catch (e) {}
+
+            // Calculate current visible scroll position within iframe window
+            const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+            const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
+
+            modal.style.position = 'absolute';
+            modal.style.left = '50%';
+            modal.style.top = (scrollY + Math.max(40, (viewportH - (modal.offsetHeight || 380)) / 2)) + 'px';
+            modal.style.transform = 'translate(-50%, 0)';
+
+            try {
+                modal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (err) {}
+        } else {
+            // Standalone page: standard fixed centered positioning
+            overlay.style.position = 'fixed';
+            overlay.style.height = '100%';
+            modal.style.position = 'fixed';
+            modal.style.left = '50%';
+            modal.style.top = '50%';
+            modal.style.transform = 'translate(-50%, -50%)';
+        }
     }
 
     function openDateModal(dateStr, containerId) {
@@ -726,8 +771,7 @@ window.GfcFullCalendar = (function () {
             ${actionsHtml}
         `;
 
-        document.getElementById('gfc-cal-modal-overlay').style.display = 'block';
-        document.getElementById('gfc-cal-modal').style.display = 'block';
+        positionModalInView();
     }
 
     function row(icon, label, value) {
@@ -746,15 +790,35 @@ window.GfcFullCalendar = (function () {
 
     function resolveBookUrl(config, dateStr) {
         let rawUrl = config.modalBookButtonUrl || '';
+        const isInIframe = window.parent && window.parent !== window;
+        
+        // If empty or explicitly default '/rentals/apply', determine fallback application URL
         if (!rawUrl || rawUrl === '/rentals/apply') {
-            const isLiveSite = window.location.hostname.includes('gloucesterfraternityclub.com');
-            const isInIframe = window.parent && window.parent !== window;
-            if (isLiveSite || isInIframe) {
-                rawUrl = 'https://gloucesterfraternityclub.com/discovery/?page_id=5305';
+            // Check if host page is Gloucester Fraternity Club website
+            let parentHost = '';
+            try {
+                if (window.parent && window.parent.location) {
+                    parentHost = window.parent.location.hostname;
+                }
+            } catch (e) {
+                // Cross-origin iframe from WordPress: document.referrer contains WordPress page URL
+                if (document.referrer) {
+                    try {
+                        parentHost = new URL(document.referrer).hostname;
+                    } catch (err) {}
+                }
+            }
+
+            const isLiveSite = parentHost.includes('gloucesterfraternityclub.com') || window.location.hostname.includes('gloucesterfraternityclub.com');
+
+            if (isLiveSite) {
+                // Keep customer on the WordPress website default application page!
+                rawUrl = 'https://gloucesterfraternityclub.com/hall-rental-application/';
             } else {
                 rawUrl = '/rentals/apply';
             }
         }
+
         const sep = rawUrl.includes('?') ? '&' : '?';
         return rawUrl + sep + 'date=' + encodeURIComponent(dateStr);
     }

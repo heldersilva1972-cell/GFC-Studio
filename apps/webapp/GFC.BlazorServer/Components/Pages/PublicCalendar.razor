@@ -58,9 +58,51 @@
 }
 else
 {
-    <div class="gfc-pub-cal-page @(_showInquiryForm ? "gfc-pub-cal-inquiry-active" : "")">
+    @if (IsEmbed)
+    {
+        <script>
+            (function() {
+                var lastSentH = 0;
+                function sendCalendarHeight() {
+                    var calElem = document.querySelector('.gfc-pub-cal-main') || document.querySelector('.gfc-calendar-wrap') || document.body;
+                    var h = Math.max(
+                        calElem ? (calElem.offsetTop + calElem.offsetHeight + 20) : 0,
+                        document.body ? document.body.scrollHeight : 0,
+                        document.documentElement ? document.documentElement.scrollHeight : 0
+                    );
+                    if (h > 0 && Math.abs(h - lastSentH) > 10) {
+                        lastSentH = h;
+                        if (window.parent && window.parent !== window) {
+                            window.parent.postMessage({ type: 'gfc-calendar-resize', height: h }, '*');
+                        }
+                    }
+                }
 
-        @* ── Header (Hidden when embedded into WordPress) ─────────── *@
+                if (typeof ResizeObserver !== 'undefined') {
+                    var ro = new ResizeObserver(function() {
+                        sendCalendarHeight();
+                    });
+                    if (document.body) {
+                        ro.observe(document.body);
+                    } else {
+                        document.addEventListener('DOMContentLoaded', function() {
+                            ro.observe(document.body);
+                        });
+                    }
+                }
+
+                window.addEventListener('resize', sendCalendarHeight);
+                window.addEventListener('load', sendCalendarHeight);
+                setTimeout(sendCalendarHeight, 150);
+                setTimeout(sendCalendarHeight, 500);
+                setTimeout(sendCalendarHeight, 1200);
+            })();
+        </script>
+    }
+
+    <div class="gfc-pub-cal-page @(_showInquiryForm ? "gfc-pub-cal-inquiry-active" : "") @(IsEmbed ? "gfc-pub-cal-embedded" : "")">
+
+        @* ── Header (Full GFC branding for Standalone view) ─────────── *@
         @if (!IsEmbed)
         {
             <header class="gfc-pub-cal-header">
@@ -103,6 +145,42 @@ else
                     </div>
                 </div>
             </header>
+        }
+        else
+        {
+            @* ── Embedded Header CTA Action Bar (Option A: shows configured buttons above embedded calendar) ── *@
+            @if (!_showInquiryForm && (_settings.ShowHeaderBookButton || _settings.ShowHeaderQuestionButton || _settings.ShowHeaderHomeButton))
+            {
+                <div class="gfc-pub-cal-embed-actions">
+                    <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap w-100">
+                        @if (_settings.ShowHeaderHomeButton)
+                        {
+                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonUrl) ? _settings.HeaderHomeButtonUrl : "https://gloucesterfraternityclub.com")"
+                               target="_top"
+                               class="gfc-pub-cal-home-btn"
+                               title="Return to GFC Home Website">
+                                🏠 @(!string.IsNullOrWhiteSpace(_settings.HeaderHomeButtonText) ? _settings.HeaderHomeButtonText : "GFC Home")
+                            </a>
+                        }
+                        @if (_settings.ShowHeaderQuestionButton)
+                        {
+                            <button type="button"
+                                    class="gfc-pub-cal-question-btn"
+                                    @onclick="ToggleInquiryForm">
+                                ❓ @(!string.IsNullOrWhiteSpace(_settings.HeaderQuestionButtonText) ? _settings.HeaderQuestionButtonText : "Ask a Question")
+                            </button>
+                        }
+                        @if (_settings.ShowHeaderBookButton)
+                        {
+                            <a href="@(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply")"
+                               target="_top"
+                               class="gfc-pub-cal-book-btn">
+                                📅 @(!string.IsNullOrWhiteSpace(_settings.HeaderBookButtonText) ? _settings.HeaderBookButtonText : "Book the Hall")
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
         }
 
         @* ── Info / Notice banner (Only shown when viewing the calendar) ───────────────────────── *@
@@ -352,10 +430,30 @@ else
         background: transparent !important;
         min-height: auto;
     }
+    .gfc-pub-cal-page.gfc-pub-cal-embedded {
+        min-height: auto !important;
+        background: transparent !important;
+    }
+    .gfc-pub-cal-page.gfc-pub-cal-embedded .gfc-pub-cal-main {
+        margin: 0 auto 12px auto !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 12px 14px !important;
+    }
     .gfc-pub-cal-inquiry-wrapper {
         padding: 0 !important;
         margin-top: 10px !important;
         margin-bottom: 20px !important;
+    }
+
+    /* ── Embedded Action Toolbar ─────────────────────────────── */
+    .gfc-pub-cal-embed-actions {
+        max-width: 1160px;
+        width: 100%;
+        margin: 8px auto 6px auto;
+        padding: 0 14px;
+        display: flex;
+        justify-content: flex-end;
     }
 
     /* ── Header ───────────────────────────────────────────────── */
@@ -768,7 +866,7 @@ else
         var rawUrl = !string.IsNullOrWhiteSpace(_settings.HeaderBookButtonUrl) ? _settings.HeaderBookButtonUrl : "/rentals/apply";
         if (rawUrl == "/rentals/apply" && IsEmbed)
         {
-            rawUrl = "https://gloucesterfraternityclub.com/discovery/?page_id=5305";
+            rawUrl = "https://gloucesterfraternityclub.com/hall-rental-application/";
         }
         if (_inquiryModel.EventDate > DateTime.MinValue)
         {
