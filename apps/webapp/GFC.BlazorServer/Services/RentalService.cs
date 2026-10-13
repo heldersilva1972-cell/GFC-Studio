@@ -1564,7 +1564,7 @@ namespace GFC.BlazorServer.Services
                 RequesterEmail = inquiry.RequesterEmail ?? "",
                 RequesterPhone = inquiry.RequesterPhone ?? "",
                 RequestPhoneCall = inquiry.RequestPhoneCall,
-                PreferredContactMethod = inquiry.RequestPhoneCall ? "Phone" : "Email",
+                PreferredContactMethod = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod) ? inquiry.PreferredContactMethod : (inquiry.RequestPhoneCall ? "Phone" : "Email"),
                 GuestCount = inquiry.GuestCount ?? 0,
                 EventType = !string.IsNullOrWhiteSpace(inquiry.EventType) ? inquiry.EventType : "General Inquiry",
                 EventDescription = inquiry.EventDescription,
