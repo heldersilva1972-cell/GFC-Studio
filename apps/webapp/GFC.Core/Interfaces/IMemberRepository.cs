@@ -24,6 +24,8 @@ public interface IMemberRepository
     int GetNonPortugueseRegularCount();
     List<MemberQueueItem> GetNonPortugueseGuestQueue();
     int GetNonPortugueseQueueCount();
+    void SaveNpQueueAdjustment(int memberId, int currentPosition, int originalPosition, int bumpCount, string? notes = null);
+    void RemoveNpQueueAdjustment(int memberId);
     List<Member> GetLifeMembers();
     List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);
     int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null, List<Member>? candidates = null);

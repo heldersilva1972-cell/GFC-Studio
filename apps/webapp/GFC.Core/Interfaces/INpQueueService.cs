@@ -7,5 +7,7 @@ public interface INpQueueService
     Task<IReadOnlyList<NpQueueEntryDto>> GetQueueAsync(CancellationToken cancellationToken = default);
     Task<int> GetSlotsAvailableAsync(CancellationToken cancellationToken = default);
     Task PromoteAsync(int memberId, CancellationToken cancellationToken = default);
+    Task BumpDownAsync(int memberId, CancellationToken cancellationToken = default);
+    Task RemoveFromQueueAdjustmentsAsync(int memberId, CancellationToken cancellationToken = default);
 }
 

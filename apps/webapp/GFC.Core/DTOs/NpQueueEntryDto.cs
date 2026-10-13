@@ -10,5 +10,7 @@ public record NpQueueEntryDto(
     DateTime? ApplicationDate,
     bool CanPromote,
     bool CurrentYearPaid,
-    int? MonthsUnpaid);
+    int? MonthsUnpaid,
+    int OriginalPosition = 0,
+    int BumpCount = 0);
 

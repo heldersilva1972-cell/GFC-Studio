@@ -91,6 +91,19 @@ public class MemberService
         // Keep audit behavior consistent; bypass flag reserved for future automation toggles.
         TryAuditStatusChange(member.MemberID, oldStatus, newStatus, performedByUserId);
         
+        // Clean up queue adjustments if member is no longer a GUEST
+        if (!newStatus.Equals("GUEST", StringComparison.OrdinalIgnoreCase) && member.MemberID > 0)
+        {
+            try
+            {
+                _memberRepository.RemoveNpQueueAdjustment(member.MemberID);
+            }
+            catch (Exception ex)
+            {
+                _auditLogger.Log("NP_QUEUE_CLEANUP_ERR", null, null, $"Failed to remove queue adjustment: {ex.Message}", targetMemberId: member.MemberID);
+            }
+        }
+
         // Evaluate key card eligibility immediately
         if (member.MemberID > 0)
         {

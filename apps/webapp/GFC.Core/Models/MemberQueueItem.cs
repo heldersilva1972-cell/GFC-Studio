@@ -11,5 +11,7 @@ public class MemberQueueItem
     public string? MiddleName { get; set; }
     public DateTime? AcceptedDate { get; set; }
     public int Position { get; set; }
+    public int OriginalPosition { get; set; }
+    public int BumpCount { get; set; }
 }
 

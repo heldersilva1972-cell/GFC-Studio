@@ -657,13 +657,14 @@ FROM Members;";
     /// </summary>
     public List<MemberQueueItem> GetNonPortugueseGuestQueue()
     {
-        var queue = new List<MemberQueueItem>();
+        var naturalQueue = new List<MemberQueueItem>();
         
         try
         {
             using var connection = Db.GetConnection();
             connection.Open();
             
+            // 1. Fetch natural list of eligible guests ordered by AcceptedDate
             const string sql = @"
                 SELECT MemberID, LastName, FirstName, MiddleName, AcceptedDate
                 FROM Members
@@ -675,27 +676,125 @@ FROM Members;";
             using var command = new SqlCommand(sql, connection);
             using var reader = command.ExecuteReader();
             
-            int position = 1;
+            int naturalRank = 1;
             while (reader.Read())
             {
-                queue.Add(new MemberQueueItem
+                naturalQueue.Add(new MemberQueueItem
                 {
                     MemberID = (int)reader["MemberID"],
                     LastName = reader["LastName"].ToString() ?? string.Empty,
                     FirstName = reader["FirstName"].ToString() ?? string.Empty,
                     MiddleName = reader["MiddleName"] as string,
                     AcceptedDate = reader["AcceptedDate"] as DateTime?,
-                    Position = position++
+                    Position = naturalRank,
+                    OriginalPosition = naturalRank,
+                    BumpCount = 0
                 });
+                naturalRank++;
             }
+            reader.Close();
+
+            // 2. Fetch existing adjustments
+            var adjustments = new Dictionary<int, (int currentPos, int origPos, int bumpCount)>();
+            const string adjSql = @"
+                SELECT MemberID, CurrentPosition, OriginalPosition, BumpCount
+                FROM NpQueueAdjustments";
+            
+            using var adjCmd = new SqlCommand(adjSql, connection);
+            using var adjReader = adjCmd.ExecuteReader();
+            while (adjReader.Read())
+            {
+                int mid = (int)adjReader["MemberID"];
+                int cPos = (int)adjReader["CurrentPosition"];
+                int oPos = (int)adjReader["OriginalPosition"];
+                int bCount = (int)adjReader["BumpCount"];
+                adjustments[mid] = (cPos, oPos, bCount);
+            }
+            adjReader.Close();
+
+            // 3. Merge adjustments
+            foreach (var item in naturalQueue)
+            {
+                if (adjustments.TryGetValue(item.MemberID, out var adj))
+                {
+                    item.Position = adj.currentPos;
+                    item.OriginalPosition = adj.origPos > 0 ? adj.origPos : item.Position;
+                    item.BumpCount = adj.bumpCount;
+                }
+            }
+
+            // 4. Return sorted by Position, then natural date/name
+            return naturalQueue
+                .OrderBy(x => x.Position)
+                .ThenBy(x => x.AcceptedDate)
+                .ThenBy(x => x.LastName)
+                .ThenBy(x => x.FirstName)
+                .ToList();
         }
         catch (SqlException ex)
         {
             Console.WriteLine($"[MemberRepository Error] GetNonPortugueseGuestQueue: {ex.Message}");
             throw;
         }
-        
-        return queue;
+    }
+
+    public void SaveNpQueueAdjustment(int memberId, int currentPosition, int originalPosition, int bumpCount, string? notes = null)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                IF EXISTS (SELECT 1 FROM NpQueueAdjustments WHERE MemberID = @MemberID)
+                BEGIN
+                    UPDATE NpQueueAdjustments
+                    SET CurrentPosition = @CurrentPosition,
+                        OriginalPosition = @OriginalPosition,
+                        BumpCount = @BumpCount,
+                        Notes = @Notes,
+                        LastBumpedDate = SYSUTCDATETIME(),
+                        UpdatedAt = SYSUTCDATETIME()
+                    WHERE MemberID = @MemberID;
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO NpQueueAdjustments (MemberID, CurrentPosition, OriginalPosition, BumpCount, Notes, LastBumpedDate, CreatedAt, UpdatedAt)
+                    VALUES (@MemberID, @CurrentPosition, @OriginalPosition, @BumpCount, @Notes, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+                END";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberID", memberId);
+            command.Parameters.AddWithValue("@CurrentPosition", currentPosition);
+            command.Parameters.AddWithValue("@OriginalPosition", originalPosition);
+            command.Parameters.AddWithValue("@BumpCount", bumpCount);
+            command.Parameters.AddWithValue("@Notes", (object?)notes ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+        catch (SqlException ex)
+        {
+            Console.WriteLine($"[MemberRepository Error] SaveNpQueueAdjustment: {ex.Message}");
+            throw;
+        }
+    }
+
+    public void RemoveNpQueueAdjustment(int memberId)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = "DELETE FROM NpQueueAdjustments WHERE MemberID = @MemberID";
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberID", memberId);
+            command.ExecuteNonQuery();
+        }
+        catch (SqlException ex)
+        {
+            Console.WriteLine($"[MemberRepository Error] RemoveNpQueueAdjustment: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>

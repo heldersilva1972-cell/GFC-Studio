@@ -102,14 +102,17 @@ public class NpQueueService : INpQueueService
                         }
                     }
 
+                    // Can promote if dues are paid and either they are #1 or preceding members are unpaid
                     return new NpQueueEntryDto(
                         item.Position,
                         item.MemberID,
                         BuildFullName(item.FirstName, item.MiddleName, item.LastName),
                         item.AcceptedDate,
-                        item.Position == 1,
                         isPaid,
-                        monthsUnpaid);
+                        isPaid,
+                        monthsUnpaid,
+                        item.OriginalPosition > 0 ? item.OriginalPosition : item.Position,
+                        item.BumpCount);
                 })
                 .ToList();
         }, cancellationToken);
@@ -133,13 +136,86 @@ public class NpQueueService : INpQueueService
         }, cancellationToken);
     }
 
+    public async Task BumpDownAsync(int memberId, CancellationToken cancellationToken = default)
+    {
+        var rawQueue = _memberRepository.GetNonPortugueseGuestQueue();
+        var index = rawQueue.FindIndex(m => m.MemberID == memberId);
+        if (index < 0 || index >= rawQueue.Count - 1)
+        {
+            return; // Can't bump down if not found or already at the bottom
+        }
+
+        var currentMember = rawQueue[index];
+        var nextMember = rawQueue[index + 1];
+
+        // Swap their current positions
+        int tempPos = currentMember.Position;
+        currentMember.Position = nextMember.Position;
+        nextMember.Position = tempPos;
+
+        // Increment bump count for the bumped member
+        currentMember.BumpCount++;
+
+        _memberRepository.SaveNpQueueAdjustment(
+            currentMember.MemberID,
+            currentMember.Position,
+            currentMember.OriginalPosition,
+            currentMember.BumpCount,
+            $"Manually bumped down past {nextMember.LastName}, {nextMember.FirstName}");
+
+        _memberRepository.SaveNpQueueAdjustment(
+            nextMember.MemberID,
+            nextMember.Position,
+            nextMember.OriginalPosition,
+            nextMember.BumpCount,
+            $"Shifted up due to bump of {currentMember.LastName}, {currentMember.FirstName}");
+
+        _auditLogger.Log(
+            "NP_QUEUE_BUMP_DOWN",
+            null,
+            null,
+            $"[{currentMember.LastName}, {currentMember.FirstName}] Bumped down from #{tempPos} to #{currentMember.Position}",
+            targetMemberId: memberId);
+    }
+
+    public Task RemoveFromQueueAdjustmentsAsync(int memberId, CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            _memberRepository.RemoveNpQueueAdjustment(memberId);
+        }, cancellationToken);
+    }
+
     public async Task PromoteAsync(int memberId, CancellationToken cancellationToken = default)
     {
         var queue = await GetQueueAsync(cancellationToken);
-        var first = queue.FirstOrDefault();
-        if (first == null || first.MemberId != memberId)
+        var targetEntry = queue.FirstOrDefault(e => e.MemberId == memberId);
+        if (targetEntry == null)
         {
-            throw new InvalidOperationException("Only the first member in the queue can be promoted.");
+            throw new InvalidOperationException("Member not found in queue.");
+        }
+
+        if (!targetEntry.CurrentYearPaid)
+        {
+            throw new InvalidOperationException("Cannot promote a member whose dues are not paid.");
+        }
+
+        // If target is not #1, any preceding members are skipped/bypassed.
+        // Auto-bump preceding unpaid members down!
+        var precedingMembers = queue.Where(e => e.Position < targetEntry.Position).ToList();
+        foreach (var preceding in precedingMembers)
+        {
+            var rawItem = _memberRepository.GetNonPortugueseGuestQueue().FirstOrDefault(m => m.MemberID == preceding.MemberId);
+            if (rawItem != null)
+            {
+                // Increment bump count for being passed over
+                _memberRepository.SaveNpQueueAdjustment(
+                    rawItem.MemberID,
+                    rawItem.Position,
+                    rawItem.OriginalPosition,
+                    rawItem.BumpCount + 1,
+                    $"Bypassed by promotion of {targetEntry.FullName}");
+            }
         }
 
         var member = _memberRepository.GetMemberById(memberId)
@@ -154,8 +230,11 @@ public class NpQueueService : INpQueueService
         var previousStatus = member.Status;
         await _memberService.UpdateMemberStatusAsync(member, "REGULAR");
 
+        // Remove the promoted member from queue adjustments table
+        _memberRepository.RemoveNpQueueAdjustment(memberId);
+
         var memberName = $"{member.LastName}, {member.FirstName}";
-        var details = $"[{memberName}] Promoted from {previousStatus ?? "unknown"} to REGULAR (previous position {first.Position})";
+        var details = $"[{memberName}] Promoted from {previousStatus ?? "unknown"} to REGULAR (queue position {targetEntry.Position})";
         _auditLogger.Log(
             AuditLogActions.NPQueuePromote,
             null,

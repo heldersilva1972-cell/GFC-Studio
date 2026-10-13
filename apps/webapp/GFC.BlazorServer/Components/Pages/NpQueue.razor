@@ -5,21 +5,29 @@
 @inject INpQueueService QueueService
 @inject IMemberHistoryService HistoryService
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
 @inject ILogger<NpQueue> Logger
 
 <link href="css/np-queue-modern.css" rel="stylesheet" />
 
 <div class="np-queue-container">
-    <div class="d-flex justify-content-between align-items-end mb-4">
+    <div class="d-flex justify-content-between align-items-end mb-4 no-print">
         <div>
             <h1 class="page-title mb-1">Non-Portuguese Queue</h1>
             <p class="text-muted mb-0">Monitor and promote members waiting for Regular status.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary rounded-pill px-3 fw-bold d-flex align-items-center gap-2 shadow-sm"
+                    @onclick="PrintQueue">
+                <i class="bi bi-printer-fill"></i>
+                <span>Print List</span>
+            </button>
         </div>
     </div>
 
     @if (!_loading && !_promoting)
     {
-        <div class="queue-stats">
+        <div class="queue-stats no-print">
             <div class="stat-card">
                 <div class="stat-icon icon-queue">
                     <i class="bi bi-list-ol"></i>
@@ -43,7 +51,7 @@
 
     @if (!string.IsNullOrWhiteSpace(_operationMessage))
     {
-        <div class="alert @(_operationError ? "alert-danger" : "alert-success") d-flex align-items-center mb-4 rounded-4 shadow-sm border-0">
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success") d-flex align-items-center mb-4 rounded-4 shadow-sm border-0 no-print">
             <i class="bi @(_operationError ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2 fs-5"></i>
             <div>@_operationMessage</div>
         </div>
@@ -51,7 +59,7 @@
 
     @if (!_loading && GetPriorityEntry() is var priority && priority != null)
     {
-        <div class="priority-promotion-section">
+        <div class="priority-promotion-section no-print">
             <div class="priority-card">
                 <div class="priority-glow"></div>
                 <div class="priority-content">
@@ -62,7 +70,11 @@
                         <div class="priority-meta">
                             <span class="meta-item"><i class="bi bi-clock-history"></i> Applied @(priority.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")</span>
                             <span class="meta-item"><i class="bi bi-shield-check text-success"></i> Dues Paid</span>
-                            <span class="meta-item"><i class="bi bi-star-fill text-warning"></i> #1 in Queue</span>
+                            <span class="meta-item"><i class="bi bi-star-fill text-warning"></i> #@priority.Position in Queue</span>
+                            @if (priority.OriginalPosition > 0 && priority.OriginalPosition != priority.Position)
+                            {
+                                <span class="meta-item text-primary"><i class="bi bi-arrow-left-right"></i> (Original #@priority.OriginalPosition)</span>
+                            }
                         </div>
                     </div>
                 </div>
@@ -95,7 +107,7 @@
     else
     {
         <div class="modern-card">
-            <div class="card-header-modern">
+            <div class="card-header-modern no-print">
                 <h5 class="mb-0 fw-bold"><i class="bi bi-people-fill me-2 text-primary"></i>Waiting List</h5>
                 <div class="d-flex gap-2">
                     <span class="badge bg-light text-dark border rounded-pill px-3 py-2">@_entries.Count Total</span>
@@ -105,12 +117,12 @@
                 <table class="table-modern">
                     <thead>
                         <tr>
-                            <th style="width: 60px;">#</th>
+                            <th style="width: 70px;">#</th>
                             <th>Member</th>
                             <th>Applied Date</th>
                             <th>Dues Status</th>
-                            <th>Promotion Status</th>
-                            <th class="text-end">Actions</th>
+                            <th>Queue Position Note</th>
+                            <th class="text-end no-print">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -129,9 +141,11 @@
                         else
                         {
                             var topCandidate = GetPriorityEntry();
-                            @foreach (var entry in _entries)
+                            @for (int i = 0; i < _entries.Count; i++)
                             {
+                                var entry = _entries[i];
                                 var isNextUp = !_promoting && topCandidate == null && entry.Position == 1;
+                                var canBumpDown = i < _entries.Count - 1;
                                 <tr class="@(isNextUp ? "next-up-anim" : "")">
                                     <td>
                                         <div class="position-badge @(entry.Position == 1 ? "position-1" : "")">
@@ -171,43 +185,61 @@
                                         }
                                     </td>
                                     <td>
-                                        @if (entry.CanPromote)
+                                        @if (entry.OriginalPosition > 0 && entry.OriginalPosition != entry.Position)
                                         {
-                                            <span class="badge-modern badge-ready">
-                                                <i class="bi bi-check-circle-fill"></i> Ready
+                                            <span class="badge bg-light text-secondary border px-2 py-1">
+                                                <i class="bi bi-arrow-down-right text-warning me-1"></i>Was #@entry.OriginalPosition
+                                                @if (entry.BumpCount > 0)
+                                                {
+                                                    <span class="text-muted ms-1">(@entry.BumpCount@(entry.BumpCount == 1 ? "x" : "x") shifted)</span>
+                                                }
                                             </span>
                                         }
                                         else
                                         {
-                                            <span class="badge-modern badge-waiting">
-                                                <i class="bi bi-hourglass-split"></i> Waiting
-                                            </span>
+                                            <span class="text-muted small fst-italic">Original #@entry.Position</span>
                                         }
                                     </td>
-                                    <td class="text-end">
-                                        @if (ShowPromoteButton(entry))
-                                        {
-                                            @if (topCandidate == null)
+                                    <td class="text-end no-print">
+                                        <div class="d-flex justify-content-end align-items-center gap-2">
+                                            @if (canBumpDown)
                                             {
-                                                <button class="btn btn-primary btn-sm rounded-pill px-4 fw-bold shadow-sm"
+                                                <button class="btn btn-outline-warning btn-sm rounded-pill px-2 py-1"
+                                                        title="Bump down 1 position"
                                                         disabled="@_promoting"
-                                                        @onclick="() => BeginPromotion(entry)">
-                                                    Promote to Regular
+                                                        @onclick="() => BumpDown(entry)">
+                                                    <i class="bi bi-arrow-down"></i> Bump Down
                                                 </button>
+                                            }
+
+                                            @if (ShowPromoteButton(entry))
+                                            {
+                                                @if (topCandidate == null || topCandidate.MemberId != entry.MemberId)
+                                                {
+                                                    <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold shadow-sm"
+                                                            disabled="@_promoting"
+                                                            @onclick="() => BeginPromotion(entry)">
+                                                        Promote
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-primary small fw-bold"><i class="bi bi-arrow-up-circle-fill me-1"></i>In Spotlight</span>
+                                                }
+                                            }
+                                            else if (!entry.CurrentYearPaid)
+                                            {
+                                                <span class="text-muted small fst-italic" title="Dues unpaid"><i class="bi bi-lock-fill me-1"></i>Dues Unpaid</span>
+                                            }
+                                            else if (_slots == 0)
+                                            {
+                                                <span class="text-muted small fst-italic"><i class="bi bi-lock-fill me-1"></i>No Slots</span>
                                             }
                                             else
                                             {
-                                                <span class="text-primary small fw-bold"><i class="bi bi-arrow-up-circle-fill me-1"></i>In Spotlight</span>
+                                                <span class="text-muted small fst-italic">In Queue</span>
                                             }
-                                        }
-                                        else if (entry.Position == 1 && _slots == 0)
-                                        {
-                                            <span class="text-muted small fst-italic"><i class="bi bi-lock-fill me-1"></i>No Slots</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted small fst-italic">In Queue</span>
-                                        }
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -365,13 +397,124 @@
         }
     }
 
+    private async Task BumpDown(NpQueueEntryDto entry)
+    {
+        _operationMessage = null;
+        try
+        {
+            await QueueService.BumpDownAsync(entry.MemberId);
+            await LoadQueue();
+            _operationError = false;
+            _operationMessage = $"{entry.FullName} bumped down 1 position.";
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[NPQueue:bump] {ex}");
+            _operationError = true;
+            _operationMessage = "Unable to bump the member down.";
+        }
+    }
+
+    private async Task PrintQueue()
+    {
+        if (_entries == null || _entries.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Non-Portuguese Waiting List</title>");
+        sb.Append("<style>");
+        sb.Append("@page { size: letter portrait; margin: 0.5in; }");
+        sb.Append("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 20px; font-size: 10pt; }");
+        sb.Append(".header { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end; }");
+        sb.Append(".title { font-size: 16pt; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; }");
+        sb.Append(".meta { font-size: 9pt; color: #64748b; margin: 0; }");
+        sb.Append(".stats { text-align: right; font-size: 9pt; color: #475569; }");
+        sb.Append(".stats strong { color: #0f172a; }");
+        sb.Append("table { width: 100%; border-collapse: collapse; margin-top: 10px; }");
+        sb.Append("th { background-color: #f8fafc; color: #334155; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; text-align: left; padding: 8px 10px; border-bottom: 2px solid #cbd5e1; }");
+        sb.Append("td { padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-size: 9.5pt; vertical-align: middle; }");
+        sb.Append("tr:nth-child(even) td { background-color: #fafbfc; }");
+        sb.Append(".rank { font-weight: 800; font-size: 11pt; color: #0f172a; width: 40px; text-align: center; }");
+        sb.Append(".name { font-weight: 700; color: #0f172a; }");
+        sb.Append(".status-paid { color: #166534; font-weight: 700; }");
+        sb.Append(".status-unpaid { color: #b91c1c; font-weight: 700; }");
+        sb.Append(".history-tag { font-size: 8.5pt; color: #d97706; font-weight: 600; }");
+        sb.Append(".footer { margin-top: 25px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 8pt; color: #94a3b8; text-align: center; }");
+        sb.Append("</style></head><body>");
+
+        // Header
+        sb.Append("<div class='header'>");
+        sb.Append("<div>");
+        sb.Append("<h1 class='title'>Non-Portuguese Regular Status – Waiting List</h1>");
+        sb.Append($"<p class='meta'>Printed on {DateTime.Now:MMMM d, yyyy h:mm tt} for Board Review</p>");
+        sb.Append("</div>");
+        sb.Append("<div class='stats'>");
+        sb.Append($"<div>Total in Queue: <strong>{_entries.Count}</strong></div>");
+        sb.Append($"<div>Available Regular Slots: <strong>{_slots}</strong></div>");
+        sb.Append("</div>");
+        sb.Append("</div>");
+
+        // Table
+        sb.Append("<table><thead><tr>");
+        sb.Append("<th style='text-align:center;'>#</th>");
+        sb.Append("<th>Member Name</th>");
+        sb.Append("<th>Applied Date</th>");
+        sb.Append("<th>Dues Status</th>");
+        sb.Append("<th>Queue History</th>");
+        sb.Append("</tr></thead><tbody>");
+
+        foreach (var entry in _entries)
+        {
+            sb.Append("<tr>");
+            sb.Append($"<td class='rank'>#{entry.Position}</td>");
+            sb.Append($"<td class='name'>{System.Net.WebUtility.HtmlEncode(entry.FullName)}</td>");
+            sb.Append($"<td>{(entry.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")}</td>");
+
+            if (entry.CurrentYearPaid)
+            {
+                sb.Append("<td class='status-paid'>✓ Paid</td>");
+            }
+            else
+            {
+                var overdueText = entry.MonthsUnpaid.HasValue ? $" ({entry.MonthsUnpaid.Value} mo overdue)" : "";
+                sb.Append($"<td class='status-unpaid'>✗ Unpaid{overdueText}</td>");
+            }
+
+            if (entry.OriginalPosition > 0 && entry.OriginalPosition != entry.Position)
+            {
+                var shiftText = entry.BumpCount > 0 ? $", {entry.BumpCount}x shifted" : "";
+                sb.Append($"<td class='history-tag'>Was #{entry.OriginalPosition}{shiftText}</td>");
+            }
+            else
+            {
+                sb.Append("<td style='color: #94a3b8; font-size: 8.5pt;'>Original Position</td>");
+            }
+
+            sb.Append("</tr>");
+        }
+
+        sb.Append("</tbody></table>");
+        sb.Append("<script>window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 750); };</script>");
+        sb.Append("</body></html>");
+
+        var jsonHtml = System.Text.Json.JsonSerializer.Serialize(sb.ToString());
+        var script = "var printWin = window.open('', '_blank', 'width=850,height=1000'); if (printWin) { printWin.document.write(" + jsonHtml + "); printWin.document.close(); }";
+        await JSRuntime.InvokeVoidAsync("eval", script);
+    }
+
     private bool ShowPromoteButton(NpQueueEntryDto entry)
-        => entry.CanPromote && entry.Position == 1 && _slots > 0;
+    {
+        if (_slots <= 0 || !entry.CurrentYearPaid) return false;
+        
+        // A member can be promoted if they are the first member in the queue whose dues are paid!
+        var firstPaid = _entries.FirstOrDefault(e => e.CurrentYearPaid);
+        return firstPaid != null && firstPaid.MemberId == entry.MemberId;
+    }
 
     private NpQueueEntryDto? GetPriorityEntry()
     {
-        var top = _entries.FirstOrDefault(e => e.Position == 1);
-        return (top != null && top.CanPromote && _slots > 0) ? top : null;
+        if (_slots <= 0) return null;
+        // Priority spotlight goes to the very first member in the list whose dues are paid
+        return _entries.FirstOrDefault(e => e.CurrentYearPaid);
     }
 
     private void TryLogHistory(int memberId, string field, string? oldValue, string? newValue)
