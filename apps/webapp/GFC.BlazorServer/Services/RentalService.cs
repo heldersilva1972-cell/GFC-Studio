@@ -1398,6 +1398,7 @@ namespace GFC.BlazorServer.Services
                         lines.Add($"Services: {string.Join(", ", services)}");
                     if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
                         lines.Add($"Applicant Notes: {request.InternalNotes}");
+                    lines.Add($"[Ref: GFC-REQ-{request.Id}]");
 
                     var googleEvt = new CalendarEventItem
                     {
@@ -1405,10 +1406,21 @@ namespace GFC.BlazorServer.Services
                         Start = start,
                         End = end,
                         Location = request.RoomSelected ?? "Function Hall",
-                        Description = lines.Any() ? string.Join("\n", lines) : $"{titlePrefix}{eventType}"
+                        Description = string.Join("\n", lines)
                     };
 
-                    await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                    var createdResult = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                    if (createdResult.Success && !string.IsNullOrWhiteSpace(createdResult.EventId))
+                    {
+                        request.GoogleEventId = createdResult.EventId;
+                        await using var idContext = await _contextFactory.CreateDbContextAsync();
+                        var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                        if (dbReq != null)
+                        {
+                            dbReq.GoogleEventId = createdResult.EventId;
+                            await idContext.SaveChangesAsync();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
