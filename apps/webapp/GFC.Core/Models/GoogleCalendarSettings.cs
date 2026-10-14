@@ -84,6 +84,9 @@ namespace GFC.Core.Models
 
         public bool PushAvEquipmentToDescription { get; set; } = true;
         public string AvEquipmentCalendarDisplayName { get; set; } = "A/V Equipment";
+
+        // IDs of events manually hidden from the Schedule List view
+        public List<string> HiddenScheduleEventIds { get; set; } = new();
     }
 }
 
