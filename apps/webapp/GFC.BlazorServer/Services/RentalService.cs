@@ -1806,6 +1806,105 @@ namespace GFC.BlazorServer.Services
             }
             return -1;
         }
+
+        public async Task<GoogleEventOverride?> GetGoogleEventOverrideAsync(string googleEventId)
+        {
+            if (string.IsNullOrWhiteSpace(googleEventId)) return null;
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.GoogleEventOverrides.FindAsync(googleEventId);
+        }
+
+        public async Task<Dictionary<string, GoogleEventOverride>> GetAllGoogleEventOverridesAsync()
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var list = await context.GoogleEventOverrides.AsNoTracking().ToListAsync();
+            return list.ToDictionary(x => x.GoogleEventId, x => x);
+        }
+
+        public async Task SaveGoogleEventOverrideAsync(GoogleEventOverride overrideData)
+        {
+            if (overrideData == null || string.IsNullOrWhiteSpace(overrideData.GoogleEventId)) return;
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.GoogleEventOverrides.FindAsync(overrideData.GoogleEventId);
+            if (existing == null)
+            {
+                overrideData.CreatedDate = DateTime.UtcNow;
+                overrideData.LastModifiedDate = DateTime.UtcNow;
+                context.GoogleEventOverrides.Add(overrideData);
+            }
+            else
+            {
+                existing.EventFee = overrideData.EventFee;
+                existing.BarRequested = overrideData.BarRequested;
+                existing.DisabledTimeSlotsJson = overrideData.DisabledTimeSlotsJson;
+                existing.Notes = overrideData.Notes;
+                existing.LastModifiedDate = DateTime.UtcNow;
+                context.GoogleEventOverrides.Update(existing);
+            }
+            await context.SaveChangesAsync();
+            NotifyCalendarUpdated();
+        }
+
+        public async Task<bool> ToggleTimeSlotBlockAsync(DateTime date, string slotStartTime, string slotEndTime, string room = "Function Hall")
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var targetDate = date.Date;
+
+            // Check if there is already a blackout covering this exact date and time window
+            var existing = await context.AvailabilityCalendars
+                .FirstOrDefaultAsync(a => a.Date.Date == targetDate && 
+                                          a.Status == "Blackout" &&
+                                          a.StartTime == slotStartTime &&
+                                          a.EndTime == slotEndTime);
+
+            if (existing != null)
+            {
+                // Remove blackout (unblock the slot)
+                context.AvailabilityCalendars.Remove(existing);
+                await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
+                return false; // Slot unblocked
+            }
+            else
+            {
+                // Add blackout entry (block the slot)
+                context.AvailabilityCalendars.Add(new AvailabilityCalendar
+                {
+                    Date = targetDate,
+                    Status = "Blackout",
+                    Description = $"Slot Blocked: {slotStartTime} - {slotEndTime}",
+                    StartTime = slotStartTime,
+                    EndTime = slotEndTime
+                });
+                await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
+                return true; // Slot blocked
+            }
+        }
+
+        public async Task<bool> IsTimeSlotBlockedAsync(DateTime date, string slotStartTime, string slotEndTime)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var targetDate = date.Date;
+            return await context.AvailabilityCalendars
+                .AnyAsync(a => a.Date.Date == targetDate &&
+                               a.Status == "Blackout" &&
+                               a.StartTime == slotStartTime &&
+                               a.EndTime == slotEndTime);
+        }
+
+        public async Task<List<string>> GetBlockedSlotsForDateAsync(DateTime date)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var targetDate = date.Date;
+            var blackouts = await context.AvailabilityCalendars
+                .Where(a => a.Date.Date == targetDate &&
+                            a.Status == "Blackout" &&
+                            a.StartTime != null && a.EndTime != null)
+                .Select(a => $"{a.StartTime} - {a.EndTime}")
+                .ToListAsync();
+            return blackouts;
+        }
     }
 }
 

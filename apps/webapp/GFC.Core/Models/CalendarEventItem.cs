@@ -18,5 +18,7 @@ namespace GFC.Core.Models
         public string? CalendarId { get; set; }
         public DateTime? CreatedDate { get; set; }
         public int? RentalRequestId { get; set; }
+        public decimal? EventFee { get; set; }
+        public bool BarRequested { get; set; } = false;
     }
 }

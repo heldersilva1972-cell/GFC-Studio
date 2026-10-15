@@ -51,6 +51,14 @@ namespace GFC.BlazorServer.Services
         void NotifyCalendarUpdated();
         Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request);
         Task RemoveRentalFromGoogleCalendarAsync(HallRentalRequest request);
+
+        // Google Calendar Event Overrides (Fee, Bar, Slots)
+        Task<GoogleEventOverride?> GetGoogleEventOverrideAsync(string googleEventId);
+        Task<Dictionary<string, GoogleEventOverride>> GetAllGoogleEventOverridesAsync();
+        Task SaveGoogleEventOverrideAsync(GoogleEventOverride overrideData);
+        Task<bool> ToggleTimeSlotBlockAsync(DateTime date, string slotStartTime, string slotEndTime, string room = "Function Hall");
+        Task<bool> IsTimeSlotBlockedAsync(DateTime date, string slotStartTime, string slotEndTime);
+        Task<List<string>> GetBlockedSlotsForDateAsync(DateTime date);
     }
 }
 

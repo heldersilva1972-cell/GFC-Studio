@@ -230,18 +230,24 @@ window.GfcFullCalendar = (function () {
             }
 
             /* Event Card Styles for FullCalendar */
+            .gfc-calendar-wrap .fc-daygrid-event-harness {
+                margin-bottom: 4px !important;
+            }
             .gfc-calendar-wrap .fc-event {
                 cursor: pointer;
+                margin: 2px 2px 4px 2px !important;
                 border-radius: 6px;
                 font-family: 'Inter', -apple-system, sans-serif;
-                border: 1px solid rgba(196,154,73,0.3) !important;
+                border: 1px solid #cbd5e1 !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
                 transition: transform 0.1s, box-shadow 0.1s;
                 overflow: hidden;
             }
             .gfc-calendar-wrap .fc-event:hover {
                 opacity: 0.95;
                 transform: translateY(-1px);
-                box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+                box-shadow: 0 4px 10px rgba(0,0,0,0.14) !important;
+                border-color: #94a3b8 !important;
             }
             .gfc-fc-card-body {
                 padding: 4px 6px;
@@ -699,6 +705,7 @@ window.GfcFullCalendar = (function () {
                 const locHtml = (showLoc && e.location) ? `<div style="font-size:0.80rem; color:#777; margin-bottom:2px;"><i class="bi bi-geo-alt me-1"></i>${e.location}</div>` : '';
                 const descHtml = (showDesc && e.description) ? `<div style="font-size:0.78rem; color:#555; background:#fff; border:1px solid #eee; border-radius:4px; padding:4px 8px; margin-top:4px;"><i class="bi bi-card-text me-1 text-muted"></i>${e.description}</div>` : '';
                 const sourceHtml = (showSource && e.source) ? `<div style="font-size:0.72rem; color:#888; margin-top:3px;"><i class="bi bi-info-circle me-1"></i>Source: ${e.source}</div>` : '';
+                const barHtml = (e.barRequested) ? `<div style="margin-top:5px;"><span class="badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; font-size:0.70rem; padding:2px 6px; font-weight:700;"><i class="bi bi-cup-straw me-1"></i>Bar Service Requested</span></div>` : '';
 
                 eventsHtml += `
                     <div style="background:#fdfbf7; border:1px solid #e8e3d8; border-left:4px solid ${isPending ? '#d97706' : (isInquiry ? '#0284c7' : '#166534')}; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
@@ -709,6 +716,7 @@ window.GfcFullCalendar = (function () {
                         </div>` : ''}
                         ${timeHtml}
                         ${locHtml}
+                        ${barHtml}
                         ${descHtml}
                         ${sourceHtml}
                     </div>`;
@@ -994,6 +1002,11 @@ window.GfcFullCalendar = (function () {
             }
         });
 
+        const barRequested = event.extendedProps?.barRequested === true;
+        if (barRequested) {
+            lines.push(`<div class="gfc-fc-card-line"><span class="badge" style="background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; font-size:0.68rem; padding:1px 5px; font-weight:700;"><i class="bi bi-cup-straw me-1"></i>Bar Service</span></div>`);
+        }
+
         if (lines.length === 0) {
             lines.push(`<div class="gfc-fc-card-line fw-bold">${title}</div>`);
         }
@@ -1190,7 +1203,9 @@ window.GfcFullCalendar = (function () {
                     isBlackoutBlocked: e.isBlackoutBlocked || e.extendedProps?.isBlackoutBlocked || false,
                     description:       e.description       || e.extendedProps?.description,
                     location:          e.location          || e.extendedProps?.location,
-                    source:            e.source
+                    source:            e.source,
+                    barRequested:      e.barRequested      || e.extendedProps?.barRequested || false,
+                    eventFee:          e.eventFee          || e.extendedProps?.eventFee || null
                 }
             };
         });

@@ -55,6 +55,7 @@
     private DotNetObjectReference<FullCalendarWrapper>? _dotNetRef;
 
     private CalendarSettings _settings = new();
+    private GoogleCalendarSettings? _googleSettings;
     private WebsiteSettings? _webSettings;
     private List<CalendarEventItem> _events = new();
     private List<HallRentalRequest> _dbRentalRequests = new();
@@ -149,7 +150,8 @@
             else
                 _settings = await SettingsService.GetAsync();
 
-            var calSettings = await CalendarService.GetSettingsAsync();
+            _googleSettings = await CalendarService.GetSettingsAsync();
+            var calSettings = _googleSettings;
             var calendarEvents = new List<CalendarEventItem>();
 
             // 1. Fetch live Google Calendar / iCal feeds
@@ -189,21 +191,38 @@
                         ));
                 }
 
-                // Merge approved / booked rentals from database
-                foreach (var req in dbRequests.Where(r => string.Equals(r.Status, "Approved", StringComparison.OrdinalIgnoreCase)))
+                // Merge all actual rental applications (Approved and Pending) from database - Inquiries are strictly internal
+                foreach (var req in dbRequests.Where(r => 
+                    !string.Equals(r.Status, "Cancelled", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(r.Status, "Denied", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(r.Status, "Archived", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(r.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(r.Status, "Responded", StringComparison.OrdinalIgnoreCase)))
                 {
-                    string cleanApplicant = req.ApplicantName?.Trim() ?? "";
+                    string cleanApplicant = (req.ApplicantName ?? "").Trim();
                     int parenIdx = cleanApplicant.IndexOf('(');
                     if (parenIdx > 0) cleanApplicant = cleanApplicant.Substring(0, parenIdx).Trim();
 
-                    // Check if already present on calendar by Date + (Name OR Event Type OR Matching Time Window)
+                    bool isApproved = string.Equals(req.Status, "Approved", StringComparison.OrdinalIgnoreCase);
+                    string status = isApproved ? "Approved" : "Pending";
+                    string defaultTitle = !string.IsNullOrWhiteSpace(req.EventType) ? req.EventType : "Hall Rental";
+
+                    // Match Google event to this rental request:
+                    // 1) Explicit GoogleEventId match or internal rental ID match
+                    // 2) Description references this request ID (e.g. GFC-REQ-{id} or db-rental-{id})
+                    // 3) Existing/legacy events: exact date match and applicant name match (e.g. "Click digit")
                     var existing = calendarEvents.FirstOrDefault(e => 
-                        e.Start.Date == req.EventDate.Date && 
+                        (!string.IsNullOrWhiteSpace(e.GoogleEventId) && (e.GoogleEventId == $"db-rental-{req.Id}" || (!string.IsNullOrWhiteSpace(req.GoogleEventId) && e.GoogleEventId == req.GoogleEventId))) ||
+                        (e.RentalRequestId.HasValue && e.RentalRequestId.Value == req.Id) ||
+                        (!string.IsNullOrWhiteSpace(e.Description) && (e.Description.Contains($"GFC-REQ-{req.Id}", StringComparison.OrdinalIgnoreCase) || e.Description.Contains($"db-rental-{req.Id}", StringComparison.OrdinalIgnoreCase))) ||
                         (
-                            (!string.IsNullOrWhiteSpace(cleanApplicant) && e.Title.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase)) ||
-                            (!string.IsNullOrWhiteSpace(req.RequesterName) && e.Title.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase)) ||
-                            (!string.IsNullOrWhiteSpace(req.EventType) && e.Title.Contains(req.EventType, StringComparison.OrdinalIgnoreCase)) ||
-                            (e.Start.Date == req.EventDate.Date && !string.IsNullOrWhiteSpace(req.RoomSelected) && string.Equals(e.Location, req.RoomSelected, StringComparison.OrdinalIgnoreCase))
+                            e.Start.Date == req.EventDate.Date &&
+                            (
+                                (!string.IsNullOrWhiteSpace(cleanApplicant) && (e.Title.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase)))) ||
+                                (!string.IsNullOrWhiteSpace(req.RequesterName) && (e.Title.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains(req.RequesterName, StringComparison.OrdinalIgnoreCase)))) ||
+                                (!string.IsNullOrWhiteSpace(req.EventType) && e.Title.Contains(req.EventType, StringComparison.OrdinalIgnoreCase)) ||
+                                (!string.IsNullOrWhiteSpace(req.RoomSelected) && string.Equals(e.Location, req.RoomSelected, StringComparison.OrdinalIgnoreCase))
+                            )
                         ));
 
                     if (existing == null)
@@ -217,12 +236,12 @@
                         {
                             GoogleEventId = $"db-rental-{req.Id}",
                             RentalRequestId = req.Id,
-                            Title = !string.IsNullOrWhiteSpace(req.EventType) ? req.EventType : "Hall Rental",
+                            Title = defaultTitle,
                             Start = start,
                             End = end,
                             Location = req.RoomSelected ?? "Main Function Hall",
                             Source = "Rental Booking",
-                            Status = "Approved",
+                            Status = status,
                             Description = $"Applicant: {req.ApplicantName}\nReserved: {req.RoomSelected ?? "Main Function Hall"}"
                         });
                     }
@@ -236,6 +255,7 @@
                         {
                             existing.Location = req.RoomSelected;
                         }
+                        existing.Status = status;
                     }
                 }
 
@@ -248,10 +268,13 @@
                     var loc = isOffice ? (_webSettings?.SecondaryFlexibleLocation ?? "Office") : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
 
                     var existing = calendarEvents.FirstOrDefault(e => 
-                        e.Start.Date == unavail.Date.Date && 
+                        (!string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId == $"db-blackout-{unavail.Id}") ||
                         (
-                            (!string.IsNullOrWhiteSpace(title) && (e.Title.Contains(title, StringComparison.OrdinalIgnoreCase) || title.Contains(e.Title, StringComparison.OrdinalIgnoreCase))) ||
-                            (unavail.IsFullDay && e.IsAllDay && string.Equals(e.Location, loc, StringComparison.OrdinalIgnoreCase))
+                            e.Start.Date == unavail.Date.Date && 
+                            (
+                                (!string.IsNullOrWhiteSpace(title) && (e.Title.Contains(title, StringComparison.OrdinalIgnoreCase) || title.Contains(e.Title, StringComparison.OrdinalIgnoreCase))) ||
+                                (unavail.IsFullDay && e.IsAllDay && string.Equals(e.Location, loc, StringComparison.OrdinalIgnoreCase))
+                            )
                         ));
 
                     if (existing == null)
@@ -291,54 +314,44 @@
                 System.Diagnostics.Debug.WriteLine($"[FullCalendarWrapper] DB merge warning: {dbEx.Message}");
             }
 
-            // 3. Robust Deduplication: Merge any items on the exact same date with overlapping time / identical title
-            var distinctEvents = new List<CalendarEventItem>();
+            // 3. Clean Distinct Pass: preserve all events distinctly unless identical GoogleEventId or Uid
+            var distinctList = new List<CalendarEventItem>();
             foreach (var evt in calendarEvents)
             {
-                string cleanEvtTitle = (evt.Title ?? "")
-                    .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
-                    .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
-                    .Trim();
+                bool isExactDup = distinctList.Any(d =>
+                    (!string.IsNullOrWhiteSpace(d.GoogleEventId) && !string.IsNullOrWhiteSpace(evt.GoogleEventId) && d.GoogleEventId == evt.GoogleEventId) ||
+                    (!string.IsNullOrWhiteSpace(d.Uid) && !string.IsNullOrWhiteSpace(evt.Uid) && d.Uid == evt.Uid) ||
+                    (d.RentalRequestId.HasValue && evt.RentalRequestId.HasValue && d.RentalRequestId.Value > 0 && d.RentalRequestId.Value == evt.RentalRequestId.Value)
+                );
 
-                bool isDup = distinctEvents.Any(d =>
+                if (!isExactDup)
                 {
-                    if (d.Start.Date != evt.Start.Date) return false;
-
-                    // Match same Google Event ID
-                    if (!string.IsNullOrWhiteSpace(d.GoogleEventId) && !string.IsNullOrWhiteSpace(evt.GoogleEventId) && d.GoogleEventId == evt.GoogleEventId)
-                        return true;
-
-                    string cleanDTitle = (d.Title ?? "")
-                        .Replace("PENDING:", "", StringComparison.OrdinalIgnoreCase)
-                        .Replace("INQUIRY:", "", StringComparison.OrdinalIgnoreCase)
-                        .Trim();
-
-                    // Same Title on same date
-                    if (!string.IsNullOrWhiteSpace(cleanDTitle) && !string.IsNullOrWhiteSpace(cleanEvtTitle) &&
-                        string.Equals(cleanDTitle, cleanEvtTitle, StringComparison.OrdinalIgnoreCase))
-                        return true;
-
-                    // Overlapping or near-identical time on same date
-                    bool timeOverlap = Math.Abs((d.Start - evt.Start).TotalMinutes) <= 60;
-                    if (timeOverlap)
-                    {
-                        if (string.Equals(d.Location, evt.Location, StringComparison.OrdinalIgnoreCase) ||
-                            string.IsNullOrWhiteSpace(d.Location) || string.IsNullOrWhiteSpace(evt.Location))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                });
-
-                if (!isDup)
-                {
-                    distinctEvents.Add(evt);
+                    distinctList.Add(evt);
                 }
             }
+            _events = distinctList;
 
-            _events = distinctEvents;
+            // 4. Enrich Google Calendar events with Database Overrides (EventFee, BarRequested)
+            try
+            {
+                var overrides = await RentalService.GetAllGoogleEventOverridesAsync();
+                if (overrides != null && overrides.Count > 0)
+                {
+                    foreach (var ev in _events)
+                    {
+                        var key = !string.IsNullOrWhiteSpace(ev.GoogleEventId) ? ev.GoogleEventId : (!string.IsNullOrWhiteSpace(ev.Uid) ? ev.Uid : null);
+                        if (key != null && overrides.TryGetValue(key, out var ov))
+                        {
+                            ev.EventFee = ov.EventFee;
+                            ev.BarRequested = ov.BarRequested;
+                        }
+                    }
+                }
+            }
+            catch (Exception ovEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FullCalendarWrapper] Overrides enrich warning: {ovEx.Message}");
+            }
         }
         catch (Exception ex)
         {
@@ -408,6 +421,16 @@
             return true;
         }
 
+        // Check if matching a database rental request
+        if (evt.RentalRequestId.HasValue && evt.RentalRequestId.Value > 0)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && evt.GoogleEventId.StartsWith("db-rental-", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         // Check title convention
         var title = evt.Title ?? string.Empty;
         if (title.StartsWith("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
@@ -440,7 +463,7 @@
         return string.Join("\n", lines).Trim();
     }
 
-    private static string NormalizeRoomName(string? room)
+    public static string NormalizeRoomName(string? room)
     {
         if (string.IsNullOrWhiteSpace(room)) return "function hall";
         var r = room.Trim().ToLowerInvariant();
@@ -457,14 +480,35 @@
 
         var filteredEvents = rawEvents.Where(e =>
         {
-            if (!_settings.ShowPendingApplications)
+            // Inquiries are strictly for internal management and must NEVER be displayed publicly
+            if (string.Equals(e.Status, "Inquiry", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(e.Source, "General Inquiry", StringComparison.OrdinalIgnoreCase) ||
+                (e.Title != null && e.Title.StartsWith("INQUIRY:", StringComparison.OrdinalIgnoreCase)))
             {
-                bool isPendingOrInquiry = (e.Status != null && (string.Equals(e.Status, "Pending", StringComparison.OrdinalIgnoreCase) || string.Equals(e.Status, "Inquiry", StringComparison.OrdinalIgnoreCase))) ||
-                                          (e.Title != null && (e.Title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase) || e.Title.StartsWith("INQUIRY:", StringComparison.OrdinalIgnoreCase)));
-                if (isPendingOrInquiry) return false;
+                return false;
             }
 
-            // If event is in a secondary flexible space (e.g. Office), only display on public calendar if explicitly flagged
+            // 1. Database-backed Bookings & Club Events (from Web App, Connect App, Online Application, or Availability table)
+            bool isDbEvent = (e.RentalRequestId.HasValue && e.RentalRequestId.Value > 0) ||
+                             (!string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId.StartsWith("db-", StringComparison.OrdinalIgnoreCase)) ||
+                             string.Equals(e.Source, "Rental Booking", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(e.Source, "Club Event", StringComparison.OrdinalIgnoreCase);
+
+            // 2. Google Calendar Feed Events
+            bool isExternalGoogleEvent = !isDbEvent &&
+                                         (string.Equals(e.Source, "Google Calendar", StringComparison.OrdinalIgnoreCase) ||
+                                          (!string.IsNullOrWhiteSpace(e.GoogleEventId) && !e.GoogleEventId.StartsWith("db-", StringComparison.OrdinalIgnoreCase)));
+
+            if (isExternalGoogleEvent)
+            {
+                // Only display on public calendar if admin explicitly enabled it in Google Calendar settings or flagged in description
+                string evtId = !string.IsNullOrWhiteSpace(e.GoogleEventId) ? e.GoogleEventId : (!string.IsNullOrWhiteSpace(e.Uid) ? e.Uid : $"{e.Title}_{e.Start:yyyyMMddHHmm}");
+                bool isExplicitlyPublic = (_googleSettings?.PubliclyVisibleGoogleEventIds != null && _googleSettings.PubliclyVisibleGoogleEventIds.Contains(evtId)) ||
+                                          (e.Description != null && e.Description.Contains("Show on Public Calendar: Yes", StringComparison.OrdinalIgnoreCase));
+                if (!isExplicitlyPublic) return false;
+            }
+
+            // 3. If event is in a secondary flexible space (e.g. Office), only display on public calendar if explicitly flagged
             var evtLocNorm = NormalizeRoomName(e.Location);
             bool isSecondarySpace = evtLocNorm != managedLocNorm && evtLocNorm != "entire facility";
             if (isSecondarySpace)
@@ -648,7 +692,9 @@
                     allDay            = e.IsAllDay,
                     description       = publicDesc,
                     location          = e.Location,
-                    source            = e.Source
+                    source            = e.Source,
+                    barRequested      = e.BarRequested,
+                    eventFee          = e.EventFee
                 };
             }).ToArray()
         };

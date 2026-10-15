@@ -87,6 +87,9 @@ namespace GFC.Core.Models
 
         // IDs of events manually hidden from the Schedule List view
         public List<string> HiddenScheduleEventIds { get; set; } = new();
+
+        // IDs of external Google Calendar events explicitly approved/published to the Public Calendar
+        public List<string> PubliclyVisibleGoogleEventIds { get; set; } = new();
     }
 }
 

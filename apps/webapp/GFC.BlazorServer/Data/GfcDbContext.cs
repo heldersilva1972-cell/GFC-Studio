@@ -104,6 +104,7 @@ public class GfcDbContext : DbContext
     public DbSet<BoardPosition> BoardPositions => Set<BoardPosition>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
     public DbSet<AvailabilityCalendar> AvailabilityCalendars => Set<AvailabilityCalendar>();
+    public DbSet<GoogleEventOverride> GoogleEventOverrides => Set<GoogleEventOverride>();
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
@@ -791,6 +792,14 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<AvailabilityCalendar>(entity =>
         {
             entity.ToTable("AvailabilityCalendars");
+        });
+
+        modelBuilder.Entity<GoogleEventOverride>(entity =>
+        {
+            entity.ToTable("GoogleEventOverrides");
+            entity.HasKey(e => e.GoogleEventId);
+            entity.Property(e => e.GoogleEventId).HasMaxLength(255);
+            entity.Property(e => e.EventFee).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<EventPromotion>(entity =>
