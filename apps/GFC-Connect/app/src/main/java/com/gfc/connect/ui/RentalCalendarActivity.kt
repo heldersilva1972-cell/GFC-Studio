@@ -38,10 +38,15 @@ import java.util.*
 
 class RentalCalendarActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_IS_VIEW_ONLY = "extra_is_view_only"
+    }
+
     private lateinit var binding: ActivityRentalCalendarBinding
     private lateinit var cacheManager: RentalCacheManager
     private lateinit var networkMonitor: com.gfc.connect.api.NetworkMonitor
     private var isOfflineMode: Boolean = false
+    private var isViewOnly: Boolean = false
 
     private val rentalsList = mutableListOf<HallRentalDto>()
     private val unavailableDatesList = mutableListOf<UnavailableDateDto>()
@@ -63,6 +68,7 @@ class RentalCalendarActivity : AppCompatActivity() {
         binding = ActivityRentalCalendarBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        isViewOnly = intent.getBooleanExtra(EXTRA_IS_VIEW_ONLY, false)
         cacheManager = RentalCacheManager(this)
         networkMonitor = com.gfc.connect.api.NetworkMonitor(this)
 
@@ -98,12 +104,21 @@ class RentalCalendarActivity : AppCompatActivity() {
     }
 
     private fun setupFab() {
-        binding.fabAddClubEvent.setOnClickListener {
-            promptCreateClubEvent()
+        if (isViewOnly) {
+            binding.fabAddClubEvent.visibility = View.GONE
+        } else {
+            binding.fabAddClubEvent.visibility = View.VISIBLE
+            binding.fabAddClubEvent.setOnClickListener {
+                promptCreateClubEvent()
+            }
         }
     }
 
     private fun setupToolbar() {
+        if (isViewOnly) {
+            binding.toolbarCalendar.title = "Hall Rental Calendar"
+            binding.toolbarCalendar.subtitle = "View Only"
+        }
         binding.toolbarCalendar.setNavigationOnClickListener {
             finish()
         }
@@ -592,6 +607,7 @@ class RentalCalendarActivity : AppCompatActivity() {
                 setOnClickListener {
                     val intent = Intent(this@RentalCalendarActivity, RentalDetailActivity::class.java).apply {
                         putExtra(RentalDetailActivity.EXTRA_RENTAL_ID, rental.id)
+                        putExtra(RentalDetailActivity.EXTRA_IS_VIEW_ONLY, isViewOnly)
                     }
                     startActivity(intent)
                 }
@@ -613,10 +629,12 @@ class RentalCalendarActivity : AppCompatActivity() {
                 radius = 12 * resources.displayMetrics.density
                 strokeWidth = (1.5 * resources.displayMetrics.density).toInt()
                 strokeColor = getColor(R.color.purple_accent)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    promptEditClubEvent(unavail)
+                isClickable = !isViewOnly
+                isFocusable = !isViewOnly
+                if (!isViewOnly) {
+                    setOnClickListener {
+                        promptEditClubEvent(unavail)
+                    }
                 }
 
                 val cardLayout = LinearLayout(context).apply {
@@ -640,17 +658,19 @@ class RentalCalendarActivity : AppCompatActivity() {
                             setTypeface(null, Typeface.BOLD)
                         }
 
-                        val editBadge = TextView(context).apply {
-                            text = "✏️ EDIT"
-                            textSize = 10f
-                            setTypeface(null, Typeface.BOLD)
-                            setTextColor(getColor(R.color.purple_accent))
-                            setBackgroundResource(R.drawable.bg_badge_gray)
-                            setPadding(dp8, dp8 / 2, dp8, dp8 / 2)
-                        }
-
                         addView(titleTv)
-                        addView(editBadge)
+
+                        if (!isViewOnly) {
+                            val editBadge = TextView(context).apply {
+                                text = "✏️ EDIT"
+                                textSize = 10f
+                                setTypeface(null, Typeface.BOLD)
+                                setTextColor(getColor(R.color.purple_accent))
+                                setBackgroundResource(R.drawable.bg_badge_gray)
+                                setPadding(dp8, dp8 / 2, dp8, dp8 / 2)
+                            }
+                            addView(editBadge)
+                        }
                     }
                     addView(topRow)
 

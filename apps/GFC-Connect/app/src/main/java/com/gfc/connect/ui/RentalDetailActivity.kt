@@ -51,6 +51,7 @@ class RentalDetailActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_RENTAL_ID = "extra_rental_id"
         const val EXTRA_IS_INQUIRY = "extra_is_inquiry"
+        const val EXTRA_IS_VIEW_ONLY = "extra_is_view_only"
     }
 
     private lateinit var binding: ActivityRentalDetailBinding
@@ -60,6 +61,7 @@ class RentalDetailActivity : AppCompatActivity() {
     private var rentalDetail: HallRentalDetailDto? = null
     private var isEditMode: Boolean = false
     private var isInquiryMode: Boolean = false
+    private var isViewOnly: Boolean = false
     private var selectedMatrixTierTitle: String? = null
     private var selectedEventCalendar: Calendar = Calendar.getInstance()
     private var originalEventCalendar: Calendar = Calendar.getInstance()
@@ -90,10 +92,11 @@ class RentalDetailActivity : AppCompatActivity() {
             return
         }
 
+        isViewOnly = intent.getBooleanExtra(EXTRA_IS_VIEW_ONLY, false)
         val initialIsInquiry = intent.getBooleanExtra(EXTRA_IS_INQUIRY, false)
         setupToolbar()
         setupTabs(isInquiry = initialIsInquiry)
-        if (initialIsInquiry) {
+        if (initialIsInquiry || isViewOnly) {
             binding.btnToggleEdit.visibility = View.GONE
         }
         setupStatusSpinner()
@@ -646,8 +649,27 @@ class RentalDetailActivity : AppCompatActivity() {
         val isPending = !isInquiry && item.status.equals("Pending", ignoreCase = true)
         val isApproved = !isInquiry && item.status.equals("Approved", ignoreCase = true)
 
-        binding.layoutQuickActions.visibility = if (isPending) View.VISIBLE else View.GONE
-        binding.btnRevertToPending.visibility = if (isApproved) View.VISIBLE else View.GONE
+        if (isViewOnly) {
+            binding.btnToggleEdit.visibility = View.GONE
+            binding.layoutQuickActions.visibility = View.GONE
+            binding.btnRevertToPending.visibility = View.GONE
+            binding.cardManagementActions.visibility = View.GONE
+            binding.btnRecordPayment.visibility = View.GONE
+            binding.btnWaivePayment.visibility = View.GONE
+            binding.btnSendPaymentReminder.visibility = View.GONE
+            binding.switchIsPaid.isEnabled = false
+            binding.spinnerStatus.isEnabled = false
+            binding.toolbarDetail.subtitle = "View Only"
+        } else {
+            binding.layoutQuickActions.visibility = if (isPending) View.VISIBLE else View.GONE
+            binding.btnRevertToPending.visibility = if (isApproved) View.VISIBLE else View.GONE
+            binding.cardManagementActions.visibility = View.VISIBLE
+            binding.btnRecordPayment.visibility = View.VISIBLE
+            binding.btnWaivePayment.visibility = View.VISIBLE
+            binding.btnSendPaymentReminder.visibility = View.VISIBLE
+            binding.switchIsPaid.isEnabled = true
+            binding.spinnerStatus.isEnabled = true
+        }
     }
 
     private fun renderPossibleCandidates(item: HallRentalDetailDto) {

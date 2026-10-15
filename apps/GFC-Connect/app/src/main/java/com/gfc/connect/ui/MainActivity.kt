@@ -60,6 +60,13 @@ class MainActivity : AppCompatActivity() {
         evaluateAppState()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (GfcConnectApp.instance.tokenStorage.isPaired()) {
+            checkActiveLotteryVariances()
+        }
+    }
+
     private fun setupListeners() {
         // Auto-format 8-digit code as XXXX-XXXX while typing on numeric keypad
         binding.editSetupCode.addTextChangedListener(object : android.text.TextWatcher {
@@ -142,6 +149,18 @@ class MainActivity : AppCompatActivity() {
         // Feature Card Click Handlers
         binding.cardHallRentals.setOnClickListener {
             val intent = android.content.Intent(this, HallRentalsActivity::class.java)
+            startActivity(intent)
+        }
+
+        binding.cardRentalCalendar.setOnClickListener {
+            val intent = Intent(this, RentalCalendarActivity::class.java).apply {
+                putExtra(RentalCalendarActivity.EXTRA_IS_VIEW_ONLY, true)
+            }
+            startActivity(intent)
+        }
+
+        binding.cardLotteryVariance.setOnClickListener {
+            val intent = Intent(this, LotteryVarianceActivity::class.java)
             startActivity(intent)
         }
 
@@ -228,6 +247,67 @@ class MainActivity : AppCompatActivity() {
 
         // Check if user has hall-rentals permission (or fallback to visible)
         binding.cardHallRentals.visibility = if (storage.hasPermission("hall-rentals")) View.VISIBLE else View.GONE
+
+        // Query active lottery variances matching user's threshold
+        checkActiveLotteryVariances()
+    }
+
+    private fun checkActiveLotteryVariances() {
+        val appSettings = GfcConnectApp.instance.appSettings
+        val threshold = appSettings.lotteryVarianceThreshold
+
+        // Card is always displayed
+        binding.cardLotteryVariance.visibility = View.VISIBLE
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = ApiClient.service.getActiveLotteryVariances(threshold)
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val activeList = response.body()!!.filter { !appSettings.isLotteryShiftDismissed(it.shiftId) }
+                        if (activeList.isNotEmpty()) {
+                            val count = activeList.size
+                            binding.txtLotteryVarianceBadge.text = if (count > 1) "⚠️ $count Active" else "⚠️ 1 Active"
+                            binding.txtLotteryVarianceBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_yellow))
+                            binding.txtLotteryVarianceBadge.setBackgroundResource(R.drawable.bg_badge_gray)
+                            binding.imgLotteryVarianceIcon.setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.status_yellow))
+                            binding.cardLotteryVariance.strokeColor = ContextCompat.getColor(this@MainActivity, R.color.status_yellow)
+
+                            binding.txtLotteryVarianceSummary.text = if (count > 1) {
+                                "$count shifts require review"
+                            } else {
+                                val topItem = activeList.first()
+                                "1 shift requires review (${topItem.employeeName})"
+                            }
+                        } else {
+                            binding.txtLotteryVarianceBadge.text = "✓ All Balanced"
+                            binding.txtLotteryVarianceBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                            binding.txtLotteryVarianceBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                            binding.imgLotteryVarianceIcon.setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                            binding.cardLotteryVariance.strokeColor = ContextCompat.getColor(this@MainActivity, R.color.border_dark)
+
+                            binding.txtLotteryVarianceSummary.text = "No active shift variances"
+                        }
+                    } else {
+                        binding.txtLotteryVarianceBadge.text = "✓ All Balanced"
+                        binding.txtLotteryVarianceBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                        binding.txtLotteryVarianceBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                        binding.imgLotteryVarianceIcon.setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                        binding.cardLotteryVariance.strokeColor = ContextCompat.getColor(this@MainActivity, R.color.border_dark)
+                        binding.txtLotteryVarianceSummary.text = "No active shift variances"
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.txtLotteryVarianceBadge.text = "✓ All Balanced"
+                    binding.txtLotteryVarianceBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                    binding.txtLotteryVarianceBadge.setBackgroundResource(R.drawable.bg_badge_emerald)
+                    binding.imgLotteryVarianceIcon.setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
+                    binding.cardLotteryVariance.strokeColor = ContextCompat.getColor(this@MainActivity, R.color.border_dark)
+                    binding.txtLotteryVarianceSummary.text = "No active shift variances"
+                }
+            }
+        }
     }
 
     private fun pairWithSetupCode(code: String) {

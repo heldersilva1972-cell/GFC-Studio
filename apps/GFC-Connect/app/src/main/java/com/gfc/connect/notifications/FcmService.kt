@@ -54,6 +54,33 @@ class FcmService : FirebaseMessagingService() {
         if (targetCategory?.contains("bulletin") == true && !appSettings.alertBulletins) {
             return
         }
+        if (targetCategory?.contains("lottery") == true) {
+            if (!appSettings.alertLotteryVariance) return
+
+            // Check if payload variance magnitude meets user threshold
+            val varianceVal = remoteMessage.data["variance"]?.toDoubleOrNull()
+            if (varianceVal != null && Math.abs(varianceVal) < appSettings.lotteryVarianceThreshold) {
+                return
+            }
+
+            // Quiet Hours Check (Default 9:00 PM – 8:00 AM)
+            if (appSettings.lotteryQuietHoursEnabled) {
+                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val startHour = appSettings.lotteryQuietHoursStartHour // 21 (9 PM)
+                val endHour = appSettings.lotteryQuietHoursEndHour // 8 (8 AM)
+                val isQuiet = if (startHour > endHour) {
+                    currentHour >= startHour || currentHour < endHour
+                } else {
+                    currentHour in startHour until endHour
+                }
+
+                if (isQuiet) {
+                    // During quiet hours, do not play audible chime / turn on screen.
+                    // The variance remains saved and appears immediately on the app dashboard.
+                    return
+                }
+            }
+        }
 
         val channelId = when {
             targetCategory?.contains("rental") == true || targetCategory?.contains("inquiry") == true -> GfcConnectApp.CHANNEL_HALL_RENTALS

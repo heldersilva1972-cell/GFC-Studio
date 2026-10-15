@@ -22,6 +22,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -56,6 +57,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -253,7 +255,9 @@ namespace GFC.Data.Repositories
                         CreatedBy = @CreatedBy,
                         ModifiedBy = @ModifiedBy,
                         ModifiedDate = @ModifiedDate,
-                        TicketImageUrl = @TicketImageUrl
+                        TicketImageUrl = @TicketImageUrl,
+                        AcknowledgedBy = @AcknowledgedBy,
+                        AcknowledgedAt = @AcknowledgedAt
                     WHERE ShiftId = @ShiftId";
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@ShiftId", shift.ShiftId);
@@ -501,7 +505,9 @@ namespace GFC.Data.Repositories
                 CreatedDate = (DateTime)reader["CreatedDate"],
                 ModifiedBy = reader["ModifiedBy"] as string,
                 ModifiedDate = reader["ModifiedDate"] as DateTime?,
-                TicketImageUrl = reader["TicketImageUrl"] as string
+                TicketImageUrl = reader["TicketImageUrl"] as string,
+                AcknowledgedBy = reader["AcknowledgedBy"] as string,
+                AcknowledgedAt = reader["AcknowledgedAt"] as DateTime?
             };
         }
 
@@ -542,6 +548,8 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@ModifiedBy", (object?)shift.ModifiedBy ?? DBNull.Value);
             command.Parameters.AddWithValue("@ModifiedDate", (object?)shift.ModifiedDate ?? DBNull.Value);
             command.Parameters.AddWithValue("@TicketImageUrl", (object?)shift.TicketImageUrl ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AcknowledgedBy", (object?)shift.AcknowledgedBy ?? DBNull.Value);
+            command.Parameters.AddWithValue("@AcknowledgedAt", (object?)shift.AcknowledgedAt ?? DBNull.Value);
         }
     }
 }

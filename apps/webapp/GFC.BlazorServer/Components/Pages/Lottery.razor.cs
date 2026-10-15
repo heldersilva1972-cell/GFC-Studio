@@ -43,6 +43,9 @@ namespace GFC.BlazorServer.Components.Pages
         [Inject]
         public IDbContextFactory<GfcDbContext> DbFactory { get; set; } = null!;
 
+        [Inject]
+        public GFC.BlazorServer.Services.IFirebaseNotificationService FirebaseNotificationService { get; set; } = null!;
+
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
         private List<string> _employeeNames = new();
@@ -915,6 +918,33 @@ namespace GFC.BlazorServer.Components.Pages
                 else
                 {
                     await Task.Run(() => LotteryService.CreateShift(shift, username));
+                }
+
+                // [VARIANCE ALERT DISPATCH] Notify Connect App users if shift variance magnitude is non-trivial
+                if (Math.Abs(shift.Variance) >= 5.0m)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var sign = shift.Variance < 0 ? $"-${Math.Abs(shift.Variance):N2} Short" : $"+${shift.Variance:N2} Over";
+                            var title = $"⚠️ Lottery Variance Alert: {sign}";
+                            var body = $"{shift.EmployeeName} ({shift.ShiftType ?? "Shift"}): Cash variance of {sign} on {shift.ShiftDate:MMM dd, yyyy}.";
+                            var data = new Dictionary<string, string>
+                            {
+                                { "category", "lottery" },
+                                { "variance", shift.Variance.ToString("0.00") },
+                                { "shiftId", shift.ShiftId.ToString() },
+                                { "employeeName", shift.EmployeeName ?? "" },
+                                { "shiftDate", shift.ShiftDate.ToString("yyyy-MM-dd") }
+                            };
+                            await FirebaseNotificationService.BroadcastAsync(title, body, data);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex, "Failed to broadcast lottery variance push notification.");
+                        }
+                    });
                 }
 
                 // [STATUS SYNC] Synchronize status to corresponding BarSaleEntry

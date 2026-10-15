@@ -320,3 +320,41 @@ data class LogCorrespondenceResponse(
     @SerializedName("status") val status: String?
 )
 
+data class LotteryVarianceDto(
+    @SerializedName("shiftId") val shiftId: Int,
+    @SerializedName("shiftDate") val shiftDate: String,
+    @SerializedName("shiftType") val shiftType: String?,
+    @SerializedName("employeeName") val employeeName: String,
+    @SerializedName("status") val status: String? = null,
+    @SerializedName("notes") val notes: String? = null,
+    @SerializedName("createdBy") val createdBy: String? = null,
+    @SerializedName("machineId") val machineId: String? = null,
+    @SerializedName("startingCash") val startingCash: Double = 0.0,
+    @SerializedName("endingCash") val endingCash: Double = 0.0,
+    @SerializedName("backupBagAmount") val backupBagAmount: Double = 0.0,
+    @SerializedName("bagRefillAmount") val bagRefillAmount: Double = 0.0,
+    @SerializedName("envelopeAmount") val envelopeAmount: Double = 0.0,
+    @SerializedName("totalSales") val totalSales: Double = 0.0,
+    @SerializedName("totalPayouts") val totalPayouts: Double = 0.0,
+    @SerializedName("totalCancels") val totalCancels: Double = 0.0,
+    @SerializedName("netDue") val netDue: Double = 0.0,
+    @SerializedName("shiftSalesActivity") val shiftSalesActivity: Double = 0.0,
+    @SerializedName("shiftPayoutsActivity") val shiftPayoutsActivity: Double = 0.0,
+    @SerializedName("shiftCancelsActivity") val shiftCancelsActivity: Double = 0.0,
+    @SerializedName("netSales") val netSales: Double = 0.0,
+    @SerializedName("expectedCash") val expectedCash: Double = 0.0,
+    @SerializedName("variance") val variance: Double = 0.0,
+    @SerializedName("isAcknowledged") val isAcknowledged: Boolean = false,
+    @SerializedName("acknowledgedBy") val acknowledgedBy: String? = null,
+    @SerializedName("acknowledgedAt") val acknowledgedAt: String? = null,
+    @SerializedName("bartenderTotalShifts") val bartenderTotalShifts: Int = 0,
+    @SerializedName("bartenderLifetimeVariance") val bartenderLifetimeVariance: Double = 0.0,
+    @SerializedName("bartenderPositiveVariance") val bartenderPositiveVariance: Double = 0.0,
+    @SerializedName("bartenderNegativeVariance") val bartenderNegativeVariance: Double = 0.0
+)
+
+data class AcknowledgeVariancePayload(
+    @SerializedName("shiftId") val shiftId: Int,
+    @SerializedName("acknowledgedBy") val acknowledgedBy: String? = null
+)
+

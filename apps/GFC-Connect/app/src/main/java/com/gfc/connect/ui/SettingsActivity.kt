@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
@@ -128,6 +129,32 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchAlertClubEvents.isChecked = appSettings.alertClubEvents
         binding.switchAlertClubEvents.setOnCheckedChangeListener { _, isChecked ->
             appSettings.alertClubEvents = isChecked
+        }
+
+        // Lottery Shift Variance Alert & Threshold
+        binding.switchAlertLotteryVariance.isChecked = appSettings.alertLotteryVariance
+        binding.layoutLotteryThresholdConfig.visibility = if (appSettings.alertLotteryVariance) View.VISIBLE else View.GONE
+        binding.editLotteryThreshold.setText(String.format(java.util.Locale.US, "%.2f", appSettings.lotteryVarianceThreshold))
+        binding.chkLotteryQuietHours.isChecked = appSettings.lotteryQuietHoursEnabled
+
+        binding.switchAlertLotteryVariance.setOnCheckedChangeListener { _, isChecked ->
+            appSettings.alertLotteryVariance = isChecked
+            binding.layoutLotteryThresholdConfig.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        binding.editLotteryThreshold.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val value = s?.toString()?.toFloatOrNull()
+                if (value != null && value > 0f) {
+                    appSettings.lotteryVarianceThreshold = value
+                }
+            }
+        })
+
+        binding.chkLotteryQuietHours.setOnCheckedChangeListener { _, isChecked ->
+            appSettings.lotteryQuietHoursEnabled = isChecked
         }
 
         // Sound & Vibration Checkboxes

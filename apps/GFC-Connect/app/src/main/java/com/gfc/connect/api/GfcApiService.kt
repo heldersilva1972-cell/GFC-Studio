@@ -78,4 +78,16 @@ interface GfcApiService {
 
     @POST("api/rentals/mobile/log-correspondence/{id}")
     suspend fun logCorrespondence(@Path("id") id: Int, @Body payload: LogCorrespondencePayload): Response<LogCorrespondenceResponse>
+
+    @GET("api/lottery/variances/active")
+    suspend fun getActiveLotteryVariances(@Query("threshold") threshold: Float): Response<List<LotteryVarianceDto>>
+
+    @GET("api/lottery/variances/history")
+    suspend fun getLotteryVarianceHistory(
+        @Query("threshold") threshold: Float,
+        @Query("employee") employee: String? = null
+    ): Response<List<LotteryVarianceDto>>
+
+    @POST("api/lottery/variances/acknowledge/{id}")
+    suspend fun acknowledgeLotteryVariance(@Path("id") id: Int, @Body payload: AcknowledgeVariancePayload? = null): Response<RentalUpdateResponse>
 }

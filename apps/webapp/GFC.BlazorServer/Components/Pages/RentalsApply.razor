@@ -132,14 +132,14 @@ else
                     Thank you, <strong>@_inquiryModel.ApplicantName</strong>. Our rental team has received your message and will review it and get back to you directly 
                     @if ((_prefPhone || _prefText) && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterPhone))
                     {
-                        var channels = new List<string>();
-                        if (_prefPhone) channels.Add("phone call");
-                        if (_prefText) channels.Add("text message");
-                        string phoneModes = string.Join(" or ", channels);
+                        var phoneChannels = new List<string>();
+                        if (_prefPhone) phoneChannels.Add("phone");
+                        if (_prefText) phoneChannels.Add("text");
+                        string phoneModes = string.Join("/", phoneChannels);
 
                         if (_prefEmail && !string.IsNullOrWhiteSpace(_inquiryModel.RequesterEmail))
                         {
-                            <span>by <strong class="text-dark">@phoneModes</strong> at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong> and email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.</span>
+                            <span>via email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong> or by <strong class="text-dark">@phoneModes</strong> at <strong class="text-dark">@_inquiryModel.RequesterPhone</strong>.</span>
                         }
                         else
                         {
@@ -148,7 +148,7 @@ else
                     }
                     else
                     {
-                        <span>by email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.</span>
+                        <span>via email at <strong class="text-dark">@_inquiryModel.RequesterEmail</strong>.</span>
                     }
                 </p>
                 <div class="summary-box p-4 bg-light rounded-4 text-start mx-auto mb-4 border" style="max-width: 580px;">
@@ -181,12 +181,10 @@ else
                     <button type="button" class="btn btn-primary px-4 fw-bold shadow-sm" @onclick='() => SetFormMode("book")'>
                         <i class="bi bi-calendar2-plus me-1"></i> Ready to Book a Date?
                     </button>
-                    @if (_settings?.ShowHomeButton ?? true)
-                    {
-                        <a href="https://gloucesterfraternityclub.com" class="btn btn-outline-secondary px-4">
-                            <i class="bi bi-box-arrow-up-right me-1"></i> Return to Main Website
-                        </a>
-                    }
+                    <a href="@GetCalendarUrl()" class="btn btn-outline-secondary px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
+                        <i class="bi bi-calendar3"></i>
+                        <span>Return to Calendar</span>
+                    </a>
                 </div>
             </div>
         }
@@ -2496,22 +2494,28 @@ else
             }
         };
 
-        // Check if parent URL (WordPress) has ?date=... or if calendar stored selected date
+        // Check if current URL, parent URL (WordPress), or storage has ?date=...
         window.gfcCheckHostDateParam = function() {
             try {
-                // 1. Check storage first (zero-dependency cross-frame persistence)
-                var storedDate = null;
+                // 1. Check storage first (cross-frame and click persistence)
                 try {
-                    storedDate = sessionStorage.getItem('gfc_selected_event_date') || localStorage.getItem('gfc_selected_event_date');
+                    var storedDate = sessionStorage.getItem('gfc_selected_event_date') || localStorage.getItem('gfc_selected_event_date');
                     if (storedDate) {
-                        // Clear after consumption so direct navigation without calendar doesn't pre-populate
                         sessionStorage.removeItem('gfc_selected_event_date');
                         localStorage.removeItem('gfc_selected_event_date');
                         return storedDate;
                     }
                 } catch(e) {}
 
-                // 2. Check parent window search params if accessible
+                // 2. Check current window search params
+                if (window.location && window.location.search) {
+                    var matchCurrent = window.location.search.match(/[?&]date=([^&#]+)/i);
+                    if (matchCurrent && matchCurrent[1]) {
+                        return decodeURIComponent(matchCurrent[1]);
+                    }
+                }
+
+                // 3. Check parent window search params if accessible
                 var urlToCheck = '';
                 if (window.parent && window.parent !== window) {
                     try {
@@ -3562,8 +3566,29 @@ else
 
         if (!string.IsNullOrWhiteSpace(rawDate) && DateTime.TryParse(rawDate, out var parsedDate) && parsedDate > DateTime.MinValue)
         {
+            bool dateChanged = !_hasSelectedEventDate || _request.EventDate.Date != parsedDate.Date;
             _request.EventDate = parsedDate;
             _hasSelectedEventDate = true;
+            _wizardStepError = null;
+
+            if (dateChanged && _settings != null)
+            {
+                var activeTierCards = (_settings?.GetTierCardsList() ?? WebsiteSettings.GetDefaultTierCards()).Where(c => c.IsEnabled).ToList();
+                if (activeTierCards.Count > 0)
+                {
+                    var availableCard = activeTierCards.FirstOrDefault(c => IsCardAvailableForDate(c, _request.EventDate) && (c.Qualification == null || !c.Qualification.IsEnabled))
+                        ?? activeTierCards.FirstOrDefault(c => c.Qualification == null || !c.Qualification.IsEnabled)
+                        ?? activeTierCards.FirstOrDefault();
+
+                    if (availableCard != null && (availableCard.Qualification == null || !availableCard.Qualification.IsEnabled))
+                    {
+                        ApplyTierCardSelection(availableCard);
+                    }
+                }
+
+                ApplyDefaultSlotForDate();
+                RecalculatePricing();
+            }
         }
         else if (!_hasSelectedEventDate)
         {

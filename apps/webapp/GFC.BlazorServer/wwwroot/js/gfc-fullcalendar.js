@@ -668,8 +668,14 @@ window.GfcFullCalendar = (function () {
 
         let eventsHtml = '';
 
-        if (events.length > 0) {
-            events.forEach(e => {
+        const displayEvents = events.filter(e => {
+            const isSlotBlock = e.isSlotBlock || e.extendedProps?.isSlotBlock || 
+                                ((e.isClubEvent || e.extendedProps?.isClubEvent) && (e.title || '').toLowerCase().startsWith('slot blocked'));
+            return !isSlotBlock;
+        });
+
+        if (displayEvents.length > 0) {
+            displayEvents.forEach(e => {
                 let cleanTitle = (e.title || 'Reserved Event').replace(/^(PENDING:\s*|INQUIRY:\s*)/i, '').trim();
                 const status = (e.status || 'Approved').toLowerCase();
                 const isPending = status === 'pending';
@@ -1040,16 +1046,22 @@ window.GfcFullCalendar = (function () {
         const dObj = new Date(dateStr + 'T12:00:00');
         const dateDisplay = dObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
+        const displayEvents = events.filter(e => {
+            const isSlotBlock = e.isSlotBlock || e.extendedProps?.isSlotBlock || 
+                                ((e.isClubEvent || e.extendedProps?.isClubEvent) && (e.title || '').toLowerCase().startsWith('slot blocked'));
+            return !isSlotBlock;
+        });
+
         let content = `<div class="gfc-mobile-drawer-header">
                          <span>📅 ${dateDisplay}</span>
-                         <span class="small text-muted">${events.length} booking${events.length === 1 ? '' : 's'}</span>
+                         <span class="small text-muted">${displayEvents.length} booking${displayEvents.length === 1 ? '' : 's'}</span>
                        </div>`;
 
         let hasFullDayBooking = false;
         let bookedHours = 0;
 
-        if (events.length > 0) {
-            events.forEach(e => {
+        if (displayEvents.length > 0) {
+            displayEvents.forEach(e => {
                 let cleanTitle = (e.title || 'Reserved Event').replace(/^(PENDING:\s*|INQUIRY:\s*)/i, '').trim();
                 const status = (e.status || 'Approved').toLowerCase();
                 const isPending = status === 'pending';
@@ -1185,12 +1197,16 @@ window.GfcFullCalendar = (function () {
                 }
             }
 
+            const isSlotBlock = e.isSlotBlock || e.extendedProps?.isSlotBlock || 
+                                (isClub && (e.title || '').toLowerCase().startsWith('slot blocked'));
+
             return {
                 id:              e.id || e.googleEventId,
                 title:           e.title || '(No Title)',
                 start:           e.start,
                 end:             e.end   || undefined,
                 allDay:          e.allDay,
+                display:         isSlotBlock ? 'none' : 'auto',
                 backgroundColor: bg,
                 borderColor:     bg,
                 textColor:       fg,
@@ -1201,6 +1217,7 @@ window.GfcFullCalendar = (function () {
                     isClubEvent:       isClub,
                     isSecondarySpace:  isSec,
                     isBlackoutBlocked: e.isBlackoutBlocked || e.extendedProps?.isBlackoutBlocked || false,
+                    isSlotBlock:       isSlotBlock,
                     description:       e.description       || e.extendedProps?.description,
                     location:          e.location          || e.extendedProps?.location,
                     source:            e.source,
