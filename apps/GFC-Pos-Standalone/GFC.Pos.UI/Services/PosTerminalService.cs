@@ -250,12 +250,19 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                     {
                                         if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:") || i.Name.StartsWith("RETURNED FUNDS:"))
                                         {
-                                            banquet.Deposits.Add(i.Price);
-                                            banquet.EventType = "PrePaid";
-                                            if (i.Name.StartsWith("INITIAL DEPOSIT:") && data.ActiveEventId.HasValue)
+                                            bool isTabOrDirect = banquet.EventType == "RunningTab" || 
+                                                                 (banquet.EventName != null && (banquet.EventName.EndsWith(" [Direct]") || banquet.EventName.EndsWith("[Direct]")));
+
+                                            if (!isTabOrDirect)
                                             {
-                                                eventsWithExplicitInitialDeposit.Add(data.ActiveEventId.Value);
+                                                banquet.Deposits.Add(i.Price);
+                                                banquet.EventType = "PrePaid";
+                                                if (i.Name.StartsWith("INITIAL DEPOSIT:") && data.ActiveEventId.HasValue)
+                                                {
+                                                    eventsWithExplicitInitialDeposit.Add(data.ActiveEventId.Value);
+                                                }
                                             }
+
                                             // Extract event name if not set
                                             if (string.IsNullOrEmpty(banquet.EventName))
                                             {
@@ -303,16 +310,15 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                     audit.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
 
                                     // [SEPARATION] Track regular sales vs banquet sales
-                                    if (data.ActiveEventId.HasValue)
+                                    // Running tab purchases ARE regular item sales and belong in RegularItemSummary / RegularItemTotals
+                                    var b = data.ActiveEventId.HasValue ? audit.Banquets.FirstOrDefault(x => x.ActiveEventId == data.ActiveEventId) : null;
+                                    if (b != null)
                                     {
-                                        var b = audit.Banquets.FirstOrDefault(x => x.ActiveEventId == data.ActiveEventId);
-                                        if (b != null)
-                                        {
-                                            if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
-                                            b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
-                                        }
+                                        if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
+                                        b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
                                     }
-                                    else
+
+                                    if (!data.ActiveEventId.HasValue || (b != null && b.EventType == "RunningTab"))
                                     {
                                         if (!audit.RegularItemSummary.ContainsKey(i.Name)) audit.RegularItemSummary[i.Name] = 0;
                                         if (!audit.RegularItemTotals.ContainsKey(i.Name)) audit.RegularItemTotals[i.Name] = 0;

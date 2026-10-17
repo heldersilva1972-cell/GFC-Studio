@@ -122,7 +122,8 @@ namespace GFC.BlazorServer.Services
             string? itemTotalsJson = null,
             string? physicalTokensJson = null,
             string? shiftDrinkJson = null,
-            int? quarterRollsCount = null)
+            int? quarterRollsCount = null,
+            decimal? payoutTotalParam = null)
         {
             var sb = new StringBuilder();
 
@@ -152,8 +153,12 @@ namespace GFC.BlazorServer.Services
             Dictionary<int, int> inventoryPulls = new();
             try { inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(inventoryPullsJson ?? "{}") ?? new(); } catch { }
 
-            var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Where(d => d > 0).Sum());
-            var totalPrepaidReturned = banquetSummary.Sum(b => b.Deposits.Where(d => d < 0).Sum());
+            var totalPrepaidDeposits = banquetSummary
+                .Where(b => b.EventType != "RunningTab" && !b.EventName.EndsWith(" [Direct]") && !b.EventName.EndsWith("[Direct]"))
+                .Sum(b => b.Deposits.Where(d => d > 0).Sum());
+            var totalPrepaidReturned = banquetSummary
+                .Where(b => b.EventType != "RunningTab" && !b.EventName.EndsWith(" [Direct]") && !b.EventName.EndsWith("[Direct]"))
+                .Sum(b => b.Deposits.Where(d => d < 0).Sum());
 
             decimal payoutTotal = 0;
             var payoutLines = new List<(string label, string amount)>();
@@ -188,19 +193,28 @@ namespace GFC.BlazorServer.Services
                     {
                         desc = parts[2].Trim();
                     }
+
+                    // Format A: PAYOUT:CAT:DESC:cents
                     if (amt == 0 && parts.Length >= 4 && int.TryParse(parts[3], out var amountCents) && amountCents > 0)
                     {
                         amt = amountCents / 100m;
                     }
+                    // Format B: PAYOUT:CAT:amount
                     else if (amt == 0 && parts.Length >= 3 && decimal.TryParse(parts[2], out var parsedAmt) && parsedAmt > 0)
                     {
                         amt = parsedAmt;
                         desc = "";
                     }
+                    // Format C: PAYOUT:amount
                     else if (amt == 0 && parts.Length >= 2 && decimal.TryParse(parts[1], out var directAmt) && directAmt > 0)
                     {
                         amt = directAmt;
                         cat = "EXPENSE";
+                    }
+                    // Format D: Any last segment that is an integer representing cents
+                    else if (amt == 0 && parts.Length > 1 && int.TryParse(parts[^1], out var lastCents) && lastCents > 0)
+                    {
+                        amt = lastCents / 100m;
                     }
 
                     if (amt > 0)
@@ -213,7 +227,14 @@ namespace GFC.BlazorServer.Services
                 }
             }
 
-            foreach (var b in banquetSummary)
+            if (payoutTotalParam.HasValue && payoutTotalParam.Value > payoutTotal)
+            {
+                payoutTotal = payoutTotalParam.Value;
+            }
+
+            // Subtract ONLY prepaid banquet item sales from standard category calculations.
+            // Running tab items are normal club sales and must remain in regular sales and category summaries!
+            foreach (var b in banquetSummary.Where(b => b.EventType == "PrePaid"))
             {
                 foreach (var item in b.ItemSummary)
                 {
@@ -404,7 +425,7 @@ namespace GFC.BlazorServer.Services
                 AppendSectionHeader(sb, "EVENT ACTIVITY");
                 foreach (var b in billableBanquets)
                 {
-                    var isRunningTab = b.EventType == "RunningTab";
+                    var isRunningTab = b.EventType == "RunningTab" || b.EventName.EndsWith(" [Direct]") || b.EventName.EndsWith("[Direct]");
                     AppendBlank(sb);
                     AppendLeft(sb, $"EVENT: {b.EventName.ToUpper()}");
                     AppendDivider(sb, '.');
@@ -429,11 +450,11 @@ namespace GFC.BlazorServer.Services
                     }
                     AppendDivider(sb, '.');
                     AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
-                    var remaining = b.Deposits.Sum() - b.TotalSpent;
                     if (!isRunningTab)
+                    {
+                        var remaining = b.Deposits.Sum() - b.TotalSpent;
                         AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
-                    else
-                        AppendLine(sb, "CLUB PORTION COLLECTED", $"{b.TotalSpent:C}");
+                    }
                 }
             }
 

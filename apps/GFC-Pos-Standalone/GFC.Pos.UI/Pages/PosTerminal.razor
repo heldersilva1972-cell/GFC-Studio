@@ -745,6 +745,43 @@
         z-index: 30000 !important;
     }
 
+    /* MINIMAL SHIFT TOKEN COUNT CIRCLES / PILLS */
+    .shift-token-pills-container {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+        padding: 0 4px 6px 4px !important;
+    }
+
+    .shift-token-pill {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 32px !important;
+        height: 32px !important;
+        padding: 0 6px !important;
+        border-radius: 50% !important;
+        font-size: 0.85rem !important;
+        font-weight: 900 !important;
+        line-height: 1 !important;
+        color: #ffffff !important;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+        user-select: none !important;
+        pointer-events: none !important;
+    }
+
+    .shift-token-pill.beer {
+        background-color: #16a34a !important; /* Vibrant Green */
+        border: 2px solid #15803d !important;
+    }
+
+    .shift-token-pill.mixed {
+        background-color: #dc2626 !important; /* Vibrant Red */
+        border: 2px solid #b91c1c !important;
+    }
+
     /* Receive Supplier Orders (Teal/Emerald) */
     .tile-liquorreceive {
         background: #f0fdf4;
@@ -1882,21 +1919,14 @@
 
                                 <div class="d-flex flex-column gap-2 my-2">
                                     <div class="p-2 rounded-3 border d-flex align-items-center justify-content-between" style="background: rgba(255,255,255,0.7);">
-                                        <span class="small fw-black text-uppercase opacity-80" style="font-size: 0.72rem;">🏠 Home Teams:</span>
-                                        <select class="form-select form-select-sm fw-black border-violet py-1" style="font-size: 0.8rem; width: auto; background-color: #f5f3ff; color: #5b21b6;" @bind="_activeDartsTeamCount">
-                                            <option value="1">1 Team</option>
-                                            <option value="2">2 Teams</option>
-                                            <option value="3">3 Teams</option>
-                                        </select>
-                                    </div>
-                                    <div class="p-2 rounded-3 border d-flex align-items-center justify-content-between" style="background: rgba(255,255,255,0.7); border-color: #cbd5e1 !important;">
-                                        <span class="small fw-black text-uppercase opacity-80" style="font-size: 0.72rem;">✈️ Away Teams:</span>
-                                        <select class="form-select form-select-sm fw-black py-1" style="font-size: 0.8rem; width: auto; background-color: #f0fdf4; color: #15803d; border-color: #86efac;" @bind="_activeDartsAwayTeamCount">
-                                            <option value="0">0 Away Teams</option>
-                                            <option value="1">1 Away Team</option>
-                                            <option value="2">2 Away Teams</option>
-                                            <option value="3">3 Away Teams</option>
-                                            <option value="4">4 Away Teams</option>
+                                        <div>
+                                            <span class="small fw-black text-uppercase opacity-80 d-block" style="font-size: 0.72rem;">🎯 Matches / Teams:</span>
+                                            <span class="text-muted" style="font-size: 0.68rem; font-weight: 600;">(@_activeDartsTeamCount Home &amp; @_activeDartsTeamCount Away)</span>
+                                        </div>
+                                        <select class="form-select form-select-sm fw-black border-violet py-1" style="font-size: 0.8rem; width: auto; background-color: #f5f3ff; color: #5b21b6;" value="@_activeDartsTeamCount" @onchange="OnDartsTeamCountChanged">
+                                            <option value="1">1 Team (1 Home / 1 Away)</option>
+                                            <option value="2">2 Teams (2 Home / 2 Away)</option>
+                                            <option value="3">3 Teams (3 Home / 3 Away)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -4803,6 +4833,13 @@
         </section>
 
         <aside class="pos-speed-bar">
+            @if (_captureTokensOnCloseout)
+            {
+                <div class="shift-token-pills-container">
+                    <span class="shift-token-pill beer">@_lastShiftBeerTokenCount</span>
+                    <span class="shift-token-pill mixed">@_lastShiftMixedTokenCount</span>
+                </div>
+            }
             <div class="speed-bar-header">
                 <i class="bi bi-fire text-orange"></i>
                 <span class="letter-spacing-1">POPULAR</span>
@@ -7169,8 +7206,8 @@
     private bool _dartsDismissedToday = false;
     private bool _forceDartsToday = false;
     private bool _autoDartsOnThursday = true;
-    private int _activeDartsTeamCount = 2;
-    private int _activeDartsAwayTeamCount = 2;
+    private int _activeDartsTeamCount = 1;
+    private int _activeDartsAwayTeamCount = 1;
     private string? _currentDartsTeamName = null;
     private bool _showDartsTeamModal = false;
     private List<PosSaleDto> _todayDartsSales = new();
@@ -7522,6 +7559,7 @@
             Console.WriteLine($"[POS] 3AM DAILY RESET: Starting fresh for business day {dayStart:g}");
             ItemFrequency.Clear();
             SpeedBarItemIds.Clear();
+            _dartsDismissedToday = false;
             _lastResetCheck = DateTime.Now;
             UpdateSpeedBar();
         }
@@ -7612,6 +7650,17 @@
         var sizeStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_print_bottle_size");
         if (!string.IsNullOrEmpty(sizeStored)) _printBottleSize = bool.Parse(sizeStored);
 
+        var teamCountStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_darts_team_count");
+        if (string.IsNullOrEmpty(teamCountStored))
+        {
+            teamCountStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_darts_home_team_count");
+        }
+        if (!string.IsNullOrEmpty(teamCountStored) && int.TryParse(teamCountStored, out var tCount))
+        {
+            _activeDartsTeamCount = tCount;
+            _activeDartsAwayTeamCount = tCount;
+        }
+
         // Load selected liquor inventory categories
         try
         {
@@ -7656,6 +7705,16 @@
 
         var dartsStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_darts_in_training");
         if (!string.IsNullOrEmpty(dartsStored)) forceDartsOptionInTraining = bool.Parse(dartsStored);
+
+        try
+        {
+            var dartsDismissedStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", $"gfc_pos_darts_dismissed_{DateTime.Today:yyyyMMdd}");
+            if (!string.IsNullOrEmpty(dartsDismissedStored) && bool.TryParse(dartsDismissedStored, out var dDisVal))
+            {
+                _dartsDismissedToday = dDisVal;
+            }
+        }
+        catch {}
 
         // Load Payout Categories
         try
@@ -7733,6 +7792,11 @@
 
         // Initialize draw audio system early so window.gfcDrawAudio is ready for user gestures
         await InitializeDrawAudio();
+
+        if (_captureTokensOnCloseout)
+        {
+            _ = LoadLastShiftTokenCountsAsync().ContinueWith(_ => InvokeAsync(StateHasChanged));
+        }
     }
     
     [JSInvokable]
@@ -8663,16 +8727,89 @@
     private async Task OpenDartsTeamModalAsync()
     {
         DismissChangeDueBanner();
-        try
-        {
-            _todayDartsSales = await PosService.GetDartsRoundsTodayAsync(TerminalName) ?? new();
-        }
-        catch
-        {
-            _todayDartsSales = new();
-        }
+        // Snappy UI: Open modal immediately with current in-memory state
         _showDartsTeamModal = true;
         StateHasChanged();
+
+        // Refresh rounds in the background without blocking the UI
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var refreshed = await PosService.GetDartsRoundsTodayAsync(TerminalName);
+                if (refreshed != null)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _todayDartsSales = refreshed;
+                        CheckDartsNightCompletion(notifyOnCompletion: false);
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch {}
+        });
+    }
+
+    private void CheckDartsNightCompletion(bool notifyOnCompletion = true)
+    {
+        int claimedCount = 0;
+        int totalTeams = _activeDartsTeamCount + _activeDartsAwayTeamCount;
+
+        // Check Home Teams
+        for (int t = 1; t <= _activeDartsTeamCount; t++)
+        {
+            var tHome = $"Home Team {t}";
+            var tLegacy = $"Team {t}";
+            if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {tHome})") || 
+                                          s.ItemsJson.Contains($"(DARTS - {tLegacy})") || 
+                                          (t == 1 && s.ItemsJson.Contains("(DARTS)") && !s.ItemsJson.Contains("(DARTS - Team") && !s.ItemsJson.Contains("(DARTS - Home") && !s.ItemsJson.Contains("(DARTS - Away"))))
+            {
+                claimedCount++;
+            }
+        }
+
+        // Check Away Teams
+        for (int a = 1; a <= _activeDartsAwayTeamCount; a++)
+        {
+            var aName = $"Away Team {a}";
+            if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {aName})")))
+            {
+                claimedCount++;
+            }
+        }
+
+        bool pizzaClaimedOrNotNeeded = !_enableDartPizzaPayout || _todayDartsSales.Any(s => s.PaymentType == "PAYOUT" && s.ItemsJson.Contains("DART PIZZA"));
+
+        if (claimedCount >= totalTeams && pizzaClaimedOrNotNeeded)
+        {
+            _dartsDismissedToday = true;
+            _ = PersistDartsDismissedStateAsync(true);
+            if (notifyOnCompletion)
+            {
+                ShowNotice("All Team Rounds Completed", "All active Home and Away team rounds and pizza payout have been recorded. Darts Night tab is now closed.", "success");
+            }
+        }
+        else if (notifyOnCompletion)
+        {
+            if (claimedCount >= totalTeams && !pizzaClaimedOrNotNeeded)
+            {
+                ShowNotice("Team Rounds Completed", "All team rounds claimed! Dart Pizza Payout is still pending.", "info");
+            }
+            else
+            {
+                ShowNotice("Team Round Completed", $"Team round processed. {totalTeams - claimedCount} team round(s) remaining for today.", "success");
+            }
+        }
+    }
+
+    private async Task PersistDartsDismissedStateAsync(bool dismissed)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_pos_darts_dismissed_{DateTime.Today:yyyyMMdd}", dismissed.ToString().ToLower());
+        }
+        catch {}
     }
 
     private void SelectDartsTeam(string teamName)
@@ -8725,6 +8862,7 @@
     private void DismissDartsTonight()
     {
         _dartsDismissedToday = true;
+        _ = PersistDartsDismissedStateAsync(true);
         isDartsModeActive = false;
         _currentDartsTeamName = null;
         _showDartsTeamModal = false;
@@ -8739,6 +8877,7 @@
     private void CompleteDartsNightEarly()
     {
         _dartsDismissedToday = true;
+        _ = PersistDartsDismissedStateAsync(true);
         isDartsModeActive = false;
         _currentDartsTeamName = null;
         _showDartsTeamModal = false;
@@ -8751,6 +8890,7 @@
         isDartsModeActive = false;
         _forceDartsToday = false;
         _dartsDismissedToday = true;
+        _ = PersistDartsDismissedStateAsync(true);
         ClearCart();
         ShowNotice("Darts Closed", "Darts Mode has been disabled and the cart cleared.", "info");
         if (forceTrainingMode)
@@ -8765,6 +8905,7 @@
         if (forceTrainingMode)
         {
             _dartsDismissedToday = false;
+            _ = PersistDartsDismissedStateAsync(false);
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -8775,6 +8916,7 @@
         {
             _forceDartsToday = false;
             _dartsDismissedToday = true;
+            await PersistDartsDismissedStateAsync(true);
             isDartsModeActive = false;
             _currentDartsTeamName = null;
             showOptionsMenu = false;
@@ -8784,6 +8926,7 @@
         {
             _forceDartsToday = true;
             _dartsDismissedToday = false;
+            await PersistDartsDismissedStateAsync(false);
             showOptionsMenu = false;
             ShowNotice("Darts Night Enabled", "🎯 DARTS ROUND button is now active on the main POS screen.", "success");
         }
@@ -9441,58 +9584,8 @@
                 }
             }
             
-            if (wasDarts)
-            {
-                isDartsModeActive = false;
-                _currentDartsTeamName = null;
-                try
-                {
-                    _todayDartsSales = await PosService.GetDartsRoundsTodayAsync(TerminalName) ?? new();
-                    int claimedCount = 0;
-                    int totalTeams = _activeDartsTeamCount + _activeDartsAwayTeamCount;
-
-                    // Check Home Teams
-                    for (int t = 1; t <= _activeDartsTeamCount; t++)
-                    {
-                        var tHome = $"Home Team {t}";
-                        var tLegacy = $"Team {t}";
-                        if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {tHome})") || 
-                                                      s.ItemsJson.Contains($"(DARTS - {tLegacy})") || 
-                                                      (t == 1 && s.ItemsJson.Contains("(DARTS)") && !s.ItemsJson.Contains("(DARTS - Team") && !s.ItemsJson.Contains("(DARTS - Home") && !s.ItemsJson.Contains("(DARTS - Away"))))
-                        {
-                            claimedCount++;
-                        }
-                    }
-
-                    // Check Away Teams
-                    for (int a = 1; a <= _activeDartsAwayTeamCount; a++)
-                    {
-                        var aName = $"Away Team {a}";
-                        if (_todayDartsSales.Any(s => s.ItemsJson.Contains($"(DARTS - {aName})")))
-                        {
-                            claimedCount++;
-                        }
-                    }
-
-                    if (claimedCount >= totalTeams)
-                    {
-                        _dartsDismissedToday = true;
-                        ShowNotice("All Team Rounds Completed", "All active Home and Away team rounds for today have been claimed. Darts Night tab is now closed.", "success");
-                    }
-                    else
-                    {
-                        ShowNotice("Team Round Completed", $"Team round processed. {totalTeams - claimedCount} team round(s) remaining for today.", "success");
-                    }
-                }
-                catch {}
-                if (forceTrainingMode)
-                {
-                    _ = ResetDartsBannerAfterDelay();
-                }
-            }
-            
             // PERFORMANCE: Reset all UI state and clear the cart FIRST — this makes the
-            // terminal feel instant. The audit and speed-bar updates happen in the background.
+            // terminal feel instant and prevents having to tap PAY twice on production hardware.
             var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
             _selectedActiveEvent = directEvent;
             InvalidateFilteredItems(); // Recompute product list
@@ -9508,6 +9601,20 @@
             CashInputString = "";
             showSuccessOverlay = true;
             RequestRender(); // Show success overlay immediately
+
+            if (wasDarts)
+            {
+                isDartsModeActive = false;
+                _currentDartsTeamName = null;
+                // Add the newly completed sale directly to our local tracking list
+                _todayDartsSales.Add(sale);
+                CheckDartsNightCompletion(notifyOnCompletion: true);
+                if (forceTrainingMode)
+                {
+                    _ = ResetDartsBannerAfterDelay();
+                }
+            }
+
             await Task.Delay(250); // Snappy success delay to keep transaction fast
         }
         catch (Exception ex)
@@ -10475,6 +10582,7 @@
             _isEditingPizzaAmount = false;
             _existingPizzaPayoutSale = null;
             Toast.ShowSuccess($"Dart Pizza payout of {amount:C} recorded successfully.");
+            CheckDartsNightCompletion(notifyOnCompletion: true);
             StateHasChanged();
 
             // Hardware ops in background
@@ -10522,6 +10630,11 @@
             _existingPizzaPayoutSale = null;
             
             Toast.ShowSuccess($"Pizza payout of {voidedAmount:C} has been cancelled/voided.");
+            if (_enableDartPizzaPayout)
+            {
+                _dartsDismissedToday = false;
+                await PersistDartsDismissedStateAsync(false);
+            }
             StateHasChanged();
             
             _ = UpdateAuditAsync();
@@ -10578,8 +10691,12 @@
         }
         var banquetSummary = JsonSerializer.Deserialize<List<BanquetShiftReportDto>>(z.BanquetSummaryJson) ?? new();
         var inventoryPulls = JsonSerializer.Deserialize<Dictionary<int, int>>(z.InventoryPullsJson) ?? new();
-        var totalPrepaidDeposits = banquetSummary.Sum(b => b.Deposits.Where(d => d > 0).Sum());
-        var totalPrepaidReturned = banquetSummary.Sum(b => b.Deposits.Where(d => d < 0).Sum());
+        var totalPrepaidDeposits = banquetSummary
+            .Where(b => b.EventType != "RunningTab" && !b.EventName.EndsWith(" [Direct]") && !b.EventName.EndsWith("[Direct]"))
+            .Sum(b => b.Deposits.Where(d => d > 0).Sum());
+        var totalPrepaidReturned = banquetSummary
+            .Where(b => b.EventType != "RunningTab" && !b.EventName.EndsWith(" [Direct]") && !b.EventName.EndsWith("[Direct]"))
+            .Sum(b => b.Deposits.Where(d => d < 0).Sum());
 
         // Parse Payouts from SalesSummaryJson
         decimal payoutTotal = 0;
@@ -10616,19 +10733,29 @@
                 {
                     desc = parts[2].Trim();
                 }
+
+                // Check for amount across parts:
+                // Format A: PAYOUT:CAT:DESC:cents (e.g. PAYOUT:FOOD:PIZZA:2500 or PAYOUT:SUPPLIES::2500)
                 if (amt == 0 && parts.Length >= 4 && int.TryParse(parts[3], out var amountCents) && amountCents > 0)
                 {
                     amt = amountCents / 100m;
                 }
+                // Format B: PAYOUT:CAT:amount (e.g. PAYOUT:SUPPLIES:25.00)
                 else if (amt == 0 && parts.Length >= 3 && decimal.TryParse(parts[2], out var parsedAmt) && parsedAmt > 0)
                 {
                     amt = parsedAmt;
                     desc = "";
                 }
+                // Format C: PAYOUT:amount (e.g. PAYOUT:25.00)
                 else if (amt == 0 && parts.Length >= 2 && decimal.TryParse(parts[1], out var directAmt) && directAmt > 0)
                 {
                     amt = directAmt;
                     cat = "EXPENSE";
+                }
+                // Format D: Any last segment that is an integer representing cents
+                else if (amt == 0 && parts.Length > 1 && int.TryParse(parts[^1], out var lastCents) && lastCents > 0)
+                {
+                    amt = lastCents / 100m;
                 }
 
                 if (amt > 0)
@@ -10641,8 +10768,15 @@
             }
         }
 
-        // Subtract banquet item sales from standard category calculations
-        foreach (var b in banquetSummary)
+        // If PosZReportDto has explicit PayoutTotal greater than parsed lines, ensure payoutTotal reflects it
+        if (z.PayoutTotal > payoutTotal)
+        {
+            payoutTotal = z.PayoutTotal;
+        }
+
+        // Subtract ONLY prepaid banquet item sales from standard category calculations.
+        // Running tab items are normal club sales and must remain in regular sales and category summaries!
+        foreach (var b in banquetSummary.Where(b => b.EventType == "PrePaid"))
         {
             foreach (var item in b.ItemSummary)
             {
@@ -10854,7 +10988,7 @@
             ReceiptFormatter.AppendSectionHeader(sb, "EVENT ACTIVITY");
             foreach (var b in billableBanquets)
             {
-                var isRunningTab = b.EventType == "RunningTab";
+                var isRunningTab = b.EventType == "RunningTab" || b.EventName.EndsWith(" [Direct]") || b.EventName.EndsWith("[Direct]");
                 ReceiptFormatter.AppendBlank(sb);
                 ReceiptFormatter.AppendLeft(sb, $"EVENT: {b.EventName.ToUpper()}");
                 ReceiptFormatter.AppendDivider(sb, '.');
@@ -10879,11 +11013,11 @@
                 }
                 ReceiptFormatter.AppendDivider(sb, '.');
                 ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{b.TotalSpent:C}");
-                var remaining = b.Deposits.Sum() - b.TotalSpent;
                 if (!isRunningTab)
+                {
+                    var remaining = b.Deposits.Sum() - b.TotalSpent;
                     ReceiptFormatter.AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
-                else
-                    ReceiptFormatter.AppendLine(sb, "CLUB PORTION COLLECTED", $"{b.TotalSpent:C}");
+                }
             }
         }
 
@@ -11063,6 +11197,7 @@
                     ItemTotalsJson = JsonSerializer.Serialize(finalAudit.RegularItemTotals),
                     BanquetSummaryJson = JsonSerializer.Serialize(finalAudit.Banquets),
                     TokenCredits = tokenCredits,
+                    PayoutTotal = finalAudit.PayoutTotal,
                     HoursWorked = hoursWorked,
                     RecordSalesToBar = _recordSalesToBar,
                     PhysicalTokensJson = physicalTokensJson,
@@ -11269,7 +11404,74 @@
     private async Task TogglePrintPayoutVoucher(object? val) { if (val is bool isChecked) { _printPayoutVoucher = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_print_payout_voucher", _printPayoutVoucher.ToString().ToLower()); } }
     private async Task ToggleAutoDartsOnThursday(object? val) { if (val is bool isChecked) { _autoDartsOnThursday = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_auto_darts_on_thursday", _autoDartsOnThursday.ToString().ToLower()); StateHasChanged(); } }
     private async Task ToggleCaptureHours(object? val) { if (val is bool isChecked) { _captureHoursOnCloseout = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_capture_hours", _captureHoursOnCloseout.ToString().ToLower()); StateHasChanged(); } }
-    private async Task ToggleCaptureTokens(object? val) { if (val is bool isChecked) { _captureTokensOnCloseout = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_capture_tokens", _captureTokensOnCloseout.ToString().ToLower()); StateHasChanged(); } }
+    
+    private async Task OnDartsTeamCountChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var count))
+        {
+            _activeDartsTeamCount = count;
+            _activeDartsAwayTeamCount = count;
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_darts_team_count", _activeDartsTeamCount.ToString());
+            StateHasChanged();
+        }
+    }
+    private int _lastShiftBeerTokenCount = 0;
+    private int _lastShiftMixedTokenCount = 0;
+
+    private async Task LoadLastShiftTokenCountsAsync()
+    {
+        try
+        {
+            var reports = await PosService.GetZReportsAsync(TerminalName);
+            var latestWithTokens = reports?.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.PhysicalTokensJson));
+            if (latestWithTokens != null)
+            {
+                var dict = JsonSerializer.Deserialize<Dictionary<string, int>>(latestWithTokens.PhysicalTokensJson);
+                if (dict != null)
+                {
+                    int beer = 0;
+                    int mixed = 0;
+                    foreach (var kvp in dict)
+                    {
+                        var keyUpper = kvp.Key.ToUpperInvariant();
+                        if (keyUpper.Contains("BEER"))
+                        {
+                            beer += kvp.Value;
+                        }
+                        else
+                        {
+                            mixed += kvp.Value;
+                        }
+                    }
+                    _lastShiftBeerTokenCount = beer;
+                    _lastShiftMixedTokenCount = mixed;
+                    return;
+                }
+            }
+            _lastShiftBeerTokenCount = 0;
+            _lastShiftMixedTokenCount = 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] Error loading last shift token counts: {ex.Message}");
+            _lastShiftBeerTokenCount = 0;
+            _lastShiftMixedTokenCount = 0;
+        }
+    }
+
+    private async Task ToggleCaptureTokens(object? val) 
+    { 
+        if (val is bool isChecked) 
+        { 
+            _captureTokensOnCloseout = isChecked; 
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_capture_tokens", _captureTokensOnCloseout.ToString().ToLower()); 
+            if (_captureTokensOnCloseout)
+            {
+                await LoadLastShiftTokenCountsAsync();
+            }
+            StateHasChanged(); 
+        } 
+    }
     private async Task ToggleCaptureShiftDrink(object? val) { if (val is bool isChecked) { _captureShiftDrinkOnCloseout = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_capture_shift_drink", _captureShiftDrinkOnCloseout.ToString().ToLower()); StateHasChanged(); } }
     private async Task TogglePromptQuarterRolls(object? val) { if (val is bool isChecked) { _promptQuarterRollsOnCloseout = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_prompt_quarter_rolls", _promptQuarterRollsOnCloseout.ToString().ToLower()); StateHasChanged(); } }
     private async Task TogglePrintShiftDrinkOnZReport(object? val) { if (val is bool isChecked) { _printShiftDrinkOnZReport = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_print_shift_drink_zreport", _printShiftDrinkOnZReport.ToString().ToLower()); StateHasChanged(); } }
@@ -13801,14 +14003,10 @@
             var remaining = totalDeposited - refundedAmount - totalSpent;
             ReceiptFormatter.AppendDivider(sb, '-');
 
+            ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{totalSpent:C}");
             if (!isRunningTab)
             {
-                ReceiptFormatter.AppendLine(sb, "TOTAL SPENT", $"{totalSpent:C}");
                 ReceiptFormatter.AppendLine(sb, "TAB BALANCE", $"{remaining:C}");
-            }
-            else
-            {
-                ReceiptFormatter.AppendLine(sb, "CLUB PORTION COLLECTED", $"{totalSpent:C}");
             }
 
             ReceiptFormatter.AppendDivider(sb, '=');

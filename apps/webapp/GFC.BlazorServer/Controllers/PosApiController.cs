@@ -1377,12 +1377,19 @@ public class PosApiController : ControllerBase
                         {
                             if (i.Name.StartsWith("TAB DEPOSIT:") || i.Name.StartsWith("DEPOSIT CORRECTION:") || i.Name.StartsWith("INITIAL DEPOSIT:") || i.Name.StartsWith("RETURNED FUNDS:"))
                             {
-                                banquet.Deposits.Add(i.Price);
-                                banquet.EventType = "PrePaid";
-                                if (i.Name.StartsWith("INITIAL DEPOSIT:") && sale.ActiveEventId.HasValue)
+                                bool isTabOrDirect = banquet.EventType == "RunningTab" || 
+                                                     (banquet.EventName != null && (banquet.EventName.EndsWith(" [Direct]") || banquet.EventName.EndsWith("[Direct]")));
+
+                                if (!isTabOrDirect)
                                 {
-                                    eventsWithExplicitInitialDeposit.Add(sale.ActiveEventId.Value);
+                                    banquet.Deposits.Add(i.Price);
+                                    banquet.EventType = "PrePaid";
+                                    if (i.Name.StartsWith("INITIAL DEPOSIT:") && sale.ActiveEventId.HasValue)
+                                    {
+                                        eventsWithExplicitInitialDeposit.Add(sale.ActiveEventId.Value);
+                                    }
                                 }
+
                                 if (string.IsNullOrEmpty(banquet.EventName))
                                 {
                                     banquet.EventName = i.Name
@@ -1423,16 +1430,14 @@ public class PosApiController : ControllerBase
                         audit.ItemSummary[i.Name] += i.Quantity;
                         audit.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
 
-                        if (sale.ActiveEventId.HasValue)
+                        var b = sale.ActiveEventId.HasValue ? audit.Banquets.FirstOrDefault(x => x.ActiveEventId == sale.ActiveEventId) : null;
+                        if (b != null)
                         {
-                            var b = audit.Banquets.FirstOrDefault(x => x.ActiveEventId == sale.ActiveEventId);
-                            if (b != null)
-                            {
-                                if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
-                                b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
-                            }
+                            if (!b.ItemTotals.ContainsKey(i.Name)) b.ItemTotals[i.Name] = 0;
+                            b.ItemTotals[i.Name] += (effectivePrice * i.Quantity);
                         }
-                        else
+
+                        if (!sale.ActiveEventId.HasValue || (b != null && b.EventType == "RunningTab"))
                         {
                             if (!audit.RegularItemSummary.ContainsKey(i.Name)) audit.RegularItemSummary[i.Name] = 0;
                             if (!audit.RegularItemTotals.ContainsKey(i.Name)) audit.RegularItemTotals[i.Name] = 0;
