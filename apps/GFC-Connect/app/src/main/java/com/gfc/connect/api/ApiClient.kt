@@ -34,8 +34,12 @@ object ApiClient {
                 || android.os.Build.HARDWARE.contains("ranchu"))
     }
 
-    private fun getDefaultBaseUrl(): String {
-        return if (isRunningOnEmulator()) LOCAL_EMULATOR_URL else LOCAL_USB_ADB_URL
+    fun getDefaultBaseUrl(): String {
+        return if (BuildConfig.DEBUG) {
+            if (isRunningOnEmulator()) LOCAL_EMULATOR_URL else LOCAL_USB_ADB_URL
+        } else {
+            LIVE_URL
+        }
     }
 
     var currentBaseUrl: String = getDefaultBaseUrl()
@@ -67,6 +71,66 @@ object ApiClient {
         currentBaseUrl = url
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_BASE_URL, currentBaseUrl).apply()
+    }
+
+    fun showServerSelectionDialog(context: Context, onServerChanged: (() -> Unit)? = null) {
+        val options = arrayOf(
+            "🌐 Production Host (gfc.lovanow.com)",
+            "📱 Physical Device (USB Mirror / localhost:5207)",
+            "💻 Android Studio Emulator (10.0.2.2:5207)",
+            "📶 Local Wi-Fi LAN IP (Custom)"
+        )
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            .setTitle("🌐 Select Server Target")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        persistBaseUrl(context, LIVE_URL)
+                        android.widget.Toast.makeText(context, "Target: Production (gfc.lovanow.com)", android.widget.Toast.LENGTH_SHORT).show()
+                        onServerChanged?.invoke()
+                    }
+                    1 -> {
+                        persistBaseUrl(context, LOCAL_USB_ADB_URL)
+                        android.widget.Toast.makeText(context, "Target: USB Mirror (localhost:5207)", android.widget.Toast.LENGTH_SHORT).show()
+                        onServerChanged?.invoke()
+                    }
+                    2 -> {
+                        persistBaseUrl(context, LOCAL_EMULATOR_URL)
+                        android.widget.Toast.makeText(context, "Target: AVD Emulator (10.0.2.2:5207)", android.widget.Toast.LENGTH_SHORT).show()
+                        onServerChanged?.invoke()
+                    }
+                    3 -> {
+                        promptCustomLanIpDialog(context, onServerChanged)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptCustomLanIpDialog(context: Context, onServerChanged: (() -> Unit)? = null) {
+        val input = android.widget.EditText(context).apply {
+            hint = "e.g. 192.168.1.150:5207"
+            setText(currentBaseUrl.removePrefix("http://").removePrefix("https://").removeSuffix("/"))
+            setPadding(40, 30, 40, 30)
+        }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            .setTitle("📶 Enter Local PC IP Address")
+            .setMessage("Enter your computer's local Wi-Fi IP and port:")
+            .setView(input)
+            .setPositiveButton("Connect") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    val fullUrl = if (text.startsWith("http://") || text.startsWith("https://")) text else "http://$text/"
+                    persistBaseUrl(context, fullUrl)
+                    android.widget.Toast.makeText(context, "Target: $fullUrl", android.widget.Toast.LENGTH_SHORT).show()
+                    onServerChanged?.invoke()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private val authInterceptor = Interceptor { chain ->
@@ -103,9 +167,10 @@ object ApiClient {
         OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .writeTimeout(25, TimeUnit.SECONDS)
             .build()
     }
 

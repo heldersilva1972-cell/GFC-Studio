@@ -57,7 +57,33 @@ class MainActivity : AppCompatActivity() {
         ApiClient.initBaseUrl(this)
 
         setupListeners()
-        evaluateAppState()
+        val isDeepLinking = handleDeepLink(intent)
+        if (!isDeepLinking) {
+            evaluateAppState()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?): Boolean {
+        val data = intent?.data ?: return false
+        if (data.scheme.equals("gfcconnect", ignoreCase = true) && data.host.equals("pair", ignoreCase = true)) {
+            val code = data.getQueryParameter("code")
+            if (!code.isNullOrBlank()) {
+                val clean = code.filter { it.isDigit() }
+                if (clean.length == 8) {
+                    val formatted = "${clean.substring(0, 4)}-${clean.substring(4, 8)}"
+                    binding.editSetupCode.setText(formatted)
+                    pairWithSetupCode(formatted)
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     override fun onResume() {
@@ -131,9 +157,36 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Server Endpoint Switcher
+        binding.btnToggleServer.visibility = if (BuildConfig.DEBUG) View.VISIBLE else View.GONE
         updateServerButtonLabel()
         binding.btnToggleServer.setOnClickListener {
-            showServerSelectionDialog()
+            ApiClient.showServerSelectionDialog(this) {
+                updateServerButtonLabel()
+            }
+        }
+
+        // Hidden 5-tap gesture on badge to reveal server picker in any build
+        var badgeTapCount = 0
+        var lastBadgeTapTime = 0L
+        binding.imgOnboardingBadge.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastBadgeTapTime < 2500) {
+                badgeTapCount++
+            } else {
+                badgeTapCount = 1
+            }
+            lastBadgeTapTime = now
+
+            if (badgeTapCount >= 5) {
+                badgeTapCount = 0
+                binding.btnToggleServer.visibility = View.VISIBLE
+                ApiClient.showServerSelectionDialog(this) {
+                    updateServerButtonLabel()
+                }
+            } else if (badgeTapCount >= 3) {
+                val remaining = 5 - badgeTapCount
+                Toast.makeText(this, "Tap $remaining more times for server picker", Toast.LENGTH_SHORT).show()
+            }
         }
 
         // Biometric Retry Button
@@ -488,63 +541,10 @@ class MainActivity : AppCompatActivity() {
         val label = when {
             current.contains("localhost") || current.contains("127.0.0.1") -> "USB Mirror (localhost:5207)"
             current.contains("10.0.2.2:5207") -> "Emulator (10.0.2.2:5207)"
-            else -> "Local Wi-Fi IP ($current)"
+            current.contains("lovanow.com") -> "Production Host"
+            else -> "Custom ($current)"
         }
         binding.btnToggleServer.text = "🌐 Target: $label"
-    }
-
-    private fun showServerSelectionDialog() {
-        val options = arrayOf(
-            "📱 Physical Device (USB Mirror / localhost:5207)",
-            "💻 Android Studio Emulator (10.0.2.2:5207)",
-            "📶 Local Wi-Fi LAN IP (e.g., 192.168.1.xxx:5207)"
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("🌐 Select Local Server Target")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
-                        ApiClient.persistBaseUrl(this, ApiClient.LOCAL_USB_ADB_URL)
-                        updateServerButtonLabel()
-                        Toast.makeText(this, "Target: USB Mirror (localhost:5207)", Toast.LENGTH_SHORT).show()
-                    }
-                    1 -> {
-                        ApiClient.persistBaseUrl(this, ApiClient.LOCAL_EMULATOR_URL)
-                        updateServerButtonLabel()
-                        Toast.makeText(this, "Target: AVD Emulator (10.0.2.2:5207)", Toast.LENGTH_SHORT).show()
-                    }
-                    2 -> {
-                        promptCustomLanIpDialog()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun promptCustomLanIpDialog() {
-        val input = EditText(this).apply {
-            hint = "e.g. 192.168.1.150:5207"
-            setText(ApiClient.currentBaseUrl.removePrefix("http://").removePrefix("https://").removeSuffix("/"))
-            setPadding(40, 30, 40, 30)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("📶 Enter Local PC IP Address")
-            .setMessage("Enter your computer's local Wi-Fi IP and port (e.g. 192.168.1.150:5207):")
-            .setView(input)
-            .setPositiveButton("Connect") { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) {
-                    val fullUrl = if (text.startsWith("http://") || text.startsWith("https://")) text else "http://$text/"
-                    ApiClient.persistBaseUrl(this, fullUrl)
-                    updateServerButtonLabel()
-                    Toast.makeText(this, "Target: $fullUrl", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun showFeatureToast(featureName: String, detail: String) {

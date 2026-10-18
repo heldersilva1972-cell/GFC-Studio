@@ -97,7 +97,7 @@ namespace GFC.BlazorServer.Controllers
             };
         }
 
-        private (bool isVerified, int? memberId, string statusText, string badgeType, List<PossibleMemberDto> candidates) VerifyMember(string? name, string? email, string? phone, bool claimedMember)
+        private (bool isVerified, int? memberId, string statusText, string badgeType, List<PossibleMemberDto> candidates) VerifyMember(string? name, string? email, string? phone, bool claimedMember, List<Member>? preloadedMembers = null)
         {
             var candidates = new List<PossibleMemberDto>();
 
@@ -130,13 +130,20 @@ namespace GFC.BlazorServer.Controllers
             string? applicantSuffix = nameParts.FirstOrDefault(p => commonSuffixes.Contains(p.Trim().TrimEnd('.')));
 
             List<Member> members;
-            try
+            if (preloadedMembers != null)
             {
-                members = _memberRepository.GetAllMembers() ?? new List<Member>();
+                members = preloadedMembers;
             }
-            catch
+            else
             {
-                members = new List<Member>();
+                try
+                {
+                    members = _memberRepository.GetAllMembers() ?? new List<Member>();
+                }
+                catch
+                {
+                    members = new List<Member>();
+                }
             }
 
             Member? match = null;
@@ -334,13 +341,15 @@ namespace GFC.BlazorServer.Controllers
             {
                 var settings = await _settingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
                 var requests = await _rentalService.GetRentalRequestsAsync();
+                var allMembers = _memberRepository.GetAllMembers() ?? new List<Member>();
+
                 var list = requests
                     .OrderByDescending(r => r.StatusChangedDate ?? r.CreatedDate)
                     .Take(50)
                     .Select(r =>
                     {
                         var name = r.ApplicantName ?? r.RequesterName ?? "Applicant";
-                        var verify = VerifyMember(name, r.RequesterEmail, r.RequesterPhone, r.MemberStatus);
+                        var verify = VerifyMember(name, r.RequesterEmail, r.RequesterPhone, r.MemberStatus, allMembers);
                         var matrix = !string.IsNullOrWhiteSpace(r.RenterType) 
                             ? r.RenterType 
                             : (r.MemberStatus ? "Member" : "Non-Member");

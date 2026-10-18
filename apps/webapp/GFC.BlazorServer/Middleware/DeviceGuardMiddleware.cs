@@ -32,6 +32,8 @@ namespace GFC.BlazorServer.Middleware
             "/videoaccesshub",
             "/version.txt",
             "/version.json",
+            "/app",
+            "/download",
             "/Download/GFC_POS_Mobile.apk",
             "/Download/com.gfc.pos.mobile-Signed.apk"
         };

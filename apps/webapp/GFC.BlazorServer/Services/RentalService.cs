@@ -1237,7 +1237,7 @@ namespace GFC.BlazorServer.Services
             context.HallRentalRequests.Add(request);
             await context.SaveChangesAsync();
 
-            // Auto-schedule pending calendar entry in local database and Google Calendar
+            // Auto-schedule pending calendar entry in local database
             try
             {
                 string titlePrefix = "PENDING: ";
@@ -1251,309 +1251,323 @@ namespace GFC.BlazorServer.Services
                     request.StartTime ?? "12:00 PM",
                     request.EndTime ?? "5:00 PM"
                 );
-
-                // Push to Google Calendar directly if Service Account / Write API is configured
-                var calSettings = await _googleCalendarService.GetSettingsAsync();
-
-                string? targetCalId = calSettings?.PrimaryGoogleCalendarId?.Trim();
-
-                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings?.PublicCalendarUrl))
-                {
-                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    if (m.Success)
-                    {
-                        targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(targetCalId) &&
-                    calSettings != null &&
-                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) &&
-                    !string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey))
-                {
-                    var activeCalSettings = new GoogleCalendarSettings
-                    {
-                        PrimaryGoogleCalendarId = targetCalId,
-                        ServiceAccountEmail = calSettings.ServiceAccountEmail,
-                        ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
-                        ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
-                        EnableWriteApi = true,
-                        GoogleEventVisibility = calSettings.GoogleEventVisibility,
-                        EventTitleFields = calSettings.EventTitleFields,
-                        PushApplicantNameToTitle = calSettings.PushApplicantNameToTitle,
-                        PushApplicantNameToDescription = calSettings.PushApplicantNameToDescription,
-                        PushApplicantPhoneToDescription = calSettings.PushApplicantPhoneToDescription,
-                        PushApplicantEmailToDescription = calSettings.PushApplicantEmailToDescription,
-                        PushPricingQuoteToDescription = calSettings.PushPricingQuoteToDescription,
-                        PushGuestCountToDescription = calSettings.PushGuestCountToDescription,
-                        PushServicesToDescription = calSettings.PushServicesToDescription,
-                        PushBarServiceToDescription = calSettings.PushBarServiceToDescription,
-                        BarServiceCalendarDisplayName = calSettings.BarServiceCalendarDisplayName,
-                        PushKitchenUsageToDescription = calSettings.PushKitchenUsageToDescription,
-                        KitchenUsageCalendarDisplayName = calSettings.KitchenUsageCalendarDisplayName,
-                        PushAvEquipmentToDescription = calSettings.PushAvEquipmentToDescription,
-                        AvEquipmentCalendarDisplayName = calSettings.AvEquipmentCalendarDisplayName,
-                        PushAddressToDescription = calSettings.PushAddressToDescription,
-                        PushNotesToDescription = calSettings.PushNotesToDescription
-                    };
-
-                    DateTime start = request.EventDate.Date.AddHours(14);
-                    DateTime end = request.EventDate.Date.AddHours(20);
-                    if (DateTime.TryParse(request.StartTime, out var ps)) start = request.EventDate.Date.Add(ps.TimeOfDay);
-                    if (DateTime.TryParse(request.EndTime, out var pe)) end = request.EventDate.Date.Add(pe.TimeOfDay);
-
-                    string eventType = string.IsNullOrWhiteSpace(request.EventType) ? "Hall Rental" : request.EventType;
-                    string roomName = string.IsNullOrWhiteSpace(request.RoomSelected) ? "Main Function Hall" : request.RoomSelected;
-
-                    var services = new List<string>();
-                    if (request.BartenderRequested && calSettings.PushBarServiceToDescription)
-                    {
-                        var barName = !string.IsNullOrWhiteSpace(calSettings.BarServiceCalendarDisplayName) ? calSettings.BarServiceCalendarDisplayName : "Bar / Bartender Service";
-                        services.Add(barName);
-                    }
-                    if (request.KitchenUsage && calSettings.PushKitchenUsageToDescription)
-                    {
-                        var kitchenName = !string.IsNullOrWhiteSpace(calSettings.KitchenUsageCalendarDisplayName) ? calSettings.KitchenUsageCalendarDisplayName : "Kitchen Access";
-                        services.Add(kitchenName);
-                    }
-                    if (request.AvEquipmentUsage && calSettings.PushAvEquipmentToDescription)
-                    {
-                        var avName = !string.IsNullOrWhiteSpace(calSettings.AvEquipmentCalendarDisplayName) ? calSettings.AvEquipmentCalendarDisplayName : "A/V Equipment";
-                        services.Add(avName);
-                    }
-                    if (request.RequiresSetupTime) services.Add("Setup Time Requested");
-
-                    // Ordered Title Fields Construction (Pipe '|' Delimited)
-                    var titleFields = calSettings.EventTitleFields ?? GoogleCalendarSettings.GetDefaultGoogleTitleFields();
-                    var enabledOrderedFields = titleFields.Where(f => f.IsEnabled).OrderBy(f => f.Order).ToList();
-
-                    var titleSegments = new List<string>();
-                    foreach (var field in enabledOrderedFields)
-                    {
-                        switch (field.FieldKey)
-                        {
-                            case "applicant_name":
-                                if (!string.IsNullOrWhiteSpace(request.ApplicantName))
-                                    titleSegments.Add(request.ApplicantName.Trim());
-                                break;
-                            case "event_type":
-                                if (!string.IsNullOrWhiteSpace(eventType))
-                                    titleSegments.Add(eventType.Trim());
-                                break;
-                            case "room_location":
-                                if (!string.IsNullOrWhiteSpace(roomName))
-                                    titleSegments.Add(roomName.Trim());
-                                break;
-                            case "time_window":
-                                if (!string.IsNullOrWhiteSpace(request.StartTime) && !string.IsNullOrWhiteSpace(request.EndTime))
-                                    titleSegments.Add($"{request.StartTime} - {request.EndTime}");
-                                break;
-                            case "services":
-                                if (services.Any())
-                                    titleSegments.Add(string.Join(", ", services));
-                                break;
-                            case "guest_count":
-                                if (request.GuestCount > 0)
-                                    titleSegments.Add($"{request.GuestCount} Guests");
-                                break;
-                            case "pricing_quote":
-                                if (request.TotalPrice > 0)
-                                    titleSegments.Add($"${request.TotalPrice:N0}");
-                                break;
-                            case "contact_phone":
-                                if (!string.IsNullOrWhiteSpace(request.RequesterPhone))
-                                    titleSegments.Add(request.RequesterPhone.Trim());
-                                break;
-                            case "contact_email":
-                                if (!string.IsNullOrWhiteSpace(request.RequesterEmail))
-                                    titleSegments.Add(request.RequesterEmail.Trim());
-                                break;
-                        }
-                    }
-
-                    string eventTitle;
-                    if (titleSegments.Any())
-                    {
-                        eventTitle = $"{titlePrefix}{string.Join(" | ", titleSegments)}";
-                    }
-                    else
-                    {
-                        eventTitle = $"{titlePrefix}{request.ApplicantName} - {eventType}";
-                    }
-
-                    var lines = new List<string>();
-                    if (calSettings.PushApplicantNameToDescription && !string.IsNullOrWhiteSpace(request.ApplicantName))
-                        lines.Add($"Applicant: {request.ApplicantName}");
-                    if (calSettings.PushApplicantPhoneToDescription && !string.IsNullOrWhiteSpace(request.RequesterPhone))
-                        lines.Add($"Phone: {request.RequesterPhone}");
-                    if (calSettings.PushApplicantEmailToDescription && !string.IsNullOrWhiteSpace(request.RequesterEmail))
-                        lines.Add($"Email: {request.RequesterEmail}");
-                    if (calSettings.PushGuestCountToDescription && request.GuestCount > 0)
-                        lines.Add($"Guest Count: {request.GuestCount}");
-                    if (calSettings.PushPricingQuoteToDescription)
-                        lines.Add($"Total Quote: ${request.TotalPrice:N2}");
-                    if (!string.IsNullOrWhiteSpace(request.RoomSelected))
-                        lines.Add($"Space: {request.RoomSelected}");
-                    if (calSettings.PushServicesToDescription && services.Any())
-                        lines.Add($"Services: {string.Join(", ", services)}");
-                    if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
-                        lines.Add($"Applicant Notes: {request.InternalNotes}");
-                    lines.Add($"[Ref: GFC-REQ-{request.Id}]");
-
-                    var googleEvt = new CalendarEventItem
-                    {
-                        Title = eventTitle,
-                        Start = start,
-                        End = end,
-                        Location = request.RoomSelected ?? "Function Hall",
-                        Description = string.Join("\n", lines)
-                    };
-
-                    var createdResult = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
-                    if (createdResult.Success && !string.IsNullOrWhiteSpace(createdResult.EventId))
-                    {
-                        request.GoogleEventId = createdResult.EventId;
-                        await using var idContext = await _contextFactory.CreateDbContextAsync();
-                        var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
-                        if (dbReq != null)
-                        {
-                            dbReq.GoogleEventId = createdResult.EventId;
-                            await idContext.SaveChangesAsync();
-                        }
-                    }
-                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Calendar sync warning: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Calendar update warning: {ex.Message}");
             }
 
-            // Dispatch Outgoing Applicant Auto-Responder & Staff Alerts via Website Domain Mailer
-            try
+            // Immediately notify Blazor Server Hall Rentals dashboard & GFC Connect
+            NotifyCalendarUpdated();
+
+            // Background out external integrations (Google Calendar write, Email delivery, FCM push)
+            // so the HTTP client and thread return instantly without holding connection slots.
+            _ = Task.Run(async () =>
             {
-                var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
-                if (settings != null && !settings.MasterEmailKillSwitch)
+                // 1. Push to Google Calendar directly if Service Account / Write API is configured
+                try
                 {
-                    // 1. Send Applicant Confirmation Email (if enabled and applicant provided email)
-                    if (settings.SendApplicantConfirmation && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                    var calSettings = await _googleCalendarService.GetSettingsAsync();
+
+                    string? targetCalId = calSettings?.PrimaryGoogleCalendarId?.Trim();
+
+                    if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings?.PublicCalendarUrl))
                     {
-                        string targetEmail = request.RequesterEmail;
-
-                        decimal effectiveDeposit = request.SecurityDepositAmount > 0 
-                            ? request.SecurityDepositAmount 
-                            : (settings.SecurityDepositAmount ?? 200m);
-
-                        string subject = settings.ApplicantConfirmationEmailSubject ?? "Your Hall Rental Application Confirmation - {ClubName}";
-                        subject = subject
-                            .Replace("{ApplicantName}", request.ApplicantName ?? "")
-                            .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
-                            .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
-                            .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
-                            .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
-                            .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
-                            .Replace("{ClubName}", "Gloucester Fraternity Club");
-
-                        if (isTest) subject = "[TEST] " + subject;
-
-                        string depositNote = (effectiveDeposit > 0 && settings.RequireSecurityDeposit)
-                            ? $"- Security Deposit: ${effectiveDeposit:N2}"
-                            : "";
-
-                        string body = settings.ApplicantConfirmationEmailBody ?? "";
-                        if (string.IsNullOrWhiteSpace(body))
+                        var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success)
                         {
-                            body = "Dear {ApplicantName},\n\nThank you for submitting your Hall Rental Application for {ClubName}.\n\nEvent Date: {EventDate}\nRoom: {RoomSelected}\nTotal Quote: ${TotalPrice}\n\nOur rental committee will review your application and reach out shortly.\nGloucester Fraternity Club | {ClubPhone}";
-                        }
-
-                        body = body
-                            .Replace("{ApplicantName}", request.ApplicantName ?? "")
-                            .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
-                            .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
-                            .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
-                            .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
-                            .Replace("{DepositDetails}", depositNote)
-                            .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
-                            .Replace("{ClubName}", "Gloucester Fraternity Club");
-
-                        var sendResult = await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, body, settings.RentalEmailCc);
-                        if (sendResult.Success)
-                        {
-                            var sbLog = new System.Text.StringBuilder();
-                            sbLog.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by System / Online Submission]");
-                            sbLog.AppendLine($"📧 Email Sent: Application Submission Confirmation");
-                            sbLog.AppendLine($"• Recipient: {targetEmail}");
-                            sbLog.AppendLine($"• Subject: {subject}");
-                            sbLog.AppendLine();
-                            request.InternalNotes = (sbLog.ToString() + (request.InternalNotes ?? "")).Trim();
+                            targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
                         }
                     }
 
-                    // 2. Send Staff Notification Alert (if enabled)
-                    if (settings.NotifyOnNewSubmission)
+                    if (!string.IsNullOrWhiteSpace(targetCalId) &&
+                        calSettings != null &&
+                        !string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) &&
+                        !string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey))
                     {
-                        var recipients = settings.GetRecipientsList();
-                        if (recipients.Any())
+                        var activeCalSettings = new GoogleCalendarSettings
                         {
-                            string staffSubject = $"{(isTest ? "[TEST] " : "")}New Hall Rental Request: {request.ApplicantName} ({request.EventDate:MM/dd/yyyy})";
-                            string staffBody = $@"
-                                <h3>New Hall Rental Application Submitted</h3>
-                                <p>A new rental application has been submitted online:</p>
-                                <ul>
-                                    <li><strong>Applicant / Organization:</strong> {request.ApplicantName}</li>
-                                    <li><strong>Contact Phone:</strong> {request.RequesterPhone}</li>
-                                    <li><strong>Contact Email:</strong> {request.RequesterEmail}</li>
-                                    <li><strong>Event Date:</strong> {request.EventDate:dddd, MMMM dd, yyyy}</li>
-                                    <li><strong>Time Window:</strong> {request.StartTime} - {request.EndTime}</li>
-                                    <li><strong>Space:</strong> {request.RoomSelected}</li>
-                                    <li><strong>Guest Count:</strong> {request.GuestCount}</li>
-                                    <li><strong>Total Quote:</strong> ${request.TotalPrice:N2}</li>
-                                    <li><strong>Bartender Requested:</strong> {(request.BartenderRequested ? "Yes" : "No")}</li>
-                                    <li><strong>Kitchen Access:</strong> {(request.KitchenUsage ? "Yes" : "No")}</li>
-                                    <li><strong>Extra Setup Time Requested:</strong> {(request.RequiresSetupTime ? "Yes" : "No")}</li>
-                                </ul>
-                                <p>View and manage this booking in <a href='/hall-rentals'>GFC Studio Hall Rentals</a>.</p>";
+                            PrimaryGoogleCalendarId = targetCalId,
+                            ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                            ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                            ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                            EnableWriteApi = true,
+                            GoogleEventVisibility = calSettings.GoogleEventVisibility,
+                            EventTitleFields = calSettings.EventTitleFields,
+                            PushApplicantNameToTitle = calSettings.PushApplicantNameToTitle,
+                            PushApplicantNameToDescription = calSettings.PushApplicantNameToDescription,
+                            PushApplicantPhoneToDescription = calSettings.PushApplicantPhoneToDescription,
+                            PushApplicantEmailToDescription = calSettings.PushApplicantEmailToDescription,
+                            PushPricingQuoteToDescription = calSettings.PushPricingQuoteToDescription,
+                            PushGuestCountToDescription = calSettings.PushGuestCountToDescription,
+                            PushServicesToDescription = calSettings.PushServicesToDescription,
+                            PushBarServiceToDescription = calSettings.PushBarServiceToDescription,
+                            BarServiceCalendarDisplayName = calSettings.BarServiceCalendarDisplayName,
+                            PushKitchenUsageToDescription = calSettings.PushKitchenUsageToDescription,
+                            KitchenUsageCalendarDisplayName = calSettings.KitchenUsageCalendarDisplayName,
+                            PushAvEquipmentToDescription = calSettings.PushAvEquipmentToDescription,
+                            AvEquipmentCalendarDisplayName = calSettings.AvEquipmentCalendarDisplayName,
+                            PushAddressToDescription = calSettings.PushAddressToDescription,
+                            PushNotesToDescription = calSettings.PushNotesToDescription
+                        };
 
-                            foreach (var recipient in recipients)
+                        DateTime start = request.EventDate.Date.AddHours(14);
+                        DateTime end = request.EventDate.Date.AddHours(20);
+                        if (DateTime.TryParse(request.StartTime, out var ps)) start = request.EventDate.Date.Add(ps.TimeOfDay);
+                        if (DateTime.TryParse(request.EndTime, out var pe)) end = request.EventDate.Date.Add(pe.TimeOfDay);
+
+                        string eventType = string.IsNullOrWhiteSpace(request.EventType) ? "Hall Rental" : request.EventType;
+                        string roomName = string.IsNullOrWhiteSpace(request.RoomSelected) ? "Main Function Hall" : request.RoomSelected;
+
+                        var services = new List<string>();
+                        if (request.BartenderRequested && calSettings.PushBarServiceToDescription)
+                        {
+                            var barName = !string.IsNullOrWhiteSpace(calSettings.BarServiceCalendarDisplayName) ? calSettings.BarServiceCalendarDisplayName : "Bar / Bartender Service";
+                            services.Add(barName);
+                        }
+                        if (request.KitchenUsage && calSettings.PushKitchenUsageToDescription)
+                        {
+                            var kitchenName = !string.IsNullOrWhiteSpace(calSettings.KitchenUsageCalendarDisplayName) ? calSettings.KitchenUsageCalendarDisplayName : "Kitchen Access";
+                            services.Add(kitchenName);
+                        }
+                        if (request.AvEquipmentUsage && calSettings.PushAvEquipmentToDescription)
+                        {
+                            var avName = !string.IsNullOrWhiteSpace(calSettings.AvEquipmentCalendarDisplayName) ? calSettings.AvEquipmentCalendarDisplayName : "A/V Equipment";
+                            services.Add(avName);
+                        }
+                        if (request.RequiresSetupTime) services.Add("Setup Time Requested");
+
+                        // Ordered Title Fields Construction (Pipe '|' Delimited)
+                        var titleFields = calSettings.EventTitleFields ?? GoogleCalendarSettings.GetDefaultGoogleTitleFields();
+                        var enabledOrderedFields = titleFields.Where(f => f.IsEnabled).OrderBy(f => f.Order).ToList();
+
+                        var titleSegments = new List<string>();
+                        foreach (var field in enabledOrderedFields)
+                        {
+                            switch (field.FieldKey)
                             {
-                                string targetStaffEmail = recipient;
+                                case "applicant_name":
+                                    if (!string.IsNullOrWhiteSpace(request.ApplicantName))
+                                        titleSegments.Add(request.ApplicantName.Trim());
+                                    break;
+                                case "event_type":
+                                    if (!string.IsNullOrWhiteSpace(eventType))
+                                        titleSegments.Add(eventType.Trim());
+                                    break;
+                                case "room_location":
+                                    if (!string.IsNullOrWhiteSpace(roomName))
+                                        titleSegments.Add(roomName.Trim());
+                                    break;
+                                case "time_window":
+                                    if (!string.IsNullOrWhiteSpace(request.StartTime) && !string.IsNullOrWhiteSpace(request.EndTime))
+                                        titleSegments.Add($"{request.StartTime} - {request.EndTime}");
+                                    break;
+                                case "services":
+                                    if (services.Any())
+                                        titleSegments.Add(string.Join(", ", services));
+                                    break;
+                                case "guest_count":
+                                    if (request.GuestCount > 0)
+                                        titleSegments.Add($"{request.GuestCount} Guests");
+                                    break;
+                                case "pricing_quote":
+                                    if (request.TotalPrice > 0)
+                                        titleSegments.Add($"${request.TotalPrice:N0}");
+                                    break;
+                                case "contact_phone":
+                                    if (!string.IsNullOrWhiteSpace(request.RequesterPhone))
+                                        titleSegments.Add(request.RequesterPhone.Trim());
+                                    break;
+                                case "contact_email":
+                                    if (!string.IsNullOrWhiteSpace(request.RequesterEmail))
+                                        titleSegments.Add(request.RequesterEmail.Trim());
+                                    break;
+                            }
+                        }
 
-                                await _emailDispatcher.SendRentalEmailAsync(settings, targetStaffEmail, staffSubject, staffBody);
+                        string titlePrefix = "PENDING: ";
+                        string eventTitle;
+                        if (titleSegments.Any())
+                        {
+                            eventTitle = $"{titlePrefix}{string.Join(" | ", titleSegments)}";
+                        }
+                        else
+                        {
+                            eventTitle = $"{titlePrefix}{request.ApplicantName} - {eventType}";
+                        }
+
+                        var lines = new List<string>();
+                        if (calSettings.PushApplicantNameToDescription && !string.IsNullOrWhiteSpace(request.ApplicantName))
+                            lines.Add($"Applicant: {request.ApplicantName}");
+                        if (calSettings.PushApplicantPhoneToDescription && !string.IsNullOrWhiteSpace(request.RequesterPhone))
+                            lines.Add($"Phone: {request.RequesterPhone}");
+                        if (calSettings.PushApplicantEmailToDescription && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                            lines.Add($"Email: {request.RequesterEmail}");
+                        if (calSettings.PushGuestCountToDescription && request.GuestCount > 0)
+                            lines.Add($"Guest Count: {request.GuestCount}");
+                        if (calSettings.PushPricingQuoteToDescription)
+                            lines.Add($"Total Quote: ${request.TotalPrice:N2}");
+                        if (!string.IsNullOrWhiteSpace(request.RoomSelected))
+                            lines.Add($"Space: {request.RoomSelected}");
+                        if (calSettings.PushServicesToDescription && services.Any())
+                            lines.Add($"Services: {string.Join(", ", services)}");
+                        if (calSettings.PushNotesToDescription && !string.IsNullOrWhiteSpace(request.InternalNotes))
+                            lines.Add($"Applicant Notes: {request.InternalNotes}");
+                        lines.Add($"[Ref: GFC-REQ-{request.Id}]");
+
+                        var googleEvt = new CalendarEventItem
+                        {
+                            Title = eventTitle,
+                            Start = start,
+                            End = end,
+                            Location = request.RoomSelected ?? "Function Hall",
+                            Description = string.Join("\n", lines)
+                        };
+
+                        var createdResult = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, activeCalSettings);
+                        if (createdResult.Success && !string.IsNullOrWhiteSpace(createdResult.EventId))
+                        {
+                            request.GoogleEventId = createdResult.EventId;
+                            await using var idContext = await _contextFactory.CreateDbContextAsync();
+                            var dbReq = await idContext.HallRentalRequests.FindAsync(request.Id);
+                            if (dbReq != null)
+                            {
+                                dbReq.GoogleEventId = createdResult.EventId;
+                                await idContext.SaveChangesAsync();
                             }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Calendar sync warning: {ex.Message}");
+                }
 
-                    // Save any updated audit notes from the email dispatching
-                    if (!string.IsNullOrWhiteSpace(request.InternalNotes) && request.Id > 0)
+                // 2. Dispatch Outgoing Applicant Auto-Responder & Staff Alerts via Website Domain Mailer
+                try
+                {
+                    var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                    if (settings != null && !settings.MasterEmailKillSwitch)
                     {
-                        context.HallRentalRequests.Update(request);
-                        await context.SaveChangesAsync();
+                        // Applicant Confirmation Email
+                        if (settings.SendApplicantConfirmation && !string.IsNullOrWhiteSpace(request.RequesterEmail))
+                        {
+                            string targetEmail = request.RequesterEmail;
+
+                            decimal effectiveDeposit = request.SecurityDepositAmount > 0 
+                                ? request.SecurityDepositAmount 
+                                : (settings.SecurityDepositAmount ?? 200m);
+
+                            string subject = settings.ApplicantConfirmationEmailSubject ?? "Your Hall Rental Application Confirmation - {ClubName}";
+                            subject = subject
+                                .Replace("{ApplicantName}", request.ApplicantName ?? "")
+                                .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
+                                .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
+                                .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
+                                .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
+                                .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
+                                .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                            if (isTest) subject = "[TEST] " + subject;
+
+                            string depositNote = (effectiveDeposit > 0 && settings.RequireSecurityDeposit)
+                                ? $"- Security Deposit: ${effectiveDeposit:N2}"
+                                : "";
+
+                            string body = settings.ApplicantConfirmationEmailBody ?? "";
+                            if (string.IsNullOrWhiteSpace(body))
+                            {
+                                body = "Dear {ApplicantName},\n\nThank you for submitting your Hall Rental Application for {ClubName}.\n\nEvent Date: {EventDate}\nRoom: {RoomSelected}\nTotal Quote: ${TotalPrice}\n\nOur rental committee will review your application and reach out shortly.\nGloucester Fraternity Club | {ClubPhone}";
+                            }
+
+                            body = body
+                                .Replace("{ApplicantName}", request.ApplicantName ?? "")
+                                .Replace("{EventDate}", request.EventDate.ToString("MMMM dd, yyyy"))
+                                .Replace("{RoomSelected}", request.RoomSelected ?? "Function Hall")
+                                .Replace("{TotalPrice}", request.TotalPrice.ToString("N2"))
+                                .Replace("{DepositAmount}", effectiveDeposit.ToString("N2"))
+                                .Replace("{DepositDetails}", depositNote)
+                                .Replace("{ClubPhone}", string.IsNullOrWhiteSpace(settings.ClubPhone) ? "(978) 283-2889" : settings.ClubPhone)
+                                .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                            var sendResult = await _emailDispatcher.SendRentalEmailAsync(settings, targetEmail, subject, body, settings.RentalEmailCc);
+                            if (sendResult.Success)
+                            {
+                                var sbLog = new System.Text.StringBuilder();
+                                sbLog.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt} by System / Online Submission]");
+                                sbLog.AppendLine($"📧 Email Sent: Application Submission Confirmation");
+                                sbLog.AppendLine($"• Recipient: {targetEmail}");
+                                sbLog.AppendLine($"• Subject: {subject}");
+                                sbLog.AppendLine();
+
+                                await using var noteContext = await _contextFactory.CreateDbContextAsync();
+                                var dbReq = await noteContext.HallRentalRequests.FindAsync(request.Id);
+                                if (dbReq != null)
+                                {
+                                    dbReq.InternalNotes = (sbLog.ToString() + (dbReq.InternalNotes ?? "")).Trim();
+                                    await noteContext.SaveChangesAsync();
+                                }
+                            }
+                        }
+
+                        // Staff Notification Alert
+                        if (settings.NotifyOnNewSubmission)
+                        {
+                            var recipients = settings.GetRecipientsList();
+                            if (recipients.Any())
+                            {
+                                string staffSubject = $"{(isTest ? "[TEST] " : "")}New Hall Rental Request: {request.ApplicantName} ({request.EventDate:MM/dd/yyyy})";
+                                string staffBody = $@"
+                                    <h3>New Hall Rental Application Submitted</h3>
+                                    <p>A new rental application has been submitted online:</p>
+                                    <ul>
+                                        <li><strong>Applicant / Organization:</strong> {request.ApplicantName}</li>
+                                        <li><strong>Contact Phone:</strong> {request.RequesterPhone}</li>
+                                        <li><strong>Contact Email:</strong> {request.RequesterEmail}</li>
+                                        <li><strong>Event Date:</strong> {request.EventDate:dddd, MMMM dd, yyyy}</li>
+                                        <li><strong>Time Window:</strong> {request.StartTime} - {request.EndTime}</li>
+                                        <li><strong>Space:</strong> {request.RoomSelected}</li>
+                                        <li><strong>Guest Count:</strong> {request.GuestCount}</li>
+                                        <li><strong>Total Quote:</strong> ${request.TotalPrice:N2}</li>
+                                        <li><strong>Bartender Requested:</strong> {(request.BartenderRequested ? "Yes" : "No")}</li>
+                                        <li><strong>Kitchen Access:</strong> {(request.KitchenUsage ? "Yes" : "No")}</li>
+                                        <li><strong>Extra Setup Time Requested:</strong> {(request.RequiresSetupTime ? "Yes" : "No")}</li>
+                                    </ul>
+                                    <p>View and manage this booking in <a href='/hall-rentals'>GFC Studio Hall Rentals</a>.</p>";
+
+                                foreach (var recipient in recipients)
+                                {
+                                    await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Rental email delivery error: {ex.Message}");
-            }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Rental email delivery error: {ex.Message}");
+                }
 
-            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
-            try
-            {
-                await _firebaseNotificationService.BroadcastAsync(
-                    "🏛️ New Hall Rental Application",
-                    $"New application from {request.ApplicantName} for {request.EventDate:MMM dd, yyyy} ({request.EventType ?? "Rental"}).",
-                    new Dictionary<string, string>
-                    {
-                        { "category", "rental" },
-                        { "rental_id", request.Id.ToString() },
-                        { "applicant_name", request.ApplicantName ?? "" },
-                        { "event_date", request.EventDate.ToString("yyyy-MM-dd") }
-                    }
-                );
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Application push notification warning: {ex.Message}");
-            }
+                // 3. Dispatch Real-time Push Notification to GFC Connect Admin Devices
+                try
+                {
+                    await _firebaseNotificationService.BroadcastAsync(
+                        "🏛️ New Hall Rental Application",
+                        $"New application from {request.ApplicantName} for {request.EventDate:MMM dd, yyyy} ({request.EventType ?? "Rental"}).",
+                        new Dictionary<string, string>
+                        {
+                            { "category", "rental" },
+                            { "rental_id", request.Id.ToString() },
+                            { "applicant_name", request.ApplicantName ?? "" },
+                            { "event_date", request.EventDate.ToString("yyyy-MM-dd") }
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Application push notification warning: {ex.Message}");
+                }
+            });
 
             return request;
         }
@@ -1590,100 +1604,108 @@ namespace GFC.BlazorServer.Services
             await context.SaveChangesAsync();
             inquiry.Id = newInquiry.Id;
 
-            // Dispatch Notifications to Staff & Visitor (if configured)
-            try
+            // Immediately notify Blazor Server Hall Rentals dashboard to refresh live
+            NotifyCalendarUpdated();
+
+            // Background out external integrations (Email delivery and FCM push)
+            // so the request thread and circuit return immediately.
+            _ = Task.Run(async () =>
             {
-                var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
-                if (settings != null)
+                // Dispatch Notifications to Staff & Visitor (if configured)
+                try
                 {
-                    // 1. Outgoing Confirmation Email to Visitor
-                    if (settings.SendInquiryConfirmationEmail && !string.IsNullOrWhiteSpace(inquiry.RequesterEmail))
+                    var settings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                    if (settings != null)
                     {
-                        string subject = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailSubject)
-                            ? settings.InquiryConfirmationEmailSubject
-                            : "We received your inquiry - Gloucester Fraternity Club";
-
-                        string rawBody = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailBody)
-                            ? settings.InquiryConfirmationEmailBody
-                            : "Dear {ApplicantName},\n\nThank you for reaching out to the Gloucester Fraternity Club!\n\nWe have received your question regarding hall rentals and our rental coordinator will review it and reply back to you shortly.\n\nYour Message / Question:\n\"{Question}\"\n\nGloucester Fraternity Club | {ClubPhone}";
-
-                        string renderedBody = rawBody
-                            .Replace("{ApplicantName}", inquiry.ApplicantName)
-                            .Replace("{EventDate}", inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("MMMM dd, yyyy") : "TBD")
-                            .Replace("{Question}", inquiry.EventDescription ?? "No message entered.")
-                            .Replace("{ClubPhone}", !string.IsNullOrWhiteSpace(settings.ClubPhone) ? settings.ClubPhone : "(978) 283-2889")
-                            .Replace("{ClubName}", "Gloucester Fraternity Club");
-
-                        await _emailDispatcher.SendRentalEmailAsync(settings, inquiry.RequesterEmail, subject, renderedBody);
-                    }
-
-                    // 2. Incoming Notification Alert to Staff Recipients
-                    if (settings.NotifyOnInquirySubmitted)
-                    {
-                        var recipients = settings.GetRecipientsList();
-                        if (recipients.Any())
+                        // 1. Outgoing Confirmation Email to Visitor
+                        if (settings.SendInquiryConfirmationEmail && !string.IsNullOrWhiteSpace(inquiry.RequesterEmail))
                         {
-                            string contactPref = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod) ? inquiry.PreferredContactMethod : (inquiry.RequestPhoneCall ? "Phone" : "Email");
-                            string phonePreferenceBadge = $"<span style='background-color:#0284c7; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>Preferred: {contactPref}</span>";
+                            string subject = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailSubject)
+                                ? settings.InquiryConfirmationEmailSubject
+                                : "We received your inquiry - Gloucester Fraternity Club";
 
-                            string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] {(inquiry.RequestPhoneCall ? "[CALLBACK/SMS REQUESTED] " : "")}Question from {inquiry.ApplicantName}";
-                            string staffBody = $@"
-                                <div style='font-family: Arial, sans-serif; max-width: 600px;'>
-                                    <h3 style='color: #0d1b2a;'>New Pre-Booking Question / Inquiry Received</h3>
-                                    {(inquiry.RequestPhoneCall ? $"<div style='background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:10px 14px; border-radius:6px; margin-bottom:16px; font-weight:bold; color:#15803d;'>📞 Preferred Contact Method(s): {contactPref}</div>" : "")}
-                                    <p>A visitor submitted a general question on the Hall Rental page:</p>
-                                    <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
-                                        <tr><td style='padding: 6px; font-weight: bold; width: 35%; border-bottom: 1px solid #e2e8f0;'>Name:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.ApplicantName}</td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Email:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'><a href='mailto:{inquiry.RequesterEmail}'>{inquiry.RequesterEmail}</a></td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Contact Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.RequesterPhone) ? "N/A" : inquiry.RequesterPhone)} {phonePreferenceBadge}</td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Target Date:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("dddd, MMMM dd, yyyy") : "Flexible / Not Specified")}</td></tr>
-                                        <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Event Type / Guest Est:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.EventType) ? "General Question" : inquiry.EventType)} {(inquiry.GuestCount > 0 ? $"({inquiry.GuestCount} guests)" : "")}</td></tr>
-                                    </table>
-                                    <div style='background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; margin-bottom: 20px;'>
-                                        <strong>Question / Message:</strong><br/>
-                                        <p style='margin-top: 6px; white-space: pre-wrap;'>{inquiry.EventDescription}</p>
-                                    </div>
-                                    <p><a href='/hall-rentals' style='display: inline-block; background-color: #0d1b2a; color: white; padding: 8px 16px; text-decoration: none; border-radius: 6px;'>View in GFC Studio Hall Rentals</a></p>
-                                </div>";
+                            string rawBody = !string.IsNullOrWhiteSpace(settings.InquiryConfirmationEmailBody)
+                                ? settings.InquiryConfirmationEmailBody
+                                : "Dear {ApplicantName},\n\nThank you for reaching out to the Gloucester Fraternity Club!\n\nWe have received your question regarding hall rentals and our rental coordinator will review it and reply back to you shortly.\n\nYour Message / Question:\n\"{Question}\"\n\nGloucester Fraternity Club | {ClubPhone}";
 
-                            foreach (var recipient in recipients)
+                            string renderedBody = rawBody
+                                .Replace("{ApplicantName}", inquiry.ApplicantName)
+                                .Replace("{EventDate}", inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("MMMM dd, yyyy") : "TBD")
+                                .Replace("{Question}", inquiry.EventDescription ?? "No message entered.")
+                                .Replace("{ClubPhone}", !string.IsNullOrWhiteSpace(settings.ClubPhone) ? settings.ClubPhone : "(978) 283-2889")
+                                .Replace("{ClubName}", "Gloucester Fraternity Club");
+
+                            await _emailDispatcher.SendRentalEmailAsync(settings, inquiry.RequesterEmail, subject, renderedBody);
+                        }
+
+                        // 2. Incoming Notification Alert to Staff Recipients
+                        if (settings.NotifyOnInquirySubmitted)
+                        {
+                            var recipients = settings.GetRecipientsList();
+                            if (recipients.Any())
                             {
-                                await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
+                                string contactPref = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod) ? inquiry.PreferredContactMethod : (inquiry.RequestPhoneCall ? "Phone" : "Email");
+                                string phonePreferenceBadge = $"<span style='background-color:#0284c7; color:#ffffff; font-weight:bold; padding:2px 8px; border-radius:12px; font-size:12px;'>Preferred: {contactPref}</span>";
+
+                                string staffSubject = $"{(isTest ? "[TEST] " : "")}[GFC Rental Inquiry] {(inquiry.RequestPhoneCall ? "[CALLBACK/SMS REQUESTED] " : "")}Question from {inquiry.ApplicantName}";
+                                string staffBody = $@"
+                                    <div style='font-family: Arial, sans-serif; max-width: 600px;'>
+                                        <h3 style='color: #0d1b2a;'>New Pre-Booking Question / Inquiry Received</h3>
+                                        {(inquiry.RequestPhoneCall ? $"<div style='background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #16a34a; padding:10px 14px; border-radius:6px; margin-bottom:16px; font-weight:bold; color:#15803d;'>📞 Preferred Contact Method(s): {contactPref}</div>" : "")}
+                                        <p>A visitor submitted a general question on the Hall Rental page:</p>
+                                        <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
+                                            <tr><td style='padding: 6px; font-weight: bold; width: 35%; border-bottom: 1px solid #e2e8f0;'>Name:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{inquiry.ApplicantName}</td></tr>
+                                            <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Email:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'><a href='mailto:{inquiry.RequesterEmail}'>{inquiry.RequesterEmail}</a></td></tr>
+                                            <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Contact Phone:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.RequesterPhone) ? "N/A" : inquiry.RequesterPhone)} {phonePreferenceBadge}</td></tr>
+                                            <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Target Date:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("dddd, MMMM dd, yyyy") : "Flexible / Not Specified")}</td></tr>
+                                            <tr><td style='padding: 6px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>Event Type / Guest Est:</td><td style='padding: 6px; border-bottom: 1px solid #e2e8f0;'>{(string.IsNullOrWhiteSpace(inquiry.EventType) ? "General Question" : inquiry.EventType)} {(inquiry.GuestCount > 0 ? $"({inquiry.GuestCount} guests)" : "")}</td></tr>
+                                        </table>
+                                        <div style='background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; margin-bottom: 20px;'>
+                                            <strong>Question / Message:</strong><br/>
+                                            <p style='margin-top: 6px; white-space: pre-wrap;'>{inquiry.EventDescription}</p>
+                                        </div>
+                                        <p><a href='/hall-rentals' style='display: inline-block; background-color: #0d1b2a; color: white; padding: 8px 16px; text-decoration: none; border-radius: 6px;'>View in GFC Studio Hall Rentals</a></p>
+                                    </div>";
+
+                                foreach (var recipient in recipients)
+                                {
+                                    await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
+                                }
                             }
                         }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry email delivery notice: {ex.Message}");
-            }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry email delivery notice: {ex.Message}");
+                }
 
-            // Dispatch Real-time Push Notification to GFC Connect Admin Devices
-            try
-            {
-                string eventDateStr = newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
-                string contactPrefSummary = !string.IsNullOrWhiteSpace(newInquiry.PreferredContactMethod)
-                    ? newInquiry.PreferredContactMethod
-                    : (newInquiry.RequestPhoneCall ? "Phone" : "Email");
+                // Dispatch Real-time Push Notification to GFC Connect Admin Devices
+                try
+                {
+                    string eventDateStr = newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
+                    string contactPrefSummary = !string.IsNullOrWhiteSpace(newInquiry.PreferredContactMethod)
+                        ? newInquiry.PreferredContactMethod
+                        : (newInquiry.RequestPhoneCall ? "Phone" : "Email");
 
-                await _firebaseNotificationService.BroadcastAsync(
-                    "💬 New Rental Inquiry Received",
-                    $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}) • Preferred: {contactPrefSummary}",
-                    new Dictionary<string, string>
-                    {
-                        { "category", "inquiry" },
-                        { "rental_id", newInquiry.Id.ToString() },
-                        { "applicant_name", newInquiry.ApplicantName ?? "" },
-                        { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" },
-                        { "contact_pref", contactPrefSummary }
-                    }
-                );
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry push notification warning: {ex.Message}");
-            }
+                    await _firebaseNotificationService.BroadcastAsync(
+                        "💬 New Rental Inquiry Received",
+                        $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}) • Preferred: {contactPrefSummary}",
+                        new Dictionary<string, string>
+                        {
+                            { "category", "inquiry" },
+                            { "rental_id", newInquiry.Id.ToString() },
+                            { "applicant_name", newInquiry.ApplicantName ?? "" },
+                            { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" },
+                            { "contact_pref", contactPrefSummary }
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry push notification warning: {ex.Message}");
+                }
+            });
 
             return inquiry;
         }

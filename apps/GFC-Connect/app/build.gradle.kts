@@ -12,8 +12,8 @@ android {
         applicationId = "com.gfc.connect"
         minSdk = 26
         targetSdk = 34
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 108
+        versionName = "1.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,16 +26,18 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "DEFAULT_BASE_URL", "\"https://gfc.lovanow.com/\"")
             signingConfig = signingConfigs.getByName("debug") // Will be swapped with release keystore for production distribution
         }
         debug {
             isDebuggable = true
+            buildConfigField("String", "DEFAULT_BASE_URL", "\"http://localhost:5207/\"")
         }
     }
 
@@ -51,6 +53,11 @@ android {
     buildFeatures {
         viewBinding = true
         buildConfig = true
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 

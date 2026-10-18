@@ -69,6 +69,14 @@
                         <i class="bi bi-arrow-left"></i>
                         <span>Back to Rentals</span>
                     </button>
+                    <button type="button" class="btn btn-outline-primary d-flex align-items-center gap-2 px-3 shadow-sm fw-semibold" @onclick="ExportAllSettingsAsync" disabled="@_isSaving" title="Download a complete snapshot of all settings across all tabs">
+                        <i class="bi bi-download"></i>
+                        <span>Export Settings</span>
+                    </button>
+                    <button type="button" class="btn btn-outline-success d-flex align-items-center gap-2 px-3 shadow-sm fw-semibold" @onclick="OpenImportModal" disabled="@_isSaving" title="Upload and apply a complete configuration file">
+                        <i class="bi bi-upload"></i>
+                        <span>Import Settings</span>
+                    </button>
                     <button type="button" class="btn btn-primary d-flex align-items-center gap-2 px-4 shadow-sm fw-semibold" @onclick="SaveAllSettings" disabled="@_isSaving">
                         @if (_isSaving)
                         {
@@ -4645,6 +4653,149 @@
     </div>
 }
 
+@* ========================================================================= *@
+@* FULL CONFIGURATION IMPORT MODAL *@
+@* ========================================================================= *@
+@if (_showImportModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header bg-success bg-opacity-10 border-bottom border-success border-opacity-25 p-3 px-4 d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="p-2 bg-success text-white rounded-3 shadow-sm">
+                            <i class="bi bi-box-arrow-in-down fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0">Import Full Hall Rental Configuration</h5>
+                            <small class="text-muted">Upload a complete GFC Hall Rental configuration JSON file to clone all settings.</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CloseImportModal"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <!-- File Selection Area -->
+                    <div class="card border rounded-3 p-3 bg-white mb-3 shadow-xs">
+                        <label class="form-label fw-bold text-dark d-flex align-items-center gap-1.5 mb-2">
+                            <i class="bi bi-filetype-json text-primary"></i> Select Configuration File (.json):
+                        </label>
+                        <InputFile OnChange="HandleImportFileSelected" accept=".json" class="form-control" />
+                        <small class="text-muted mt-1 d-block">
+                            Choose a file exported from your development or staging environment (e.g., <code>GFC_HallRental_FullConfig_*.json</code>).
+                        </small>
+                    </div>
+
+                    @if (_isReadingImportFile)
+                    {
+                        <div class="text-center py-4 bg-white rounded-3 border">
+                            <div class="spinner-border text-primary spinner-border-sm mb-2" role="status"></div>
+                            <div class="small fw-semibold text-muted">Analyzing configuration package...</div>
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_importErrorMessage))
+                    {
+                        <div class="alert alert-danger d-flex align-items-center gap-2 rounded-3 shadow-xs mb-3">
+                            <i class="bi bi-exclamation-triangle-fill fs-5 text-danger"></i>
+                            <div>@_importErrorMessage</div>
+                        </div>
+                    }
+                    else if (_importedPackage != null)
+                    {
+                        <!-- Inspection Summary Card -->
+                        <div class="card border border-success border-opacity-50 rounded-3 p-3 bg-white mb-3 shadow-xs">
+                            <div class="d-flex align-items-center justify-content-between mb-2 pb-2 border-bottom">
+                                <span class="fw-bold text-success d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-check-circle-fill"></i> Valid Configuration Package Detected
+                                </span>
+                                <span class="badge bg-secondary">
+                                    Exported: @_importedPackage.ExportedAt.ToLocalTime().ToString("MMM dd, yyyy h:mm tt")
+                                </span>
+                            </div>
+
+                            <div class="row g-2 text-dark small">
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">🏛️ Event Spaces:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.Rooms?.Count ?? 0) Room(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">💎 Pricing Tiers:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.TierCards?.Count ?? 0) Tier Card(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">📅 Day Availability:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.DaySchedules?.Count ?? 0) Day Schedules</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">✨ Add-on Services:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.Addons?.Count ?? 0) Add-on Option(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">📜 Policies &amp; Rules:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.Policies?.Count ?? 0) Policy Section(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">✉️ Notification Alerts:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.Recipients?.Count ?? 0) Staff Recipient(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-6">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">🔗 Google Feeds:</div>
+                                        <div class="fw-bold text-primary">@(_importedPackage.GoogleSettings?.Feeds?.Count ?? 0) Calendar Feed(s)</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-6">
+                                    <div class="p-2 rounded bg-light border">
+                                        <div class="text-muted fw-semibold">🎨 Public Theme:</div>
+                                        <div class="fw-bold text-primary">@(!string.IsNullOrEmpty(_importedPackage.CalendarSettings?.PrimaryColor) ? _importedPackage.CalendarSettings.PrimaryColor : "Default Palette")</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-warning mt-3 mb-0 d-flex align-items-center gap-2 py-2 px-3 small border">
+                                <i class="bi bi-exclamation-circle-fill text-warning fs-5"></i>
+                                <div>
+                                    <strong>Notice:</strong> Applying this configuration will overwrite all 10 tabs and settings to match this file identically.
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-white border-top p-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary px-4 rounded-pill" @onclick="CloseImportModal" disabled="@_isApplyingImport">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-success px-4 rounded-pill shadow-sm fw-bold d-flex align-items-center gap-2" 
+                            @onclick="ApplyImportedConfigurationAsync" 
+                            disabled="@(_importedPackage == null || _isApplyingImport)">
+                        @if (_isApplyingImport)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>Applying &amp; Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle fs-5"></i>
+                            <span>Apply &amp; Overwrite All Settings</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [SupplyParameterFromQuery(Name = "tab")]
     public string? UrlTab { get; set; }
@@ -6633,5 +6784,317 @@
             targetPolicy.Content = (targetPolicy.Content ?? "") + textToInsert;
         }
     }
+
+    // =========================================================================
+    // EXPORT & IMPORT FULL CONFIGURATION LOGIC
+    // =========================================================================
+    private bool _showImportModal = false;
+    private bool _isReadingImportFile = false;
+    private bool _isApplyingImport = false;
+    private string? _importErrorMessage;
+    private HallRentalFullConfigPackage? _importedPackage;
+
+    public class HallRentalFullConfigPackage
+    {
+        public string Version { get; set; } = "1.0";
+        public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
+        public WebsiteSettings? WebSettings { get; set; }
+        public GoogleCalendarSettings? GoogleSettings { get; set; }
+        public GFC.BlazorServer.Models.CalendarSettings? CalendarSettings { get; set; }
+        public List<RentalRoomOption> Rooms { get; set; } = new();
+        public List<RentalAddonOption> Addons { get; set; } = new();
+        public List<DayOfWeekScheduleConfig> DaySchedules { get; set; } = new();
+        public List<RentalPolicyItem> Policies { get; set; } = new();
+        public List<PricingTierCardConfig> TierCards { get; set; } = new();
+        public List<string> Recipients { get; set; } = new();
+        public List<string> ReasonPresets { get; set; } = new();
+        public List<EventTypeListPreset> EventTypeLists { get; set; } = new();
+        public List<CalendarFieldDisplayConfig> MonthFields { get; set; } = new();
+        public List<CalendarFieldDisplayConfig> ListColumns { get; set; } = new();
+    }
+
+    private async Task ExportAllSettingsAsync()
+    {
+        try
+        {
+            // Sync all lists into WebSettings representation before export package creation
+            if (_webSettings != null)
+            {
+                _webSettings.RoomsJson = System.Text.Json.JsonSerializer.Serialize(_editableRooms);
+                _webSettings.AddonsJson = System.Text.Json.JsonSerializer.Serialize(_editableAddons);
+                _webSettings.DaySchedulesJson = System.Text.Json.JsonSerializer.Serialize(_editableDaySchedules);
+                _webSettings.PoliciesJson = System.Text.Json.JsonSerializer.Serialize(_editablePolicies);
+                _webSettings.TierCardsJson = System.Text.Json.JsonSerializer.Serialize(_editableTierCards);
+                _webSettings.SetEventTypeLists(_editableEventTypeLists);
+                _webSettings.SetModificationReasonPresetsList(_editableReasonPresets);
+                _webSettings.SetRecipientsList(_editableRecipients);
+                _webSettings.MonthCalendarFields = _editableMonthFields;
+                _webSettings.ScheduleListColumns = _editableListColumns;
+            }
+
+            var package = new HallRentalFullConfigPackage
+            {
+                Version = "1.0",
+                ExportedAt = DateTime.UtcNow,
+                WebSettings = _webSettings,
+                GoogleSettings = _settings,
+                CalendarSettings = _calendarSettings,
+                Rooms = _editableRooms.ToList(),
+                Addons = _editableAddons.ToList(),
+                DaySchedules = _editableDaySchedules.ToList(),
+                Policies = _editablePolicies.ToList(),
+                TierCards = _editableTierCards.ToList(),
+                Recipients = _editableRecipients.ToList(),
+                ReasonPresets = _editableReasonPresets.ToList(),
+                EventTypeLists = _editableEventTypeLists.ToList(),
+                MonthFields = _editableMonthFields.ToList(),
+                ListColumns = _editableListColumns.ToList()
+            };
+
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
+            };
+
+            var jsonString = System.Text.Json.JsonSerializer.Serialize(package, options);
+            var fileName = $"GFC_HallRental_FullConfig_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+            var base64 = Convert.ToBase64String(bytes);
+            var dataUrl = $"data:application/json;base64,{base64}";
+
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    var a = document.createElement('a');
+                    a.href = '{dataUrl}';
+                    a.download = '{fileName}';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }})()
+            ");
+
+            ToastService.ShowSuccess($"Full configuration exported successfully as {fileName}");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to export configuration: {ex.Message}");
+        }
+    }
+
+    private void OpenImportModal()
+    {
+        _importErrorMessage = null;
+        _importedPackage = null;
+        _isReadingImportFile = false;
+        _isApplyingImport = false;
+        _showImportModal = true;
+    }
+
+    private void CloseImportModal()
+    {
+        if (_isApplyingImport) return;
+        _showImportModal = false;
+        _importedPackage = null;
+        _importErrorMessage = null;
+    }
+
+    private async Task HandleImportFileSelected(InputFileChangeEventArgs e)
+    {
+        _importErrorMessage = null;
+        _importedPackage = null;
+        _isReadingImportFile = true;
+        StateHasChanged();
+
+        try
+        {
+            var file = e.File;
+            if (file == null)
+            {
+                _importErrorMessage = "No file selected.";
+                return;
+            }
+
+            if (!file.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                _importErrorMessage = "Please select a valid JSON configuration file (.json).";
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 5); // 5 MB max
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var pkg = System.Text.Json.JsonSerializer.Deserialize<HallRentalFullConfigPackage>(json, options);
+
+            if (pkg == null || (pkg.WebSettings == null && pkg.Rooms.Count == 0 && pkg.GoogleSettings == null))
+            {
+                _importErrorMessage = "The selected file does not appear to be a valid GFC Hall Rental configuration package.";
+                return;
+            }
+
+            _importedPackage = pkg;
+        }
+        catch (Exception ex)
+        {
+            _importErrorMessage = $"Error parsing configuration file: {ex.Message}";
+        }
+        finally
+        {
+            _isReadingImportFile = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ApplyImportedConfigurationAsync()
+    {
+        if (_importedPackage == null || _isApplyingImport) return;
+
+        _isApplyingImport = true;
+        StateHasChanged();
+
+        try
+        {
+            // 1. Overwrite WebSettings
+            if (_importedPackage.WebSettings != null)
+            {
+                _webSettings = _importedPackage.WebSettings;
+            }
+
+            // 2. Overwrite editable collections
+            if (_importedPackage.Rooms != null && _importedPackage.Rooms.Count > 0)
+            {
+                _editableRooms = _importedPackage.Rooms;
+            }
+            else if (_webSettings != null)
+            {
+                _editableRooms = _webSettings.GetRoomsList();
+            }
+
+            if (_importedPackage.Addons != null && _importedPackage.Addons.Count > 0)
+            {
+                _editableAddons = _importedPackage.Addons;
+            }
+            else if (_webSettings != null)
+            {
+                _editableAddons = _webSettings.GetAddonsList();
+            }
+
+            if (_importedPackage.DaySchedules != null && _importedPackage.DaySchedules.Count > 0)
+            {
+                _editableDaySchedules = _importedPackage.DaySchedules;
+            }
+            else if (_webSettings != null)
+            {
+                _editableDaySchedules = _webSettings.GetDaySchedulesList();
+            }
+
+            if (_importedPackage.Policies != null && _importedPackage.Policies.Count > 0)
+            {
+                _editablePolicies = _importedPackage.Policies;
+            }
+            else if (_webSettings != null)
+            {
+                _editablePolicies = _webSettings.GetPoliciesList();
+            }
+
+            if (_importedPackage.TierCards != null && _importedPackage.TierCards.Count > 0)
+            {
+                _editableTierCards = _importedPackage.TierCards;
+            }
+            else if (_webSettings != null)
+            {
+                _editableTierCards = _webSettings.GetTierCardsList();
+            }
+
+            if (_importedPackage.Recipients != null && _importedPackage.Recipients.Count > 0)
+            {
+                _editableRecipients = _importedPackage.Recipients;
+            }
+            else if (_webSettings != null)
+            {
+                _editableRecipients = _webSettings.GetRecipientsList();
+            }
+
+            if (_importedPackage.ReasonPresets != null && _importedPackage.ReasonPresets.Count > 0)
+            {
+                _editableReasonPresets = _importedPackage.ReasonPresets;
+            }
+            else if (_webSettings != null)
+            {
+                _editableReasonPresets = _webSettings.GetModificationReasonPresetsList();
+            }
+
+            if (_importedPackage.EventTypeLists != null && _importedPackage.EventTypeLists.Count > 0)
+            {
+                _editableEventTypeLists = _importedPackage.EventTypeLists;
+                _selectedEventListId = _editableEventTypeLists.FirstOrDefault()?.Id;
+            }
+            else if (_webSettings != null)
+            {
+                _editableEventTypeLists = _webSettings.GetEventTypeLists();
+                _selectedEventListId = _editableEventTypeLists.FirstOrDefault()?.Id;
+            }
+
+            if (_importedPackage.MonthFields != null && _importedPackage.MonthFields.Count > 0)
+            {
+                _editableMonthFields = _importedPackage.MonthFields;
+            }
+            else if (_webSettings?.MonthCalendarFields != null && _webSettings.MonthCalendarFields.Count > 0)
+            {
+                _editableMonthFields = _webSettings.MonthCalendarFields;
+            }
+
+            if (_importedPackage.ListColumns != null && _importedPackage.ListColumns.Count > 0)
+            {
+                _editableListColumns = _importedPackage.ListColumns;
+            }
+            else if (_webSettings?.ScheduleListColumns != null && _webSettings.ScheduleListColumns.Count > 0)
+            {
+                _editableListColumns = _webSettings.ScheduleListColumns;
+            }
+
+            // 3. Overwrite Google Settings
+            if (_importedPackage.GoogleSettings != null)
+            {
+                _settings = _importedPackage.GoogleSettings;
+            }
+
+            // 4. Overwrite Public Calendar UI Settings
+            if (_importedPackage.CalendarSettings != null)
+            {
+                _calendarSettings = _importedPackage.CalendarSettings;
+            }
+
+            // 5. Persist everything to database and service stores
+            var success = await SaveAllSettingsInternalAsync();
+            if (success)
+            {
+                _initialSnapshot = GenerateStateSnapshot();
+                _showImportModal = false;
+                ToastService.ShowSuccess("All settings imported and applied identically!");
+            }
+            else
+            {
+                ToastService.ShowError("Import encountered validation issues while saving. Please review.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to apply imported configuration: {ex.Message}");
+        }
+        finally
+        {
+            _isApplyingImport = false;
+            StateHasChanged();
+        }
+    }
 }
+
 

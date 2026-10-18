@@ -63,6 +63,31 @@ class SettingsActivity : AppCompatActivity() {
         binding.txtServerEndpoint.text = ApiClient.getBaseUrl().trimEnd('/')
         binding.txtAppVersionTag.text = "v${BuildConfig.VERSION_NAME}"
         binding.txtBuildFooter.text = "GFC Connect Native Companion v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})\nGloucester Fraternity Club • All Rights Reserved"
+
+        // Developer 5-tap gesture on version tag or build footer to switch server target
+        var devTapCount = 0
+        var lastDevTapTime = 0L
+        val devClickListener = View.OnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastDevTapTime < 2500) {
+                devTapCount++
+            } else {
+                devTapCount = 1
+            }
+            lastDevTapTime = now
+
+            if (devTapCount >= 5) {
+                devTapCount = 0
+                ApiClient.showServerSelectionDialog(this) {
+                    binding.txtServerEndpoint.text = ApiClient.getBaseUrl().trimEnd('/')
+                }
+            } else if (devTapCount >= 3) {
+                val remaining = 5 - devTapCount
+                Toast.makeText(this, "Tap $remaining more times for server picker", Toast.LENGTH_SHORT).show()
+            }
+        }
+        binding.txtAppVersionTag.setOnClickListener(devClickListener)
+        binding.txtBuildFooter.setOnClickListener(devClickListener)
     }
 
     private fun bindBiometricSettings() {

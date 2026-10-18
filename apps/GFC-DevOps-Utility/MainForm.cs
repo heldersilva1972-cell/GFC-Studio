@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Principal;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -18,7 +19,6 @@ namespace GFCDevOpsUtility
         private DataTable _dtRevisions = null!;
         private bool _isBusy = false;
         private bool _isUpdatingUi = false;
-        private bool _isSyncingChecks = false;
         private bool _isPublishAborted = false;
         private ProcessRunner? _activePublishRunner = null;
 
@@ -58,11 +58,13 @@ namespace GFCDevOpsUtility
             btnRunDeploy.BackColor = Color.FromArgb(22, 101, 52); // Forest Green for deployment
             StylePrimaryButton(btnRunDeploy);
 
-            // Terminal
-            rtbTerminal.BackColor = Color.FromArgb(248, 250, 252);
-            rtbTerminal.ForeColor = ColorText;
-            btnClearLogs.ForeColor = ColorTextMuted;
-            btnClearLogs.BackColor = ColorCard;
+            // DevOps Execution Terminal
+            rtbTerminal.BackColor = Color.FromArgb(15, 23, 42);
+            rtbTerminal.ForeColor = Color.FromArgb(248, 250, 252);
+            btnClearLogs.ForeColor = Color.FromArgb(226, 232, 240);
+            btnClearLogs.BackColor = Color.FromArgb(30, 41, 59);
+            btnCopyLog.ForeColor = Color.FromArgb(226, 232, 240);
+            btnCopyLog.BackColor = Color.FromArgb(30, 41, 59);
         }
 
         private void StyleGroupBox(GroupBox gb)
@@ -93,23 +95,16 @@ namespace GFCDevOpsUtility
 
             _isUpdatingUi = true;
 
-            // Bind APK checkbox states and wire events (force defaults to false as requested)
+            // Force all pipeline APK flags to default enabled if required
             foreach (var app in _config.AppPipelines)
             {
                 app.PublishMobileApk = false;
             }
             _config.PosPublishMobileApk = false;
+            _config.PosDeployMobileApk = true;
             _config.Save();
 
-            chkApkMobile.Checked = false;
-            chkApkPos.Checked = false;
-            chkApkWebApp.Checked = false;
-
             _isUpdatingUi = false;
-
-            chkApkMobile.CheckedChanged += ChkApkMobile_CheckedChanged;
-            chkApkPos.CheckedChanged += ChkApkPos_CheckedChanged;
-            chkApkWebApp.CheckedChanged += ChkApkWebApp_CheckedChanged;
 
             // Hide legacy comboboxes visually
             cmbPublishApp.Visible = false;
@@ -152,6 +147,11 @@ namespace GFCDevOpsUtility
             CheckAdministratorPrivileges();
         }
 
+        private void MainForm_Shown(object sender, EventArgs e)
+        {
+            ResetAllSelections();
+        }
+
         private void CheckAdministratorPrivileges()
         {
             using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
@@ -174,7 +174,37 @@ namespace GFCDevOpsUtility
         #region Navigation Tabs
         private void ResetAllSelections()
         {
-            cmbRevAppSelect.SelectedIndex = -1;
+            _isUpdatingUi = true;
+            try
+            {
+                if (clbPublishApps.SelectedIndex != -1)
+                {
+                    clbPublishApps.SelectedIndex = -1;
+                }
+                lblAppDesc.Text = "Click/hover an item to see its purpose.";
+
+                if (clbDeployApps.SelectedIndex != -1)
+                {
+                    clbDeployApps.SelectedIndex = -1;
+                }
+
+                radDeployLatest.Checked = true;
+                radDeployRollback.Checked = false;
+                cmbDeployArchiveVersions.Enabled = false;
+                cmbDeployArchiveVersions.Items.Clear();
+
+                if (cmbRevAppSelect.SelectedIndex != -1)
+                {
+                    cmbRevAppSelect.SelectedIndex = -1;
+                }
+
+                dgvRevisions.ClearSelection();
+                dgvRevisions.CurrentCell = null;
+            }
+            finally
+            {
+                _isUpdatingUi = false;
+            }
         }
 
         private void BtnTabPublish_Click(object sender, EventArgs e)
@@ -204,6 +234,10 @@ namespace GFCDevOpsUtility
             pnlPublish.Visible = (panelToShow == pnlPublish);
             pnlDeploy.Visible = (panelToShow == pnlDeploy);
             pnlRevisions.Visible = (panelToShow == pnlRevisions);
+
+            btnRunPublish.Visible = (panelToShow == pnlPublish);
+            btnRunDeploy.Visible = (panelToShow == pnlDeploy);
+            btnRunRevisionSync.Visible = (panelToShow == pnlRevisions);
         }
 
         private void SetActiveTabButton(Button activeBtn)
@@ -214,77 +248,8 @@ namespace GFCDevOpsUtility
         }
         #endregion
 
-        #region Logging Console (Amber for Errors, No Red)
-        private void Log(string message, bool isError = false, Color? customColor = null)
-        {
-            if (rtbTerminal.InvokeRequired)
-            {
-                rtbTerminal.Invoke(new Action(() => Log(message, isError, customColor)));
-                return;
-            }
-
-            Color logColor = ColorText;
-
-            if (isError)
-            {
-                logColor = ColorError; // Warm Amber / Dark Orange for errors
-            }
-            else if (customColor.HasValue)
-            {
-                logColor = customColor.Value;
-            }
-            else
-            {
-                // Auto-detect status keywords (case-insensitive)
-                string lowerMsg = message.ToLowerInvariant();
-                if (lowerMsg.Contains("error"))
-                {
-                    logColor = Color.FromArgb(220, 38, 38); // Premium Red
-                }
-                else if (lowerMsg.Contains("warning"))
-                {
-                    logColor = Color.FromArgb(217, 119, 6); // Dark Yellow / Amber
-                }
-                else if (lowerMsg.Contains("[ok]") || lowerMsg.Contains("success") || lowerMsg.Contains("successful"))
-                {
-                    logColor = ColorSuccess;
-                }
-                else if (lowerMsg.Contains("[dry]") || lowerMsg.Contains("would "))
-                {
-                    logColor = ColorWarning;
-                }
-                else if (lowerMsg.Contains("[wait]") || lowerMsg.Contains(">>>") || lowerMsg.Contains("stopping") || lowerMsg.Contains("starting"))
-                {
-                    logColor = ColorWait;
-                }
-            }
-
-            rtbTerminal.SelectionStart = rtbTerminal.TextLength;
-            rtbTerminal.SelectionLength = 0;
-            rtbTerminal.SelectionColor = logColor;
-            
-            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!") || message.ToLowerInvariant().Contains("error"))
-            {
-                rtbTerminal.SelectionFont = new Font(rtbTerminal.Font, FontStyle.Bold);
-            }
-            else
-            {
-                rtbTerminal.SelectionFont = new Font(rtbTerminal.Font, FontStyle.Regular);
-            }
-
-            rtbTerminal.AppendText(message + Environment.NewLine);
-            rtbTerminal.SelectionColor = rtbTerminal.ForeColor;
-            rtbTerminal.ScrollToCaret();
-        }
-
-        private void BtnClearLogs_Click(object sender, EventArgs e)
-        {
-            rtbTerminal.Clear();
-            rtbBuildOutput.Clear();
-            _fullPublishLog.Clear();
-        }
-
-        private readonly List<LogLine> _fullPublishLog = new List<LogLine>();
+        #region Unified Dark Execution Console
+        private readonly List<LogLine> _fullLogHistory = new List<LogLine>();
 
         public class LogLine
         {
@@ -304,8 +269,8 @@ namespace GFCDevOpsUtility
             }
 
             string lower = message.ToLowerInvariant();
-            bool isErrLine = isError || lower.Contains("error");
-            bool isWarnLine = lower.Contains("warning");
+            bool isErrLine = isError || lower.Contains("error") || lower.Contains("[fail]") || lower.Contains("failed");
+            bool isWarnLine = lower.Contains("warning") || lower.Contains("[warn]");
 
             if (showErrorsOnly && showWarningsOnly)
             {
@@ -325,41 +290,46 @@ namespace GFCDevOpsUtility
 
         private void ChkShowFilters_CheckedChanged(object sender, EventArgs e)
         {
-            rtbBuildOutput.Clear();
-            foreach (var line in _fullPublishLog)
+            rtbTerminal.Clear();
+            foreach (var line in _fullLogHistory)
             {
                 if (!ShouldFilterLine(line.Message, line.IsError))
                 {
-                    AppendToPublishConsole(line.Message, line.IsError, line.CustomColor);
+                    AppendToTerminal(line.Message, line.IsError, line.CustomColor);
                 }
             }
         }
 
-        private void LogPublish(string message, bool isError = false, Color? customColor = null)
+        private void Log(string message, bool isError = false, Color? customColor = null)
         {
-            if (rtbBuildOutput.InvokeRequired)
+            if (rtbTerminal.InvokeRequired)
             {
-                rtbBuildOutput.Invoke(new Action(() => LogPublish(message, isError, customColor)));
+                rtbTerminal.Invoke(new Action(() => Log(message, isError, customColor)));
                 return;
             }
 
-            _fullPublishLog.Add(new LogLine { Message = message, IsError = isError, CustomColor = customColor });
+            _fullLogHistory.Add(new LogLine { Message = message, IsError = isError, CustomColor = customColor });
 
             if (ShouldFilterLine(message, isError))
             {
                 return;
             }
 
-            AppendToPublishConsole(message, isError, customColor);
+            AppendToTerminal(message, isError, customColor);
         }
 
-        private void AppendToPublishConsole(string message, bool isError = false, Color? customColor = null)
+        private void LogPublish(string message, bool isError = false, Color? customColor = null)
         {
-            Color logColor = ColorText;
+            Log(message, isError, customColor);
+        }
+
+        private void AppendToTerminal(string message, bool isError = false, Color? customColor = null)
+        {
+            Color logColor = Color.FromArgb(248, 250, 252); // Default Cascadia text (Slate 50)
 
             if (isError)
             {
-                logColor = ColorError; // Warm Amber for errors
+                logColor = Color.FromArgb(248, 113, 113); // High-contrast Red / Coral for errors
             }
             else if (customColor.HasValue)
             {
@@ -367,59 +337,57 @@ namespace GFCDevOpsUtility
             }
             else
             {
-                // Auto-detect status keywords (case-insensitive)
                 string lowerMsg = message.ToLowerInvariant();
-                if (lowerMsg.Contains("error"))
+                if (lowerMsg.Contains("error") || lowerMsg.Contains("[fail]") || lowerMsg.Contains("critical"))
                 {
-                    logColor = Color.FromArgb(220, 38, 38); // Premium Red
+                    logColor = Color.FromArgb(248, 113, 113); // Coral Red
                 }
-                else if (lowerMsg.Contains("warning"))
+                else if (lowerMsg.Contains("warning") || lowerMsg.Contains("[warn]"))
                 {
-                    logColor = Color.FromArgb(217, 119, 6); // Dark Yellow / Amber
+                    logColor = Color.FromArgb(251, 191, 36); // Amber / Warm Yellow
                 }
-                else if (lowerMsg.Contains("[ok]") || lowerMsg.Contains("success") || lowerMsg.Contains("successful"))
+                else if (lowerMsg.Contains("[ok]") || lowerMsg.Contains("success") || lowerMsg.Contains("successful") || lowerMsg.Contains("completed successfully"))
                 {
-                    logColor = ColorSuccess;
+                    logColor = Color.FromArgb(52, 211, 153); // Emerald Green
+                }
+                else if (lowerMsg.Contains("[step") || lowerMsg.Contains(">>>") || lowerMsg.Contains("[wait]") || lowerMsg.Contains("starting"))
+                {
+                    logColor = Color.FromArgb(96, 165, 250); // Sky Blue
                 }
                 else if (lowerMsg.Contains("[dry]") || lowerMsg.Contains("would "))
                 {
-                    logColor = ColorWarning;
-                }
-                else if (lowerMsg.Contains("[wait]") || lowerMsg.Contains(">>>") || lowerMsg.Contains("stopping") || lowerMsg.Contains("starting"))
-                {
-                    logColor = ColorWait;
+                    logColor = Color.FromArgb(251, 146, 60); // Orange
                 }
             }
 
-            rtbBuildOutput.SelectionStart = rtbBuildOutput.TextLength;
-            rtbBuildOutput.SelectionLength = 0;
-            rtbBuildOutput.SelectionColor = logColor;
-            
-            if (isError || message.Contains("CRITICAL ERROR") || message.Contains("FAILED") || message.Contains("!!!") || message.ToLowerInvariant().Contains("error"))
-            {
-                rtbBuildOutput.SelectionFont = new Font(rtbBuildOutput.Font, FontStyle.Bold);
-            }
-            else
-            {
-                rtbBuildOutput.SelectionFont = new Font(rtbBuildOutput.Font, FontStyle.Regular);
-            }
+            rtbTerminal.SelectionStart = rtbTerminal.TextLength;
+            rtbTerminal.SelectionLength = 0;
+            rtbTerminal.SelectionColor = logColor;
 
-            rtbBuildOutput.AppendText(message + Environment.NewLine);
-            rtbBuildOutput.SelectionColor = rtbBuildOutput.ForeColor;
-            rtbBuildOutput.SelectionStart = rtbBuildOutput.Text.Length;
-            rtbBuildOutput.ScrollToCaret();
+            bool isBold = isError || message.Contains("CRITICAL") || message.Contains("FAILED") || message.Contains("!!!") || message.Contains("SUCCESS:") || message.Contains("==================");
+            rtbTerminal.SelectionFont = new Font(rtbTerminal.Font.FontFamily, rtbTerminal.Font.Size, isBold ? FontStyle.Bold : FontStyle.Regular);
+
+            rtbTerminal.AppendText(message + Environment.NewLine);
+            rtbTerminal.SelectionColor = rtbTerminal.ForeColor;
+            rtbTerminal.ScrollToCaret();
+        }
+
+        private void BtnClearLogs_Click(object sender, EventArgs e)
+        {
+            rtbTerminal.Clear();
+            _fullLogHistory.Clear();
         }
 
         private void BtnCopyLog_Click(object sender, EventArgs e)
         {
-            if (!string.IsNullOrEmpty(rtbBuildOutput.Text))
+            if (!string.IsNullOrEmpty(rtbTerminal.Text))
             {
-                Clipboard.SetText(rtbBuildOutput.Text);
-                MessageBox.Show("Build logs successfully copied to clipboard!", "Logs Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Clipboard.SetText(rtbTerminal.Text);
+                MessageBox.Show("Console logs successfully copied to clipboard!", "Logs Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
-                MessageBox.Show("No build logs to copy.", "Empty Logs", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("No console logs to copy.", "Empty Logs", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
         #endregion
@@ -435,6 +403,7 @@ namespace GFCDevOpsUtility
             _dtRevisions.Rows.Add("📱 Mobile App", "Loading...", "---");
             _dtRevisions.Rows.Add("🖥️ POS App", "Loading...", "---");
             _dtRevisions.Rows.Add("🌐 Web App", "Loading...", "---");
+            _dtRevisions.Rows.Add("📲 Connect App", "Loading...", "---");
 
             dgvRevisions.DataSource = _dtRevisions;
             dgvRevisions.Columns[0].Width = 140;
@@ -457,14 +426,22 @@ namespace GFCDevOpsUtility
                 string mobVer = VersionScanner.GetMobileVersion(workspace);
                 string posVer = VersionScanner.GetPosVersion(workspace);
                 string webVer = VersionScanner.GetWebAppVersion(workspace);
+                string conVer = VersionScanner.GetConnectVersion(workspace);
 
                 this.Invoke(new Action(() =>
                 {
                     _dtRevisions.Rows[0]["Current Version"] = mobVer;
                     _dtRevisions.Rows[1]["Current Version"] = posVer;
                     _dtRevisions.Rows[2]["Current Version"] = webVer;
+                    _dtRevisions.Rows[3]["Current Version"] = conVer;
 
                     UpdateProposedVersions();
+
+                    if (cmbRevAppSelect.SelectedIndex == -1)
+                    {
+                        dgvRevisions.ClearSelection();
+                        dgvRevisions.CurrentCell = null;
+                    }
                 }));
             });
         }
@@ -473,13 +450,13 @@ namespace GFCDevOpsUtility
         {
             if (_dtRevisions == null) return;
 
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 4; i++)
             {
                 string current = _dtRevisions.Rows[i]["Current Version"].ToString() ?? "Unknown";
                 string proposed = "---";
 
                 string selectedTarget = cmbRevAppSelect.SelectedItem?.ToString() ?? "";
-                string rowTarget = i == 0 ? "Mobile" : (i == 1 ? "POS" : "WebApp");
+                string rowTarget = i == 0 ? "Mobile" : (i == 1 ? "POS" : (i == 2 ? "WebApp" : "Connect"));
 
                 if (selectedTarget.Equals(rowTarget, StringComparison.OrdinalIgnoreCase))
                 {
@@ -513,6 +490,26 @@ namespace GFCDevOpsUtility
         private void CmbRevAppSelect_SelectedIndexChanged(object sender, EventArgs e)
         {
             UpdateProposedVersions();
+        }
+
+        private void DgvRevisions_CellClick(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.RowIndex < dgvRevisions.Rows.Count)
+            {
+                string? targetApp = e.RowIndex switch
+                {
+                    0 => "Mobile",
+                    1 => "POS",
+                    2 => "WebApp",
+                    3 => "Connect",
+                    _ => null
+                };
+
+                if (targetApp != null && cmbRevAppSelect.SelectedItem?.ToString() != targetApp)
+                {
+                    cmbRevAppSelect.SelectedItem = targetApp;
+                }
+            }
         }
 
         private void RadRevOption_CheckedChanged(object sender, EventArgs e)
@@ -652,28 +649,6 @@ namespace GFCDevOpsUtility
             }
         }
 
-        private void ChkDepMobileApk_CheckedChanged(object sender, EventArgs e)
-        {
-            txtDepApkDist.Enabled = btnDepApkDistBrowse.Enabled = chkDepMobileApk.Checked;
-            _config.PosDeployMobileApk = chkDepMobileApk.Checked;
-            _config.Save();
-        }
-
-        private void BtnDepApkDistBrowse_Click(object sender, EventArgs e)
-        {
-            using (var fbd = new FolderBrowserDialog())
-            {
-                fbd.Description = "Select APK Distribution Folder on Server";
-                fbd.SelectedPath = txtDepApkDist.Text;
-                if (fbd.ShowDialog() == DialogResult.OK)
-                {
-                    txtDepApkDist.Text = fbd.SelectedPath;
-                    _config.PosApkDistFolder = fbd.SelectedPath;
-                    _config.Save();
-                }
-            }
-        }
-
         private void RestoreDeployPaths() { }
         private void SaveDeployPaths() { }
         #endregion
@@ -731,70 +706,103 @@ namespace GFCDevOpsUtility
                 txtDepIisSite.Text = appConfig.IisSiteName;
                 txtDepIisAppPool.Text = appConfig.IisAppPool;
 
-                bool isPos = appConfig.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase);
-                chkDepMobileApk.Visible = isPos;
-                lblDepApkDist.Visible = isPos;
-                txtDepApkDist.Visible = isPos;
-                btnDepApkDistBrowse.Visible = isPos;
+                PopulateArchiveVersions(appConfig);
 
-                if (isPos)
+                bool isApkApp = appConfig.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase) ||
+                                appConfig.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase);
+
+                if (isApkApp)
                 {
-                    chkDepMobileApk.Checked = _config.PosDeployMobileApk;
-                    txtDepApkDist.Text = _config.PosApkDistFolder;
-                    txtDepApkDist.Enabled = btnDepApkDistBrowse.Enabled = chkDepMobileApk.Checked;
+                    radDeployLatest.Checked = true;
+                    radDeployRollback.Checked = false;
+                    radDeployRollback.Enabled = false;
+                    radDeployRollback.Text = "Rollback Not Supported (APK / Native Android)";
+                    cmbDeployArchiveVersions.Enabled = false;
                 }
+                else
+                {
+                    radDeployRollback.Enabled = true;
+                    radDeployRollback.Text = "Rollback Previous Release:";
+                    cmbDeployArchiveVersions.Enabled = radDeployRollback.Checked;
+                }
+
                 _isUpdatingUi = false;
             }
         }
 
-        private void ClbPublishApps_ItemCheck(object sender, ItemCheckEventArgs e)
+        private void RadDeployMode_CheckedChanged(object sender, EventArgs e)
         {
-            if (_isSyncingChecks) return;
-            _isSyncingChecks = true;
-            clbDeployApps.SetItemChecked(e.Index, e.NewValue == CheckState.Checked);
-            _isSyncingChecks = false;
-        }
+            var selectedAppName = clbDeployApps.SelectedItem?.ToString();
+            bool isApkApp = "Connect".Equals(selectedAppName, StringComparison.OrdinalIgnoreCase) ||
+                            "POS".Equals(selectedAppName, StringComparison.OrdinalIgnoreCase);
 
-        private void ClbDeployApps_ItemCheck(object sender, ItemCheckEventArgs e)
-        {
-            if (_isSyncingChecks) return;
-            _isSyncingChecks = true;
-            clbPublishApps.SetItemChecked(e.Index, e.NewValue == CheckState.Checked);
-            _isSyncingChecks = false;
-        }
-
-
-
-        private void ChkApkMobile_CheckedChanged(object sender, EventArgs e)
-        {
-            if (_isUpdatingUi) return;
-            var appConfig = _config.AppPipelines.Find(a => a.AppName == "Mobile");
-            if (appConfig != null)
+            if (isApkApp)
             {
-                appConfig.PublishMobileApk = chkApkMobile.Checked;
-                _config.Save();
+                radDeployRollback.Enabled = false;
+                cmbDeployArchiveVersions.Enabled = false;
+                if (radDeployRollback.Checked)
+                {
+                    radDeployLatest.Checked = true;
+                }
+            }
+            else
+            {
+                cmbDeployArchiveVersions.Enabled = radDeployRollback.Checked;
             }
         }
 
-        private void ChkApkPos_CheckedChanged(object sender, EventArgs e)
+        private void PopulateArchiveVersions(AppPipelineConfig appConfig)
         {
-            if (_isUpdatingUi) return;
-            var appConfig = _config.AppPipelines.Find(a => a.AppName == "POS");
-            if (appConfig != null)
-            {
-                appConfig.PublishMobileApk = chkApkPos.Checked;
-                _config.Save();
-            }
-        }
+            cmbDeployArchiveVersions.Items.Clear();
 
-        private void ChkApkWebApp_CheckedChanged(object sender, EventArgs e)
-        {
-            if (_isUpdatingUi) return;
-            var appConfig = _config.AppPipelines.Find(a => a.AppName == "WebApp");
-            if (appConfig != null)
+            if (appConfig == null || string.IsNullOrWhiteSpace(appConfig.ArchiveFolder) || !Directory.Exists(appConfig.ArchiveFolder))
             {
-                appConfig.PublishMobileApk = chkApkWebApp.Checked;
-                _config.Save();
+                return;
+            }
+
+            // Exclude APK apps from rollback archive selection
+            if (appConfig.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase) ||
+                appConfig.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            try
+            {
+                var files = new List<string>(Directory.GetFiles(appConfig.ArchiveFolder, $"{appConfig.AppName}_v*.zip"));
+                if (files.Count == 0)
+                {
+                    files.AddRange(Directory.GetFiles(appConfig.ArchiveFolder, $"{appConfig.AppName}_*.zip"));
+                }
+
+                var fileInfos = new List<FileInfo>();
+                foreach (var f in files)
+                {
+                    try
+                    {
+                        fileInfos.Add(new FileInfo(f));
+                    }
+                    catch
+                    {
+                        // ignore unreadable files
+                    }
+                }
+
+                fileInfos.Sort((a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+
+                foreach (var fi in fileInfos)
+                {
+                    cmbDeployArchiveVersions.Items.Add(fi.Name);
+                }
+
+                if (cmbDeployArchiveVersions.Items.Count > 0)
+                {
+                    cmbDeployArchiveVersions.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"[ARCHIVE] Warning: Unable to inspect archive directory: {ex.Message}", false, ColorWarning);
             }
         }
 
@@ -843,6 +851,7 @@ namespace GFCDevOpsUtility
             {
                 appConfig.ArchiveFolder = txtDepBackup.Text.Trim();
                 _config.Save();
+                PopulateArchiveVersions(appConfig);
             }
         }
 
@@ -933,6 +942,10 @@ namespace GFCDevOpsUtility
             {
                 version = VersionScanner.GetWebAppVersion(workspace);
             }
+            else if (appName.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+            {
+                version = VersionScanner.GetConnectVersion(workspace);
+            }
             
             if (string.IsNullOrEmpty(version) || version.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
             {
@@ -959,16 +972,16 @@ namespace GFCDevOpsUtility
 
             _isPublishAborted = false;
 
-            var checkedApps = new List<AppPipelineConfig>();
-            foreach (var item in clbPublishApps.CheckedItems)
+            if (clbPublishApps.SelectedItem == null)
             {
-                var app = _config.AppPipelines.Find(a => a.AppName == item.ToString());
-                if (app != null) checkedApps.Add(app);
+                MessageBox.Show("Please select an application from the list to publish.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
-            if (checkedApps.Count == 0)
+            var selectedApp = _config.AppPipelines.Find(a => a.AppName == clbPublishApps.SelectedItem.ToString());
+            if (selectedApp == null)
             {
-                MessageBox.Show("Please check at least one application to publish.", "No App Checked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Selected application configuration could not be found.", "App Not Found", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -983,27 +996,18 @@ namespace GFCDevOpsUtility
             _config.WorkspacePath = workspace;
             _config.Save();
 
-            SetBusy(true, "Publishing projects...", true);
+            SetBusy(true, $"Publishing {selectedApp.AppName}...", true);
             rtbTerminal.Clear();
-            rtbBuildOutput.Clear();
-            _fullPublishLog.Clear();
-            LogPublish($">>> STARTING BATCH PUBLISH FOR {checkedApps.Count} TARGET(S)...", false, ColorWait);
+            _fullLogHistory.Clear();
+            LogPublish($">>> STARTING PUBLISH PIPELINE FOR TARGET: {selectedApp.AppName}...", false, ColorWait);
 
             // Initialize progress status indicators
             foreach (var appConfig in _config.AppPipelines)
             {
-                bool isSelected = checkedApps.Exists(a => a.AppName == appConfig.AppName);
-                if (isSelected)
+                if (appConfig.AppName == selectedApp.AppName)
                 {
                     UpdateVisualStatus(appConfig.AppName, false, "Queued ⏳", Color.Orange);
-                    if (appConfig.PublishMobileApk)
-                    {
-                        UpdateVisualStatus(appConfig.AppName, true, "Queued ⏳", Color.Orange);
-                    }
-                    else
-                    {
-                        UpdateVisualStatus(appConfig.AppName, true, "APK: -", Color.Gray);
-                    }
+                    UpdateVisualStatus(appConfig.AppName, true, "Queued ⏳", Color.Orange);
                 }
                 else
                 {
@@ -1012,6 +1016,7 @@ namespace GFCDevOpsUtility
                 }
             }
 
+            var checkedApps = new List<AppPipelineConfig> { selectedApp };
             var successes = new List<string>();
             var failures = new Dictionary<string, string>();
 
@@ -1063,6 +1068,10 @@ namespace GFCDevOpsUtility
                         else if (app.AppName.Equals("WebApp", StringComparison.OrdinalIgnoreCase))
                         {
                             appSuccess = await PublishWebAppAsync(workspace, app, revision);
+                        }
+                        else if (app.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+                        {
+                            appSuccess = await PublishConnectAppAsync(workspace, app, revision);
                         }
                     }
 
@@ -1122,17 +1131,7 @@ namespace GFCDevOpsUtility
                 }
             }
 
-            // Clear checked items and selection on completion
-            _isSyncingChecks = true;
-            for (int i = 0; i < clbPublishApps.Items.Count; i++)
-            {
-                clbPublishApps.SetItemChecked(i, false);
-                clbDeployApps.SetItemChecked(i, false);
-            }
-            clbPublishApps.SelectedIndex = -1;
-            clbDeployApps.SelectedIndex = -1;
-            if (lblAppDesc != null) lblAppDesc.Text = "Click/hover an item to see its purpose.";
-            _isSyncingChecks = false;
+            if (lblAppDesc != null) lblAppDesc.Text = "Click an item to see its purpose.";
 
             if (_isPublishAborted)
             {
@@ -1253,7 +1252,6 @@ namespace GFCDevOpsUtility
             }
 
             bool webBuildSuccess = false;
-            bool mobileBuildSuccess = true; // default true if not selected
 
             // STEP 1: Web Terminal Build
             LogPublish("\n=======================================================", false, ColorPrimary);
@@ -1355,6 +1353,218 @@ namespace GFCDevOpsUtility
             Directory.Delete(tempOut, true);
             LogPublish($">>> [OK] Web App package successfully compressed.", false, ColorSuccess);
 
+            return true;
+        }
+
+        private async Task<bool> PublishConnectAppAsync(string workspace, AppPipelineConfig app, string revision)
+        {
+            LogPublish($"\n=======================================================", false, ColorPrimary);
+            LogPublish($">>> [WAIT] Starting GFC Connect Native Android Build for revision {revision}...", false, ColorWait);
+            LogPublish($"=======================================================", false, ColorPrimary);
+
+            string connectDir = Path.Combine(workspace, "apps", "GFC-Connect");
+            string gradlew = Path.Combine(connectDir, "gradlew.bat");
+
+            // --- 1. PREREQUISITE DIAGNOSTIC CHECK ---
+            LogPublish(">>> Checking compilation prerequisites for GFC Connect...", false, ColorWait);
+
+            bool javaOk = false;
+            string javaPath = string.Empty;
+
+            string javaHome = Environment.GetEnvironmentVariable("JAVA_HOME") ?? string.Empty;
+            if (!string.IsNullOrEmpty(javaHome) && Directory.Exists(javaHome))
+            {
+                javaOk = true;
+                javaPath = javaHome;
+            }
+            else
+            {
+                // Check Android Studio JBR defaults
+                string[] studioJbrPaths = new[]
+                {
+                    @"C:\Program Files\Android\Android Studio\jbr",
+                    @"C:\Program Files\Android\Android Studio\jre",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Android Studio\jbr")
+                };
+                foreach (var p in studioJbrPaths)
+                {
+                    if (Directory.Exists(p))
+                    {
+                        javaOk = true;
+                        javaPath = p;
+                        break;
+                    }
+                }
+            }
+
+            bool sdkOk = false;
+            string sdkPath = string.Empty;
+            string androidHome = Environment.GetEnvironmentVariable("ANDROID_HOME") ?? Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT") ?? string.Empty;
+            if (!string.IsNullOrEmpty(androidHome) && Directory.Exists(androidHome))
+            {
+                sdkOk = true;
+                sdkPath = androidHome;
+            }
+            else
+            {
+                string localProps = Path.Combine(connectDir, "local.properties");
+                if (File.Exists(localProps))
+                {
+                    var lines = File.ReadAllLines(localProps);
+                    foreach (var line in lines)
+                    {
+                        if (line.Trim().StartsWith("sdk.dir", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var sdkLineParts = line.Split('=');
+                            if (sdkLineParts.Length > 1)
+                            {
+                                string candidate = sdkLineParts[1].Trim().Replace("\\\\", "\\").Replace("\\:", ":");
+                                if (Directory.Exists(candidate))
+                                {
+                                    sdkOk = true;
+                                    sdkPath = candidate;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!sdkOk)
+                {
+                    string defaultLocalSdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Android\Sdk");
+                    if (Directory.Exists(defaultLocalSdk))
+                    {
+                        sdkOk = true;
+                        sdkPath = defaultLocalSdk;
+                    }
+                }
+            }
+
+            if (!javaOk || !sdkOk)
+            {
+                LogPublish("======================================================================", true);
+                LogPublish("[PREREQUISITES REQUIRED TO BUILD GFC CONNECT ON THIS COMPUTER]", true);
+                LogPublish("======================================================================", true);
+                LogPublish($"1. Java JDK 17+:  {(javaOk ? $"[FOUND: {javaPath}]" : "[MISSING] -> Install Android Studio or OpenJDK 17.")}", !javaOk);
+                LogPublish($"2. Android SDK:   {(sdkOk ? $"[FOUND: {sdkPath}]" : "[MISSING] -> Install Android Studio or Android SDK Command-line Tools.")}", !sdkOk);
+                LogPublish("======================================================================", true);
+                LogPublish(">>> GFC Connect build cannot proceed on this computer without the Android build toolchain.", true);
+                return false;
+            }
+
+            LogPublish($"[OK] Java toolchain: {javaPath}", false, ColorSuccess);
+            LogPublish($"[OK] Android SDK:    {sdkPath}", false, ColorSuccess);
+
+            if (!File.Exists(gradlew))
+            {
+                LogPublish($"!!! Missing Gradle wrapper script at: {gradlew}", true);
+                return false;
+            }
+
+            if (_isPublishAborted) return false;
+
+            // --- 2. EXECUTE GRADLE ASSEMBLE RELEASE ---
+            LogPublish(">>> Executing gradlew.bat assembleRelease...", false, ColorWait);
+            var runner = new ProcessRunner((line, err) => LogPublish(line, err));
+            _activePublishRunner = runner;
+            int exit = -1;
+
+            try
+            {
+                var envVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["JAVA_HOME"] = javaPath,
+                    ["ANDROID_HOME"] = sdkPath,
+                    ["ANDROID_SDK_ROOT"] = sdkPath
+                };
+
+                string existingPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+                string javaBin = Path.Combine(javaPath, "bin");
+                if (!existingPath.Contains(javaBin, StringComparison.OrdinalIgnoreCase))
+                {
+                    envVars["PATH"] = $"{javaBin};{existingPath}";
+                }
+
+                exit = await runner.RunAsync("cmd.exe", $"/c \"{gradlew}\" assembleRelease -x lint -x test --no-daemon", connectDir, envVars);
+            }
+            finally
+            {
+                _activePublishRunner = null;
+            }
+
+            if (exit != 0 || _isPublishAborted)
+            {
+                LogPublish($"!!! Gradle assembleRelease failed with exit code {exit}", true);
+                return false;
+            }
+
+            // --- 3. LOCATE OUTPUT APK ---
+            string expectedApk = Path.Combine(connectDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
+            if (!File.Exists(expectedApk))
+            {
+                // Fallback scan in release outputs
+                string releaseDir = Path.Combine(connectDir, "app", "release");
+                if (Directory.Exists(releaseDir))
+                {
+                    var found = Directory.GetFiles(releaseDir, "*.apk");
+                    if (found.Length > 0) expectedApk = found[0];
+                }
+            }
+
+            if (!File.Exists(expectedApk))
+            {
+                LogPublish($"!!! Gradle succeeded but output APK was not found at: {expectedApk}", true);
+                return false;
+            }
+
+            // --- 4. STAGE gfc-connect.apk AND version.json ---
+            if (!Directory.Exists(app.SourceZipFolder))
+            {
+                Directory.CreateDirectory(app.SourceZipFolder);
+            }
+
+            string targetApk = Path.Combine(app.SourceZipFolder, "gfc-connect.apk");
+            File.Copy(expectedApk, targetApk, true);
+            LogPublish($">>> [OK] Staged production APK: {targetApk}", false, ColorSuccess);
+
+            // Generate version.json in output directory
+            string targetVersionJson = Path.Combine(app.SourceZipFolder, "version.json");
+            string cleanRevision = revision.TrimStart('v', 'V');
+            int computedCode = 100;
+            var parts = cleanRevision.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor))
+            {
+                int patch = 0;
+                if (parts.Length >= 3) int.TryParse(parts[2], out patch);
+                computedCode = (major * 100) + (minor * 10) + patch;
+            }
+
+            var verObj = new
+            {
+                latestVersionCode = computedCode,
+                latestVersionName = cleanRevision,
+                downloadUrl = "/api/app/download/latest.apk",
+                mandatoryUpdate = false,
+                releaseNotes = $"GFC Connect Release v{cleanRevision}",
+                releasedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            };
+            File.WriteAllText(targetVersionJson, JsonSerializer.Serialize(verObj, new JsonSerializerOptions { WriteIndented = true }));
+            LogPublish($">>> [OK] Generated release metadata: {targetVersionJson}", false, ColorSuccess);
+
+            // Create a bundled zip as well so it conforms to the standard package format
+            string zipPath = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.zip");
+            string tempPackDir = Path.Combine(workspace, "publish_connect_temp");
+            if (Directory.Exists(tempPackDir)) Directory.Delete(tempPackDir, true);
+            Directory.CreateDirectory(tempPackDir);
+
+            File.Copy(targetApk, Path.Combine(tempPackDir, "gfc-connect.apk"), true);
+            File.Copy(targetVersionJson, Path.Combine(tempPackDir, "version.json"), true);
+
+            await CreateZipFromDirectoryAsync(tempPackDir, zipPath);
+            Directory.Delete(tempPackDir, true);
+
+            LogPublish($">>> [OK] Connect App package successfully created: {zipPath}", false, ColorSuccess);
             return true;
         }
 
@@ -1594,6 +1804,10 @@ namespace GFCDevOpsUtility
                     {
                         targetLabel = lblStatusDeployWebAppState;
                     }
+                    else if (appName.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetLabel = lblStatusDeployConnectState;
+                    }
 
                     if (targetLabel != null)
                     {
@@ -1617,30 +1831,65 @@ namespace GFCDevOpsUtility
             Log($">>> STARTING DEPLOYMENT PIPELINE FOR: {app.AppName}", false, ColorPrimary);
             Log($"=======================================================", false, ColorPrimary);
 
-            // Locate zip file dynamically: Scan Source ZIP Folder for files matching pattern AppName_v*.zip or AppName_*.zip
+            // Locate package file dynamically:
             string zipPath = string.Empty;
             string zipName = string.Empty;
+            bool isRollback = radDeployRollback.Checked;
 
-            if (Directory.Exists(app.SourceZipFolder))
+            if (isRollback)
             {
-                var matchedFiles = new List<string>(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_v*.zip"));
-                if (matchedFiles.Count == 0)
+                if (cmbDeployArchiveVersions.SelectedItem == null)
                 {
-                    matchedFiles.AddRange(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_*.zip"));
+                    Log($"!!! Error: Rollback mode is active, but no archived version package is selected.", true);
+                    return false;
                 }
 
-                if (matchedFiles.Count > 0)
+                string selectedArchiveFile = cmbDeployArchiveVersions.SelectedItem.ToString() ?? "";
+                zipPath = Path.Combine(app.ArchiveFolder, selectedArchiveFile);
+                zipName = selectedArchiveFile;
+
+                if (!File.Exists(zipPath))
                 {
-                    matchedFiles.Sort((a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
-                    zipPath = matchedFiles[0];
-                    zipName = Path.GetFileName(zipPath);
-                    Log($">>> Dynamically resolved latest package: {zipName}", false, ColorSuccess);
+                    Log($"!!! Error: Selected archive package does not exist at path: {zipPath}", true);
+                    return false;
+                }
+
+                Log($">>> [ROLLBACK] Target archived package selected: {zipName}", false, ColorSuccess);
+            }
+            else
+            {
+                // Scan Source ZIP Folder for zip or apk
+                if (Directory.Exists(app.SourceZipFolder))
+                {
+                    var matchedFiles = new List<string>(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_v*.zip"));
+                    if (matchedFiles.Count == 0)
+                    {
+                        matchedFiles.AddRange(Directory.GetFiles(app.SourceZipFolder, $"{app.AppName}_*.zip"));
+                    }
+
+                    // If Connect and no zip found, check for raw gfc-connect.apk
+                    if (matchedFiles.Count == 0 && app.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rawApk = Path.Combine(app.SourceZipFolder, "gfc-connect.apk");
+                        if (File.Exists(rawApk))
+                        {
+                            matchedFiles.Add(rawApk);
+                        }
+                    }
+
+                    if (matchedFiles.Count > 0)
+                    {
+                        matchedFiles.Sort((a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                        zipPath = matchedFiles[0];
+                        zipName = Path.GetFileName(zipPath);
+                        Log($">>> Dynamically resolved latest package: {zipName}", false, ColorSuccess);
+                    }
                 }
             }
 
             if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath))
             {
-                if (app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase) && _config.PosDeployMobileApk)
+                if (!isRollback && app.AppName.Equals("POS", StringComparison.OrdinalIgnoreCase) && _config.PosDeployMobileApk)
                 {
                     Log(">>> No ZIP package found, but APK deployment is active. Attempting APK-Only deployment...", false, ColorWarning);
                     
@@ -1725,21 +1974,37 @@ namespace GFCDevOpsUtility
                 return false;
             }
 
-            // Stop IIS Pool & Site
-            Log($">>> Stopping IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
-            await ToggleIisAsync(app.IisSiteName, app.IisAppPool, false);
+            bool isConnectApp = app.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase);
+
+            // Stop IIS Pool & Site (Skip for Connect App since it only updates a static APK file without downtime)
+            if (!isConnectApp && !string.IsNullOrWhiteSpace(app.IisSiteName))
+            {
+                Log($">>> Stopping IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
+                await ToggleIisAsync(app.IisSiteName, app.IisAppPool, false);
+            }
+            else if (isConnectApp)
+            {
+                Log(">>> Connect App deployment: Zero-downtime file deployment (IIS restart skipped).", false, ColorSuccess);
+            }
 
             try
             {
-                // Step A: Archive
-                Log($"[Step A] Archiving ZIP package '{zipName}'...", false, ColorWait);
-                if (!Directory.Exists(app.ArchiveFolder))
+                // Step A: Archive (only when deploying fresh packages, skip for rollback)
+                if (isRollback)
                 {
-                    Directory.CreateDirectory(app.ArchiveFolder);
+                    Log($"[Step A] Rollback mode active: Re-archiving skipped (package is already archived).", false, ColorWait);
                 }
-                string archiveDest = Path.Combine(app.ArchiveFolder, zipName);
-                File.Copy(zipPath, archiveDest, true);
-                Log($"[Step A] [OK] Package archived successfully: {archiveDest}", false, ColorSuccess);
+                else
+                {
+                    Log($"[Step A] Archiving ZIP package '{zipName}'...", false, ColorWait);
+                    if (!Directory.Exists(app.ArchiveFolder))
+                    {
+                        Directory.CreateDirectory(app.ArchiveFolder);
+                    }
+                    string archiveDest = Path.Combine(app.ArchiveFolder, zipName);
+                    File.Copy(zipPath, archiveDest, true);
+                    Log($"[Step A] [OK] Package archived successfully: {archiveDest}", false, ColorSuccess);
+                }
 
                 // Step B: Deploy
                 if (chkPurgeFiles.Checked)
@@ -1756,9 +2021,22 @@ namespace GFCDevOpsUtility
                     Log($"[Step B] Purge is disabled. Skipping production folder clearing step.", false, ColorWait);
                 }
 
-                Log($"[Step B] Extracting new flat ZIP contents directly to live folder...", false, ColorWait);
-                await ExtractZipAsync(zipPath, app.LiveTargetFolder);
-                Log($"[Step B] [OK] Extraction completed flat.", false, ColorSuccess);
+                Log($"[Step B] Deploying package contents directly to live folder...", false, ColorWait);
+                if (zipPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+                {
+                    string targetApk = Path.Combine(app.LiveTargetFolder, Path.GetFileName(zipPath));
+                    File.Copy(zipPath, targetApk, true);
+                    string companionJson = Path.Combine(Path.GetDirectoryName(zipPath) ?? "", "version.json");
+                    if (File.Exists(companionJson))
+                    {
+                        File.Copy(companionJson, Path.Combine(app.LiveTargetFolder, "version.json"), true);
+                    }
+                }
+                else
+                {
+                    await ExtractZipAsync(zipPath, app.LiveTargetFolder);
+                }
+                Log($"[Step B] [OK] Deployment completed to live folder.", false, ColorSuccess);
 
                 // Config web.config
                 bool isWasm = app.AppName.Equals("Mobile", StringComparison.OrdinalIgnoreCase) || 
@@ -1776,16 +2054,26 @@ namespace GFCDevOpsUtility
                     await DeployPosApkHelperAsync(app.SourceZipFolder);
                 }
 
-                // Start IIS
-                Log($">>> Starting IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
-                await ToggleIisAsync(app.IisSiteName, app.IisAppPool, true);
-
-                // Step C: Cleanup
-                Log($"[Step C] Cleaning up source package from source folder...", false, ColorWait);
-                if (File.Exists(zipPath))
+                // Start IIS (Skip for Connect App since it was not stopped)
+                if (!isConnectApp && !string.IsNullOrWhiteSpace(app.IisSiteName))
                 {
-                    File.Delete(zipPath);
-                    Log($"[Step C] [OK] Source package '{zipName}' deleted successfully.", false, ColorSuccess);
+                    Log($">>> Starting IIS site '{app.IisSiteName}' and app pool '{app.IisAppPool}'...", false, ColorWait);
+                    await ToggleIisAsync(app.IisSiteName, app.IisAppPool, true);
+                }
+
+                // Step C: Cleanup (skip deletion if rollback from archive)
+                if (isRollback)
+                {
+                    Log($"[Step C] Rollback mode active: Preserving archived package '{zipName}'.", false, ColorSuccess);
+                }
+                else
+                {
+                    Log($"[Step C] Cleaning up source package from source folder...", false, ColorWait);
+                    if (File.Exists(zipPath))
+                    {
+                        File.Delete(zipPath);
+                        Log($"[Step C] [OK] Source package '{zipName}' deleted successfully.", false, ColorSuccess);
+                    }
                 }
 
                 Log($">>> SUCCESS: Deployment completed for {app.AppName}.", false, ColorSuccess);
@@ -1896,9 +2184,16 @@ namespace GFCDevOpsUtility
                 {
                     if (preserveExclusions)
                     {
-                        // Exclude any files residing inside a "Download" or "downloads" directory
+                        // Exclude any files residing inside Download, downloads, or App_Data\Packages directories
                         if (file.IndexOf("\\Download\\", StringComparison.OrdinalIgnoreCase) >= 0 || 
-                            file.IndexOf("\\downloads\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                            file.IndexOf("\\downloads\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            file.IndexOf("\\App_Data\\Packages", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            continue;
+                        }
+
+                        // Protect APK installer packages
+                        if (file.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
                         {
                             continue;
                         }
@@ -1934,10 +2229,11 @@ namespace GFCDevOpsUtility
         {
             foreach (var directory in Directory.GetDirectories(path))
             {
-                // Protect "Download" and "downloads" subdirectories from being traversed/deleted
+                // Protect "Download", "downloads", and "App_Data" subdirectories from being traversed/deleted
                 string dirName = Path.GetFileName(directory);
                 if (dirName.Equals("Download", StringComparison.OrdinalIgnoreCase) || 
-                    dirName.Equals("downloads", StringComparison.OrdinalIgnoreCase))
+                    dirName.Equals("downloads", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("App_Data", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -1961,28 +2257,28 @@ namespace GFCDevOpsUtility
         {
             if (_isBusy) return;
 
-            var checkedApps = new List<AppPipelineConfig>();
-            foreach (var item in clbDeployApps.CheckedItems)
+            if (clbDeployApps.SelectedItem == null)
             {
-                var app = _config.AppPipelines.Find(a => a.AppName == item.ToString());
-                if (app != null) checkedApps.Add(app);
-            }
-
-            if (checkedApps.Count == 0)
-            {
-                MessageBox.Show("Please check at least one application to deploy.", "No App Checked", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Please select an application from the list to deploy.", "No App Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            SetBusy(true, "Deploying packages...");
+            var selectedApp = _config.AppPipelines.Find(a => a.AppName == clbDeployApps.SelectedItem.ToString());
+            if (selectedApp == null)
+            {
+                MessageBox.Show("Selected application configuration could not be found.", "App Not Found", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            SetBusy(true, $"Deploying {selectedApp.AppName}...");
             rtbTerminal.Clear();
-            Log($">>> STARTING BATCH DEPLOYMENT FOR {checkedApps.Count} TARGET(S)...", false, ColorWait);
+            _fullLogHistory.Clear();
+            Log($">>> STARTING DEPLOYMENT FOR TARGET: {selectedApp.AppName}...", false, ColorWait);
 
             // Initialize progress status indicators
             foreach (var appConfig in _config.AppPipelines)
             {
-                bool isSelected = checkedApps.Exists(a => a.AppName == appConfig.AppName);
-                if (isSelected)
+                if (appConfig.AppName == selectedApp.AppName)
                 {
                     UpdateDeployVisualStatus(appConfig.AppName, "Queued ⏳", Color.Orange);
                 }
@@ -1992,6 +2288,7 @@ namespace GFCDevOpsUtility
                 }
             }
 
+            var checkedApps = new List<AppPipelineConfig> { selectedApp };
             var successes = new List<string>();
             var failures = new Dictionary<string, string>();
 
@@ -2045,46 +2342,76 @@ namespace GFCDevOpsUtility
                 {
                     using var manager = new ServerManager();
 
+                    // Toggle Website
+                    var website = manager.Sites[site];
+                    if (website != null)
+                    {
+                        try
+                        {
+                            if (start)
+                            {
+                                if (website.State != ObjectState.Started && website.State != ObjectState.Starting)
+                                    website.Start();
+                            }
+                            else
+                            {
+                                if (website.State != ObjectState.Stopped && website.State != ObjectState.Stopping)
+                                    website.Stop();
+                            }
+                            Log($"[IIS] Website '{site}' {(start ? "started" : "stopped")}.", false);
+                        }
+                        catch (Exception exSite)
+                        {
+                            Log($"[IIS] Note on website '{site}': {exSite.Message}", false, ColorTextMuted);
+                        }
+                    }
+
                     // Toggle Application Pool
                     var appPool = manager.ApplicationPools[pool];
                     if (appPool != null)
                     {
                         if (start)
                         {
+                            // Wait briefly if pool is still stopping before starting
+                            for (int i = 0; i < 10; i++)
+                            {
+                                if (appPool.State == ObjectState.Stopping)
+                                {
+                                    Thread.Sleep(500);
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+
                             if (appPool.State != ObjectState.Started && appPool.State != ObjectState.Starting)
+                            {
                                 appPool.Start();
+                            }
+                            Log($"[IIS] App Pool '{pool}' started.", false);
                         }
                         else
                         {
                             if (appPool.State != ObjectState.Stopped && appPool.State != ObjectState.Stopping)
+                            {
                                 appPool.Stop();
+                            }
+
+                            // Wait for App Pool and worker process to actually stop (up to 10 seconds)
+                            Log($"[IIS] Waiting for App Pool '{pool}' worker process to shut down and release file handles...", false, ColorWait);
+                            int waitedMs = 0;
+                            while (appPool.State != ObjectState.Stopped && waitedMs < 10000)
+                            {
+                                Thread.Sleep(500);
+                                waitedMs += 500;
+                            }
+                            Log($"[IIS] App Pool '{pool}' stopped completely ({waitedMs}ms).", false);
                         }
-                        Log($"[IIS] App Pool '{pool}' {(start ? "started" : "stopped")}.", false);
                     }
                     else
                     {
                         Log($"[IIS] App Pool '{pool}' not found — skipping.", false);
-                    }
-
-                    // Toggle Website
-                    var website = manager.Sites[site];
-                    if (website != null)
-                    {
-                        if (start)
-                        {
-                            if (website.State != ObjectState.Started && website.State != ObjectState.Starting)
-                                website.Start();
-                        }
-                        else
-                        {
-                            if (website.State != ObjectState.Stopped && website.State != ObjectState.Stopping)
-                                website.Stop();
-                        }
-                        Log($"[IIS] Website '{site}' {(start ? "started" : "stopped")}.", false);
-                    }
-                    else
-                    {
-                        Log($"[IIS] Website '{site}' not found — skipping.", false);
                     }
                 }
                 catch (Exception ex)
@@ -2093,7 +2420,8 @@ namespace GFCDevOpsUtility
                 }
             });
 
-            await Task.Delay(1500); // cooldown sleep
+            // Brief extra cooldown for Windows file handle unlock
+            await Task.Delay(1000);
         }
 
         private async Task ExtractZipAsync(string zipPath, string destFolder)
@@ -2113,7 +2441,23 @@ namespace GFCDevOpsUtility
                         string parent = Path.GetDirectoryName(fullDest) ?? "";
                         if (!Directory.Exists(parent)) Directory.CreateDirectory(parent);
 
-                        entry.ExtractToFile(fullDest, true);
+                        // File extraction with automatic retry for momentary process locks
+                        bool written = false;
+                        int attempts = 0;
+                        while (!written && attempts < 5)
+                        {
+                            attempts++;
+                            try
+                            {
+                                entry.ExtractToFile(fullDest, true);
+                                written = true;
+                            }
+                            catch (IOException) when (attempts < 5)
+                            {
+                                Thread.Sleep(600); // Wait for worker process to release DLL handle
+                            }
+                        }
+
                         count++;
 
                         if (count % 25 == 0 || count == total)

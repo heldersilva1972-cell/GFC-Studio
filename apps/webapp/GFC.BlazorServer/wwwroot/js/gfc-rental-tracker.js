@@ -47,7 +47,7 @@
             }, 300);
 
             // Periodic heartbeat every 30 seconds to capture session duration accurately
-            setInterval(function () {
+            var heartbeatTimer = setInterval(function () {
                 sendPing(null, currentStep, false);
             }, 30000);
 
@@ -67,6 +67,10 @@
             };
 
             window.gfcTrackSubmission = function () {
+                if (heartbeatTimer) {
+                    clearInterval(heartbeatTimer);
+                    heartbeatTimer = null;
+                }
                 sendPing('Application Submitted', 4, true);
             };
         }

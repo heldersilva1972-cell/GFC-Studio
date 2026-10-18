@@ -111,12 +111,12 @@ public class FirebaseNotificationService : IFirebaseNotificationService
         var category = data != null && data.TryGetValue("category", out var catVal) ? catVal : "general";
         var channelId = category switch
         {
-            "rental" => "gfc_hall_rentals",
-            "inquiry" => "gfc_hall_rentals",
-            "rental_payment" => "gfc_hall_rentals",
-            "door" => "gfc_door_access",
-            "urgent" => "gfc_urgent_alerts",
-            _ => "gfc_general_notifications"
+            "rental" => "gfc_channel_rentals",
+            "inquiry" => "gfc_channel_rentals",
+            "rental_payment" => "gfc_channel_rentals",
+            "door" => "gfc_channel_door",
+            "urgent" => "gfc_channel_urgent",
+            _ => "gfc_channel_general"
         };
 
         // 1. Check for Google Service Account credentials (FCM HTTP v1 - Current Standard)

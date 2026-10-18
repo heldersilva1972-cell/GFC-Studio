@@ -206,6 +206,52 @@ namespace GFCDevOpsUtility
                         }
                     });
                 }
+                else if (project.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+                {
+                    string connectGradle = Path.Combine(workspace, "apps", "GFC-Connect", "app", "build.gradle.kts");
+                    string connectVersionJson = Path.Combine(workspace, "apps", "webapp", "GFC.BlazorServer", "App_Data", "Packages", "version.json");
+
+                    string cleanTarget = targetVersion.TrimStart('v', 'V');
+                    // Compute integer versionCode from targetVersion (e.g. 1.0.1 -> 101)
+                    int computedCode = 100;
+                    var parts = cleanTarget.Split('.');
+                    if (parts.Length >= 2 && int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor))
+                    {
+                        int patch = 0;
+                        if (parts.Length >= 3) int.TryParse(parts[2], out patch);
+                        computedCode = (major * 100) + (minor * 10) + patch;
+                    }
+
+                    // Update build.gradle.kts
+                    ApplyRegexToFile(connectGradle, dryRun, log,
+                        (@"versionCode\s*=\s*\d+", $"versionCode = {computedCode}"),
+                        (@"versionName\s*=\s*""[^""]+""", $"versionName = \"{cleanTarget}\"")
+                    );
+
+                    // Update App_Data\Packages\version.json if it exists
+                    if (File.Exists(connectVersionJson))
+                    {
+                        if (dryRun)
+                        {
+                            log($"[DRY]  Would update Packages/version.json → {targetVersion} (code {computedCode})");
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var node = JsonNode.Parse(File.ReadAllText(connectVersionJson))!.AsObject();
+                                node["latestVersionCode"] = computedCode;
+                                node["latestVersionName"] = targetVersion;
+                                File.WriteAllText(connectVersionJson, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                                log($"[OK]   Updated Packages/version.json → {targetVersion}");
+                            }
+                            catch
+                            {
+                                // ignore
+                            }
+                        }
+                    }
+                }
 
                 // --- 5. REMOTE DATABASE SYNC ---
                 if (!noSync)
@@ -260,6 +306,25 @@ namespace GFCDevOpsUtility
                 {
                     var node = JsonNode.Parse(File.ReadAllText(mobileVersionJson));
                     return node?["version"]?.GetValue<string>() ?? string.Empty;
+                }
+                else if (project.Equals("Connect", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Look up build.gradle.kts relative to the provided workspace paths
+                    string workspaceRoot = Path.GetDirectoryName(webappSettings) ?? string.Empty;
+                    while (!string.IsNullOrEmpty(workspaceRoot) && !Directory.Exists(Path.Combine(workspaceRoot, "apps", "GFC-Connect")))
+                    {
+                        var parent = Path.GetDirectoryName(workspaceRoot);
+                        if (parent == workspaceRoot) break;
+                        workspaceRoot = parent ?? string.Empty;
+                    }
+                    if (!string.IsNullOrEmpty(workspaceRoot))
+                    {
+                        string ver = VersionScanner.GetConnectVersion(workspaceRoot);
+                        if (!string.IsNullOrEmpty(ver) && !ver.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return ver;
+                        }
+                    }
                 }
             }
             catch { }

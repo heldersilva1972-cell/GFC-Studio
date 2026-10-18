@@ -17,8 +17,8 @@ namespace GFCDevOpsUtility
 
         private void InitializeComponent()
         {
-            this.clbPublishApps = new System.Windows.Forms.CheckedListBox();
-            this.clbDeployApps = new System.Windows.Forms.CheckedListBox();
+            this.clbPublishApps = new System.Windows.Forms.ListBox();
+            this.clbDeployApps = new System.Windows.Forms.ListBox();
             this.lblAppDesc = new System.Windows.Forms.Label();
             this.pnlNavBar = new System.Windows.Forms.Panel();
             this.lblTitle = new System.Windows.Forms.Label();
@@ -39,9 +39,6 @@ namespace GFCDevOpsUtility
             this.txtPubOutput = new System.Windows.Forms.TextBox();
             this.btnPubOutputBrowse = new System.Windows.Forms.Button();
 
-            this.chkApkMobile = new System.Windows.Forms.CheckBox();
-            this.chkApkPos = new System.Windows.Forms.CheckBox();
-            this.chkApkWebApp = new System.Windows.Forms.CheckBox();
             this.grpPipelineStatus = new System.Windows.Forms.GroupBox();
             this.lblStatusMobileTitle = new System.Windows.Forms.Label();
             this.lblStatusMobilePublish = new System.Windows.Forms.Label();
@@ -59,9 +56,9 @@ namespace GFCDevOpsUtility
             this.lblStatusDeployPosState = new System.Windows.Forms.Label();
             this.lblStatusDeployWebAppTitle = new System.Windows.Forms.Label();
             this.lblStatusDeployWebAppState = new System.Windows.Forms.Label();
+            this.lblStatusDeployConnectTitle = new System.Windows.Forms.Label();
+            this.lblStatusDeployConnectState = new System.Windows.Forms.Label();
             this.btnRunPublish = new System.Windows.Forms.Button();
-            this.txtBuildLogs = new System.Windows.Forms.RichTextBox();
-            this.rtbBuildOutput = this.txtBuildLogs;
             this.btnCopyLog = new System.Windows.Forms.Button();
             this.chkShowErrors = new System.Windows.Forms.CheckBox();
             this.chkShowWarnings = new System.Windows.Forms.CheckBox();
@@ -91,10 +88,9 @@ namespace GFCDevOpsUtility
             this.chkPurgeFiles = new System.Windows.Forms.CheckBox();
             this.lblAutoConfigDesc = new System.Windows.Forms.Label();
             this.lblPurgeDesc = new System.Windows.Forms.Label();
-            this.chkDepMobileApk = new System.Windows.Forms.CheckBox();
-            this.lblDepApkDist = new System.Windows.Forms.Label();
-            this.txtDepApkDist = new System.Windows.Forms.TextBox();
-            this.btnDepApkDistBrowse = new System.Windows.Forms.Button();
+            this.radDeployLatest = new System.Windows.Forms.RadioButton();
+            this.radDeployRollback = new System.Windows.Forms.RadioButton();
+            this.cmbDeployArchiveVersions = new System.Windows.Forms.ComboBox();
             this.btnRunDeploy = new System.Windows.Forms.Button();
 
             // Revisions Panel controls
@@ -108,9 +104,11 @@ namespace GFCDevOpsUtility
             this.radRevCustom = new System.Windows.Forms.RadioButton();
             this.txtRevCustomValue = new System.Windows.Forms.TextBox();
             this.chkRevDryRun = new System.Windows.Forms.CheckBox();
+            this.lblRevDryRunDesc = new System.Windows.Forms.Label();
             this.btnRunRevisionSync = new System.Windows.Forms.Button();
 
             // Bottom elements
+            this.splitterLogs = new System.Windows.Forms.Splitter();
             this.pnlLogs = new System.Windows.Forms.Panel();
             this.lblTerminalHeader = new System.Windows.Forms.Label();
             this.rtbTerminal = new System.Windows.Forms.RichTextBox();
@@ -142,6 +140,9 @@ namespace GFCDevOpsUtility
             this.pnlNavBar.Controls.Add(this.btnTabPublish);
             this.pnlNavBar.Controls.Add(this.btnTabDeploy);
             this.pnlNavBar.Controls.Add(this.btnTabRevisions);
+            this.pnlNavBar.Controls.Add(this.btnRunPublish);
+            this.pnlNavBar.Controls.Add(this.btnRunDeploy);
+            this.pnlNavBar.Controls.Add(this.btnRunRevisionSync);
             this.pnlNavBar.Dock = System.Windows.Forms.DockStyle.Top;
             this.pnlNavBar.Location = new System.Drawing.Point(0, 0);
             this.pnlNavBar.Name = "pnlNavBar";
@@ -166,7 +167,7 @@ namespace GFCDevOpsUtility
             this.btnTabPublish.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnTabPublish.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.btnTabPublish.ForeColor = System.Drawing.Color.FromArgb(37, 99, 235);
-            this.btnTabPublish.Location = new System.Drawing.Point(540, 12);
+            this.btnTabPublish.Location = new System.Drawing.Point(340, 12);
             this.btnTabPublish.Name = "btnTabPublish";
             this.btnTabPublish.Size = new System.Drawing.Size(120, 42);
             this.btnTabPublish.TabIndex = 1;
@@ -181,7 +182,7 @@ namespace GFCDevOpsUtility
             this.btnTabDeploy.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnTabDeploy.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.btnTabDeploy.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.btnTabDeploy.Location = new System.Drawing.Point(670, 12);
+            this.btnTabDeploy.Location = new System.Drawing.Point(470, 12);
             this.btnTabDeploy.Name = "btnTabDeploy";
             this.btnTabDeploy.Size = new System.Drawing.Size(120, 42);
             this.btnTabDeploy.TabIndex = 2;
@@ -196,13 +197,63 @@ namespace GFCDevOpsUtility
             this.btnTabRevisions.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnTabRevisions.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.btnTabRevisions.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.btnTabRevisions.Location = new System.Drawing.Point(800, 12);
+            this.btnTabRevisions.Location = new System.Drawing.Point(600, 12);
             this.btnTabRevisions.Name = "btnTabRevisions";
             this.btnTabRevisions.Size = new System.Drawing.Size(140, 42);
             this.btnTabRevisions.TabIndex = 3;
             this.btnTabRevisions.Text = "🔄 Revisions";
             this.btnTabRevisions.UseVisualStyleBackColor = false;
             this.btnTabRevisions.Click += new System.EventHandler(this.BtnTabRevisions_Click);
+            // 
+            // btnRunPublish
+            // 
+            this.btnRunPublish.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnRunPublish.BackColor = System.Drawing.Color.FromArgb(37, 99, 235);
+            this.btnRunPublish.FlatAppearance.BorderSize = 0;
+            this.btnRunPublish.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnRunPublish.Font = new System.Drawing.Font("Segoe UI", 10.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.btnRunPublish.ForeColor = System.Drawing.Color.White;
+            this.btnRunPublish.Location = new System.Drawing.Point(1000, 12);
+            this.btnRunPublish.Name = "btnRunPublish";
+            this.btnRunPublish.Size = new System.Drawing.Size(245, 42);
+            this.btnRunPublish.TabIndex = 4;
+            this.btnRunPublish.Text = "📤 Start Application Publish";
+            this.btnRunPublish.UseVisualStyleBackColor = false;
+            this.btnRunPublish.Click += new System.EventHandler(this.BtnRunPublish_Click);
+            // 
+            // btnRunDeploy
+            // 
+            this.btnRunDeploy.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnRunDeploy.BackColor = System.Drawing.Color.FromArgb(22, 101, 52);
+            this.btnRunDeploy.FlatAppearance.BorderSize = 0;
+            this.btnRunDeploy.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnRunDeploy.Font = new System.Drawing.Font("Segoe UI", 10.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.btnRunDeploy.ForeColor = System.Drawing.Color.White;
+            this.btnRunDeploy.Location = new System.Drawing.Point(1000, 12);
+            this.btnRunDeploy.Name = "btnRunDeploy";
+            this.btnRunDeploy.Size = new System.Drawing.Size(245, 42);
+            this.btnRunDeploy.TabIndex = 5;
+            this.btnRunDeploy.Text = "🚀 Run Deployment Pipeline";
+            this.btnRunDeploy.UseVisualStyleBackColor = false;
+            this.btnRunDeploy.Visible = false;
+            this.btnRunDeploy.Click += new System.EventHandler(this.BtnRunDeploy_Click);
+            // 
+            // btnRunRevisionSync
+            // 
+            this.btnRunRevisionSync.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnRunRevisionSync.BackColor = System.Drawing.Color.FromArgb(37, 99, 235);
+            this.btnRunRevisionSync.FlatAppearance.BorderSize = 0;
+            this.btnRunRevisionSync.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnRunRevisionSync.Font = new System.Drawing.Font("Segoe UI", 10.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.btnRunRevisionSync.ForeColor = System.Drawing.Color.White;
+            this.btnRunRevisionSync.Location = new System.Drawing.Point(1000, 12);
+            this.btnRunRevisionSync.Name = "btnRunRevisionSync";
+            this.btnRunRevisionSync.Size = new System.Drawing.Size(245, 42);
+            this.btnRunRevisionSync.TabIndex = 6;
+            this.btnRunRevisionSync.Text = "🔄 Run Version Revision Sync";
+            this.btnRunRevisionSync.UseVisualStyleBackColor = false;
+            this.btnRunRevisionSync.Visible = false;
+            this.btnRunRevisionSync.Click += new System.EventHandler(this.BtnRunRevisionSync_Click);
             // 
             // pnlMainContainer
             // 
@@ -221,11 +272,6 @@ namespace GFCDevOpsUtility
             // 
             this.pnlPublish.Controls.Add(this.grpPublishOptions);
             this.pnlPublish.Controls.Add(this.grpPipelineStatus);
-            this.pnlPublish.Controls.Add(this.btnRunPublish);
-            this.pnlPublish.Controls.Add(this.rtbBuildOutput);
-            this.pnlPublish.Controls.Add(this.btnCopyLog);
-            this.pnlPublish.Controls.Add(this.chkShowErrors);
-            this.pnlPublish.Controls.Add(this.chkShowWarnings);
             this.pnlPublish.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pnlPublish.Location = new System.Drawing.Point(15, 15);
             this.pnlPublish.Name = "pnlPublish";
@@ -245,15 +291,12 @@ namespace GFCDevOpsUtility
             this.grpPublishOptions.Controls.Add(this.lblPubOutput);
             this.grpPublishOptions.Controls.Add(this.txtPubOutput);
             this.grpPublishOptions.Controls.Add(this.btnPubOutputBrowse);
-            this.grpPublishOptions.Controls.Add(this.chkApkMobile);
-            this.grpPublishOptions.Controls.Add(this.chkApkPos);
-            this.grpPublishOptions.Controls.Add(this.chkApkWebApp);
             this.grpPublishOptions.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.grpPublishOptions.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpPublishOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpPublishOptions.Location = new System.Drawing.Point(5, 5);
             this.grpPublishOptions.Name = "grpPublishOptions";
-            this.grpPublishOptions.Size = new System.Drawing.Size(880, 160);
+            this.grpPublishOptions.Size = new System.Drawing.Size(880, 195);
             this.grpPublishOptions.TabIndex = 0;
             this.grpPublishOptions.TabStop = false;
             this.grpPublishOptions.Text = "Publish Project Parameters";
@@ -275,7 +318,7 @@ namespace GFCDevOpsUtility
             this.grpPipelineStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpPipelineStatus.Location = new System.Drawing.Point(895, 5);
             this.grpPipelineStatus.Name = "grpPipelineStatus";
-            this.grpPipelineStatus.Size = new System.Drawing.Size(450, 160);
+            this.grpPipelineStatus.Size = new System.Drawing.Size(450, 195);
             this.grpPipelineStatus.TabIndex = 12;
             this.grpPipelineStatus.TabStop = false;
             this.grpPipelineStatus.Text = "Publish Progress Indicators";
@@ -380,58 +423,24 @@ namespace GFCDevOpsUtility
             // 
             // clbPublishApps
             // 
-            this.clbPublishApps.CheckOnClick = true;
-            this.clbPublishApps.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.clbPublishApps.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.clbPublishApps.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.clbPublishApps.FormattingEnabled = true;
+            this.clbPublishApps.ItemHeight = 22;
             this.clbPublishApps.Location = new System.Drawing.Point(20, 50);
             this.clbPublishApps.Name = "clbPublishApps";
-            this.clbPublishApps.Size = new System.Drawing.Size(130, 70);
+            this.clbPublishApps.Size = new System.Drawing.Size(250, 96);
             this.clbPublishApps.TabIndex = 1;
             this.clbPublishApps.SelectedIndexChanged += new System.EventHandler(this.ClbPublishApps_SelectedIndexChanged);
-            this.clbPublishApps.ItemCheck += new System.Windows.Forms.ItemCheckEventHandler(this.ClbPublishApps_ItemCheck);
             // 
             // lblAppDesc
             // 
             this.lblAppDesc.Font = new System.Drawing.Font("Segoe UI Italic", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblAppDesc.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.lblAppDesc.Location = new System.Drawing.Point(20, 125);
+            this.lblAppDesc.Location = new System.Drawing.Point(20, 155);
             this.lblAppDesc.Name = "lblAppDesc";
             this.lblAppDesc.Size = new System.Drawing.Size(260, 30);
-            this.lblAppDesc.Text = "Click/hover an item to see its purpose.";
-            // 
-            // chkApkMobile
-            // 
-            this.chkApkMobile.AutoSize = true;
-            this.chkApkMobile.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.chkApkMobile.Location = new System.Drawing.Point(165, 52);
-            this.chkApkMobile.Name = "chkApkMobile";
-            this.chkApkMobile.Size = new System.Drawing.Size(100, 20);
-            this.chkApkMobile.TabIndex = 9;
-            this.chkApkMobile.Text = "Build APK";
-            this.chkApkMobile.UseVisualStyleBackColor = true;
-            // 
-            // chkApkPos
-            // 
-            this.chkApkPos.AutoSize = true;
-            this.chkApkPos.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.chkApkPos.Location = new System.Drawing.Point(165, 72);
-            this.chkApkPos.Name = "chkApkPos";
-            this.chkApkPos.Size = new System.Drawing.Size(100, 20);
-            this.chkApkPos.TabIndex = 10;
-            this.chkApkPos.Text = "Build APK";
-            this.chkApkPos.UseVisualStyleBackColor = true;
-            // 
-            // chkApkWebApp
-            // 
-            this.chkApkWebApp.AutoSize = true;
-            this.chkApkWebApp.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.chkApkWebApp.Location = new System.Drawing.Point(165, 92);
-            this.chkApkWebApp.Name = "chkApkWebApp";
-            this.chkApkWebApp.Size = new System.Drawing.Size(100, 20);
-            this.chkApkWebApp.TabIndex = 11;
-            this.chkApkWebApp.Text = "Build APK";
-            this.chkApkWebApp.UseVisualStyleBackColor = true;
-            // 
+            this.lblAppDesc.Text = "Select an application to publish."; 
 
             // 
             // lblPubWorkspace
@@ -494,83 +503,10 @@ namespace GFCDevOpsUtility
             this.btnPubOutputBrowse.UseVisualStyleBackColor = true;
             this.btnPubOutputBrowse.Click += new System.EventHandler(this.BtnPubOutputBrowse_Click);
             // 
-            // rtbBuildOutput
-            // 
-            this.rtbBuildOutput.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
-            this.rtbBuildOutput.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.rtbBuildOutput.Font = new System.Drawing.Font("Consolas", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.rtbBuildOutput.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
-            this.rtbBuildOutput.Location = new System.Drawing.Point(5, 170);
-            this.rtbBuildOutput.Multiline = true;
-            this.rtbBuildOutput.Name = "rtbBuildOutput";
-            this.rtbBuildOutput.ReadOnly = true;
-            this.rtbBuildOutput.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.rtbBuildOutput.Size = new System.Drawing.Size(1300, 145);
-            this.rtbBuildOutput.TabIndex = 9;
-            this.rtbBuildOutput.Text = "";
-            // 
-            // btnCopyLog
-            // 
-            this.btnCopyLog.BackColor = System.Drawing.Color.White;
-            this.btnCopyLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnCopyLog.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.btnCopyLog.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.btnCopyLog.Location = new System.Drawing.Point(265, 323);
-            this.btnCopyLog.Name = "btnCopyLog";
-            this.btnCopyLog.Size = new System.Drawing.Size(220, 32);
-            this.btnCopyLog.TabIndex = 11;
-            this.btnCopyLog.Text = "📋 Copy Log to Clipboard";
-            this.btnCopyLog.UseVisualStyleBackColor = true;
-            this.btnCopyLog.Click += new System.EventHandler(this.BtnCopyLog_Click);
-            // 
-            // chkShowErrors
-            // 
-            this.chkShowErrors.AutoSize = true;
-            this.chkShowErrors.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.chkShowErrors.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.chkShowErrors.ForeColor = System.Drawing.Color.FromArgb(220, 38, 38);
-            this.chkShowErrors.Location = new System.Drawing.Point(505, 327);
-            this.chkShowErrors.Name = "chkShowErrors";
-            this.chkShowErrors.Size = new System.Drawing.Size(138, 21);
-            this.chkShowErrors.TabIndex = 12;
-            this.chkShowErrors.Text = "❌ Show Errors Only";
-            this.chkShowErrors.UseVisualStyleBackColor = true;
-            this.chkShowErrors.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
-            // 
-            // chkShowWarnings
-            // 
-            this.chkShowWarnings.AutoSize = true;
-            this.chkShowWarnings.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.chkShowWarnings.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.chkShowWarnings.ForeColor = System.Drawing.Color.FromArgb(217, 119, 6);
-            this.chkShowWarnings.Location = new System.Drawing.Point(685, 327);
-            this.chkShowWarnings.Name = "chkShowWarnings";
-            this.chkShowWarnings.Size = new System.Drawing.Size(161, 21);
-            this.chkShowWarnings.TabIndex = 13;
-            this.chkShowWarnings.Text = "⚠️ Show Warnings Only";
-            this.chkShowWarnings.UseVisualStyleBackColor = true;
-            this.chkShowWarnings.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
-            // 
-            // btnRunPublish
-            // 
-            this.btnRunPublish.BackColor = System.Drawing.Color.FromArgb(37, 99, 235);
-            this.btnRunPublish.FlatAppearance.BorderSize = 0;
-            this.btnRunPublish.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnRunPublish.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.btnRunPublish.ForeColor = System.Drawing.Color.White;
-            this.btnRunPublish.Location = new System.Drawing.Point(5, 323);
-            this.btnRunPublish.Name = "btnRunPublish";
-            this.btnRunPublish.Size = new System.Drawing.Size(250, 32);
-            this.btnRunPublish.TabIndex = 1;
-            this.btnRunPublish.Text = "📤 Start Application Publish";
-            this.btnRunPublish.UseVisualStyleBackColor = false;
-            this.btnRunPublish.Click += new System.EventHandler(this.BtnRunPublish_Click);
-            // 
             // pnlDeploy
             // 
             this.pnlDeploy.Controls.Add(this.grpDeployOptions);
             this.pnlDeploy.Controls.Add(this.grpDeployStatus);
-            this.pnlDeploy.Controls.Add(this.btnRunDeploy);
             this.pnlDeploy.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pnlDeploy.Location = new System.Drawing.Point(15, 15);
             this.pnlDeploy.Name = "pnlDeploy";
@@ -584,12 +520,12 @@ namespace GFCDevOpsUtility
             this.grpDeployOptions.Controls.Add(this.lblDepApp);
             this.grpDeployOptions.Controls.Add(this.cmbDeployApp);
             this.grpDeployOptions.Controls.Add(this.clbDeployApps);
+            this.grpDeployOptions.Controls.Add(this.radDeployLatest);
+            this.grpDeployOptions.Controls.Add(this.radDeployRollback);
+            this.grpDeployOptions.Controls.Add(this.cmbDeployArchiveVersions);
             this.grpDeployOptions.Controls.Add(this.lblDepZip);
             this.grpDeployOptions.Controls.Add(this.txtDepZip);
             this.grpDeployOptions.Controls.Add(this.btnDepZipBrowse);
-            this.grpDeployOptions.Controls.Add(this.lblDepStaging);
-            this.grpDeployOptions.Controls.Add(this.txtDepStaging);
-            this.grpDeployOptions.Controls.Add(this.btnDepStagingBrowse);
             this.grpDeployOptions.Controls.Add(this.lblDepLive);
             this.grpDeployOptions.Controls.Add(this.txtDepLive);
             this.grpDeployOptions.Controls.Add(this.btnDepLiveBrowse);
@@ -604,15 +540,11 @@ namespace GFCDevOpsUtility
             this.grpDeployOptions.Controls.Add(this.lblAutoConfigDesc);
             this.grpDeployOptions.Controls.Add(this.chkPurgeFiles);
             this.grpDeployOptions.Controls.Add(this.lblPurgeDesc);
-            this.grpDeployOptions.Controls.Add(this.chkDepMobileApk);
-            this.grpDeployOptions.Controls.Add(this.lblDepApkDist);
-            this.grpDeployOptions.Controls.Add(this.txtDepApkDist);
-            this.grpDeployOptions.Controls.Add(this.btnDepApkDistBrowse);
             this.grpDeployOptions.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpDeployOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpDeployOptions.Location = new System.Drawing.Point(5, 5);
             this.grpDeployOptions.Name = "grpDeployOptions";
-            this.grpDeployOptions.Size = new System.Drawing.Size(1000, 260);
+            this.grpDeployOptions.Size = new System.Drawing.Size(1000, 258);
             this.grpDeployOptions.TabIndex = 0;
             this.grpDeployOptions.TabStop = false;
             this.grpDeployOptions.Text = "Deployment Target Parameters";
@@ -626,12 +558,14 @@ namespace GFCDevOpsUtility
             this.grpDeployStatus.Controls.Add(this.lblStatusDeployPosState);
             this.grpDeployStatus.Controls.Add(this.lblStatusDeployWebAppTitle);
             this.grpDeployStatus.Controls.Add(this.lblStatusDeployWebAppState);
+            this.grpDeployStatus.Controls.Add(this.lblStatusDeployConnectTitle);
+            this.grpDeployStatus.Controls.Add(this.lblStatusDeployConnectState);
             this.grpDeployStatus.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.grpDeployStatus.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpDeployStatus.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpDeployStatus.Location = new System.Drawing.Point(1015, 5);
             this.grpDeployStatus.Name = "grpDeployStatus";
-            this.grpDeployStatus.Size = new System.Drawing.Size(300, 260);
+            this.grpDeployStatus.Size = new System.Drawing.Size(300, 258);
             this.grpDeployStatus.TabIndex = 13;
             this.grpDeployStatus.TabStop = false;
             this.grpDeployStatus.Text = "Deployment Progress Indicators";
@@ -640,7 +574,7 @@ namespace GFCDevOpsUtility
             // 
             this.lblStatusDeployMobileTitle.AutoSize = true;
             this.lblStatusDeployMobileTitle.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblStatusDeployMobileTitle.Location = new System.Drawing.Point(15, 45);
+            this.lblStatusDeployMobileTitle.Location = new System.Drawing.Point(15, 35);
             this.lblStatusDeployMobileTitle.Name = "lblStatusDeployMobileTitle";
             this.lblStatusDeployMobileTitle.Size = new System.Drawing.Size(140, 20);
             this.lblStatusDeployMobileTitle.Text = "Mobile Deployment:";
@@ -650,7 +584,7 @@ namespace GFCDevOpsUtility
             this.lblStatusDeployMobileState.AutoSize = true;
             this.lblStatusDeployMobileState.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusDeployMobileState.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusDeployMobileState.Location = new System.Drawing.Point(165, 45);
+            this.lblStatusDeployMobileState.Location = new System.Drawing.Point(165, 35);
             this.lblStatusDeployMobileState.Name = "lblStatusDeployMobileState";
             this.lblStatusDeployMobileState.Size = new System.Drawing.Size(150, 20);
             this.lblStatusDeployMobileState.Text = "Idle 💤";
@@ -659,7 +593,7 @@ namespace GFCDevOpsUtility
             // 
             this.lblStatusDeployPosTitle.AutoSize = true;
             this.lblStatusDeployPosTitle.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblStatusDeployPosTitle.Location = new System.Drawing.Point(15, 115);
+            this.lblStatusDeployPosTitle.Location = new System.Drawing.Point(15, 85);
             this.lblStatusDeployPosTitle.Name = "lblStatusDeployPosTitle";
             this.lblStatusDeployPosTitle.Size = new System.Drawing.Size(140, 20);
             this.lblStatusDeployPosTitle.Text = "POS Deployment:";
@@ -669,7 +603,7 @@ namespace GFCDevOpsUtility
             this.lblStatusDeployPosState.AutoSize = true;
             this.lblStatusDeployPosState.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusDeployPosState.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusDeployPosState.Location = new System.Drawing.Point(165, 115);
+            this.lblStatusDeployPosState.Location = new System.Drawing.Point(165, 85);
             this.lblStatusDeployPosState.Name = "lblStatusDeployPosState";
             this.lblStatusDeployPosState.Size = new System.Drawing.Size(150, 20);
             this.lblStatusDeployPosState.Text = "Idle 💤";
@@ -678,7 +612,7 @@ namespace GFCDevOpsUtility
             // 
             this.lblStatusDeployWebAppTitle.AutoSize = true;
             this.lblStatusDeployWebAppTitle.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblStatusDeployWebAppTitle.Location = new System.Drawing.Point(15, 185);
+            this.lblStatusDeployWebAppTitle.Location = new System.Drawing.Point(15, 135);
             this.lblStatusDeployWebAppTitle.Name = "lblStatusDeployWebAppTitle";
             this.lblStatusDeployWebAppTitle.Size = new System.Drawing.Size(140, 20);
             this.lblStatusDeployWebAppTitle.Text = "WebApp Deployment:";
@@ -688,10 +622,29 @@ namespace GFCDevOpsUtility
             this.lblStatusDeployWebAppState.AutoSize = true;
             this.lblStatusDeployWebAppState.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.lblStatusDeployWebAppState.ForeColor = System.Drawing.Color.Gray;
-            this.lblStatusDeployWebAppState.Location = new System.Drawing.Point(165, 185);
+            this.lblStatusDeployWebAppState.Location = new System.Drawing.Point(165, 135);
             this.lblStatusDeployWebAppState.Name = "lblStatusDeployWebAppState";
             this.lblStatusDeployWebAppState.Size = new System.Drawing.Size(150, 20);
             this.lblStatusDeployWebAppState.Text = "Idle 💤";
+            // 
+            // lblStatusDeployConnectTitle
+            // 
+            this.lblStatusDeployConnectTitle.AutoSize = true;
+            this.lblStatusDeployConnectTitle.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.lblStatusDeployConnectTitle.Location = new System.Drawing.Point(15, 185);
+            this.lblStatusDeployConnectTitle.Name = "lblStatusDeployConnectTitle";
+            this.lblStatusDeployConnectTitle.Size = new System.Drawing.Size(140, 20);
+            this.lblStatusDeployConnectTitle.Text = "Connect Deployment:";
+            // 
+            // lblStatusDeployConnectState
+            // 
+            this.lblStatusDeployConnectState.AutoSize = true;
+            this.lblStatusDeployConnectState.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblStatusDeployConnectState.ForeColor = System.Drawing.Color.Gray;
+            this.lblStatusDeployConnectState.Location = new System.Drawing.Point(165, 185);
+            this.lblStatusDeployConnectState.Name = "lblStatusDeployConnectState";
+            this.lblStatusDeployConnectState.Size = new System.Drawing.Size(150, 20);
+            this.lblStatusDeployConnectState.Text = "Idle 💤";
             // 
             // lblDepApp
             // 
@@ -703,79 +656,84 @@ namespace GFCDevOpsUtility
             this.lblDepApp.Text = "Select App Deploy:";
             // 
             // 
+            // 
             // clbDeployApps
             // 
-            this.clbDeployApps.CheckOnClick = true;
-            this.clbDeployApps.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.clbDeployApps.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.clbDeployApps.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.clbDeployApps.FormattingEnabled = true;
-            this.clbDeployApps.Location = new System.Drawing.Point(150, 22);
+            this.clbDeployApps.ItemHeight = 20;
+            this.clbDeployApps.Location = new System.Drawing.Point(145, 20);
             this.clbDeployApps.Name = "clbDeployApps";
-            this.clbDeployApps.Size = new System.Drawing.Size(250, 70);
+            this.clbDeployApps.Size = new System.Drawing.Size(255, 82);
             this.clbDeployApps.TabIndex = 1;
             this.clbDeployApps.SelectedIndexChanged += new System.EventHandler(this.ClbDeployApps_SelectedIndexChanged);
-            this.clbDeployApps.ItemCheck += new System.Windows.Forms.ItemCheckEventHandler(this.ClbDeployApps_ItemCheck);
             // 
+            // radDeployLatest
+            // 
+            this.radDeployLatest.AutoSize = true;
+            this.radDeployLatest.Checked = true;
+            this.radDeployLatest.Location = new System.Drawing.Point(15, 110);
+            this.radDeployLatest.Name = "radDeployLatest";
+            this.radDeployLatest.Size = new System.Drawing.Size(268, 21);
+            this.radDeployLatest.TabIndex = 2;
+            this.radDeployLatest.TabStop = true;
+            this.radDeployLatest.Text = "Deploy Latest Build (from Source Folder)";
+            this.radDeployLatest.UseVisualStyleBackColor = true;
+            this.radDeployLatest.CheckedChanged += new System.EventHandler(this.RadDeployMode_CheckedChanged);
+            // 
+            // radDeployRollback
+            // 
+            this.radDeployRollback.AutoSize = true;
+            this.radDeployRollback.Location = new System.Drawing.Point(15, 134);
+            this.radDeployRollback.Name = "radDeployRollback";
+            this.radDeployRollback.Size = new System.Drawing.Size(186, 21);
+            this.radDeployRollback.TabIndex = 3;
+            this.radDeployRollback.Text = "Rollback Previous Release:";
+            this.radDeployRollback.UseVisualStyleBackColor = true;
+            this.radDeployRollback.CheckedChanged += new System.EventHandler(this.RadDeployMode_CheckedChanged);
+            // 
+            // cmbDeployArchiveVersions
+            // 
+            this.cmbDeployArchiveVersions.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbDeployArchiveVersions.Enabled = false;
+            this.cmbDeployArchiveVersions.FormattingEnabled = true;
+            this.cmbDeployArchiveVersions.Location = new System.Drawing.Point(205, 132);
+            this.cmbDeployArchiveVersions.Name = "cmbDeployArchiveVersions";
+            this.cmbDeployArchiveVersions.Size = new System.Drawing.Size(285, 23);
+            this.cmbDeployArchiveVersions.TabIndex = 4;
             // 
             // lblDepZip
             // 
             this.lblDepZip.AutoSize = true;
-            this.lblDepZip.Location = new System.Drawing.Point(15, 105);
+            this.lblDepZip.Location = new System.Drawing.Point(15, 164);
             this.lblDepZip.Name = "lblDepZip";
             this.lblDepZip.Size = new System.Drawing.Size(117, 17);
-            this.lblDepZip.TabIndex = 2;
+            this.lblDepZip.TabIndex = 5;
             this.lblDepZip.Text = "Source ZIP Folder:";
             // 
             // txtDepZip
             // 
-            this.txtDepZip.Location = new System.Drawing.Point(150, 102);
+            this.txtDepZip.Location = new System.Drawing.Point(145, 161);
             this.txtDepZip.Name = "txtDepZip";
-            this.txtDepZip.Size = new System.Drawing.Size(300, 24);
-            this.txtDepZip.TabIndex = 3;
+            this.txtDepZip.Size = new System.Drawing.Size(305, 24);
+            this.txtDepZip.TabIndex = 6;
             this.txtDepZip.TextChanged += new System.EventHandler(this.TxtDepZip_TextChanged);
             // 
             // btnDepZipBrowse
             // 
-            this.btnDepZipBrowse.Location = new System.Drawing.Point(455, 101);
+            this.btnDepZipBrowse.Location = new System.Drawing.Point(455, 160);
             this.btnDepZipBrowse.Name = "btnDepZipBrowse";
-            this.btnDepZipBrowse.Size = new System.Drawing.Size(35, 28);
-            this.btnDepZipBrowse.TabIndex = 4;
+            this.btnDepZipBrowse.Size = new System.Drawing.Size(35, 26);
+            this.btnDepZipBrowse.TabIndex = 7;
             this.btnDepZipBrowse.Text = "...";
             this.btnDepZipBrowse.UseVisualStyleBackColor = true;
             this.btnDepZipBrowse.Click += new System.EventHandler(this.BtnDepZipBrowse_Click);
             // 
-            // lblDepStaging
-            // 
-            this.lblDepStaging.AutoSize = true;
-            this.lblDepStaging.Location = new System.Drawing.Point(15, 105);
-            this.lblDepStaging.Name = "lblDepStaging";
-            this.lblDepStaging.Size = new System.Drawing.Size(99, 17);
-            this.lblDepStaging.TabIndex = 5;
-            this.lblDepStaging.Text = "Staging Folder:";
-            this.lblDepStaging.Visible = false;
-            // 
-            // txtDepStaging
-            // 
-            this.txtDepStaging.Location = new System.Drawing.Point(150, 102);
-            this.txtDepStaging.Name = "txtDepStaging";
-            this.txtDepStaging.Size = new System.Drawing.Size(300, 24);
-            this.txtDepStaging.TabIndex = 6;
-            this.txtDepStaging.Visible = false;
-            // 
-            // btnDepStagingBrowse
-            // 
-            this.btnDepStagingBrowse.Location = new System.Drawing.Point(455, 101);
-            this.btnDepStagingBrowse.Name = "btnDepStagingBrowse";
-            this.btnDepStagingBrowse.Size = new System.Drawing.Size(35, 28);
-            this.btnDepStagingBrowse.TabIndex = 7;
-            this.btnDepStagingBrowse.Text = "...";
-            this.btnDepStagingBrowse.UseVisualStyleBackColor = true;
-            this.btnDepStagingBrowse.Visible = false;
-            this.btnDepStagingBrowse.Click += new System.EventHandler(this.BtnDepStagingBrowse_Click);
-            // 
             // lblDepLive
             // 
             this.lblDepLive.AutoSize = true;
-            this.lblDepLive.Location = new System.Drawing.Point(15, 142);
+            this.lblDepLive.Location = new System.Drawing.Point(15, 194);
             this.lblDepLive.Name = "lblDepLive";
             this.lblDepLive.Size = new System.Drawing.Size(119, 17);
             this.lblDepLive.TabIndex = 8;
@@ -783,17 +741,17 @@ namespace GFCDevOpsUtility
             // 
             // txtDepLive
             // 
-            this.txtDepLive.Location = new System.Drawing.Point(150, 139);
+            this.txtDepLive.Location = new System.Drawing.Point(145, 191);
             this.txtDepLive.Name = "txtDepLive";
-            this.txtDepLive.Size = new System.Drawing.Size(300, 24);
+            this.txtDepLive.Size = new System.Drawing.Size(305, 24);
             this.txtDepLive.TabIndex = 9;
             this.txtDepLive.TextChanged += new System.EventHandler(this.TxtDepLive_TextChanged);
             // 
             // btnDepLiveBrowse
             // 
-            this.btnDepLiveBrowse.Location = new System.Drawing.Point(455, 137);
+            this.btnDepLiveBrowse.Location = new System.Drawing.Point(455, 190);
             this.btnDepLiveBrowse.Name = "btnDepLiveBrowse";
-            this.btnDepLiveBrowse.Size = new System.Drawing.Size(35, 28);
+            this.btnDepLiveBrowse.Size = new System.Drawing.Size(35, 26);
             this.btnDepLiveBrowse.TabIndex = 10;
             this.btnDepLiveBrowse.Text = "...";
             this.btnDepLiveBrowse.UseVisualStyleBackColor = true;
@@ -802,7 +760,7 @@ namespace GFCDevOpsUtility
             // lblDepBackup
             // 
             this.lblDepBackup.AutoSize = true;
-            this.lblDepBackup.Location = new System.Drawing.Point(15, 182);
+            this.lblDepBackup.Location = new System.Drawing.Point(15, 224);
             this.lblDepBackup.Name = "lblDepBackup";
             this.lblDepBackup.Size = new System.Drawing.Size(97, 17);
             this.lblDepBackup.TabIndex = 11;
@@ -810,17 +768,17 @@ namespace GFCDevOpsUtility
             // 
             // txtDepBackup
             // 
-            this.txtDepBackup.Location = new System.Drawing.Point(150, 179);
+            this.txtDepBackup.Location = new System.Drawing.Point(145, 221);
             this.txtDepBackup.Name = "txtDepBackup";
-            this.txtDepBackup.Size = new System.Drawing.Size(300, 24);
+            this.txtDepBackup.Size = new System.Drawing.Size(305, 24);
             this.txtDepBackup.TabIndex = 12;
             this.txtDepBackup.TextChanged += new System.EventHandler(this.TxtDepBackup_TextChanged);
             // 
             // btnDepBackupBrowse
             // 
-            this.btnDepBackupBrowse.Location = new System.Drawing.Point(455, 177);
+            this.btnDepBackupBrowse.Location = new System.Drawing.Point(455, 220);
             this.btnDepBackupBrowse.Name = "btnDepBackupBrowse";
-            this.btnDepBackupBrowse.Size = new System.Drawing.Size(35, 28);
+            this.btnDepBackupBrowse.Size = new System.Drawing.Size(35, 26);
             this.btnDepBackupBrowse.TabIndex = 13;
             this.btnDepBackupBrowse.Text = "...";
             this.btnDepBackupBrowse.UseVisualStyleBackColor = true;
@@ -904,67 +862,12 @@ namespace GFCDevOpsUtility
             this.lblPurgeDesc.TabIndex = 21;
             this.lblPurgeDesc.Text = "Removes old files in live folder first during deployments, keeping your production appsettings configurations and version.txt safe.";
             // 
-            // chkDepMobileApk
-            // 
-            this.chkDepMobileApk.AutoSize = true;
-            this.chkDepMobileApk.Location = new System.Drawing.Point(520, 215);
-            this.chkDepMobileApk.Name = "chkDepMobileApk";
-            this.chkDepMobileApk.Size = new System.Drawing.Size(180, 21);
-            this.chkDepMobileApk.TabIndex = 22;
-            this.chkDepMobileApk.Text = "Deploy Native Mobile (.apk)";
-            this.chkDepMobileApk.UseVisualStyleBackColor = true;
-            this.chkDepMobileApk.CheckedChanged += new System.EventHandler(this.ChkDepMobileApk_CheckedChanged);
-            this.chkDepMobileApk.Visible = false;
-            // 
-            // lblDepApkDist
-            // 
-            this.lblDepApkDist.AutoSize = true;
-            this.lblDepApkDist.Location = new System.Drawing.Point(15, 218);
-            this.lblDepApkDist.Name = "lblDepApkDist";
-            this.lblDepApkDist.Size = new System.Drawing.Size(110, 17);
-            this.lblDepApkDist.TabIndex = 23;
-            this.lblDepApkDist.Text = "APK Dist Folder:";
-            this.lblDepApkDist.Visible = false;
-            // 
-            // txtDepApkDist
-            // 
-            this.txtDepApkDist.Location = new System.Drawing.Point(150, 215);
-            this.txtDepApkDist.Name = "txtDepApkDist";
-            this.txtDepApkDist.Size = new System.Drawing.Size(300, 24);
-            this.txtDepApkDist.TabIndex = 24;
-            this.txtDepApkDist.Visible = false;
-            // 
-            // btnDepApkDistBrowse
-            // 
-            this.btnDepApkDistBrowse.Location = new System.Drawing.Point(455, 213);
-            this.btnDepApkDistBrowse.Name = "btnDepApkDistBrowse";
-            this.btnDepApkDistBrowse.Size = new System.Drawing.Size(35, 28);
-            this.btnDepApkDistBrowse.TabIndex = 25;
-            this.btnDepApkDistBrowse.Text = "...";
-            this.btnDepApkDistBrowse.UseVisualStyleBackColor = true;
-            this.btnDepApkDistBrowse.Click += new System.EventHandler(this.BtnDepApkDistBrowse_Click);
-            this.btnDepApkDistBrowse.Visible = false;
-            // 
-            // btnRunDeploy
-            // 
-            this.btnRunDeploy.BackColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.btnRunDeploy.FlatAppearance.BorderSize = 0;
-            this.btnRunDeploy.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnRunDeploy.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.btnRunDeploy.ForeColor = System.Drawing.Color.White;
-            this.btnRunDeploy.Location = new System.Drawing.Point(5, 285);
-            this.btnRunDeploy.Name = "btnRunDeploy";
-            this.btnRunDeploy.Size = new System.Drawing.Size(250, 45);
-            this.btnRunDeploy.TabIndex = 1;
-            this.btnRunDeploy.Text = "🚀 Run Deployment Pipeline";
-            this.btnRunDeploy.UseVisualStyleBackColor = false;
-            this.btnRunDeploy.Click += new System.EventHandler(this.BtnRunDeploy_Click);
+
             // 
             // pnlRevisions
             // 
             this.pnlRevisions.Controls.Add(this.grpRevisionGrid);
             this.pnlRevisions.Controls.Add(this.grpRevisionSyncOptions);
-            this.pnlRevisions.Controls.Add(this.btnRunRevisionSync);
             this.pnlRevisions.Dock = System.Windows.Forms.DockStyle.Fill;
             this.pnlRevisions.Location = new System.Drawing.Point(15, 15);
             this.pnlRevisions.Name = "pnlRevisions";
@@ -1004,6 +907,7 @@ namespace GFCDevOpsUtility
             this.dgvRevisions.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dgvRevisions.Size = new System.Drawing.Size(484, 236);
             this.dgvRevisions.TabIndex = 0;
+            this.dgvRevisions.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.DgvRevisions_CellClick);
             // 
             // grpRevisionSyncOptions
             // 
@@ -1014,6 +918,7 @@ namespace GFCDevOpsUtility
             this.grpRevisionSyncOptions.Controls.Add(this.radRevCustom);
             this.grpRevisionSyncOptions.Controls.Add(this.txtRevCustomValue);
             this.grpRevisionSyncOptions.Controls.Add(this.chkRevDryRun);
+            this.grpRevisionSyncOptions.Controls.Add(this.lblRevDryRunDesc);
             this.grpRevisionSyncOptions.Font = new System.Drawing.Font("Segoe UI Semibold", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.grpRevisionSyncOptions.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.grpRevisionSyncOptions.Location = new System.Drawing.Point(510, 5);
@@ -1039,7 +944,8 @@ namespace GFCDevOpsUtility
             this.cmbRevAppSelect.Items.AddRange(new object[] {
             "Mobile",
             "POS",
-            "WebApp"});
+            "WebApp",
+            "Connect"});
             this.cmbRevAppSelect.Location = new System.Drawing.Point(150, 32);
             this.cmbRevAppSelect.Name = "cmbRevAppSelect";
             this.cmbRevAppSelect.Size = new System.Drawing.Size(230, 25);
@@ -1084,81 +990,136 @@ namespace GFCDevOpsUtility
             this.chkRevDryRun.AutoSize = true;
             this.chkRevDryRun.Checked = false;
             this.chkRevDryRun.CheckState = System.Windows.Forms.CheckState.Unchecked;
-            this.chkRevDryRun.Location = new System.Drawing.Point(20, 185);
+            this.chkRevDryRun.Location = new System.Drawing.Point(20, 180);
             this.chkRevDryRun.Name = "chkRevDryRun";
             this.chkRevDryRun.Size = new System.Drawing.Size(232, 23);
             this.chkRevDryRun.TabIndex = 5;
             this.chkRevDryRun.Text = "Run Dry Run (Test-only Simulation)";
             this.chkRevDryRun.UseVisualStyleBackColor = true;
             // 
-            // btnRunRevisionSync
+            // lblRevDryRunDesc
             // 
-            this.btnRunRevisionSync.BackColor = System.Drawing.Color.FromArgb(37, 99, 235);
-            this.btnRunRevisionSync.FlatAppearance.BorderSize = 0;
-            this.btnRunRevisionSync.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnRunRevisionSync.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.btnRunRevisionSync.ForeColor = System.Drawing.Color.White;
-            this.btnRunRevisionSync.Location = new System.Drawing.Point(5, 285);
-            this.btnRunRevisionSync.Name = "btnRunRevisionSync";
-            this.btnRunRevisionSync.Size = new System.Drawing.Size(250, 45);
-            this.btnRunRevisionSync.TabIndex = 2;
-            this.btnRunRevisionSync.Text = "🔄 Run Version Revision Sync";
-            this.btnRunRevisionSync.UseVisualStyleBackColor = false;
-            this.btnRunRevisionSync.Click += new System.EventHandler(this.BtnRunRevisionSync_Click);
+            this.lblRevDryRunDesc.AutoSize = false;
+            this.lblRevDryRunDesc.Font = new System.Drawing.Font("Segoe UI", 8.25F, System.Drawing.FontStyle.Italic, System.Drawing.GraphicsUnit.Point);
+            this.lblRevDryRunDesc.ForeColor = System.Drawing.Color.FromArgb(100, 116, 139);
+            this.lblRevDryRunDesc.Location = new System.Drawing.Point(38, 204);
+            this.lblRevDryRunDesc.Name = "lblRevDryRunDesc";
+            this.lblRevDryRunDesc.Size = new System.Drawing.Size(350, 36);
+            this.lblRevDryRunDesc.TabIndex = 6;
+            this.lblRevDryRunDesc.Text = "Tests version calculation and logs planned file updates in console without modifying or overwriting any files on disk.";
+            // 
+            // splitterLogs
+            // 
+            this.splitterLogs.BackColor = System.Drawing.Color.FromArgb(203, 213, 225);
+            this.splitterLogs.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.splitterLogs.Location = new System.Drawing.Point(0, 375);
+            this.splitterLogs.MinExtra = 330;
+            this.splitterLogs.MinSize = 250;
+            this.splitterLogs.Name = "splitterLogs";
+            this.splitterLogs.Size = new System.Drawing.Size(1380, 5);
+            this.splitterLogs.TabIndex = 4;
+            this.splitterLogs.TabStop = false;
             // 
             // pnlLogs
             // 
-            this.pnlLogs.BackColor = System.Drawing.Color.FromArgb(241, 245, 249);
+            this.pnlLogs.BackColor = System.Drawing.Color.FromArgb(15, 23, 42);
             this.pnlLogs.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pnlLogs.Controls.Add(this.lblTerminalHeader);
-            this.pnlLogs.Controls.Add(this.rtbTerminal);
+            this.pnlLogs.Controls.Add(this.btnCopyLog);
+            this.pnlLogs.Controls.Add(this.chkShowErrors);
+            this.pnlLogs.Controls.Add(this.chkShowWarnings);
             this.pnlLogs.Controls.Add(this.btnClearLogs);
+            this.pnlLogs.Controls.Add(this.rtbTerminal);
             this.pnlLogs.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.pnlLogs.Location = new System.Drawing.Point(0, 455);
+            this.pnlLogs.Location = new System.Drawing.Point(0, 380);
             this.pnlLogs.Name = "pnlLogs";
-            this.pnlLogs.Padding = new System.Windows.Forms.Padding(5, 30, 5, 5);
-            this.pnlLogs.Size = new System.Drawing.Size(1260, 210);
+            this.pnlLogs.Padding = new System.Windows.Forms.Padding(5, 36, 5, 5);
+            this.pnlLogs.Size = new System.Drawing.Size(1380, 400);
             this.pnlLogs.TabIndex = 2;
             // 
             // lblTerminalHeader
             // 
             this.lblTerminalHeader.AutoSize = true;
             this.lblTerminalHeader.Font = new System.Drawing.Font("Segoe UI Semibold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblTerminalHeader.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.lblTerminalHeader.Location = new System.Drawing.Point(10, 8);
+            this.lblTerminalHeader.ForeColor = System.Drawing.Color.FromArgb(148, 163, 184);
+            this.lblTerminalHeader.Location = new System.Drawing.Point(12, 10);
             this.lblTerminalHeader.Name = "lblTerminalHeader";
-            this.lblTerminalHeader.Size = new System.Drawing.Size(126, 15);
+            this.lblTerminalHeader.Size = new System.Drawing.Size(170, 15);
             this.lblTerminalHeader.TabIndex = 0;
-            this.lblTerminalHeader.Text = "INTEGRATED LOGS LOG";
+            this.lblTerminalHeader.Text = "DEVOPS EXECUTION CONSOLE";
             // 
-            // rtbTerminal
+            // btnCopyLog
             // 
-            this.rtbTerminal.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
-            this.rtbTerminal.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.rtbTerminal.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.rtbTerminal.Font = new System.Drawing.Font("Consolas", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.rtbTerminal.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
-            this.rtbTerminal.Location = new System.Drawing.Point(5, 30);
-            this.rtbTerminal.Name = "rtbTerminal";
-            this.rtbTerminal.ReadOnly = true;
-            this.rtbTerminal.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.rtbTerminal.Size = new System.Drawing.Size(1248, 173);
-            this.rtbTerminal.TabIndex = 1;
-            this.rtbTerminal.Text = "";
+            this.btnCopyLog.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnCopyLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnCopyLog.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnCopyLog.ForeColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnCopyLog.Location = new System.Drawing.Point(880, 6);
+            this.btnCopyLog.Name = "btnCopyLog";
+            this.btnCopyLog.Size = new System.Drawing.Size(120, 24);
+            this.btnCopyLog.TabIndex = 3;
+            this.btnCopyLog.Text = "📋 Copy Console";
+            this.btnCopyLog.UseVisualStyleBackColor = true;
+            this.btnCopyLog.Click += new System.EventHandler(this.BtnCopyLog_Click);
+            // 
+            // chkShowErrors
+            // 
+            this.chkShowErrors.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.chkShowErrors.AutoSize = true;
+            this.chkShowErrors.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.chkShowErrors.Font = new System.Drawing.Font("Segoe UI Semibold", 8.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.chkShowErrors.ForeColor = System.Drawing.Color.FromArgb(248, 113, 113);
+            this.chkShowErrors.Location = new System.Drawing.Point(1015, 9);
+            this.chkShowErrors.Name = "chkShowErrors";
+            this.chkShowErrors.Size = new System.Drawing.Size(115, 19);
+            this.chkShowErrors.TabIndex = 4;
+            this.chkShowErrors.Text = "❌ Errors Only";
+            this.chkShowErrors.UseVisualStyleBackColor = true;
+            this.chkShowErrors.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
+            // 
+            // chkShowWarnings
+            // 
+            this.chkShowWarnings.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.chkShowWarnings.AutoSize = true;
+            this.chkShowWarnings.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.chkShowWarnings.Font = new System.Drawing.Font("Segoe UI Semibold", 8.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
+            this.chkShowWarnings.ForeColor = System.Drawing.Color.FromArgb(251, 191, 36);
+            this.chkShowWarnings.Location = new System.Drawing.Point(1140, 9);
+            this.chkShowWarnings.Name = "chkShowWarnings";
+            this.chkShowWarnings.Size = new System.Drawing.Size(130, 19);
+            this.chkShowWarnings.TabIndex = 5;
+            this.chkShowWarnings.Text = "⚠️ Warnings Only";
+            this.chkShowWarnings.UseVisualStyleBackColor = true;
+            this.chkShowWarnings.CheckedChanged += new System.EventHandler(this.ChkShowFilters_CheckedChanged);
             // 
             // btnClearLogs
             // 
             this.btnClearLogs.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.btnClearLogs.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnClearLogs.Font = new System.Drawing.Font("Segoe UI", 8F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-            this.btnClearLogs.ForeColor = System.Drawing.Color.FromArgb(71, 85, 105);
-            this.btnClearLogs.Location = new System.Drawing.Point(1175, 4);
+            this.btnClearLogs.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnClearLogs.ForeColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnClearLogs.Location = new System.Drawing.Point(1280, 6);
             this.btnClearLogs.Name = "btnClearLogs";
-            this.btnClearLogs.Size = new System.Drawing.Size(75, 22);
+            this.btnClearLogs.Size = new System.Drawing.Size(90, 24);
             this.btnClearLogs.TabIndex = 2;
             this.btnClearLogs.Text = "Clear Log";
             this.btnClearLogs.UseVisualStyleBackColor = true;
             this.btnClearLogs.Click += new System.EventHandler(this.BtnClearLogs_Click);
+            // 
+            // rtbTerminal
+            // 
+            this.rtbTerminal.BackColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.rtbTerminal.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.rtbTerminal.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.rtbTerminal.Font = new System.Drawing.Font("Cascadia Mono", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.rtbTerminal.ForeColor = System.Drawing.Color.FromArgb(248, 250, 252);
+            this.rtbTerminal.Location = new System.Drawing.Point(5, 36);
+            this.rtbTerminal.Name = "rtbTerminal";
+            this.rtbTerminal.ReadOnly = true;
+            this.rtbTerminal.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
+            this.rtbTerminal.Size = new System.Drawing.Size(1368, 237);
+            this.rtbTerminal.TabIndex = 1;
+            this.rtbTerminal.Text = "";
             // 
             // pnlStatusStrip
             // 
@@ -1196,16 +1157,18 @@ namespace GFCDevOpsUtility
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(248, 250, 252);
-            this.ClientSize = new System.Drawing.Size(1380, 700);
+            this.ClientSize = new System.Drawing.Size(1380, 820);
             this.Controls.Add(this.pnlMainContainer);
+            this.Controls.Add(this.splitterLogs);
             this.Controls.Add(this.pnlLogs);
             this.Controls.Add(this.pnlStatusStrip);
             this.Controls.Add(this.pnlNavBar);
-            this.MinimumSize = new System.Drawing.Size(1395, 740);
+            this.MinimumSize = new System.Drawing.Size(1395, 820);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "GFC Studio DevOps Utility";
             this.Load += new System.EventHandler(this.MainForm_Load);
+            this.Shown += new System.EventHandler(this.MainForm_Shown);
             this.pnlNavBar.ResumeLayout(false);
             this.pnlNavBar.PerformLayout();
             this.pnlMainContainer.ResumeLayout(false);
@@ -1242,7 +1205,7 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Panel pnlPublish;
         private System.Windows.Forms.GroupBox grpPublishOptions;
         private System.Windows.Forms.Label lblPubApp;
-        private System.Windows.Forms.CheckedListBox clbPublishApps;
+        private System.Windows.Forms.ListBox clbPublishApps;
         private System.Windows.Forms.ComboBox cmbPublishApp; // Legacy property for designer compatibility
         private System.Windows.Forms.Label lblPubWorkspace;
         private System.Windows.Forms.TextBox txtPubWorkspace;
@@ -1252,17 +1215,12 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Button btnPubOutputBrowse;
 
         private System.Windows.Forms.Button btnRunPublish;
-        private System.Windows.Forms.RichTextBox rtbBuildOutput;
-        private System.Windows.Forms.RichTextBox txtBuildLogs; // Keep declaration to avoid design-time metadata breaks but use rtbBuildOutput
-        private System.Windows.Forms.Button btnCopyLog;
-        private System.Windows.Forms.CheckBox chkShowErrors;
-        private System.Windows.Forms.CheckBox chkShowWarnings;
 
         // Deploy Tab Panel
         private System.Windows.Forms.Panel pnlDeploy;
         private System.Windows.Forms.GroupBox grpDeployOptions;
         private System.Windows.Forms.Label lblDepApp;
-        private System.Windows.Forms.CheckedListBox clbDeployApps;
+        private System.Windows.Forms.ListBox clbDeployApps;
         private System.Windows.Forms.ComboBox cmbDeployApp; // Legacy property for designer compatibility
         private System.Windows.Forms.Label lblDepZip;
         private System.Windows.Forms.TextBox txtDepZip;
@@ -1276,6 +1234,9 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Label lblDepBackup;
         private System.Windows.Forms.TextBox txtDepBackup;
         private System.Windows.Forms.Button btnDepBackupBrowse;
+        private System.Windows.Forms.RadioButton radDeployLatest;
+        private System.Windows.Forms.RadioButton radDeployRollback;
+        private System.Windows.Forms.ComboBox cmbDeployArchiveVersions;
         private System.Windows.Forms.Label lblDepIisSite;
         private System.Windows.Forms.TextBox txtDepIisSite;
         private System.Windows.Forms.Label lblDepIisAppPool;
@@ -1295,27 +1256,24 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.RadioButton radRevCustom;
         private System.Windows.Forms.TextBox txtRevCustomValue;
         private System.Windows.Forms.CheckBox chkRevDryRun;
+        private System.Windows.Forms.Label lblRevDryRunDesc;
         private System.Windows.Forms.Button btnRunRevisionSync;
 
         // Logs and Status elements
+        private System.Windows.Forms.Splitter splitterLogs;
         private System.Windows.Forms.Panel pnlLogs;
         private System.Windows.Forms.Label lblTerminalHeader;
         private System.Windows.Forms.RichTextBox rtbTerminal;
         private System.Windows.Forms.Button btnClearLogs;
+        private System.Windows.Forms.Button btnCopyLog;
+        private System.Windows.Forms.CheckBox chkShowErrors;
+        private System.Windows.Forms.CheckBox chkShowWarnings;
         private System.Windows.Forms.Panel pnlStatusStrip;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.ProgressBar pbProgress;
         private System.Windows.Forms.Label lblAutoConfigDesc;
         private System.Windows.Forms.Label lblPurgeDesc;
-        private System.Windows.Forms.CheckBox chkDepMobileApk;
-        private System.Windows.Forms.Label lblDepApkDist;
-        private System.Windows.Forms.TextBox txtDepApkDist;
-        private System.Windows.Forms.Button btnDepApkDistBrowse;
         private System.Windows.Forms.Label lblAppDesc;
-        private System.Windows.Forms.CheckBox chkPubMobileApk;
-        private System.Windows.Forms.CheckBox chkApkMobile;
-        private System.Windows.Forms.CheckBox chkApkPos;
-        private System.Windows.Forms.CheckBox chkApkWebApp;
         private System.Windows.Forms.GroupBox grpPipelineStatus;
         private System.Windows.Forms.Label lblStatusMobileTitle;
         private System.Windows.Forms.Label lblStatusMobilePublish;
@@ -1333,5 +1291,7 @@ namespace GFCDevOpsUtility
         private System.Windows.Forms.Label lblStatusDeployPosState;
         private System.Windows.Forms.Label lblStatusDeployWebAppTitle;
         private System.Windows.Forms.Label lblStatusDeployWebAppState;
+        private System.Windows.Forms.Label lblStatusDeployConnectTitle;
+        private System.Windows.Forms.Label lblStatusDeployConnectState;
     }
 }

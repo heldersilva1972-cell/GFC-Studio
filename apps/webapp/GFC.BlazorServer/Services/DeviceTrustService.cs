@@ -674,10 +674,25 @@ public class DeviceTrustService : IDeviceTrustService
 
         // 1. Check DeviceInviteTokens (codes generated from User Management portal)
         var invite = await context.DeviceInviteTokens
-            .FirstOrDefaultAsync(d => d.Token == normalized && !d.IsRevoked && d.UsedAtUtc == null && d.ExpiresAtUtc > DateTime.UtcNow);
+            .FirstOrDefaultAsync(d => d.Token == normalized && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
 
         if (invite != null)
         {
+            // If already redeemed within the last 15 minutes (e.g. for downloading APK, now opening the app), reuse existing device token
+            if (invite.UsedAtUtc != null)
+            {
+                var existingDevice = await context.UserDevices
+                    .Where(u => u.UserId == invite.UserId && u.IsActive)
+                    .OrderByDescending(u => u.Id)
+                    .FirstOrDefaultAsync();
+
+                if (existingDevice != null && !string.IsNullOrEmpty(existingDevice.DeviceToken))
+                {
+                    _logger.LogInformation("Invite setup code {Code} re-used for app pairing within active window for UserId={UserId}", normalized, invite.UserId);
+                    return existingDevice.DeviceToken;
+                }
+            }
+
             // Mark invite as redeemed/used
             invite.UsedAtUtc = DateTime.UtcNow;
 

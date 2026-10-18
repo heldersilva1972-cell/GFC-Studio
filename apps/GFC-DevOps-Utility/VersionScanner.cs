@@ -84,5 +84,27 @@ namespace GFCDevOpsUtility
             }
             return "Unknown";
         }
+
+        public static string GetConnectVersion(string workspaceRoot)
+        {
+            try
+            {
+                string gradlePath = Path.Combine(workspaceRoot, "apps", "GFC-Connect", "app", "build.gradle.kts");
+                if (File.Exists(gradlePath))
+                {
+                    string content = File.ReadAllText(gradlePath);
+                    Match mName = Regex.Match(content, @"versionName\s*=\s*""([^""]+)""");
+                    if (mName.Success)
+                    {
+                        return mName.Groups[1].Value.Trim();
+                    }
+                }
+            }
+            catch
+            {
+                // Suppress and return fallback
+            }
+            return "Unknown";
+        }
     }
 }

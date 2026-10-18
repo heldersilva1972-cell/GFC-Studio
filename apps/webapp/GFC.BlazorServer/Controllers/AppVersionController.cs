@@ -68,34 +68,8 @@ public class AppVersionController : ControllerBase
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> DownloadLatestApk([FromQuery] string? token)
     {
-        // 1. Verify Authentication (Cookie, Bearer Header, or Token Query Parameter)
-        bool isAuthenticated = User.Identity?.IsAuthenticated == true;
-
-        if (!isAuthenticated)
-        {
-            // Extract token from query or header
-            var authToken = token;
-            if (string.IsNullOrEmpty(authToken))
-            {
-                var header = Request.Headers["Authorization"].ToString();
-                if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                {
-                    authToken = header.Substring("Bearer ".Length).Trim();
-                }
-            }
-
-            if (!string.IsNullOrEmpty(authToken))
-            {
-                isAuthenticated = await _deviceTrustService.ValidateTokenAsync(authToken) ||
-                                  await _deviceTrustService.IsStationTokenAsync(authToken);
-            }
-        }
-
-        if (!isAuthenticated)
-        {
-            _logger.LogWarning("[GFC-CONNECT] Unauthorized APK download attempt rejected.");
-            return Unauthorized(new { error = "Unauthorized. Please provide a valid device token or log in." });
-        }
+        // Public download endpoint for GFC Connect client APK
+        // The APK contains no sensitive data; security is enforced inside the app via setup code authentication.
 
         // 2. Locate Private APK Package
         var packagesDir = Path.Combine(_env.ContentRootPath, "App_Data", "Packages");

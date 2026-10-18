@@ -567,6 +567,31 @@ namespace GFC.BlazorServer.Services
             try
             {
                 await using var _context = await _contextFactory.CreateDbContextAsync();
+                
+                // Ensure critical guide and JSON columns are added individually so a batch error cannot prevent them
+                var criticalColumns = new[]
+                {
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalPolicyGuideJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalPolicyGuideJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'LiquorMenuJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [LiquorMenuJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PricingGuideJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [PricingGuideJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PoliciesJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [PoliciesJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RoomsJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [RoomsJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'AddonsJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [AddonsJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'DaySchedulesJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [DaySchedulesJson] NVARCHAR(MAX) NULL;"
+                };
+
+                foreach (var sql in criticalColumns)
+                {
+                    try
+                    {
+                        await _context.Database.ExecuteSqlRawAsync(sql);
+                    }
+                    catch (Exception exCol)
+                    {
+                        Console.WriteLine($"Critical column migration notice ({sql}): {exCol.Message}");
+                    }
+                }
+
                 var schemaMigrationSql = @"
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ManagedRentalLocation')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [ManagedRentalLocation] NVARCHAR(100) NOT NULL DEFAULT 'Function Hall';

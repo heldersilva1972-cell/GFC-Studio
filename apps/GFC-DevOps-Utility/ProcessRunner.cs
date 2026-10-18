@@ -32,7 +32,7 @@ namespace GFCDevOpsUtility
             }
         }
 
-        public async Task<int> RunAsync(string fileName, string arguments, string workingDirectory)
+        public async Task<int> RunAsync(string fileName, string arguments, string workingDirectory, System.Collections.Generic.IDictionary<string, string>? environmentVariables = null)
         {
             using (var process = new Process())
             {
@@ -49,6 +49,14 @@ namespace GFCDevOpsUtility
                     StandardOutputEncoding = Encoding.UTF8,
                     StandardErrorEncoding = Encoding.UTF8
                 };
+
+                if (environmentVariables != null)
+                {
+                    foreach (var kvp in environmentVariables)
+                    {
+                        process.StartInfo.Environment[kvp.Key] = kvp.Value;
+                    }
+                }
 
                 process.OutputDataReceived += (sender, e) =>
                 {

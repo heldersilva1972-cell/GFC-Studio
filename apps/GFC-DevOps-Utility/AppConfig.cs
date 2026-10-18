@@ -44,6 +44,12 @@ namespace GFCDevOpsUtility
         public string WebAppIisSite { get; set; } = "GFCWebApp";
         public string WebAppIisAppPool { get; set; } = "GFCWebApp";
 
+        public string ConnectLivePath { get; set; } = @"C:\WebSites\GFCWebApp\App_Data\Packages";
+        public string ConnectStagingPath { get; set; } = @"C:\inetpub\PublishGFCConnect";
+        public string ConnectBackupPath { get; set; } = @"C:\WebSites\WebSitesArchive\Connect";
+        public string ConnectIisSite { get; set; } = "GFCWebApp";
+        public string ConnectIisAppPool { get; set; } = "GFCWebApp";
+
         public bool AutoConfigureWebConfig { get; set; } = true;
         public bool PurgeFiles { get; set; } = true;
 
@@ -63,12 +69,12 @@ namespace GFCDevOpsUtility
                 AppPipelines = new List<AppPipelineConfig>();
             }
 
+            string defaultSrc = string.IsNullOrEmpty(PublishOutputPath) 
+                ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop) 
+                : PublishOutputPath;
+
             if (AppPipelines.Count == 0)
             {
-                string defaultSrc = string.IsNullOrEmpty(PublishOutputPath) 
-                    ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop) 
-                    : PublishOutputPath;
-
                 AppPipelines.Add(new AppPipelineConfig
                 {
                     AppName = "Mobile",
@@ -98,6 +104,32 @@ namespace GFCDevOpsUtility
                     IisSiteName = WebAppIisSite,
                     IisAppPool = WebAppIisAppPool
                 });
+
+                AppPipelines.Add(new AppPipelineConfig
+                {
+                    AppName = "Connect",
+                    SourceZipFolder = defaultSrc,
+                    ArchiveFolder = ConnectBackupPath,
+                    LiveTargetFolder = ConnectLivePath,
+                    IisSiteName = ConnectIisSite,
+                    IisAppPool = ConnectIisAppPool
+                });
+            }
+            else
+            {
+                // Ensure Connect is present even if migrating an existing config.json
+                if (!AppPipelines.Any(a => a.AppName.Equals("Connect", StringComparison.OrdinalIgnoreCase)))
+                {
+                    AppPipelines.Add(new AppPipelineConfig
+                    {
+                        AppName = "Connect",
+                        SourceZipFolder = defaultSrc,
+                        ArchiveFolder = ConnectBackupPath,
+                        LiveTargetFolder = ConnectLivePath,
+                        IisSiteName = ConnectIisSite,
+                        IisAppPool = ConnectIisAppPool
+                    });
+                }
             }
         }
 

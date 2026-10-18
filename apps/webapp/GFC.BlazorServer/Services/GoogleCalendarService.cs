@@ -72,72 +72,96 @@ namespace GFC.BlazorServer.Services
             }
         }
 
+        private static List<CalendarEventItem>? _cachedFeedEvents;
+        private static DateTime _cacheExpiration = DateTime.MinValue;
+        private static readonly SemaphoreSlim _cacheLock = new(1, 1);
+
         public async Task<List<CalendarEventItem>> FetchAllFeedsAsync(GoogleCalendarSettings settings)
         {
-            var allEvents = new List<CalendarEventItem>();
-
-            // 1. Direct Live Google API Fetch (Zero-delay, bypasses iCal cache)
-            bool apiFetched = false;
-            if (settings.EnableWriteApi && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId))
+            if (_cachedFeedEvents != null && DateTime.UtcNow < _cacheExpiration)
             {
-                try
+                return new List<CalendarEventItem>(_cachedFeedEvents);
+            }
+
+            await _cacheLock.WaitAsync();
+            try
+            {
+                if (_cachedFeedEvents != null && DateTime.UtcNow < _cacheExpiration)
                 {
-                    var apiEvents = await FetchEventsFromApiAsync(settings.PrimaryGoogleCalendarId, settings, settings.CalendarName ?? "Google Calendar", "#C49A49");
-                    if (apiEvents != null && apiEvents.Count > 0)
+                    return new List<CalendarEventItem>(_cachedFeedEvents);
+                }
+
+                var allEvents = new List<CalendarEventItem>();
+
+                // 1. Direct Live Google API Fetch (Zero-delay, bypasses iCal cache)
+                bool apiFetched = false;
+                if (settings.EnableWriteApi && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId))
+                {
+                    try
                     {
-                        allEvents.AddRange(apiEvents);
-                        apiFetched = true;
+                        var apiEvents = await FetchEventsFromApiAsync(settings.PrimaryGoogleCalendarId, settings, settings.CalendarName ?? "Google Calendar", "#C49A49");
+                        if (apiEvents != null && apiEvents.Count > 0)
+                        {
+                            allEvents.AddRange(apiEvents);
+                            apiFetched = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Live API fetch failed, falling back to URL feeds.");
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Live API fetch failed, falling back to URL feeds.");
-                }
-            }
 
-            // Ensure backward compatibility if Feeds is empty but PublicCalendarUrl is set
-            if ((settings.Feeds == null || settings.Feeds.Count == 0) && !string.IsNullOrWhiteSpace(settings.PublicCalendarUrl))
-            {
-                settings.Feeds = new List<CalendarFeedConfig>
+                // Ensure backward compatibility if Feeds is empty but PublicCalendarUrl is set
+                if ((settings.Feeds == null || settings.Feeds.Count == 0) && !string.IsNullOrWhiteSpace(settings.PublicCalendarUrl))
                 {
-                    new()
+                    settings.Feeds = new List<CalendarFeedConfig>
                     {
-                        Name = string.IsNullOrWhiteSpace(settings.CalendarName) ? "Primary Calendar" : settings.CalendarName,
-                        Url = settings.PublicCalendarUrl,
-                        Color = "#0d6efd",
-                        IsEnabled = true
+                        new()
+                        {
+                            Name = string.IsNullOrWhiteSpace(settings.CalendarName) ? "Primary Calendar" : settings.CalendarName,
+                            Url = settings.PublicCalendarUrl,
+                            Color = "#0d6efd",
+                            IsEnabled = true
+                        }
+                    };
+                }
+
+                if (settings.Feeds != null && settings.Feeds.Count > 0)
+                {
+                    foreach (var feed in settings.Feeds)
+                    {
+                        if (!feed.IsEnabled || string.IsNullOrWhiteSpace(feed.Url))
+                            continue;
+
+                        // If we already fetched from the primary API and this feed represents the same calendar, skip to avoid duplicates
+                        if (apiFetched && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId) && feed.Url.Contains(settings.PrimaryGoogleCalendarId, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        try
+                        {
+                            var feedEvents = await FetchEventsFromUrlAsync(feed.Url, feed.Name, feed.Color);
+                            feed.LastSyncedAt = DateTime.Now;
+                            feed.EventCount = feedEvents.Count;
+                            feed.LastStatus = $"OK ({feedEvents.Count} events)";
+                            allEvents.AddRange(feedEvents);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to sync calendar feed '{FeedName}'", feed.Name);
+                            feed.LastStatus = $"Error: {ex.Message}";
+                        }
                     }
-                };
+                }
+
+                _cachedFeedEvents = allEvents;
+                _cacheExpiration = DateTime.UtcNow.AddMinutes(2);
+                return new List<CalendarEventItem>(allEvents);
             }
-
-            if (settings.Feeds == null || settings.Feeds.Count == 0)
-                return allEvents;
-
-            foreach (var feed in settings.Feeds)
+            finally
             {
-                if (!feed.IsEnabled || string.IsNullOrWhiteSpace(feed.Url))
-                    continue;
-
-                // If we already fetched from the primary API and this feed represents the same calendar, skip to avoid duplicates
-                if (apiFetched && !string.IsNullOrWhiteSpace(settings.PrimaryGoogleCalendarId) && feed.Url.Contains(settings.PrimaryGoogleCalendarId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                try
-                {
-                    var feedEvents = await FetchEventsFromUrlAsync(feed.Url, feed.Name, feed.Color);
-                    feed.LastSyncedAt = DateTime.Now;
-                    feed.EventCount = feedEvents.Count;
-                    feed.LastStatus = $"OK ({feedEvents.Count} events)";
-                    allEvents.AddRange(feedEvents);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to sync calendar feed '{FeedName}'", feed.Name);
-                    feed.LastStatus = $"Error: {ex.Message}";
-                }
+                _cacheLock.Release();
             }
-
-            return allEvents;
         }
 
         public async Task<List<CalendarEventItem>> FetchEventsFromUrlAsync(string icalUrl, string sourceName = "Public Calendar", string color = "#0d6efd")
