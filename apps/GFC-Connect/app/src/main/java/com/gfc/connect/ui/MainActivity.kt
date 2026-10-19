@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (GfcConnectApp.instance.tokenStorage.isPaired()) {
             checkActiveLotteryVariances()
+            checkForAppUpdates()
         }
     }
 
@@ -275,21 +276,31 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private var updateCheckJob: kotlinx.coroutines.Job? = null
+
     private fun unlockToMainHub() {
         showView(OnboardingState.UNLOCKED)
         populateMainHubData()
         checkNotificationPermissions()
         checkForAppUpdates()
+        startPeriodicUpdateCheck()
         syncFcmToken()
     }
 
-    private fun populateMainHubData() {
-        val storage = GfcConnectApp.instance.tokenStorage
-        val memberName = storage.getMemberName() ?: storage.getUsername() ?: "Member"
-        val userId = storage.getUserId()
+    private fun startPeriodicUpdateCheck() {
+        updateCheckJob?.cancel()
+        updateCheckJob = lifecycleScope.launch {
+            while (true) {
+                // Poll for updates every 15 minutes while active
+                kotlinx.coroutines.delay(15 * 60 * 1000L)
+                checkForAppUpdates()
+            }
+        }
+    }
 
-        binding.txtWelcomeHeader.text = "Welcome back, $memberName"
-        binding.txtMemberIdSubtitle.text = "Member ID: #${userId.toString().padStart(7, '0')}"
+    private fun populateMainHubData() {
+        binding.txtWelcomeHeader.text = "GFC Connect"
+        binding.txtMemberIdSubtitle.visibility = View.GONE
 
         // Filter Feature Cards by User's Permissions
         applyPermissionVisibility()

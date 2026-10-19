@@ -361,9 +361,24 @@ namespace GFC.BlazorServer.Services
                     }
 
                     var services = new List<string>();
-                    if (request.BartenderRequested) services.Add("Bar");
-                    if (request.KitchenUsage) services.Add("Kitchen");
-                    if (request.AvEquipmentUsage) services.Add("AV / Sound");
+                    var webSettings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                    var activeAddons = webSettings?.GetAddonsList() ?? RentalPricingDefaults.GetDefaultAddons();
+                    foreach (var addon in activeAddons.Where(a => a.IsActive))
+                    {
+                        var isBar = addon.Id == "addon_bar" || addon.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase);
+                        var isKitchen = addon.Id == "addon_kitchen" || addon.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase);
+                        var isAv = addon.Id == "addon_av" || addon.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || addon.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase);
+
+                        bool isSelected = (isBar && request.BartenderRequested) ||
+                                          (isKitchen && request.KitchenUsage) ||
+                                          (isAv && request.AvEquipmentUsage);
+
+                        if (isSelected && addon.PushToCalendar)
+                        {
+                            var label = !string.IsNullOrWhiteSpace(addon.CalendarDisplayName) ? addon.CalendarDisplayName : addon.Name;
+                            services.Add(label);
+                        }
+                    }
 
                     var titleSegments = new List<string>();
                     var titleFields = calSettings.EventTitleFields ?? GoogleCalendarSettings.GetDefaultGoogleTitleFields();
@@ -581,6 +596,183 @@ namespace GFC.BlazorServer.Services
             }
         }
 
+        public async Task SyncClubEventToGoogleCalendarAsync(DateTime date, string reason, string? location, string? startTime, string? endTime, bool isFullDay, string? oldReason = null, int? blackoutId = null)
+        {
+            if (_googleCalendarService == null || string.IsNullOrWhiteSpace(reason)) return;
+            try
+            {
+                var calSettings = await _googleCalendarService.GetSettingsAsync();
+                if (calSettings == null ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey)) return;
+
+                string? targetCalId = calSettings.PrimaryGoogleCalendarId?.Trim();
+                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success) targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                }
+                if (string.IsNullOrWhiteSpace(targetCalId)) return;
+
+                var writeSettings = new GoogleCalendarSettings
+                {
+                    PrimaryGoogleCalendarId = targetCalId,
+                    ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                    ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                    ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                    EnableWriteApi = true
+                };
+
+                // Remove any existing event matching the previous or current reason on this date
+                var cleanCurrent = reason.Trim();
+                var cleanOld = !string.IsNullOrWhiteSpace(oldReason) ? oldReason.Trim() : null;
+
+                var readEvents = new List<CalendarEventItem>();
+                if (calSettings.Feeds != null && calSettings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+                {
+                    var fetched = await _googleCalendarService.FetchAllFeedsAsync(calSettings);
+                    if (fetched != null) readEvents.AddRange(fetched);
+                }
+                else if (!string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                {
+                    var fetched = await _googleCalendarService.FetchEventsFromUrlAsync(calSettings.PublicCalendarUrl);
+                    if (fetched != null) readEvents.AddRange(fetched);
+                }
+
+                var existingMatches = readEvents.Where(e =>
+                    !string.IsNullOrWhiteSpace(e.GoogleEventId) &&
+                    !e.GoogleEventId.StartsWith("db-") &&
+                    ((blackoutId.HasValue && !string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains($"DbBlackoutId:{blackoutId.Value}")) ||
+                     (e.Start.Date == date.Date &&
+                      (e.Title.Contains(cleanCurrent, StringComparison.OrdinalIgnoreCase) ||
+                       (cleanOld != null && e.Title.Contains(cleanOld, StringComparison.OrdinalIgnoreCase)))))).ToList();
+
+                foreach (var ev in existingMatches)
+                {
+                    if (!string.IsNullOrWhiteSpace(ev.GoogleEventId))
+                    {
+                        await _googleCalendarService.DeleteGoogleEventAsync(ev.GoogleEventId, writeSettings);
+                    }
+                }
+
+                // Construct event times
+                DateTime start = date.Date.AddHours(9);
+                DateTime end = date.Date.AddHours(23);
+                bool allDay = isFullDay;
+
+                if (!isFullDay && !string.IsNullOrWhiteSpace(startTime) && !string.IsNullOrWhiteSpace(endTime))
+                {
+                    if (DateTime.TryParse($"{date:yyyy-MM-dd} {startTime}", out var ps)) start = ps;
+                    if (DateTime.TryParse($"{date:yyyy-MM-dd} {endTime}", out var pe)) end = pe;
+                    allDay = false;
+                }
+
+                var roomLoc = !string.IsNullOrWhiteSpace(location) ? location.Trim() : "Function Hall";
+                var isOffice = roomLoc.Contains("Office", StringComparison.OrdinalIgnoreCase);
+
+                var blackoutTag = blackoutId.HasValue ? $"\nDbBlackoutId:{blackoutId.Value}" : string.Empty;
+                var googleEvt = new CalendarEventItem
+                {
+                    Title = $"Club Event: {cleanCurrent}",
+                    Start = start,
+                    End = end,
+                    IsAllDay = allDay,
+                    Location = roomLoc,
+                    Source = "Club Event",
+                    Description = isOffice
+                        ? $"Event Category: Club Event\nSpace: {roomLoc}\nNotes: {cleanCurrent}\nSource: GFC Connect App\nShow on Public Calendar: Yes{blackoutTag}"
+                        : $"Event Category: Club Event\nSpace: {roomLoc}\nNotes: {cleanCurrent}\nSource: GFC Connect App{blackoutTag}"
+                };
+
+                var createResult = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, writeSettings);
+                if (createResult.Success && !string.IsNullOrWhiteSpace(createResult.EventId))
+                {
+                    try
+                    {
+                        var settings = await _googleCalendarService.GetSettingsAsync();
+                        if (settings != null)
+                        {
+                            if (!settings.ClubGoogleEventIds.Contains(createResult.EventId))
+                            {
+                                settings.ClubGoogleEventIds.Add(createResult.EventId);
+                                await _googleCalendarService.SaveSettingsAsync(settings);
+                            }
+                        }
+                    }
+                    catch (Exception regEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[RentalService] Notice: Could not register ClubGoogleEventId: {regEx.Message}");
+                    }
+                }
+                NotifyCalendarUpdated();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Club Event Google sync error: {ex.Message}");
+            }
+        }
+
+        public async Task RemoveClubEventFromGoogleCalendarAsync(DateTime date, string reason, string? location)
+        {
+            if (_googleCalendarService == null || string.IsNullOrWhiteSpace(reason)) return;
+            try
+            {
+                var calSettings = await _googleCalendarService.GetSettingsAsync();
+                if (calSettings == null ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountEmail) ||
+                    string.IsNullOrWhiteSpace(calSettings.ServiceAccountPrivateKey)) return;
+
+                string? targetCalId = calSettings.PrimaryGoogleCalendarId?.Trim();
+                if (string.IsNullOrWhiteSpace(targetCalId) && !string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(calSettings.PublicCalendarUrl, @"ical/([^/]+)/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success) targetCalId = System.Uri.UnescapeDataString(m.Groups[1].Value);
+                }
+                if (string.IsNullOrWhiteSpace(targetCalId)) return;
+
+                var writeSettings = new GoogleCalendarSettings
+                {
+                    PrimaryGoogleCalendarId = targetCalId,
+                    ServiceAccountEmail = calSettings.ServiceAccountEmail,
+                    ServiceAccountPrivateKey = calSettings.ServiceAccountPrivateKey,
+                    ServiceAccountProjectNumber = calSettings.ServiceAccountProjectNumber,
+                    EnableWriteApi = true
+                };
+
+                var cleanReason = reason.Trim();
+                var readEvents = new List<CalendarEventItem>();
+                if (calSettings.Feeds != null && calSettings.Feeds.Any(f => f.IsEnabled && !string.IsNullOrWhiteSpace(f.Url)))
+                {
+                    var fetched = await _googleCalendarService.FetchAllFeedsAsync(calSettings);
+                    if (fetched != null) readEvents.AddRange(fetched);
+                }
+                else if (!string.IsNullOrWhiteSpace(calSettings.PublicCalendarUrl))
+                {
+                    var fetched = await _googleCalendarService.FetchEventsFromUrlAsync(calSettings.PublicCalendarUrl);
+                    if (fetched != null) readEvents.AddRange(fetched);
+                }
+
+                var matches = readEvents.Where(e =>
+                    !string.IsNullOrWhiteSpace(e.GoogleEventId) &&
+                    !e.GoogleEventId.StartsWith("db-") &&
+                    e.Start.Date == date.Date &&
+                    e.Title.Contains(cleanReason, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                foreach (var ev in matches)
+                {
+                    if (!string.IsNullOrWhiteSpace(ev.GoogleEventId))
+                    {
+                        await _googleCalendarService.DeleteGoogleEventAsync(ev.GoogleEventId, writeSettings);
+                    }
+                }
+                NotifyCalendarUpdated();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] Club Event Google delete error: {ex.Message}");
+            }
+        }
+
         public async Task UpdateCalendarAvailabilityAsync(DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
@@ -681,7 +873,7 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
+        public async Task<AvailabilityCalendar> AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
             var existing = await context.AvailabilityCalendars.FirstOrDefaultAsync(d => 
@@ -689,26 +881,30 @@ namespace GFC.BlazorServer.Services
                 d.Status == "Blackout" && 
                 ((d.Description == null && description == null) || d.Description == description));
 
+            AvailabilityCalendar target;
             if (existing == null)
             {
-                context.AvailabilityCalendars.Add(new AvailabilityCalendar 
+                target = new AvailabilityCalendar 
                 { 
                     Date = date.Date, 
                     Status = "Blackout",
                     Description = description,
                     StartTime = startTime,
                     EndTime = endTime
-                });
+                };
+                context.AvailabilityCalendars.Add(target);
             }
             else 
             {
-                existing.Description = description;
-                existing.StartTime = startTime;
-                existing.EndTime = endTime;
-                context.Entry(existing).State = EntityState.Modified;
+                target = existing;
+                target.Description = description;
+                target.StartTime = startTime;
+                target.EndTime = endTime;
+                context.Entry(target).State = EntityState.Modified;
             }
             await context.SaveChangesAsync();
             NotifyCalendarUpdated();
+            return target;
         }
 
         public async Task RemoveBlackoutDateAsync(DateTime date)
@@ -818,7 +1014,8 @@ namespace GFC.BlazorServer.Services
                         }
                     }
 
-                    // Map Google Calendar / Club events to UnavailableDateDto
+                    // Map external Google Calendar events to UnavailableDateDto
+                    // Events originating from our database (Club Event, db- tags) are already authoritative in results via AvailabilityCalendars or HallRentalRequests by their primary key IDs.
                     foreach (var evt in externalEvents)
                     {
                         if (string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
@@ -830,6 +1027,29 @@ namespace GFC.BlazorServer.Services
                         if (evt.Description != null && evt.Description.Contains("Inquiry", StringComparison.OrdinalIgnoreCase))
                             continue;
 
+                        // Strictly skip events that originated from our database:
+                        // 1. GoogleEventId starts with "db-" or is in registered ClubGoogleEventIds
+                        // 2. Explicitly tagged as Club Event or Rental Booking
+                        if (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && 
+                            (evt.GoogleEventId.StartsWith("db-", StringComparison.OrdinalIgnoreCase) || 
+                             (calSettings.ClubGoogleEventIds != null && calSettings.ClubGoogleEventIds.Contains(evt.GoogleEventId))))
+                        {
+                            continue;
+                        }
+
+                        if (string.Equals(evt.Source, "Club Event", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(evt.Source, "Rental Booking", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        if (!string.IsNullOrEmpty(evt.Description) &&
+                            (evt.Description.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+                             evt.Description.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+                             evt.Description.Contains("Source: GFC Connect App", StringComparison.OrdinalIgnoreCase) ||
+                             evt.Description.Contains("Category: Hall Rental Booking", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+
                         // Check if event is all day or has specific times
                         string? eventTime = null;
                         if (!evt.IsAllDay && evt.Start != default && evt.End != default && (evt.Start.TimeOfDay != TimeSpan.Zero || evt.End.TimeOfDay != TimeSpan.Zero))
@@ -837,23 +1057,16 @@ namespace GFC.BlazorServer.Services
                             eventTime = $"{evt.Start:h:mm tt} - {evt.End:h:mm tt}";
                         }
 
-                        // Avoid duplicate entries if this event was already loaded from HallRentalRequests
-                        bool alreadyPresent = results.Any(x => x.Date.Date == evt.Start.Date && 
-                            string.Equals(x.EventTime, eventTime, StringComparison.OrdinalIgnoreCase) &&
-                            (string.Equals(x.EventType, evt.Title, StringComparison.OrdinalIgnoreCase) || x.Status == "Booked"));
-
-                        if (!alreadyPresent)
+                        // Add pure third-party external calendar booking
+                        results.Add(new UnavailableDateDto
                         {
-                            results.Add(new UnavailableDateDto
-                            {
-                                Id = 0,
-                                Date = evt.Start.Date,
-                                Status = "Booked",
-                                EventType = !string.IsNullOrWhiteSpace(evt.Title) ? evt.Title : "Club Event",
-                                EventTime = eventTime,
-                                IsFullDay = evt.IsAllDay || string.IsNullOrWhiteSpace(eventTime)
-                            });
-                        }
+                            Id = 0,
+                            Date = evt.Start.Date,
+                            Status = "Booked",
+                            EventType = !string.IsNullOrWhiteSpace(evt.Title) ? evt.Title : "External Booking",
+                            EventTime = eventTime,
+                            IsFullDay = evt.IsAllDay || string.IsNullOrWhiteSpace(eventTime)
+                        });
                     }
                 }
             }
@@ -1320,20 +1533,23 @@ namespace GFC.BlazorServer.Services
                         string roomName = string.IsNullOrWhiteSpace(request.RoomSelected) ? "Main Function Hall" : request.RoomSelected;
 
                         var services = new List<string>();
-                        if (request.BartenderRequested && calSettings.PushBarServiceToDescription)
+                        var webSettings = await _websiteSettingsService.GetWebsiteSettingsAsync();
+                        var activeAddons = webSettings?.GetAddonsList() ?? RentalPricingDefaults.GetDefaultAddons();
+                        foreach (var addon in activeAddons.Where(a => a.IsActive))
                         {
-                            var barName = !string.IsNullOrWhiteSpace(calSettings.BarServiceCalendarDisplayName) ? calSettings.BarServiceCalendarDisplayName : "Bar / Bartender Service";
-                            services.Add(barName);
-                        }
-                        if (request.KitchenUsage && calSettings.PushKitchenUsageToDescription)
-                        {
-                            var kitchenName = !string.IsNullOrWhiteSpace(calSettings.KitchenUsageCalendarDisplayName) ? calSettings.KitchenUsageCalendarDisplayName : "Kitchen Access";
-                            services.Add(kitchenName);
-                        }
-                        if (request.AvEquipmentUsage && calSettings.PushAvEquipmentToDescription)
-                        {
-                            var avName = !string.IsNullOrWhiteSpace(calSettings.AvEquipmentCalendarDisplayName) ? calSettings.AvEquipmentCalendarDisplayName : "A/V Equipment";
-                            services.Add(avName);
+                            var isBar = addon.Id == "addon_bar" || addon.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase);
+                            var isKitchen = addon.Id == "addon_kitchen" || addon.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase);
+                            var isAv = addon.Id == "addon_av" || addon.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || addon.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase);
+
+                            bool isSelected = (isBar && request.BartenderRequested) ||
+                                              (isKitchen && request.KitchenUsage) ||
+                                              (isAv && request.AvEquipmentUsage);
+
+                            if (isSelected && addon.PushToCalendar && calSettings.PushServicesToDescription)
+                            {
+                                var label = !string.IsNullOrWhiteSpace(addon.CalendarDisplayName) ? addon.CalendarDisplayName : addon.Name;
+                                services.Add(label);
+                            }
                         }
                         if (request.RequiresSetupTime) services.Add("Setup Time Requested");
 
@@ -1513,7 +1729,7 @@ namespace GFC.BlazorServer.Services
                         // Staff Notification Alert
                         if (settings.NotifyOnNewSubmission)
                         {
-                            var recipients = settings.GetRecipientsList();
+                            var (recipients, pushUsers) = await ResolveStaffRecipientsAsync(settings, "submission");
                             if (recipients.Any())
                             {
                                 string staffSubject = $"{(isTest ? "[TEST] " : "")}New Hall Rental Request: {request.ApplicantName} ({request.EventDate:MM/dd/yyyy})";
@@ -1539,6 +1755,16 @@ namespace GFC.BlazorServer.Services
                                 {
                                     await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
                                 }
+                            }
+
+                            if (pushUsers.Any())
+                            {
+                                await _firebaseNotificationService.SendToUsersAsync(
+                                    pushUsers,
+                                    "New Hall Rental Request",
+                                    $"{request.ApplicantName} submitted a booking for {request.EventDate:MMM dd, yyyy} ({request.RoomSelected}).",
+                                    new Dictionary<string, string> { { "type", "rental_submission" }, { "requestId", request.Id.ToString() } }
+                                );
                             }
                         }
                     }
@@ -1641,7 +1867,7 @@ namespace GFC.BlazorServer.Services
                         // 2. Incoming Notification Alert to Staff Recipients
                         if (settings.NotifyOnInquirySubmitted)
                         {
-                            var recipients = settings.GetRecipientsList();
+                            var (recipients, pushUsers) = await ResolveStaffRecipientsAsync(settings, "inquiry");
                             if (recipients.Any())
                             {
                                 string contactPref = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod) ? inquiry.PreferredContactMethod : (inquiry.RequestPhoneCall ? "Phone" : "Email");
@@ -1672,38 +1898,35 @@ namespace GFC.BlazorServer.Services
                                     await _emailDispatcher.SendRentalEmailAsync(settings, recipient, staffSubject, staffBody);
                                 }
                             }
+
+                            // Targeted push to subscribed staff devices
+                            if (pushUsers.Any())
+                            {
+                                string eventDateStr = inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
+                                string contactPrefSummary = !string.IsNullOrWhiteSpace(inquiry.PreferredContactMethod)
+                                    ? inquiry.PreferredContactMethod
+                                    : (inquiry.RequestPhoneCall ? "Phone" : "Email");
+
+                                await _firebaseNotificationService.SendToUsersAsync(
+                                    pushUsers,
+                                    "💬 New Rental Inquiry Received",
+                                    $"Inquiry from {inquiry.ApplicantName} ({eventDateStr}) • Preferred: {contactPrefSummary}",
+                                    new Dictionary<string, string>
+                                    {
+                                        { "category", "inquiry" },
+                                        { "rental_id", inquiry.Id.ToString() },
+                                        { "applicant_name", inquiry.ApplicantName ?? "" },
+                                        { "event_date", inquiry.EventDate > DateTime.MinValue ? inquiry.EventDate.ToString("yyyy-MM-dd") : "" },
+                                        { "contact_pref", contactPrefSummary }
+                                    }
+                                );
+                            }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry email delivery notice: {ex.Message}");
-                }
-
-                // Dispatch Real-time Push Notification to GFC Connect Admin Devices
-                try
-                {
-                    string eventDateStr = newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("MMM dd, yyyy") : "Flexible Date";
-                    string contactPrefSummary = !string.IsNullOrWhiteSpace(newInquiry.PreferredContactMethod)
-                        ? newInquiry.PreferredContactMethod
-                        : (newInquiry.RequestPhoneCall ? "Phone" : "Email");
-
-                    await _firebaseNotificationService.BroadcastAsync(
-                        "💬 New Rental Inquiry Received",
-                        $"Inquiry from {newInquiry.ApplicantName} ({eventDateStr}) • Preferred: {contactPrefSummary}",
-                        new Dictionary<string, string>
-                        {
-                            { "category", "inquiry" },
-                            { "rental_id", newInquiry.Id.ToString() },
-                            { "applicant_name", newInquiry.ApplicantName ?? "" },
-                            { "event_date", newInquiry.EventDate > DateTime.MinValue ? newInquiry.EventDate.ToString("yyyy-MM-dd") : "" },
-                            { "contact_pref", contactPrefSummary }
-                        }
-                    );
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry push notification warning: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[RentalService] Inquiry notification error: {ex.Message}");
                 }
             });
 
@@ -1926,6 +2149,95 @@ namespace GFC.BlazorServer.Services
                 .Select(a => $"{a.StartTime} - {a.EndTime}")
                 .ToListAsync();
             return blackouts;
+        }
+
+        private async Task<(List<string> Emails, List<int> PushUserIds)> ResolveStaffRecipientsAsync(WebsiteSettings settings, string eventType)
+        {
+            var emails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pushUserIds = new HashSet<int>();
+
+            try
+            {
+                // 1. Check granular staff recipients config
+                var configRecipients = settings.GetStaffRecipientsConfig();
+                if (configRecipients.Any())
+                {
+                    foreach (var r in configRecipients)
+                    {
+                        bool isSubscribed = eventType switch
+                        {
+                            "submission" => r.NotifyNewSubmission,
+                            "inquiry" => r.NotifyInquiry,
+                            "payment" => r.NotifyPayment,
+                            "reply" => r.NotifyApplicantReply,
+                            _ => true
+                        };
+
+                        if (isSubscribed && !string.IsNullOrWhiteSpace(r.Email))
+                        {
+                            emails.Add(r.Email.Trim());
+                        }
+
+                        if (isSubscribed && r.UserId.HasValue && r.UserId.Value > 0)
+                        {
+                            pushUserIds.Add(r.UserId.Value);
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback to legacy string list if no granular config
+                    foreach (var email in settings.GetRecipientsList())
+                    {
+                        emails.Add(email.Trim());
+                    }
+                }
+
+                // 2. Also check UserNotificationPreferences for staff who enabled rental alerts
+                await using var db = await _contextFactory.CreateDbContextAsync();
+                var prefs = await db.UserNotificationPreferences.ToListAsync();
+                foreach (var p in prefs)
+                {
+                    bool wantsEmail = eventType switch
+                    {
+                        "submission" => p.RentalNewSubmissionEmail,
+                        "inquiry" => p.RentalInquiryEmail,
+                        "payment" => p.RentalPaymentEmail,
+                        "reply" => p.RentalReplyEmail,
+                        _ => false
+                    };
+
+                    bool wantsPush = eventType switch
+                    {
+                        "submission" => p.RentalNewSubmissionPush,
+                        "inquiry" => p.RentalInquiryPush,
+                        "payment" => p.RentalPaymentPush,
+                        "reply" => p.RentalReplyPush,
+                        _ => false
+                    };
+
+                    if (wantsEmail && !string.IsNullOrWhiteSpace(p.Email))
+                    {
+                        emails.Add(p.Email.Trim());
+                    }
+
+                    if (wantsPush && p.UserId > 0)
+                    {
+                        pushUserIds.Add(p.UserId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RentalService] ResolveStaffRecipients error: {ex.Message}");
+                // Safe fallback to configured legacy recipients list
+                foreach (var email in settings.GetRecipientsList())
+                {
+                    emails.Add(email.Trim());
+                }
+            }
+
+            return (emails.ToList(), pushUserIds.ToList());
         }
     }
 }

@@ -358,3 +358,15 @@ data class AcknowledgeVariancePayload(
     @SerializedName("acknowledgedBy") val acknowledgedBy: String? = null
 )
 
+data class RentalNotificationPreferencesDto(
+    @SerializedName("email") val email: String?,
+    @SerializedName("rentalNewSubmissionEmail") val rentalNewSubmissionEmail: Boolean = false,
+    @SerializedName("rentalNewSubmissionPush") val rentalNewSubmissionPush: Boolean = false,
+    @SerializedName("rentalInquiryEmail") val rentalInquiryEmail: Boolean = false,
+    @SerializedName("rentalInquiryPush") val rentalInquiryPush: Boolean = false,
+    @SerializedName("rentalPaymentEmail") val rentalPaymentEmail: Boolean = false,
+    @SerializedName("rentalPaymentPush") val rentalPaymentPush: Boolean = false,
+    @SerializedName("rentalReplyEmail") val rentalReplyEmail: Boolean = false,
+    @SerializedName("rentalReplyPush") val rentalReplyPush: Boolean = false
+)
+

@@ -22,6 +22,14 @@ namespace GFC.Core.Models
         public string Description { get; set; } = string.Empty;
         public decimal Fee { get; set; } = 50;
         public bool IsActive { get; set; } = true;
+
+        // Google Calendar Visibility & Custom Label
+        public bool PushToCalendar { get; set; } = true;
+        public string? CalendarDisplayName { get; set; }
+
+        // Web App Month Calendar & Schedule List Visibility & Custom Label
+        public bool WebAppVisible { get; set; } = true;
+        public string? WebAppDisplayName { get; set; }
     }
 
     public class RentalPolicyItem
@@ -89,7 +97,11 @@ namespace GFC.Core.Models
                     Name = "Bar Service (alcohol & bartender – additional cost)",
                     Description = "Selecting this option provides a staffed bar with alcoholic beverages. If not selected, guests are strictly prohibited from bringing alcohol onto the premises under any circumstances.",
                     Fee = 100,
-                    IsActive = true
+                    IsActive = true,
+                    PushToCalendar = true,
+                    CalendarDisplayName = "Bar / Bartender Service",
+                    WebAppVisible = true,
+                    WebAppDisplayName = "Bar / Bartender Service"
                 },
                 new RentalAddonOption
                 {
@@ -97,7 +109,11 @@ namespace GFC.Core.Models
                     Name = "Kitchen Access",
                     Description = "Food prep & warming kitchen usage",
                     Fee = 50,
-                    IsActive = true
+                    IsActive = true,
+                    PushToCalendar = true,
+                    CalendarDisplayName = "Kitchen Access",
+                    WebAppVisible = true,
+                    WebAppDisplayName = "Kitchen Access"
                 },
                 new RentalAddonOption
                 {
@@ -105,7 +121,11 @@ namespace GFC.Core.Models
                     Name = "Special AV Equipment",
                     Description = "Projector, sound system & microphone",
                     Fee = 25,
-                    IsActive = true
+                    IsActive = true,
+                    PushToCalendar = true,
+                    CalendarDisplayName = "A/V Equipment",
+                    WebAppVisible = true,
+                    WebAppDisplayName = "A/V Equipment"
                 }
             };
         }
@@ -189,5 +209,17 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
                 }
             };
         }
+    }
+
+    public class StaffRentalRecipient
+    {
+        public int? UserId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public bool NotifyNewSubmission { get; set; } = true;
+        public bool NotifyInquiry { get; set; } = true;
+        public bool NotifyPayment { get; set; } = true;
+        public bool NotifyApplicantReply { get; set; } = true;
+        public bool IsExternal { get; set; } = false;
     }
 }

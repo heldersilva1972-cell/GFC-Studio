@@ -20,5 +20,6 @@ namespace GFC.Core.Interfaces
         Task<(bool Success, string Message)> UpdateGoogleEventAsync(string eventId, CalendarEventItem eventItem, GoogleCalendarSettings settings);
         Task<(bool Success, string Message)> DeleteGoogleEventAsync(string eventId, GoogleCalendarSettings settings);
         bool ParseServiceAccountJson(string jsonContent, GoogleCalendarSettings settings);
+        void InvalidateFeedCache();
     }
 }

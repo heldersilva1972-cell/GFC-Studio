@@ -90,6 +90,9 @@ namespace GFC.Core.Models
 
         // IDs of external Google Calendar events explicitly approved/published to the Public Calendar
         public List<string> PubliclyVisibleGoogleEventIds { get; set; } = new();
+
+        // IDs of Google Calendar events that were created as Club Events by our system
+        public List<string> ClubGoogleEventIds { get; set; } = new();
     }
 }
 

@@ -263,19 +263,13 @@
                 var dbBlackouts = await RentalService.GetUnavailableDatesAsync(includeRentalRequests: false);
                 foreach (var unavail in dbBlackouts)
                 {
-                    var title = !string.IsNullOrWhiteSpace(unavail.EventType) ? unavail.EventType : "Club Event";
-                    var isOffice = title.Contains("Office", StringComparison.OrdinalIgnoreCase);
+                    var rawTitle = !string.IsNullOrWhiteSpace(unavail.EventType) ? unavail.EventType : "Club Event";
+                    var isOffice = rawTitle.Contains("Office", StringComparison.OrdinalIgnoreCase);
                     var loc = isOffice ? (_webSettings?.SecondaryFlexibleLocation ?? "Office") : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
 
                     var existing = calendarEvents.FirstOrDefault(e => 
                         (!string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId == $"db-blackout-{unavail.Id}") ||
-                        (
-                            e.Start.Date == unavail.Date.Date && 
-                            (
-                                (!string.IsNullOrWhiteSpace(title) && (e.Title.Contains(title, StringComparison.OrdinalIgnoreCase) || title.Contains(e.Title, StringComparison.OrdinalIgnoreCase))) ||
-                                (unavail.IsFullDay && e.IsAllDay && string.Equals(e.Location, loc, StringComparison.OrdinalIgnoreCase))
-                            )
-                        ));
+                        (!string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains($"DbBlackoutId:{unavail.Id}")));
 
                     if (existing == null)
                     {
@@ -296,15 +290,15 @@
 
                         calendarEvents.Add(new CalendarEventItem
                         {
-                            GoogleEventId = $"db-blackout-{unavail.Date:yyyyMMdd}-{Math.Abs(title.GetHashCode()):X}",
-                            Title = title,
+                            GoogleEventId = $"db-blackout-{unavail.Date:yyyyMMdd}-{Math.Abs(rawTitle.GetHashCode()):X}",
+                            Title = rawTitle.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) ? rawTitle : $"Club Event: {rawTitle}",
                             Start = start,
                             End = end,
                             IsAllDay = isAllDay,
                             Location = loc,
                             Source = "Club Event",
                             Status = "Confirmed",
-                            Description = isOffice ? "Club Event (Office Space)\nShow on Public Calendar: Yes" : "Club Event / Blackout"
+                            Description = isOffice ? "Event Category: Club Event\nClub Event (Office Space)\nShow on Public Calendar: Yes" : "Event Category: Club Event\nClub Event / Blackout"
                         });
                     }
                 }
@@ -613,7 +607,13 @@
 
                 if (isClub)
                 {
-                    eventType = rawTitle;
+                    bool explicitlyPublic = e.Description != null && e.Description.Contains("Show on Public Calendar: Yes", StringComparison.OrdinalIgnoreCase);
+                    eventType = explicitlyPublic ? rawTitle : "Reserved";
+                    if (!explicitlyPublic)
+                    {
+                        rawTitle = "Reserved";
+                        publicDesc = string.Empty;
+                    }
                 }
                 else
                 {

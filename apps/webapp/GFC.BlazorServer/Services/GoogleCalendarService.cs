@@ -76,6 +76,12 @@ namespace GFC.BlazorServer.Services
         private static DateTime _cacheExpiration = DateTime.MinValue;
         private static readonly SemaphoreSlim _cacheLock = new(1, 1);
 
+        public void InvalidateFeedCache()
+        {
+            _cachedFeedEvents = null;
+            _cacheExpiration = DateTime.MinValue;
+        }
+
         public async Task<List<CalendarEventItem>> FetchAllFeedsAsync(GoogleCalendarSettings settings)
         {
             if (_cachedFeedEvents != null && DateTime.UtcNow < _cacheExpiration)
@@ -562,6 +568,18 @@ namespace GFC.BlazorServer.Services
                 current.Status = string.IsNullOrWhiteSpace(current.Status) ? "CONFIRMED" : current.Status;
                 current.ColorCategory = "badge-primary";
             }
+
+            // 4. Source classification
+            if (!string.IsNullOrEmpty(current.Description))
+            {
+                if (current.Description.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+                    current.Description.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+                    current.Description.Contains("Meeting / Internal", StringComparison.OrdinalIgnoreCase) ||
+                    current.Description.Contains("Category: Meeting", StringComparison.OrdinalIgnoreCase))
+                {
+                    current.Source = "Club Event";
+                }
+            }
         }
 
         public bool ParseServiceAccountJson(string jsonContent, GoogleCalendarSettings settings)
@@ -655,6 +673,7 @@ namespace GFC.BlazorServer.Services
 
                 if (response.IsSuccessStatusCode)
                 {
+                    InvalidateFeedCache();
                     var resJson = await response.Content.ReadAsStringAsync();
                     using var doc = JsonDocument.Parse(resJson);
                     var createdId = doc.RootElement.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
@@ -695,6 +714,7 @@ namespace GFC.BlazorServer.Services
 
                 if (response.IsSuccessStatusCode)
                 {
+                    InvalidateFeedCache();
                     return (true, "Event updated successfully in Google Calendar.");
                 }
                 else
@@ -728,6 +748,7 @@ namespace GFC.BlazorServer.Services
 
                 if (response.IsSuccessStatusCode)
                 {
+                    InvalidateFeedCache();
                     return (true, "Event deleted successfully from Google Calendar.");
                 }
                 else

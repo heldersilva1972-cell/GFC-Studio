@@ -17,7 +17,12 @@ import com.gfc.connect.api.ApiClient
 import com.gfc.connect.data.cache.RentalCacheManager
 import com.gfc.connect.databinding.ActivitySettingsBinding
 import com.gfc.connect.security.BiometricAuthManager
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.gfc.connect.data.models.RentalNotificationPreferencesDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -118,37 +123,54 @@ class SettingsActivity : AppCompatActivity() {
             val stateText = if (isChecked) "enabled" else "disabled"
             Toast.makeText(this, "Sensitive action biometric confirmation $stateText", Toast.LENGTH_SHORT).show()
         }
-
-        binding.btnTestBiometrics.setOnClickListener {
-            if (!canAuth) {
-                Toast.makeText(this, "⚠️ Please enroll a fingerprint or screen lock in device Settings first.", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-
-            biometricManager.promptBiometricAuthentication(
-                onSuccess = {
-                    Toast.makeText(this, "✅ Biometric authentication successful!", Toast.LENGTH_LONG).show()
-                },
-                onError = { code, err ->
-                    Toast.makeText(this, "❌ Biometric verification error ($code): $err", Toast.LENGTH_LONG).show()
-                },
-                onFailed = {
-                    Toast.makeText(this, "⚠️ Biometric not recognized. Please try again.", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
     }
 
     private fun bindAlertSettings() {
+        // Fetch explicit server preferences for rental notifications
+        loadRentalNotificationPreferences()
+
+        // Explicit Email Save Action
+        binding.btnSaveRentalEmail.setOnClickListener {
+            saveRentalNotificationPreferences()
+        }
+
+        // Email Alert Checkboxes with strict validation: Empty email is blocked
+        val emailCheckListener = android.widget.CompoundButton.OnCheckedChangeListener { buttonView, isChecked ->
+            if (isChecked) {
+                val email = binding.editRentalNotifyEmail.text?.toString()?.trim()
+                if (email.isNullOrBlank()) {
+                    buttonView.isChecked = false
+                    Toast.makeText(this, "⚠️ Email address is required to enable email notifications. Please enter your email address first.", Toast.LENGTH_LONG).show()
+                    return@OnCheckedChangeListener
+                }
+            }
+            saveRentalNotificationPreferences()
+        }
+
+        binding.chkRentalNewEmail.setOnCheckedChangeListener(emailCheckListener)
+        binding.chkRentalInquiryEmail.setOnCheckedChangeListener(emailCheckListener)
+        binding.chkRentalPaymentEmail.setOnCheckedChangeListener(emailCheckListener)
+        binding.chkRentalReplyEmail.setOnCheckedChangeListener(emailCheckListener)
+
         // Switch bindings
         binding.switchAlertRentals.isChecked = appSettings.alertRentalInquiries
         binding.switchAlertRentals.setOnCheckedChangeListener { _, isChecked ->
             appSettings.alertRentalInquiries = isChecked
+            saveRentalNotificationPreferences()
+        }
+
+        binding.switchRentalInquiryPush.setOnCheckedChangeListener { _, _ ->
+            saveRentalNotificationPreferences()
         }
 
         binding.switchAlertPayments.isChecked = appSettings.alertRentalPayments
         binding.switchAlertPayments.setOnCheckedChangeListener { _, isChecked ->
             appSettings.alertRentalPayments = isChecked
+            saveRentalNotificationPreferences()
+        }
+
+        binding.switchRentalReplyPush.setOnCheckedChangeListener { _, _ ->
+            saveRentalNotificationPreferences()
         }
 
         binding.switchAlertClubEvents.isChecked = appSettings.alertClubEvents
@@ -196,6 +218,81 @@ class SettingsActivity : AppCompatActivity() {
         // Test Push Notification Action
         binding.btnTestNotification.setOnClickListener {
             sendTestNotification()
+        }
+    }
+
+    private var _isUpdatingPrefs = false
+
+    private fun loadRentalNotificationPreferences() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val resp = ApiClient.service.getRentalNotificationPreferences()
+                if (resp.isSuccessful && resp.body() != null) {
+                    val prefs = resp.body()!!
+                    withContext(Dispatchers.Main) {
+                        _isUpdatingPrefs = true
+                        binding.editRentalNotifyEmail.setText(prefs.email ?: "")
+                        binding.chkRentalNewEmail.isChecked = prefs.rentalNewSubmissionEmail
+                        binding.switchAlertRentals.isChecked = prefs.rentalNewSubmissionPush
+                        binding.chkRentalInquiryEmail.isChecked = prefs.rentalInquiryEmail
+                        binding.switchRentalInquiryPush.isChecked = prefs.rentalInquiryPush
+                        binding.chkRentalPaymentEmail.isChecked = prefs.rentalPaymentEmail
+                        binding.switchAlertPayments.isChecked = prefs.rentalPaymentPush
+                        binding.chkRentalReplyEmail.isChecked = prefs.rentalReplyEmail
+                        binding.switchRentalReplyPush.isChecked = prefs.rentalReplyPush
+                        _isUpdatingPrefs = false
+                    }
+                }
+            } catch (ex: Exception) {
+                // Silently keep local defaults if offline
+            }
+        }
+    }
+
+    private fun saveRentalNotificationPreferences() {
+        if (_isUpdatingPrefs) return
+
+        val email = binding.editRentalNotifyEmail.text?.toString()?.trim() ?: ""
+        val wantsNewEmail = binding.chkRentalNewEmail.isChecked
+        val wantsInqEmail = binding.chkRentalInquiryEmail.isChecked
+        val wantsPayEmail = binding.chkRentalPaymentEmail.isChecked
+        val wantsRepEmail = binding.chkRentalReplyEmail.isChecked
+
+        // Strict Check: If any email alert is checked and email is empty, revert and warn
+        if ((wantsNewEmail || wantsInqEmail || wantsPayEmail || wantsRepEmail) && email.isBlank()) {
+            Toast.makeText(this, "⚠️ Please enter your email address to receive rental email alerts.", Toast.LENGTH_LONG).show()
+            binding.chkRentalNewEmail.isChecked = false
+            binding.chkRentalInquiryEmail.isChecked = false
+            binding.chkRentalPaymentEmail.isChecked = false
+            binding.chkRentalReplyEmail.isChecked = false
+            return
+        }
+
+        val dto = RentalNotificationPreferencesDto(
+            email = email,
+            rentalNewSubmissionEmail = wantsNewEmail,
+            rentalNewSubmissionPush = binding.switchAlertRentals.isChecked,
+            rentalInquiryEmail = wantsInqEmail,
+            rentalInquiryPush = binding.switchRentalInquiryPush.isChecked,
+            rentalPaymentEmail = wantsPayEmail,
+            rentalPaymentPush = binding.switchAlertPayments.isChecked,
+            rentalReplyEmail = wantsRepEmail,
+            rentalReplyPush = binding.switchRentalReplyPush.isChecked
+        )
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val resp = ApiClient.service.updateRentalNotificationPreferences(dto)
+                withContext(Dispatchers.Main) {
+                    if (resp.isSuccessful) {
+                        Toast.makeText(this@SettingsActivity, "✅ Notification preferences saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (ex: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@SettingsActivity, "⚠️ Failed to sync notification preferences with server", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -247,25 +344,6 @@ class SettingsActivity : AppCompatActivity() {
                 putExtra("EXTRA_CHECK_UPDATE", true)
             }
             startActivity(intent)
-        }
-
-        binding.rowUnpairDevice.setOnClickListener {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Unpair & Reset Device?")
-                .setMessage("This will disconnect this device from your club account and remove local encrypted credentials. You will need a new 8-digit setup code to pair again.")
-                .setPositiveButton("Unpair Device") { _, _ ->
-                    tokenStorage.clearAll()
-                    appSettings.resetToDefaults()
-                    Toast.makeText(this, "Device unpaired successfully.", Toast.LENGTH_LONG).show()
-
-                    val intent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    }
-                    startActivity(intent)
-                    finish()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
         }
     }
 }

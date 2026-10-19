@@ -433,7 +433,7 @@ class RentalCalendarActivity : AppCompatActivity() {
             it.eventDate.substringBefore('T') == selectedDateString
         }
 
-        val matchingUnavailable = unavailableDatesList.filter { unavail ->
+        val matchingUnavailableRaw = unavailableDatesList.filter { unavail ->
             unavail.date.substringBefore('T') == selectedDateString &&
             !unavail.status.equals("Inquiry", ignoreCase = true) &&
             !unavail.status.equals("Responded", ignoreCase = true) &&
@@ -445,6 +445,12 @@ class RentalCalendarActivity : AppCompatActivity() {
                 (unavail.eventTime != null && unavail.eventTime.contains(r.startTime ?: "", ignoreCase = true))
             }
         }
+
+        // Club events / blackouts for the selected date
+        // Deduplicate cleanly by database entity ID when present (id > 0)
+        val matchingUnavailable = matchingUnavailableRaw
+            .filter { unavail -> unavail.id <= 0 || !matchingRentals.any { r -> r.id == unavail.id } }
+            .distinctBy { if (it.id > 0) "id_${it.id}" else "ext_${it.date}_${it.eventTime}_${it.eventType}" }
 
         val currencyFormat = NumberFormat.getCurrencyInstance(Locale.US)
         val dp8 = (8 * resources.displayMetrics.density).toInt()
@@ -460,7 +466,7 @@ class RentalCalendarActivity : AppCompatActivity() {
             emptyList()
         } else {
             standardSlots.filter { slot ->
-                val hasConflict = matchingRentals.any { rental ->
+                val hasRentalConflict = matchingRentals.any { rental ->
                     val rStart = parseTimeToMinutes(rental.startTime)
                     val rEnd = parseTimeToMinutes(rental.endTime)
                     if (rStart >= 0 && rEnd >= 0) {
@@ -469,7 +475,25 @@ class RentalCalendarActivity : AppCompatActivity() {
                         true // Treat unspecified rental times as conflicting
                     }
                 }
-                !hasConflict
+                val hasClubEventConflict = matchingUnavailable.any { unavail ->
+                    if (unavail.isFullDay || unavail.eventTime.isNullOrBlank()) {
+                        true
+                    } else {
+                        val parts = unavail.eventTime.split("-")
+                        if (parts.size == 2) {
+                            val cStart = parseTimeToMinutes(parts[0])
+                            val cEnd = parseTimeToMinutes(parts[1])
+                            if (cStart >= 0 && cEnd >= 0) {
+                                slot.startMin < cEnd && slot.endMin > cStart
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                }
+                !hasRentalConflict && !hasClubEventConflict
             }
         }
 
@@ -802,17 +826,10 @@ class RentalCalendarActivity : AppCompatActivity() {
                 unavail.eventType?.contains("Inquiry", ignoreCase = true) == true ||
                 unavail.reason?.contains("Inquiry", ignoreCase = true) == true) return@filter false
 
-            // Exclude the event currently being edited
+            // Exclude the event currently being edited (strictly by instance or primary key ID)
             if (excludeEvent != null) {
                 if (unavail === excludeEvent) return@filter false
                 if (excludeEvent.id > 0 && unavail.id == excludeEvent.id) return@filter false
-                val eTitle = excludeEvent.eventType ?: excludeEvent.reason
-                val uTitle = unavail.eventType ?: unavail.reason
-                if (!eTitle.isNullOrBlank() && eTitle.equals(uTitle, ignoreCase = true) &&
-                    unavail.eventTime == excludeEvent.eventTime &&
-                    unavail.isFullDay == excludeEvent.isFullDay) {
-                    return@filter false
-                }
             } else if (excludeEventId > 0 && unavail.id == excludeEventId) {
                 return@filter false
             }

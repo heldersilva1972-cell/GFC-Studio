@@ -12,8 +12,8 @@ android {
         applicationId = "com.gfc.connect"
         minSdk = 26
         targetSdk = 34
-        versionCode = 108
-        versionName = "1.0.8"
+        versionCode = 112
+        versionName = "1.0.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

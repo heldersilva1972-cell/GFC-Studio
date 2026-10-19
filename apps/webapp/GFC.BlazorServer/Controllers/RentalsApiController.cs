@@ -1315,7 +1315,8 @@ Warm regards,
                     }
                 }
 
-                await _rentalService.AddBlackoutDateAsync(payload.Date, description, start, end);
+                var blackout = await _rentalService.AddBlackoutDateAsync(payload.Date, description, start, end);
+                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, blackoutId: blackout.Id);
                 return Ok(new { success = true, message = $"Club event '{payload.Reason}' scheduled in {locName} for {payload.Date:MMM dd, yyyy}." });
             }
             catch (Exception ex)
@@ -1358,6 +1359,9 @@ Warm regards,
                 var unavailable = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: true);
                 var isSecondary = locName.Contains("Office", StringComparison.OrdinalIgnoreCase) ||
                                   (!string.IsNullOrWhiteSpace(settings.SecondaryFlexibleLocation) && locName.Contains(settings.SecondaryFlexibleLocation, StringComparison.OrdinalIgnoreCase));
+
+                var existingEvent = unavailable.FirstOrDefault(d => d.Id == id);
+                var oldReason = existingEvent?.EventType;
 
                 var dayEvents = unavailable.Where(d => {
                     if (d.Id == id) return false; // Exclude currently edited event from conflict check
@@ -1415,6 +1419,7 @@ Warm regards,
                 }
 
                 await _rentalService.UpdateBlackoutDateAsync(id, payload.Date, description, start ?? string.Empty, end ?? string.Empty);
+                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, oldReason, blackoutId: id);
                 return Ok(new { success = true, message = $"Club event '{payload.Reason}' updated successfully in {locName}." });
             }
             catch (Exception ex)
@@ -1429,7 +1434,17 @@ Warm regards,
         {
             try
             {
+                var unavailable = await _rentalService.GetUnavailableDatesAsync(includeRentalRequests: false);
+                var existingEvent = unavailable.FirstOrDefault(d => d.Id == id);
+
                 await _rentalService.RemoveBlackoutDateByIdAsync(id);
+
+                if (existingEvent != null)
+                {
+                    var reason = existingEvent.EventType ?? string.Empty;
+                    _ = _rentalService.RemoveClubEventFromGoogleCalendarAsync(existingEvent.Date, reason, null);
+                }
+
                 return Ok(new { success = true, message = "Club event deleted successfully." });
             }
             catch (Exception ex)
@@ -1565,6 +1580,144 @@ Warm regards,
             {
                 return StatusCode(500, new { error = "Error logging correspondence: " + ex.Message });
             }
+        }
+
+        public class RentalNotificationPreferencesDto
+        {
+            public string? Email { get; set; }
+            public bool RentalNewSubmissionEmail { get; set; }
+            public bool RentalNewSubmissionPush { get; set; }
+            public bool RentalInquiryEmail { get; set; }
+            public bool RentalInquiryPush { get; set; }
+            public bool RentalPaymentEmail { get; set; }
+            public bool RentalPaymentPush { get; set; }
+            public bool RentalReplyEmail { get; set; }
+            public bool RentalReplyPush { get; set; }
+        }
+
+        [HttpGet("notification-preferences")]
+        public async Task<IActionResult> GetNotificationPreferences(
+            [FromServices] GFC.BlazorServer.Data.Repositories.IUserNotificationPreferencesRepository prefsRepo,
+            [FromServices] IUserRepository userRepo)
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdClaim, out var userId) || userId <= 0)
+            {
+                // Fallback attempt by Username
+                var username = User.Identity?.Name;
+                if (!string.IsNullOrWhiteSpace(username))
+                {
+                    var userObj = userRepo.GetByUsername(username);
+                    if (userObj != null) userId = userObj.UserId;
+                }
+            }
+
+            if (userId <= 0)
+            {
+                return Unauthorized(new { error = "User identity could not be verified." });
+            }
+
+            var prefs = await prefsRepo.GetByUserIdAsync(userId);
+            var user = userRepo.GetById(userId);
+
+            var explicitEmail = !string.IsNullOrWhiteSpace(prefs?.Email) ? prefs.Email : (user?.Email ?? "");
+
+            return Ok(new RentalNotificationPreferencesDto
+            {
+                Email = explicitEmail,
+                RentalNewSubmissionEmail = prefs?.RentalNewSubmissionEmail ?? false,
+                RentalNewSubmissionPush = prefs?.RentalNewSubmissionPush ?? false,
+                RentalInquiryEmail = prefs?.RentalInquiryEmail ?? false,
+                RentalInquiryPush = prefs?.RentalInquiryPush ?? false,
+                RentalPaymentEmail = prefs?.RentalPaymentEmail ?? false,
+                RentalPaymentPush = prefs?.RentalPaymentPush ?? false,
+                RentalReplyEmail = prefs?.RentalReplyEmail ?? false,
+                RentalReplyPush = prefs?.RentalReplyPush ?? false
+            });
+        }
+
+        [HttpPut("notification-preferences")]
+        public async Task<IActionResult> UpdateNotificationPreferences(
+            [FromBody] RentalNotificationPreferencesDto dto,
+            [FromServices] GFC.BlazorServer.Data.Repositories.IUserNotificationPreferencesRepository prefsRepo,
+            [FromServices] IUserRepository userRepo)
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdClaim, out var userId) || userId <= 0)
+            {
+                var username = User.Identity?.Name;
+                if (!string.IsNullOrWhiteSpace(username))
+                {
+                    var userObj = userRepo.GetByUsername(username);
+                    if (userObj != null) userId = userObj.UserId;
+                }
+            }
+
+            if (userId <= 0)
+            {
+                return Unauthorized(new { error = "User identity could not be verified." });
+            }
+
+            var cleanEmail = (dto.Email ?? "").Trim();
+            bool hasAnyEmailAlert = dto.RentalNewSubmissionEmail || dto.RentalInquiryEmail || dto.RentalPaymentEmail || dto.RentalReplyEmail;
+
+            // Strict Validation: Cannot enable email alerts with empty email address
+            if (hasAnyEmailAlert && string.IsNullOrWhiteSpace(cleanEmail))
+            {
+                return BadRequest(new { error = "Email address is required to enable rental email notifications. Please enter a valid email address first." });
+            }
+
+            var prefs = await prefsRepo.GetByUserIdAsync(userId);
+            bool isNew = false;
+            if (prefs == null)
+            {
+                isNew = true;
+                prefs = new GFC.BlazorServer.Data.Entities.UserNotificationPreferences
+                {
+                    UserId = userId
+                };
+            }
+
+            prefs.Email = cleanEmail;
+            prefs.RentalNewSubmissionEmail = dto.RentalNewSubmissionEmail && !string.IsNullOrWhiteSpace(cleanEmail);
+            prefs.RentalNewSubmissionPush = dto.RentalNewSubmissionPush;
+            prefs.RentalInquiryEmail = dto.RentalInquiryEmail && !string.IsNullOrWhiteSpace(cleanEmail);
+            prefs.RentalInquiryPush = dto.RentalInquiryPush;
+            prefs.RentalPaymentEmail = dto.RentalPaymentEmail && !string.IsNullOrWhiteSpace(cleanEmail);
+            prefs.RentalPaymentPush = dto.RentalPaymentPush;
+            prefs.RentalReplyEmail = dto.RentalReplyEmail && !string.IsNullOrWhiteSpace(cleanEmail);
+            prefs.RentalReplyPush = dto.RentalReplyPush;
+            prefs.UpdatedAt = DateTime.UtcNow;
+
+            if (isNew)
+            {
+                await prefsRepo.CreateAsync(prefs);
+            }
+            else
+            {
+                await prefsRepo.UpdateAsync(prefs);
+            }
+
+            // Sync with WebsiteSettings recipients config if staff
+            try
+            {
+                var settings = await _settingsService.GetWebsiteSettingsAsync();
+                var staffConfig = settings.GetStaffRecipientsConfig();
+                var existingStaff = staffConfig.FirstOrDefault(s => s.UserId == userId);
+                if (existingStaff != null)
+                {
+                    existingStaff.Email = cleanEmail;
+                    existingStaff.NotifyNewSubmission = prefs.RentalNewSubmissionEmail;
+                    existingStaff.NotifyInquiry = prefs.RentalInquiryEmail;
+                    existingStaff.NotifyPayment = prefs.RentalPaymentEmail;
+                    existingStaff.NotifyApplicantReply = prefs.RentalReplyEmail;
+                    settings.SetStaffRecipientsConfig(staffConfig);
+                    await _settingsService.UpdateWebsiteSettingsAsync(settings);
+                }
+            }
+            catch { }
+
+            return Ok(new { success = true, message = "Rental notification preferences updated successfully." });
         }
     }
 }

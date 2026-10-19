@@ -443,6 +443,49 @@ Warm regards,
         public string? SandboxGoogleCalendarId { get; set; }
         public string? SandboxCalendarFeedUrl { get; set; }
 
+        public string? RentalRecipientsConfigJson { get; set; }
+
+        public List<StaffRentalRecipient> GetStaffRecipientsConfig()
+        {
+            if (string.IsNullOrWhiteSpace(RentalRecipientsConfigJson))
+            {
+                var legacy = GetRecipientsList();
+                return legacy.Select(e => new StaffRentalRecipient
+                {
+                    Email = e,
+                    Name = e.Split('@')[0],
+                    NotifyNewSubmission = NotifyOnNewSubmission,
+                    NotifyInquiry = NotifyOnInquirySubmitted,
+                    NotifyPayment = NotifyOnPaymentRecorded,
+                    NotifyApplicantReply = RentalInboundNotifyStaff,
+                    IsExternal = true
+                }).ToList();
+            }
+
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<List<StaffRentalRecipient>>(RentalRecipientsConfigJson) ?? new List<StaffRentalRecipient>();
+            }
+            catch
+            {
+                return new List<StaffRentalRecipient>();
+            }
+        }
+
+        public void SetStaffRecipientsConfig(IEnumerable<StaffRentalRecipient> recipients)
+        {
+            if (recipients == null)
+            {
+                RentalRecipientsConfigJson = "[]";
+                NotificationEmailList = string.Empty;
+                return;
+            }
+
+            var list = recipients.ToList();
+            RentalRecipientsConfigJson = System.Text.Json.JsonSerializer.Serialize(list);
+            SetRecipientsList(list.Where(r => !string.IsNullOrWhiteSpace(r.Email)).Select(r => r.Email));
+        }
+
         // Helper methods for dynamic recipient boxes
         public List<string> GetRecipientsList()
         {

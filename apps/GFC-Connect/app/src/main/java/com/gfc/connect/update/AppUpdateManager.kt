@@ -87,6 +87,22 @@ class AppUpdateManager(private val context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
+        // Direct to Android system package installer to bypass the "Open with" chooser popup
+        val pm = context.packageManager
+        val resolvedActivities = pm.queryIntentActivities(installIntent, 0)
+        val preferredPackages = listOf(
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.samsung.android.packageinstaller"
+        )
+        val targetPackage = preferredPackages.firstOrNull { pkg ->
+            resolvedActivities.any { it.activityInfo.packageName.equals(pkg, ignoreCase = true) }
+        }
+
+        if (targetPackage != null) {
+            installIntent.setPackage(targetPackage)
+        }
+
         context.startActivity(installIntent)
     }
 }

@@ -203,7 +203,11 @@ namespace GFC.BlazorServer.Controllers
                     // Notify staff recipients if enabled
                     if (settings.RentalInboundNotifyStaff && !settings.MasterEmailKillSwitch)
                     {
-                        var staffList = settings.GetRecipientsList();
+                        var staffConfig = settings.GetStaffRecipientsConfig();
+                        var staffList = staffConfig.Any() 
+                            ? staffConfig.Where(s => s.NotifyApplicantReply && !string.IsNullOrWhiteSpace(s.Email)).Select(s => s.Email.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                            : settings.GetRecipientsList();
+
                         if (staffList.Any())
                         {
                             string staffSubject = $"[GFC Rental Reply] New message from {targetRequest.ApplicantName} for {targetRequest.EventDate:MM/dd/yyyy}";

@@ -663,7 +663,7 @@
 
                                                     case "event_status":
                                                         <td>
-                                                            @if (matchedReq == null && (string.Equals(evt.Source, "Google Calendar", StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && !evt.GoogleEventId.StartsWith("db-"))))
+                                                            @if (matchedReq == null && !isClub && (string.Equals(evt.Source, "Google Calendar", StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && !evt.GoogleEventId.StartsWith("db-"))))
                                                             {
                                                                 bool isGCalPending = evt.Title.Contains("PENDING", StringComparison.OrdinalIgnoreCase) || string.Equals(evt.Status, "PENDING", StringComparison.OrdinalIgnoreCase);
                                                                 if (isGCalPending)
@@ -986,7 +986,9 @@
 @if (_selectedEvent != null && !_isCalendarOnlyMode)
 {
     var matchedReqForModal = FindMatchingRentalRequest(_selectedEvent);
-    bool isGoogleCalendarOnly = matchedReqForModal == null && 
+    bool isClubEvent = IsClubEvent(_selectedEvent);
+    bool isRegisteredClubEventId = IsRegisteredClubGoogleId(_selectedEvent);
+    bool isGoogleCalendarOnly = matchedReqForModal == null && !isClubEvent && !isRegisteredClubEventId &&
         (string.Equals(_selectedEvent.Source, "Google Calendar", StringComparison.OrdinalIgnoreCase) || 
          (!string.IsNullOrWhiteSpace(_selectedEvent.GoogleEventId) && !_selectedEvent.GoogleEventId.StartsWith("db-")));
 
@@ -6746,6 +6748,14 @@
 
         foreach (var evt in _events)
         {
+            // Skip self if editing
+            if (!_isNewEvent && _editEventModel != null && 
+                ((!string.IsNullOrEmpty(evt.GoogleEventId) && evt.GoogleEventId == _editEventModel.GoogleEventId) || 
+                 (!string.IsNullOrEmpty(evt.Uid) && evt.Uid == _editEventModel.Uid)))
+            {
+                continue;
+            }
+
             if (string.Equals(evt.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(evt.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
             {
@@ -7249,19 +7259,13 @@
                         _explicitlyBlockedSlots.Add(key);
                     }
 
-                    var title = !string.IsNullOrWhiteSpace(unavail.EventType) ? unavail.EventType : "Club Event";
-                    var isOffice = title.Contains("Office", StringComparison.OrdinalIgnoreCase);
+                    var rawTitle = !string.IsNullOrWhiteSpace(unavail.EventType) ? unavail.EventType : "Club Event";
+                    var isOffice = rawTitle.Contains("Office", StringComparison.OrdinalIgnoreCase);
                     var loc = isOffice ? (_webSettings?.SecondaryFlexibleLocation ?? "Office") : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
 
                     var existing = calendarEvents.FirstOrDefault(e => 
                         (!string.IsNullOrWhiteSpace(e.GoogleEventId) && e.GoogleEventId == $"db-blackout-{unavail.Id}") ||
-                        (
-                            e.Start.Date == unavail.Date.Date && 
-                            (
-                                (!string.IsNullOrWhiteSpace(title) && (e.Title.Contains(title, StringComparison.OrdinalIgnoreCase) || title.Contains(e.Title, StringComparison.OrdinalIgnoreCase))) ||
-                                (unavail.IsFullDay && e.IsAllDay && string.Equals(e.Location, loc, StringComparison.OrdinalIgnoreCase))
-                            )
-                        ));
+                        (!string.IsNullOrWhiteSpace(e.Description) && e.Description.Contains($"DbBlackoutId:{unavail.Id}")));
 
                     if (existing == null)
                     {
@@ -7283,7 +7287,7 @@
                         calendarEvents.Add(new CalendarEventItem
                         {
                             GoogleEventId = $"db-blackout-{unavail.Id}",
-                            Title = title,
+                            Title = rawTitle.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) ? rawTitle : $"Club Event: {rawTitle}",
                             Start = start,
                             End = end,
                             IsAllDay = isAllDay,
@@ -7291,7 +7295,7 @@
                             Source = "Club Event",
                             Status = "Confirmed",
                             ColorCategory = "badge-dark",
-                            Description = isOffice ? "Club Event (Office Space)\nShow on Public Calendar: Yes" : "Club Event / Blackout"
+                            Description = isOffice ? "Event Category: Club Event\nClub Event (Office Space)\nShow on Public Calendar: Yes" : "Event Category: Club Event\nClub Event / Blackout"
                         });
                     }
                 }
@@ -7318,6 +7322,13 @@
             }
 
             _events = distinctList;
+            foreach (var ev in _events)
+            {
+                if (IsRegisteredClubGoogleId(ev))
+                {
+                    ev.Source = "Club Event";
+                }
+            }
             _lastPageRefreshLocal = DateTime.Now;
             _settings.TotalEventsCount = _events.Count;
 
@@ -7602,20 +7613,17 @@
         string roomName = string.IsNullOrWhiteSpace(request.RoomSelected) ? "Main Function Hall" : request.RoomSelected;
 
         var services = new List<string>();
-        if (request.BartenderRequested && _settings.PushBarServiceToDescription)
+        var activeAddons = _webSettings?.GetAddonsList() ?? GFC.Core.Models.RentalPricingDefaults.GetDefaultAddons();
+        foreach (var addon in activeAddons.Where(a => a.IsActive))
         {
-            var barName = !string.IsNullOrWhiteSpace(_settings.BarServiceCalendarDisplayName) ? _settings.BarServiceCalendarDisplayName : "Bar / Bartender Service";
-            services.Add(barName);
-        }
-        if (request.KitchenUsage && _settings.PushKitchenUsageToDescription)
-        {
-            var kitchenName = !string.IsNullOrWhiteSpace(_settings.KitchenUsageCalendarDisplayName) ? _settings.KitchenUsageCalendarDisplayName : "Kitchen Access";
-            services.Add(kitchenName);
-        }
-        if (request.AvEquipmentUsage && _settings.PushAvEquipmentToDescription)
-        {
-            var avName = !string.IsNullOrWhiteSpace(_settings.AvEquipmentCalendarDisplayName) ? _settings.AvEquipmentCalendarDisplayName : "A/V Equipment";
-            services.Add(avName);
+            if (IsAddonSelected(request, addon))
+            {
+                if (addon.PushToCalendar && _settings.PushServicesToDescription)
+                {
+                    var label = !string.IsNullOrWhiteSpace(addon.CalendarDisplayName) ? addon.CalendarDisplayName : addon.Name;
+                    services.Add(label);
+                }
+            }
         }
         if (request.RequiresSetupTime) services.Add("Setup Time Requested");
 
@@ -8196,7 +8204,7 @@
                         End = pDate.Date.Add(endTimeSpan),
                         Location = string.IsNullOrWhiteSpace(_editEventModel.Location) ? (_webSettings?.ManagedRentalLocation ?? "Function Hall") : _editEventModel.Location,
                         Description = eventDesc,
-                        Source = _editEventTargetFeed
+                        Source = _bookingCategory == "club" ? "Club Event" : _editEventTargetFeed
                     };
 
                     if (_settings.EnableWriteApi && !string.IsNullOrWhiteSpace(_settings.ServiceAccountEmail))
@@ -8205,6 +8213,14 @@
                         if (result.Success)
                         {
                             createdCount++;
+                            if (!string.IsNullOrWhiteSpace(result.EventId) && _bookingCategory == "club")
+                            {
+                                if (!_settings.ClubGoogleEventIds.Contains(result.EventId))
+                                {
+                                    _settings.ClubGoogleEventIds.Add(result.EventId);
+                                    await CalendarService.SaveSettingsAsync(_settings);
+                                }
+                            }
                         }
                     }
                     else
@@ -8213,7 +8229,7 @@
                         createdCount++;
                     }
 
-                    // If blocking out rental slots was requested for a club event, record in Availability ledger
+                    // If booking a club event in the managed rental space, ensure slot availability is blocked
                     if (_bookingCategory == "club")
                     {
                         try
@@ -8244,6 +8260,19 @@
                                         sEnd
                                     );
                                 }
+                            }
+                            else if (isManagedSpaceBooking)
+                            {
+                                // Automatically block out the designated event time window in the Function Hall
+                                var slotStartStr = eventInstance.Start.ToString("h:mm tt");
+                                var slotEndStr = eventInstance.End.ToString("h:mm tt");
+                                await RentalService.UpdateCalendarAvailabilityAsync(
+                                    pDate.Date,
+                                    "Blackout",
+                                    $"Club Event: {_editEventModel.Title.Trim()}",
+                                    slotStartStr,
+                                    slotEndStr
+                                );
                             }
                         }
                         catch (Exception ex)
@@ -8312,6 +8341,14 @@
                         _editEventError = result.Message;
                         return;
                     }
+                    if (!string.IsNullOrWhiteSpace(eventId) && _bookingCategory == "club")
+                    {
+                        if (!_settings.ClubGoogleEventIds.Contains(eventId))
+                        {
+                            _settings.ClubGoogleEventIds.Add(eventId);
+                            await CalendarService.SaveSettingsAsync(_settings);
+                        }
+                    }
                     _syncMessage = "Event updated successfully in Google Calendar!";
                     _syncSuccess = true;
                 }
@@ -8335,7 +8372,7 @@
                 {
                     try
                     {
-                        if (_blockOutDayForRentals)
+                        if (_blockOutMode == "all" || _blockOutDayForRentals)
                         {
                             await RentalService.UpdateCalendarAvailabilityAsync(
                                 _editEventModel.Start.Date, 
@@ -8343,6 +8380,18 @@
                                 $"Club Event: {_editEventModel.Title.Trim()}", 
                                 null, 
                                 null
+                            );
+                        }
+                        else if (isManagedSpaceBooking)
+                        {
+                            var sStart = _editEventModel.Start.ToString("h:mm tt");
+                            var sEnd = _editEventModel.End.ToString("h:mm tt");
+                            await RentalService.UpdateCalendarAvailabilityAsync(
+                                _editEventModel.Start.Date,
+                                "Blackout",
+                                $"Club Event: {_editEventModel.Title.Trim()}",
+                                sStart,
+                                sEnd
                             );
                         }
                         else
@@ -10751,9 +10800,20 @@ Warm regards,
         return string.IsNullOrWhiteSpace(title) ? "Hall Rental Event" : title;
     }
 
+    private bool IsRegisteredClubGoogleId(CalendarEventItem? evt)
+    {
+        return evt != null &&
+               !string.IsNullOrWhiteSpace(evt.GoogleEventId) &&
+               _settings?.ClubGoogleEventIds != null &&
+               _settings.ClubGoogleEventIds.Contains(evt.GoogleEventId);
+    }
+
     private bool IsClubEvent(CalendarEventItem? evt)
     {
         if (evt == null) return false;
+        // ID-based: Google event IDs we created as Club Events, or our own db-blackout records
+        if (IsRegisteredClubGoogleId(evt)) return true;
+        if (!string.IsNullOrWhiteSpace(evt.GoogleEventId) && evt.GoogleEventId.StartsWith("db-blackout-")) return true;
         var desc = evt.Description ?? string.Empty;
 
         // If explicitly tagged as Club Event or Secondary Space Meeting / Internal
@@ -10805,17 +10865,14 @@ Warm regards,
         return true;
     }
 
-    private string _previousListFilter = "PENDING_INQUIRIES";
-
     private void SwitchToCalendar()
     {
-        _previousListFilter = _filterCategory;
         _activeView = "calendar";
     }
 
     private void SwitchToListView()
     {
-        _filterCategory = _previousListFilter;
+        _filterCategory = "PENDING_INQUIRIES";
         _activeView = "list";
     }
 
@@ -10843,13 +10900,16 @@ Warm regards,
         bool isArchived = string.Equals(e.Status, "ARCHIVED", StringComparison.OrdinalIgnoreCase) ||
                           e.Title.StartsWith("ARCHIVED INQUIRY", StringComparison.OrdinalIgnoreCase);
 
-        // When viewing Calendar grid or in calendar mode, never show Inquiries or Cancelled/Archived events
+        // When viewing Calendar grid or in calendar mode:
+        // Always display all active/confirmed bookings, club events, and external events.
+        // Never show raw Inquiries, Cancelled, or Archived items on the calendar grid.
         if (_activeView == "calendar" || _isCalendarOnlyMode)
         {
             if (isInq || isCanc || isArchived)
             {
                 return false;
             }
+            return true;
         }
 
         if (_filterCategory == "CLUB_EVENTS")
@@ -12055,40 +12115,35 @@ Warm regards,
     private string GetEventServicesSummary(ParsedApplicationData details, CalendarEventItem? evt = null)
     {
         var services = new List<string>();
-
-        bool showBar = _webSettings?.WebAppPushBarService ?? true;
-        string barLabel = !string.IsNullOrWhiteSpace(_webSettings?.WebAppBarServiceDisplayName) ? _webSettings.WebAppBarServiceDisplayName : "Bar / Bartender Service";
-
-        bool showKitchen = _webSettings?.WebAppPushKitchenUsage ?? true;
-        string kitchenLabel = !string.IsNullOrWhiteSpace(_webSettings?.WebAppKitchenUsageDisplayName) ? _webSettings.WebAppKitchenUsageDisplayName : "Kitchen Access";
-
-        bool showAv = _webSettings?.WebAppPushAvEquipment ?? true;
-        string avLabel = !string.IsNullOrWhiteSpace(_webSettings?.WebAppAvEquipmentDisplayName) ? _webSettings.WebAppAvEquipmentDisplayName : "A/V Equipment";
-
+        var activeAddons = _webSettings?.GetAddonsList() ?? GFC.Core.Models.RentalPricingDefaults.GetDefaultAddons();
         var matchedReq = evt != null ? FindMatchingRentalRequest(evt) : null;
 
-        bool hasBar = string.Equals(details.BarService, "Yes", StringComparison.OrdinalIgnoreCase) ||
-                      (matchedReq?.BartenderRequested == true) ||
-                      (evt != null && (evt.Description?.Contains("Bar Service: Yes", StringComparison.OrdinalIgnoreCase) == true || evt.Description?.Contains("Bar / Bartender", StringComparison.OrdinalIgnoreCase) == true));
-
-        bool hasKitchen = string.Equals(details.KitchenAccess, "Yes", StringComparison.OrdinalIgnoreCase) ||
-                          (matchedReq?.KitchenUsage == true) ||
-                          (evt != null && (evt.Description?.Contains("Kitchen Access: Yes", StringComparison.OrdinalIgnoreCase) == true || evt.Description?.Contains("Kitchen Usage", StringComparison.OrdinalIgnoreCase) == true));
-
-        bool hasAv = (matchedReq?.AvEquipmentUsage == true) ||
-                     (evt != null && (evt.Description?.Contains("A/V", StringComparison.OrdinalIgnoreCase) == true || evt.Description?.Contains("Audio", StringComparison.OrdinalIgnoreCase) == true || evt.Description?.Contains("Projector", StringComparison.OrdinalIgnoreCase) == true));
-
-        if (hasBar && showBar)
+        foreach (var addon in activeAddons.Where(a => a.IsActive))
         {
-            services.Add(barLabel);
-        }
-        if (hasKitchen && showKitchen)
-        {
-            services.Add(kitchenLabel);
-        }
-        if (hasAv && showAv && !services.Contains(avLabel))
-        {
-            services.Add(avLabel);
+            var isBar = addon.Id == "addon_bar" || addon.Name.Contains("Bar", StringComparison.OrdinalIgnoreCase);
+            var isKitchen = addon.Id == "addon_kitchen" || addon.Name.Contains("Kitchen", StringComparison.OrdinalIgnoreCase);
+            var isAv = addon.Id == "addon_av" || addon.Name.Contains("AV", StringComparison.OrdinalIgnoreCase) || addon.Name.Contains("Sound", StringComparison.OrdinalIgnoreCase);
+
+            bool isSelected = false;
+            if (matchedReq != null)
+            {
+                isSelected = IsAddonSelected(matchedReq, addon);
+            }
+            else
+            {
+                if (isBar && (string.Equals(details.BarService, "Yes", StringComparison.OrdinalIgnoreCase) || (evt?.Description?.Contains("Bar", StringComparison.OrdinalIgnoreCase) == true)))
+                    isSelected = true;
+                else if (isKitchen && (string.Equals(details.KitchenAccess, "Yes", StringComparison.OrdinalIgnoreCase) || (evt?.Description?.Contains("Kitchen", StringComparison.OrdinalIgnoreCase) == true)))
+                    isSelected = true;
+                else if (isAv && (evt?.Description?.Contains("A/V", StringComparison.OrdinalIgnoreCase) == true || evt?.Description?.Contains("Audio", StringComparison.OrdinalIgnoreCase) == true))
+                    isSelected = true;
+            }
+
+            if (isSelected && addon.WebAppVisible)
+            {
+                var label = !string.IsNullOrWhiteSpace(addon.WebAppDisplayName) ? addon.WebAppDisplayName : addon.Name;
+                if (!services.Contains(label)) services.Add(label);
+            }
         }
 
         if (details.ExtraFields.TryGetValue("Services", out var customServices) && !string.IsNullOrWhiteSpace(customServices))
@@ -12096,24 +12151,9 @@ Warm regards,
             var parts = customServices.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim());
             foreach (var part in parts)
             {
-                if (part.Contains("Bar", StringComparison.OrdinalIgnoreCase) || part.Contains("Bartender", StringComparison.OrdinalIgnoreCase))
+                if (!services.Any(s => s.Equals(part, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (showBar && !services.Contains(barLabel)) services.Add(barLabel);
-                }
-                else if (part.Contains("Kitchen", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (showKitchen && !services.Contains(kitchenLabel)) services.Add(kitchenLabel);
-                }
-                else if (part.Contains("A/V", StringComparison.OrdinalIgnoreCase) || part.Contains("Audio", StringComparison.OrdinalIgnoreCase) || part.Contains("Projector", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (showAv && !services.Contains(avLabel)) services.Add(avLabel);
-                }
-                else
-                {
-                    if (!services.Any(s => s.Equals(part, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        services.Add(part);
-                    }
+                    services.Add(part);
                 }
             }
         }

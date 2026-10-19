@@ -90,4 +90,10 @@ interface GfcApiService {
 
     @POST("api/lottery/variances/acknowledge/{id}")
     suspend fun acknowledgeLotteryVariance(@Path("id") id: Int, @Body payload: AcknowledgeVariancePayload? = null): Response<RentalUpdateResponse>
+
+    @GET("api/rentals/notification-preferences")
+    suspend fun getRentalNotificationPreferences(): Response<RentalNotificationPreferencesDto>
+
+    @PUT("api/rentals/notification-preferences")
+    suspend fun updateRentalNotificationPreferences(@Body payload: RentalNotificationPreferencesDto): Response<ApprovalResponse>
 }

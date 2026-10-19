@@ -48,6 +48,16 @@ public class UserNotificationPreferences
     public bool ControllerEventNotifySMS { get; set; } = false;
     public bool ControllerEventNotifyPush { get; set; } = false;
 
+    // Granular Hall Rental Notifications
+    public bool RentalNewSubmissionEmail { get; set; } = false;
+    public bool RentalNewSubmissionPush { get; set; } = false;
+    public bool RentalInquiryEmail { get; set; } = false;
+    public bool RentalInquiryPush { get; set; } = false;
+    public bool RentalPaymentEmail { get; set; } = false;
+    public bool RentalPaymentPush { get; set; } = false;
+    public bool RentalReplyEmail { get; set; } = false;
+    public bool RentalReplyPush { get; set; } = false;
+
     // Reminder tracking
     public bool NotificationReminderDismissed { get; set; } = false;
     public DateTime? NotificationReminderDismissedAt { get; set; }

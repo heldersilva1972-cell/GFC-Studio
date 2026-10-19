@@ -163,6 +163,14 @@ public class UserNotificationPreferencesRepository : IUserNotificationPreference
                 preferences.LotterySalesNotifySMS = false;
                 preferences.ControllerEventNotifyEmail = false;
                 preferences.ControllerEventNotifySMS = false;
+                preferences.RentalNewSubmissionEmail = false;
+                preferences.RentalNewSubmissionPush = false;
+                preferences.RentalInquiryEmail = false;
+                preferences.RentalInquiryPush = false;
+                preferences.RentalPaymentEmail = false;
+                preferences.RentalPaymentPush = false;
+                preferences.RentalReplyEmail = false;
+                preferences.RentalReplyPush = false;
                 
                 await UpdateAsync(preferences);
                 
@@ -185,12 +193,16 @@ public class UserNotificationPreferencesRepository : IUserNotificationPreference
             if (preferences == null)
                 return false;
             
-            return preferences.ReimbursementNotifyEmail || preferences.ReimbursementNotifySMS ||
-                   preferences.MemberSignupNotifyEmail || preferences.MemberSignupNotifySMS ||
-                   preferences.DuesPaymentNotifyEmail || preferences.DuesPaymentNotifySMS ||
-                   preferences.SystemAlertNotifyEmail || preferences.SystemAlertNotifySMS ||
-                   preferences.LotterySalesNotifyEmail || preferences.LotterySalesNotifySMS ||
-                   preferences.ControllerEventNotifyEmail || preferences.ControllerEventNotifySMS;
+            return preferences.ReimbursementNotifyEmail || preferences.ReimbursementNotifySMS || preferences.ReimbursementNotifyPush ||
+                   preferences.MemberSignupNotifyEmail || preferences.MemberSignupNotifySMS || preferences.MemberSignupNotifyPush ||
+                   preferences.DuesPaymentNotifyEmail || preferences.DuesPaymentNotifySMS || preferences.DuesPaymentNotifyPush ||
+                   preferences.SystemAlertNotifyEmail || preferences.SystemAlertNotifySMS || preferences.SystemAlertNotifyPush ||
+                   preferences.LotterySalesNotifyEmail || preferences.LotterySalesNotifySMS || preferences.LotterySalesNotifyPush ||
+                   preferences.ControllerEventNotifyEmail || preferences.ControllerEventNotifySMS || preferences.ControllerEventNotifyPush ||
+                   preferences.RentalNewSubmissionEmail || preferences.RentalNewSubmissionPush ||
+                   preferences.RentalInquiryEmail || preferences.RentalInquiryPush ||
+                   preferences.RentalPaymentEmail || preferences.RentalPaymentPush ||
+                   preferences.RentalReplyEmail || preferences.RentalReplyPush;
         }
         catch (Exception ex)
         {

@@ -87,6 +87,7 @@ namespace GFC.BlazorServer.Services
                                 case "requireguestcount": settings.RequireGuestCount = Convert.ToBoolean(val); break;
                                 case "formingestionmode": settings.FormIngestionMode = val?.ToString() ?? "NativeForm"; break;
                                 case "notificationemaillist": settings.NotificationEmailList = val?.ToString() ?? ""; break;
+                                case "rentalrecipientsconfigjson": settings.RentalRecipientsConfigJson = val?.ToString(); break;
                                 case "notifyonnewsubmission": settings.NotifyOnNewSubmission = Convert.ToBoolean(val); break;
                                 case "notifyonpaymentrecorded": settings.NotifyOnPaymentRecorded = Convert.ToBoolean(val); break;
                                 case "sendapplicantconfirmation": settings.SendApplicantConfirmation = Convert.ToBoolean(val); break;
@@ -357,7 +358,8 @@ namespace GFC.BlazorServer.Services
                             [ShowMobileHomeButton] = @p102,
                             [PricingGuideJson] = @p106,
                             [LiquorMenuJson] = @p107,
-                            [RentalPolicyGuideJson] = @p108
+                            [RentalPolicyGuideJson] = @p108,
+                            [RentalRecipientsConfigJson] = @p109
                         WHERE [Id] = CASE 
                             WHEN @p37 IS NOT NULL AND @p37 > 0 AND EXISTS (SELECT 1 FROM [dbo].[WebsiteSettings] WHERE [Id] = @p37) THEN @p37
                             ELSE (SELECT TOP 1 [Id] FROM [dbo].[WebsiteSettings] ORDER BY [Id])
@@ -400,7 +402,8 @@ namespace GFC.BlazorServer.Services
                             [HideInquiryFloatingButtonOnMobile],
                             [ShowHomeButton], [ShowMobileHomeButton],
                             [InquiryDescriptionPlaceholder],
-                            [PricingGuideJson], [LiquorMenuJson], [RentalPolicyGuideJson]
+                            [PricingGuideJson], [LiquorMenuJson], [RentalPolicyGuideJson],
+                            [RentalRecipientsConfigJson]
                         ) VALUES (
                             @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15,
                             @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29,
@@ -420,7 +423,8 @@ namespace GFC.BlazorServer.Services
                             @p100,
                             @p101, @p102,
                             @p105,
-                            @p106, @p107, @p108
+                            @p106, @p107, @p108,
+                            @p109
                         );
                     END";
 
@@ -534,7 +538,8 @@ namespace GFC.BlazorServer.Services
                     new Microsoft.Data.SqlClient.SqlParameter("@p105", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.InquiryDescriptionPlaceholder ?? "Tell us what you'd like to know (e.g. catering questions, setup times, specific date availability, etc.)..." },
                     new Microsoft.Data.SqlClient.SqlParameter("@p106", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.PricingGuideJson ?? DBNull.Value },
                     new Microsoft.Data.SqlClient.SqlParameter("@p107", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.LiquorMenuJson ?? DBNull.Value },
-                    new Microsoft.Data.SqlClient.SqlParameter("@p108", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalPolicyGuideJson ?? DBNull.Value }
+                    new Microsoft.Data.SqlClient.SqlParameter("@p108", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalPolicyGuideJson ?? DBNull.Value },
+                    new Microsoft.Data.SqlClient.SqlParameter("@p109", System.Data.SqlDbType.NVarChar) { Value = (object?)settings.RentalRecipientsConfigJson ?? DBNull.Value }
                 };
 
                 var connection = _context.Database.GetDbConnection();
@@ -958,6 +963,9 @@ namespace GFC.BlazorServer.Services
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalPolicyGuideJson')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalPolicyGuideJson] NVARCHAR(MAX) NULL;
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalRecipientsConfigJson')
+                        ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalRecipientsConfigJson] NVARCHAR(MAX) NULL;
 
                     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'ApplicationPaymentWindowDays')
                         ALTER TABLE [dbo].[WebsiteSettings] ADD [ApplicationPaymentWindowDays] INT NOT NULL DEFAULT 2;
