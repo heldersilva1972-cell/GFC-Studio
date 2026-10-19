@@ -920,8 +920,8 @@ namespace GFC.BlazorServer.Components.Pages
                     await Task.Run(() => LotteryService.CreateShift(shift, username));
                 }
 
-                // [VARIANCE ALERT DISPATCH] Notify Connect App users if shift variance magnitude is non-trivial
-                if (Math.Abs(shift.Variance) >= 5.0m)
+                // [VARIANCE ALERT DISPATCH] Notify Connect App users if shift has a variance
+                if (Math.Abs(shift.Variance) > 0.00m)
                 {
                     _ = Task.Run(async () =>
                     {

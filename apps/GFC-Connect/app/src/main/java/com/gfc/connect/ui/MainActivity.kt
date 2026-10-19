@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         ApiClient.initBaseUrl(this)
 
         setupListeners()
-        val isDeepLinking = handleDeepLink(intent)
+        val isDeepLinking = handleDeepLink(intent) || handleNotificationIntent(intent)
         if (!isDeepLinking) {
             evaluateAppState()
         }
@@ -66,7 +66,38 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleDeepLink(intent)
+        if (!handleDeepLink(intent)) {
+            handleNotificationIntent(intent)
+        }
+    }
+
+    private fun handleNotificationIntent(intent: Intent?): Boolean {
+        if (intent == null) return false
+        val category = intent.getStringExtra("fcm_category")?.lowercase() ?: ""
+        if (category.isEmpty()) return false
+
+        if (category.contains("lottery")) {
+            val target = Intent(this, LotteryVarianceActivity::class.java)
+            startActivity(target)
+            return true
+        }
+
+        if (category.contains("rental") || category.contains("inquiry")) {
+            val rentalId = intent.getStringExtra("fcm_rental_id")?.toIntOrNull()
+            if (rentalId != null && rentalId > 0) {
+                val target = Intent(this, RentalDetailActivity::class.java).apply {
+                    putExtra(RentalDetailActivity.EXTRA_RENTAL_ID, rentalId)
+                    putExtra(RentalDetailActivity.EXTRA_IS_INQUIRY, category.contains("inquiry"))
+                }
+                startActivity(target)
+                return true
+            } else {
+                val target = Intent(this, HallRentalsActivity::class.java)
+                startActivity(target)
+                return true
+            }
+        }
+        return false
     }
 
     private fun handleDeepLink(intent: Intent?): Boolean {
@@ -90,6 +121,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (GfcConnectApp.instance.tokenStorage.isPaired()) {
             checkActiveLotteryVariances()
+            checkRentalPendingCount()
             checkForAppUpdates()
         }
     }
@@ -369,6 +401,44 @@ class MainActivity : AppCompatActivity() {
                     binding.imgLotteryVarianceIcon.setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.emerald_accent))
                     binding.cardLotteryVariance.strokeColor = ContextCompat.getColor(this@MainActivity, R.color.border_dark)
                     binding.txtLotteryVarianceSummary.text = "No active shift variances"
+                }
+            }
+        }
+    }
+
+    private fun checkRentalPendingCount() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = ApiClient.service.getRentalsList()
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val rentals = response.body()!!
+                        val pendingCount = rentals.count { r ->
+                            !r.status.equals("Archived", ignoreCase = true) &&
+                            !r.status.equals("Denied", ignoreCase = true) &&
+                            !r.status.equals("Cancelled", ignoreCase = true) &&
+                            (r.status.equals("Pending", ignoreCase = true) || 
+                             r.status.equals("Inquiry", ignoreCase = true) ||
+                             r.status.equals("Responded", ignoreCase = true) ||
+                             r.eventType?.contains("Inquiry", ignoreCase = true) == true)
+                        }
+
+                        if (pendingCount > 0) {
+                            binding.txtRentalPendingBadge.visibility = View.VISIBLE
+                            binding.txtRentalPendingBadge.text = pendingCount.toString()
+                        } else {
+                            binding.txtRentalPendingBadge.visibility = View.GONE
+                        }
+                        binding.txtRentalPendingSummary.text = "Manage inquiries, approve requests & record payments"
+                    } else {
+                        binding.txtRentalPendingBadge.visibility = View.GONE
+                        binding.txtRentalPendingSummary.text = "Manage inquiries, approve requests & record payments"
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.txtRentalPendingBadge.visibility = View.GONE
+                    binding.txtRentalPendingSummary.text = "Manage inquiries, approve requests & record payments"
                 }
             }
         }

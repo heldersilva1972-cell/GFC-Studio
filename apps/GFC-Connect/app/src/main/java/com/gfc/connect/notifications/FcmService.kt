@@ -83,6 +83,7 @@ class FcmService : FirebaseMessagingService() {
         }
 
         val channelId = when {
+            targetCategory?.contains("lottery") == true -> GfcConnectApp.CHANNEL_URGENT_ALERTS
             targetCategory?.contains("rental") == true || targetCategory?.contains("inquiry") == true -> GfcConnectApp.CHANNEL_HALL_RENTALS
             targetCategory?.contains("door") == true -> GfcConnectApp.CHANNEL_DOOR_ACCESS
             targetCategory?.contains("urgent") == true || targetCategory?.contains("alert") == true -> GfcConnectApp.CHANNEL_URGENT_ALERTS
@@ -94,7 +95,28 @@ class FcmService : FirebaseMessagingService() {
 
     private fun showSystemNotification(title: String, body: String, channelId: String, data: Map<String, String>) {
         val appSettings = GfcConnectApp.instance.appSettings
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val category = data["category"]?.lowercase() ?: ""
+        
+        // Deep-link intent directly to the destination feature, or fallback to MainActivity
+        val targetIntent = when {
+            category.contains("lottery") -> {
+                Intent(this, com.gfc.connect.ui.LotteryVarianceActivity::class.java)
+            }
+            category.contains("rental") || category.contains("inquiry") -> {
+                val rentalId = data["rental_id"]?.toIntOrNull()
+                if (rentalId != null && rentalId > 0) {
+                    Intent(this, com.gfc.connect.ui.RentalDetailActivity::class.java).apply {
+                        putExtra(com.gfc.connect.ui.RentalDetailActivity.EXTRA_RENTAL_ID, rentalId)
+                        putExtra(com.gfc.connect.ui.RentalDetailActivity.EXTRA_IS_INQUIRY, category.contains("inquiry"))
+                    }
+                } else {
+                    Intent(this, com.gfc.connect.ui.HallRentalsActivity::class.java)
+                }
+            }
+            else -> {
+                Intent(this, MainActivity::class.java)
+            }
+        }.apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             for ((key, value) in data) {
                 putExtra("fcm_$key", value)
@@ -104,7 +126,7 @@ class FcmService : FirebaseMessagingService() {
         val pendingIntent = PendingIntent.getActivity(
             this,
             System.currentTimeMillis().toInt(),
-            intent,
+            targetIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 

@@ -16,19 +16,22 @@ public class MobileReportingService : IMobileReportingService
     private readonly ILotteryRateRepository _rateRepo;
     private readonly IAuditLogger _auditLogger;
     private readonly IVersionService _versionService;
+    private readonly IFirebaseNotificationService _notificationService;
 
     public MobileReportingService(
         IDbContextFactory<GfcDbContext> dbFactory,
         ILotteryShiftService lottoService,
         ILotteryRateRepository rateRepo,
         IAuditLogger auditLogger,
-        IVersionService versionService)
+        IVersionService versionService,
+        IFirebaseNotificationService notificationService)
     {
         _dbFactory = dbFactory;
         _lottoService = lottoService;
         _rateRepo = rateRepo;
         _auditLogger = auditLogger;
         _versionService = versionService;
+        _notificationService = notificationService;
     }
 
     public int PendingCount => 0;
@@ -402,6 +405,33 @@ public class MobileReportingService : IMobileReportingService
 
                 if (lotto.ShiftId == 0) await Task.Run(() => _lottoService.CreateShift(lotto, effectiveUsername));
                 else await Task.Run(() => _lottoService.UpdateShift(lotto, effectiveUsername));
+
+                // [VARIANCE ALERT DISPATCH] Dispatch lottery variance alert to Connect App if variance exists
+                if (Math.Abs(lotto.Variance) > 0.00m)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var sign = lotto.Variance < 0 ? $"-${Math.Abs(lotto.Variance):N2} Short" : $"+${lotto.Variance:N2} Over";
+                            var title = $"⚠️ Lottery Variance Alert: {sign}";
+                            var body = $"{lotto.EmployeeName} ({lotto.ShiftType ?? "Shift"}): Cash variance of {sign} on {lotto.ShiftDate:MMM dd, yyyy}.";
+                            var dict = new Dictionary<string, string>
+                            {
+                                { "category", "lottery" },
+                                { "variance", lotto.Variance.ToString("0.00") },
+                                { "shiftId", lotto.ShiftId.ToString() },
+                                { "employeeName", lotto.EmployeeName ?? "" },
+                                { "shiftDate", lotto.ShiftDate.ToString("yyyy-MM-dd") }
+                            };
+                            await _notificationService.BroadcastAsync(title, body, dict);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[FCM] Error dispatching lottery variance alert: {ex.Message}");
+                        }
+                    });
+                }
 
                 // [FULL DAY AUTO-FULFILLMENT] Satisfy Day Shift across Bar and Lottery
                 if (data.IsFullDayShift && data.ShiftType == "Night")

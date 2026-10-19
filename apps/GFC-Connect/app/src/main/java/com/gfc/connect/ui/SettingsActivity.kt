@@ -224,6 +224,11 @@ class SettingsActivity : AppCompatActivity() {
     private var _isUpdatingPrefs = false
 
     private fun loadRentalNotificationPreferences() {
+        // Pre-populate with local cache if present
+        if (appSettings.rentalNotifyEmail.isNotBlank()) {
+            binding.editRentalNotifyEmail.setText(appSettings.rentalNotifyEmail)
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val resp = ApiClient.service.getRentalNotificationPreferences()
@@ -231,7 +236,11 @@ class SettingsActivity : AppCompatActivity() {
                     val prefs = resp.body()!!
                     withContext(Dispatchers.Main) {
                         _isUpdatingPrefs = true
-                        binding.editRentalNotifyEmail.setText(prefs.email ?: "")
+                        val effectiveEmail = if (!prefs.email.isNullOrBlank()) prefs.email else appSettings.rentalNotifyEmail
+                        binding.editRentalNotifyEmail.setText(effectiveEmail)
+                        if (!prefs.email.isNullOrBlank()) {
+                            appSettings.rentalNotifyEmail = prefs.email
+                        }
                         binding.chkRentalNewEmail.isChecked = prefs.rentalNewSubmissionEmail
                         binding.switchAlertRentals.isChecked = prefs.rentalNewSubmissionPush
                         binding.chkRentalInquiryEmail.isChecked = prefs.rentalInquiryEmail
@@ -268,6 +277,11 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
 
+        // Save email locally immediately so user input is never lost
+        if (email.isNotBlank()) {
+            appSettings.rentalNotifyEmail = email
+        }
+
         val dto = RentalNotificationPreferencesDto(
             email = email,
             rentalNewSubmissionEmail = wantsNewEmail,
@@ -286,11 +300,13 @@ class SettingsActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     if (resp.isSuccessful) {
                         Toast.makeText(this@SettingsActivity, "✅ Notification preferences saved", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@SettingsActivity, "⚠️ Saved locally (Server sync issue)", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (ex: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@SettingsActivity, "⚠️ Failed to sync notification preferences with server", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@SettingsActivity, "⚠️ Saved locally (Offline)", Toast.LENGTH_SHORT).show()
                 }
             }
         }

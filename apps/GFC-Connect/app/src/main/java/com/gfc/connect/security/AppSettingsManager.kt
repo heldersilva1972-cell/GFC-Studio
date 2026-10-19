@@ -54,6 +54,10 @@ class AppSettingsManager(context: Context) {
         get() = prefs.getInt(KEY_LOTTERY_QUIET_HOURS_END, 8) // 8:00 AM
         set(value) = prefs.edit().putInt(KEY_LOTTERY_QUIET_HOURS_END, value).apply()
 
+    var rentalNotifyEmail: String
+        get() = prefs.getString(KEY_RENTAL_NOTIFY_EMAIL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_RENTAL_NOTIFY_EMAIL, value).apply()
+
     var alertSoundEnabled: Boolean
         get() = prefs.getBoolean(KEY_ALERT_SOUND, true)
         set(value) = prefs.edit().putBoolean(KEY_ALERT_SOUND, value).apply()
@@ -132,6 +136,7 @@ class AppSettingsManager(context: Context) {
         private const val KEY_LOTTERY_QUIET_HOURS_END = "lottery_quiet_hours_end"
         private const val KEY_ALERT_SOUND = "alert_sound"
         private const val KEY_ALERT_VIBRATE = "alert_vibrate"
+        private const val KEY_RENTAL_NOTIFY_EMAIL = "rental_notify_email"
         private const val KEY_DISMISSED_LOTTERY_SHIFTS = "dismissed_lottery_shifts"
         private const val KEY_BIOMETRIC_APP_LOCK = "biometric_app_lock"
         private const val KEY_BIOMETRIC_SENSITIVE_ACTIONS = "biometric_sensitive_actions"
