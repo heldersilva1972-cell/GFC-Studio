@@ -169,4 +169,49 @@ public class DevicesController : ControllerBase
             return StatusCode(500, "Internal Server Error");
         }
     }
+
+    [HttpPost("retrust/{id:int}")]
+    [Authorize]
+    public async Task<IActionResult> ReTrustDevice(int id)
+    {
+        var isAdminClaim = User.FindFirst("IsAdmin")?.Value?.ToLower() == "true";
+        if (!isAdminClaim && !User.IsInRole(AppRoles.Admin))
+        {
+            return Forbid();
+        }
+
+        try
+        {
+            var device = await _context.UserDevices.FindAsync(id);
+            if (device == null)
+            {
+                return NotFound(new { error = "Device not found." });
+            }
+
+            device.IsActive = true;
+            device.LastActive = DateTime.UtcNow;
+
+            if (!string.IsNullOrEmpty(device.DeviceToken))
+            {
+                var trustedToken = await _context.TrustedDevices
+                    .FirstOrDefaultAsync(t => t.DeviceToken == device.DeviceToken);
+                if (trustedToken != null)
+                {
+                    trustedToken.IsRevoked = false;
+                    trustedToken.ExpiresAtUtc = DateTime.UtcNow.AddDays(365);
+                    trustedToken.LastUsedUtc = DateTime.UtcNow;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("[GFC-CONNECT] Re-trusted device Id={DeviceId}, User={UserId}", id, device.UserId);
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GFC-CONNECT] Error re-trusting device Id={DeviceId}", id);
+            return StatusCode(500, "Internal Server Error");
+        }
+    }
 }

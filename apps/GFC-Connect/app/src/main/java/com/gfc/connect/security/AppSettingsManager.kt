@@ -10,6 +10,10 @@ class AppSettingsManager(context: Context) {
     // ==========================================
     // NOTIFICATION & ALERT PREFERENCES
     // ==========================================
+    var alertRentalNewSubmissions: Boolean
+        get() = prefs.getBoolean(KEY_ALERT_RENTAL_NEW_SUBMISSIONS, true)
+        set(value) = prefs.edit().putBoolean(KEY_ALERT_RENTAL_NEW_SUBMISSIONS, value).apply()
+
     var alertRentalInquiries: Boolean
         get() = prefs.getBoolean(KEY_ALERT_RENTAL_INQUIRIES, true)
         set(value) = prefs.edit().putBoolean(KEY_ALERT_RENTAL_INQUIRIES, value).apply()
@@ -17,6 +21,10 @@ class AppSettingsManager(context: Context) {
     var alertRentalPayments: Boolean
         get() = prefs.getBoolean(KEY_ALERT_RENTAL_PAYMENTS, true)
         set(value) = prefs.edit().putBoolean(KEY_ALERT_RENTAL_PAYMENTS, value).apply()
+
+    var alertRentalReplies: Boolean
+        get() = prefs.getBoolean(KEY_ALERT_RENTAL_REPLIES, true)
+        set(value) = prefs.edit().putBoolean(KEY_ALERT_RENTAL_REPLIES, value).apply()
 
     var alertClubEvents: Boolean
         get() = prefs.getBoolean(KEY_ALERT_CLUB_EVENTS, true)
@@ -123,8 +131,10 @@ class AppSettingsManager(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "gfc_connect_app_settings"
+        private const val KEY_ALERT_RENTAL_NEW_SUBMISSIONS = "alert_rental_new_submissions"
         private const val KEY_ALERT_RENTAL_INQUIRIES = "alert_rental_inquiries"
         private const val KEY_ALERT_RENTAL_PAYMENTS = "alert_rental_payments"
+        private const val KEY_ALERT_RENTAL_REPLIES = "alert_rental_replies"
         private const val KEY_ALERT_CLUB_EVENTS = "alert_club_events"
         private const val KEY_ALERT_DOOR_ACCESS = "alert_door_access"
         private const val KEY_ALERT_SHIFT_REPORTS = "alert_shift_reports"

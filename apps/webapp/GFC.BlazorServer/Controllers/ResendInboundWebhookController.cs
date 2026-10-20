@@ -19,18 +19,20 @@ namespace GFC.BlazorServer.Controllers
     {
         private readonly IRentalService _rentalService;
         private readonly IWebsiteSettingsService _settingsService;
-        private readonly IRentalEmailDispatcher _emailDispatcher;
+        private readonly IFirebaseNotificationService _firebaseService;
         private readonly ILogger<ResendInboundWebhookController> _logger;
 
         public ResendInboundWebhookController(
             IRentalService rentalService,
             IWebsiteSettingsService settingsService,
             IRentalEmailDispatcher emailDispatcher,
+            IFirebaseNotificationService firebaseService,
             ILogger<ResendInboundWebhookController> logger)
         {
             _rentalService = rentalService;
             _settingsService = settingsService;
             _emailDispatcher = emailDispatcher;
+            _firebaseService = firebaseService;
             _logger = logger;
         }
 
@@ -65,6 +67,28 @@ namespace GFC.BlazorServer.Controllers
 
             [JsonPropertyName("message_id")]
             public string? MessageId { get; set; }
+
+            [JsonPropertyName("email_id")]
+            public string? EmailId { get; set; }
+
+            [JsonPropertyName("broadcast_id")]
+            public string? BroadcastId { get; set; }
+
+            // Bounce specific fields
+            [JsonPropertyName("bounce")]
+            public ResendBounceDetails? Bounce { get; set; }
+        }
+
+        public class ResendBounceDetails
+        {
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("sub_type")]
+            public string? SubType { get; set; }
         }
 
         [HttpPost("resend-inbound")]
@@ -127,6 +151,92 @@ namespace GFC.BlazorServer.Controllers
                     return BadRequest(new { status = "error", message = "Could not parse inbound email data." });
                 }
 
+                var eventType = payload?.Type ?? string.Empty;
+
+                // =========================================================================
+                // 1. HANDLE EMAIL BOUNCES / DELIVERY FAILURES (email.bounced)
+                // =========================================================================
+                if (eventType.Equals("email.bounced", StringComparison.OrdinalIgnoreCase) ||
+                    eventType.Contains("bounce", StringComparison.OrdinalIgnoreCase))
+                {
+                    var bounceDetails = emailData.Bounce;
+                    var bounceReason = bounceDetails?.Message ?? "Mail server reported address not found or delivery rejected";
+                    var bounceType = bounceDetails?.Type ?? "Permanent Bounce";
+
+                    // Determine recipient who bounced
+                    string bouncedRecipient = string.Empty;
+                    if (emailData.To is JsonElement toElement)
+                    {
+                        if (toElement.ValueKind == JsonValueKind.Array && toElement.GetArrayLength() > 0)
+                        {
+                            bouncedRecipient = toElement[0].GetString() ?? string.Empty;
+                        }
+                        else if (toElement.ValueKind == JsonValueKind.String)
+                        {
+                            bouncedRecipient = toElement.GetString() ?? string.Empty;
+                        }
+                    }
+                    else if (emailData.To is string toStr)
+                    {
+                        bouncedRecipient = toStr;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(bouncedRecipient) && !string.IsNullOrWhiteSpace(sender))
+                    {
+                        bouncedRecipient = sender;
+                    }
+
+                    var cleanBouncedEmail = ExtractEmailAddress(bouncedRecipient);
+                    _logger.LogWarning("[ResendWebhook] Email bounce detected for {Email}. Type: {Type}. Reason: {Reason}", 
+                        cleanBouncedEmail, bounceType, bounceReason);
+
+                    var allRequestsList = await _rentalService.GetRentalRequestsAsync();
+                    var matchedBouncedRequest = allRequestsList
+                        .Where(r => !string.IsNullOrWhiteSpace(r.RequesterEmail) &&
+                                    string.Equals(r.RequesterEmail.Trim(), cleanBouncedEmail, StringComparison.OrdinalIgnoreCase))
+                        .OrderByDescending(r => r.CreatedDate)
+                        .FirstOrDefault();
+
+                    if (matchedBouncedRequest != null)
+                    {
+                        var noteBuilder = new System.Text.StringBuilder();
+                        noteBuilder.AppendLine($"[{DateTime.Now:yyyy-MM-dd h:mm tt}]");
+                        noteBuilder.AppendLine($"⚠️ EMAIL DELIVERY BOUNCE DETECTED");
+                        noteBuilder.AppendLine($"• Undeliverable Address: {cleanBouncedEmail}");
+                        noteBuilder.AppendLine($"• Bounce Reason: {bounceReason} ({bounceType})");
+                        noteBuilder.AppendLine($"• Note: Email could not be delivered. Please verify customer's phone or contact info.");
+                        noteBuilder.AppendLine();
+
+                        matchedBouncedRequest.InternalNotes = (noteBuilder.ToString() + (matchedBouncedRequest.InternalNotes ?? "")).Trim();
+                        await _rentalService.UpdateRentalRequestAsync(matchedBouncedRequest);
+
+                        // Broadcast high-priority Push Alert to Connect App Staff
+                        try
+                        {
+                            string pushTitle = "⚠️ Rental Email Bounced";
+                            string pushBody = $"Delivery failed for {matchedBouncedRequest.ApplicantName} ({cleanBouncedEmail}). Address not found or rejected.";
+                            var pushData = new System.Collections.Generic.Dictionary<string, string>
+                            {
+                                { "category", "rental_reply" },
+                                { "requestId", matchedBouncedRequest.Id.ToString() },
+                                { "alertType", "bounce" }
+                            };
+                            await _firebaseService.BroadcastAsync(pushTitle, pushBody, pushData);
+                        }
+                        catch (Exception pEx)
+                        {
+                            _logger.LogWarning(pEx, "[ResendWebhook] Failed to dispatch push notification for email bounce.");
+                        }
+
+                        return Ok(new { status = "bounce_handled", requestId = matchedBouncedRequest.Id, email = cleanBouncedEmail });
+                    }
+
+                    return Ok(new { status = "bounce_unmatched", email = cleanBouncedEmail });
+                }
+
+                // =========================================================================
+                // 2. HANDLE INBOUND EMAIL REPLIES (email.received)
+                // =========================================================================
                 string subject = emailData.Subject ?? string.Empty;
                 string sender = emailData.From ?? string.Empty;
                 string messageBody = !string.IsNullOrWhiteSpace(emailData.Text) 

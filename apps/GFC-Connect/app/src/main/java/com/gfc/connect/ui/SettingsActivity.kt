@@ -126,8 +126,14 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun bindAlertSettings() {
-        // Fetch explicit server preferences for rental notifications
-        loadRentalNotificationPreferences()
+        // Prevent listeners from firing auto-saves during initial UI setup
+        _isUpdatingPrefs = true
+
+        // Initial switch bindings from local settings
+        binding.switchAlertRentals.isChecked = appSettings.alertRentalNewSubmissions
+        binding.switchRentalInquiryPush.isChecked = appSettings.alertRentalInquiries
+        binding.switchAlertPayments.isChecked = appSettings.alertRentalPayments
+        binding.switchRentalReplyPush.isChecked = appSettings.alertRentalReplies
 
         // Explicit Email Save Action
         binding.btnSaveRentalEmail.setOnClickListener {
@@ -136,6 +142,7 @@ class SettingsActivity : AppCompatActivity() {
 
         // Email Alert Checkboxes with strict validation: Empty email is blocked
         val emailCheckListener = android.widget.CompoundButton.OnCheckedChangeListener { buttonView, isChecked ->
+            if (_isUpdatingPrefs) return@OnCheckedChangeListener
             if (isChecked) {
                 val email = binding.editRentalNotifyEmail.text?.toString()?.trim()
                 if (email.isNullOrBlank()) {
@@ -152,30 +159,29 @@ class SettingsActivity : AppCompatActivity() {
         binding.chkRentalPaymentEmail.setOnCheckedChangeListener(emailCheckListener)
         binding.chkRentalReplyEmail.setOnCheckedChangeListener(emailCheckListener)
 
-        // Switch bindings
-        binding.switchAlertRentals.isChecked = appSettings.alertRentalInquiries
+        // Switch bindings for granular rental push alerts
         binding.switchAlertRentals.setOnCheckedChangeListener { _, isChecked ->
+            if (_isUpdatingPrefs) return@setOnCheckedChangeListener
+            appSettings.alertRentalNewSubmissions = isChecked
+            saveRentalNotificationPreferences()
+        }
+
+        binding.switchRentalInquiryPush.setOnCheckedChangeListener { _, isChecked ->
+            if (_isUpdatingPrefs) return@setOnCheckedChangeListener
             appSettings.alertRentalInquiries = isChecked
             saveRentalNotificationPreferences()
         }
 
-        binding.switchRentalInquiryPush.setOnCheckedChangeListener { _, _ ->
-            saveRentalNotificationPreferences()
-        }
-
-        binding.switchAlertPayments.isChecked = appSettings.alertRentalPayments
         binding.switchAlertPayments.setOnCheckedChangeListener { _, isChecked ->
+            if (_isUpdatingPrefs) return@setOnCheckedChangeListener
             appSettings.alertRentalPayments = isChecked
             saveRentalNotificationPreferences()
         }
 
-        binding.switchRentalReplyPush.setOnCheckedChangeListener { _, _ ->
+        binding.switchRentalReplyPush.setOnCheckedChangeListener { _, isChecked ->
+            if (_isUpdatingPrefs) return@setOnCheckedChangeListener
+            appSettings.alertRentalReplies = isChecked
             saveRentalNotificationPreferences()
-        }
-
-        binding.switchAlertClubEvents.isChecked = appSettings.alertClubEvents
-        binding.switchAlertClubEvents.setOnCheckedChangeListener { _, isChecked ->
-            appSettings.alertClubEvents = isChecked
         }
 
         // Lottery Shift Variance Alert & Threshold
@@ -219,6 +225,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnTestNotification.setOnClickListener {
             sendTestNotification()
         }
+
+        _isUpdatingPrefs = false
+
+        // Fetch explicit server preferences for rental notifications
+        loadRentalNotificationPreferences()
     }
 
     private var _isUpdatingPrefs = false
@@ -243,12 +254,19 @@ class SettingsActivity : AppCompatActivity() {
                         }
                         binding.chkRentalNewEmail.isChecked = prefs.rentalNewSubmissionEmail
                         binding.switchAlertRentals.isChecked = prefs.rentalNewSubmissionPush
+                        appSettings.alertRentalNewSubmissions = prefs.rentalNewSubmissionPush
+
                         binding.chkRentalInquiryEmail.isChecked = prefs.rentalInquiryEmail
                         binding.switchRentalInquiryPush.isChecked = prefs.rentalInquiryPush
+                        appSettings.alertRentalInquiries = prefs.rentalInquiryPush
+
                         binding.chkRentalPaymentEmail.isChecked = prefs.rentalPaymentEmail
                         binding.switchAlertPayments.isChecked = prefs.rentalPaymentPush
+                        appSettings.alertRentalPayments = prefs.rentalPaymentPush
+
                         binding.chkRentalReplyEmail.isChecked = prefs.rentalReplyEmail
                         binding.switchRentalReplyPush.isChecked = prefs.rentalReplyPush
+                        appSettings.alertRentalReplies = prefs.rentalReplyPush
                         _isUpdatingPrefs = false
                     }
                 }

@@ -1450,26 +1450,6 @@ namespace GFC.BlazorServer.Services
             context.HallRentalRequests.Add(request);
             await context.SaveChangesAsync();
 
-            // Auto-schedule pending calendar entry in local database
-            try
-            {
-                string titlePrefix = "PENDING: ";
-                string room = string.IsNullOrEmpty(request.RoomSelected) ? "Function Hall" : request.RoomSelected;
-                string desc = $"Applicant: {request.ApplicantName}\nPhone: {request.RequesterPhone}\nEmail: {request.RequesterEmail}\nRoom: {room}\nGuests: {request.GuestCount}\nTotal: ${request.TotalPrice}";
-
-                await UpdateCalendarAvailabilityAsync(
-                    request.EventDate,
-                    $"{titlePrefix}{request.ApplicantName} ({request.EventType ?? "Rental"})",
-                    desc,
-                    request.StartTime ?? "12:00 PM",
-                    request.EndTime ?? "5:00 PM"
-                );
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RentalService] Calendar update warning: {ex.Message}");
-            }
-
             // Immediately notify Blazor Server Hall Rentals dashboard & GFC Connect
             NotifyCalendarUpdated();
 

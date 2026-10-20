@@ -35,6 +35,8 @@ namespace GFC.Core.DTOs
         public DateTime CreatedDate { get; set; }
         public string? ModifiedBy { get; set; }
         public DateTime? ModifiedDate { get; set; }
+        public string? AcknowledgedBy { get; set; }
+        public DateTime? AcknowledgedAt { get; set; }
         
         // Joined Data from BarSaleEntries
         public decimal? BarLaborHours { get; set; }

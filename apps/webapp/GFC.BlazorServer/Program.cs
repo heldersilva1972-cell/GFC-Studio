@@ -1286,8 +1286,54 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                                 INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
                                 VALUES ('Income', '/finance/income', 'Unified income streams overview and shift audit warnings', 'FINANCE', 0, 1, 15);
                             END
+
+                            -- Cleanup legacy GFC Connect placeholders
+                            DELETE FROM UserPagePermissions 
+                            WHERE PageId IN (
+                                SELECT PageId FROM AppPages 
+                                WHERE PageRoute IN ('/gfc-connect/access', '/gfc-connect/door-access', '/gfc-connect/shift-reports', '/gfc-connect/club-news', '/gfc-connect/member-dues')
+                            );
+                            DELETE FROM AppPages 
+                            WHERE PageRoute IN ('/gfc-connect/access', '/gfc-connect/door-access', '/gfc-connect/shift-reports', '/gfc-connect/club-news', '/gfc-connect/member-dues');
+
+                            -- Register the 3 actual GFC Connect feature cards
+                            IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/gfc-connect/hall-rentals')
+                            BEGIN
+                                INSERT INTO AppPages (PageName, PageRoute, Category, IsActive, RequiresAdmin, DisplayOrder, Description)
+                                VALUES ('Rental Bookings & Approvals', '/gfc-connect/hall-rentals', 'GFC CONNECT', 1, 0, 1010, 'Manage inquiries, approve requests, and record payments in GFC Connect');
+                            END
+                            ELSE
+                            BEGIN
+                                UPDATE AppPages 
+                                SET PageName = 'Rental Bookings & Approvals', Category = 'GFC CONNECT', IsActive = 1, DisplayOrder = 1010 
+                                WHERE PageRoute = '/gfc-connect/hall-rentals';
+                            END
+
+                            IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/gfc-connect/rental-calendar')
+                            BEGIN
+                                INSERT INTO AppPages (PageName, PageRoute, Category, IsActive, RequiresAdmin, DisplayOrder, Description)
+                                VALUES ('Hall Rental Calendar', '/gfc-connect/rental-calendar', 'GFC CONNECT', 1, 0, 1020, 'View bookings, club events, and hall availability in GFC Connect');
+                            END
+                            ELSE
+                            BEGIN
+                                UPDATE AppPages 
+                                SET PageName = 'Hall Rental Calendar', Category = 'GFC CONNECT', IsActive = 1, DisplayOrder = 1020 
+                                WHERE PageRoute = '/gfc-connect/rental-calendar';
+                            END
+
+                            IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/gfc-connect/lottery-shifts')
+                            BEGIN
+                                INSERT INTO AppPages (PageName, PageRoute, Category, IsActive, RequiresAdmin, DisplayOrder, Description)
+                                VALUES ('Lottery Shifts', '/gfc-connect/lottery-shifts', 'GFC CONNECT', 1, 0, 1030, 'Active variance alerts, shift breakdowns, and audit history in GFC Connect');
+                            END
+                            ELSE
+                            BEGIN
+                                UPDATE AppPages 
+                                SET PageName = 'Lottery Shifts', Category = 'GFC CONNECT', IsActive = 1, DisplayOrder = 1030 
+                                WHERE PageRoute = '/gfc-connect/lottery-shifts';
+                            END
                             
-                            PRINT 'Updated AppPages names and active states, registered Income page, set Bar/Lottery Entries category, consolidated mobile categories';
+                            PRINT 'Updated AppPages names and active states, registered Income page, set Bar/Lottery Entries category, consolidated mobile categories, cleaned GFC Connect pages';
                         END
                         IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
                         BEGIN

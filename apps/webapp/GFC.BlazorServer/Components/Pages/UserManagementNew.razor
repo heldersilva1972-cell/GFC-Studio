@@ -577,6 +577,9 @@
                                         else
                                         {
                                             <div class="mt-3 pt-2 border-top d-flex flex-column gap-2">
+                                                <button class="btn btn-outline-success btn-sm w-100 rounded-pill py-2 fw-semibold" @onclick="() => ReTrustDevice(dev)">
+                                                    <i class="bi bi-shield-check me-1"></i> Re-Trust Device
+                                                </button>
                                                 <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2 fw-semibold" @onclick="() => PromptDeleteDevice(dev)">
                                                     <i class="bi bi-trash3-fill me-1"></i> Delete Device Record
                                                 </button>
@@ -2605,6 +2608,41 @@
             _isRevokingDevice = false;
             _showRevokeDeviceConfirm = false;
             _deviceToRevoke = null;
+        }
+    }
+
+    private async Task ReTrustDevice(GfcConnectDeviceDto dev)
+    {
+        if (dev == null) return;
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var device = await context.UserDevices.FindAsync(dev.Id);
+            if (device != null)
+            {
+                device.IsActive = true;
+                device.LastActive = DateTime.UtcNow;
+
+                if (!string.IsNullOrEmpty(device.DeviceToken))
+                {
+                    var trusted = await context.TrustedDevices
+                        .FirstOrDefaultAsync(t => t.DeviceToken == device.DeviceToken);
+                    if (trusted != null)
+                    {
+                        trusted.IsRevoked = false;
+                        trusted.ExpiresAtUtc = DateTime.UtcNow.AddDays(365);
+                        trusted.LastUsedUtc = DateTime.UtcNow;
+                    }
+                }
+
+                await context.SaveChangesAsync();
+                await ToastService.ShowSuccess($"Trust restored for {dev.DeviceModel ?? "device"}. Member can now access GFC Connect.");
+                await LoadGfcConnectDevices();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error re-trusting device: {ex.Message}");
         }
     }
 

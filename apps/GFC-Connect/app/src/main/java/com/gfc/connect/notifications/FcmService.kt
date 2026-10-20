@@ -39,7 +39,14 @@ class FcmService : FirebaseMessagingService() {
         if (targetCategory?.contains("rental_payment") == true && !appSettings.alertRentalPayments) {
             return
         }
-        if (targetCategory?.contains("rental") == true && !appSettings.alertRentalInquiries && !appSettings.alertRentalPayments) {
+        if (targetCategory?.contains("reply") == true && !appSettings.alertRentalReplies) {
+            return
+        }
+        if (targetCategory?.contains("rental") == true &&
+            !targetCategory.contains("inquiry") &&
+            !targetCategory.contains("rental_payment") &&
+            !targetCategory.contains("reply") &&
+            !appSettings.alertRentalNewSubmissions) {
             return
         }
         if (targetCategory?.contains("event") == true && !appSettings.alertClubEvents) {
@@ -54,6 +61,9 @@ class FcmService : FirebaseMessagingService() {
         if (targetCategory?.contains("bulletin") == true && !appSettings.alertBulletins) {
             return
         }
+
+        var isSilentDelivery = false
+
         if (targetCategory?.contains("lottery") == true) {
             if (!appSettings.alertLotteryVariance) return
 
@@ -75,9 +85,8 @@ class FcmService : FirebaseMessagingService() {
                 }
 
                 if (isQuiet) {
-                    // During quiet hours, do not play audible chime / turn on screen.
-                    // The variance remains saved and appears immediately on the app dashboard.
-                    return
+                    // During quiet hours, deliver silently so alert remains in tray without waking device
+                    isSilentDelivery = true
                 }
             }
         }
@@ -90,10 +99,10 @@ class FcmService : FirebaseMessagingService() {
             else -> GfcConnectApp.CHANNEL_GENERAL
         }
 
-        showSystemNotification(title, body, channelId, remoteMessage.data)
+        showSystemNotification(title, body, channelId, remoteMessage.data, isSilentDelivery)
     }
 
-    private fun showSystemNotification(title: String, body: String, channelId: String, data: Map<String, String>) {
+    private fun showSystemNotification(title: String, body: String, channelId: String, data: Map<String, String>, isSilentDelivery: Boolean = false) {
         val appSettings = GfcConnectApp.instance.appSettings
         val category = data["category"]?.lowercase() ?: ""
         
@@ -135,14 +144,14 @@ class FcmService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (isSilentDelivery) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
 
-        if (!appSettings.alertSoundEnabled) {
+        if (isSilentDelivery || !appSettings.alertSoundEnabled) {
             builder.setSilent(true)
         }
-        if (!appSettings.alertVibrateEnabled) {
+        if (isSilentDelivery || !appSettings.alertVibrateEnabled) {
             builder.setVibrate(longArrayOf(0))
         }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using GFC.BlazorServer.Services;
+using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -14,13 +15,16 @@ namespace GFC.BlazorServer.Controllers
     public class LotteryVariancesApiController : ControllerBase
     {
         private readonly ILotteryShiftRepository _shiftRepository;
+        private readonly ILotteryShiftService _shiftService;
         private readonly IFirebaseNotificationService _notificationService;
 
         public LotteryVariancesApiController(
             ILotteryShiftRepository shiftRepository,
+            ILotteryShiftService shiftService,
             IFirebaseNotificationService notificationService)
         {
             _shiftRepository = shiftRepository;
+            _shiftService = shiftService;
             _notificationService = notificationService;
         }
 
@@ -84,10 +88,10 @@ namespace GFC.BlazorServer.Controllers
         {
             try
             {
-                // Fetch shifts from the last 30 days
+                // Fetch shifts from the last 30 days via service so reconciled ExpectedCash and Variance are used
                 var startDate = DateTime.UtcNow.Date.AddDays(-30);
                 var endDate = DateTime.UtcNow.Date.AddDays(1);
-                var shifts = _shiftRepository.GetByDateRange(startDate, endDate);
+                var shifts = _shiftService.GetShiftsByDateRange(startDate, endDate);
 
                 // Filter for shifts where |Variance| >= threshold
                 var activeShifts = shifts
@@ -114,7 +118,7 @@ namespace GFC.BlazorServer.Controllers
             {
                 var startDate = DateTime.UtcNow.Date.AddDays(-180); // Last 6 months
                 var endDate = DateTime.UtcNow.Date.AddDays(1);
-                var shifts = _shiftRepository.GetByDateRange(startDate, endDate);
+                var shifts = _shiftService.GetShiftsByDateRange(startDate, endDate);
 
                 // Returns all shifts exceeding threshold for historical audit
                 var query = shifts.Where(s => Math.Abs(s.Variance) >= threshold);
@@ -157,7 +161,7 @@ namespace GFC.BlazorServer.Controllers
             }
         }
 
-        private static LotteryVarianceResponseDto MapToDto(LotteryShift s, List<LotteryShift> allShifts)
+        private static LotteryVarianceResponseDto MapToDto(LotteryShiftDto s, List<LotteryShiftDto> allShifts)
         {
             var empShifts = allShifts.Where(x => string.Equals(x.EmployeeName, s.EmployeeName, StringComparison.OrdinalIgnoreCase)).ToList();
             var totalShifts = empShifts.Count;

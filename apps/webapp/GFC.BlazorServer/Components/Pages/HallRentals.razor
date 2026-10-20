@@ -811,6 +811,12 @@
                                                                         <i class="bi bi-cup-straw text-danger me-0.5"></i>Bar
                                                                     </span>
                                                                 }
+                                                                @if (matchedReq?.InternalNotes?.Contains("EMAIL DELIVERY BOUNCE DETECTED", StringComparison.OrdinalIgnoreCase) == true)
+                                                                {
+                                                                    <span class="badge py-0.5 px-1.5 rounded-pill fw-bold" style="font-size: 0.70rem; background-color: #fee2e2 !important; color: #991b1b !important; border: 1px solid #f87171 !important;" title="Delivery Failed: Email bounced or invalid address">
+                                                                        <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Email Bounced
+                                                                    </span>
+                                                                }
                                                             </div>
                                                         </td>
                                                         break;
@@ -2042,6 +2048,12 @@
                                                     <a href="mailto:@effectiveEmail" class="fw-semibold text-primary text-decoration-none">
                                                         <i class="bi bi-envelope-fill me-1"></i>@effectiveEmail
                                                     </a>
+                                                    @if (_selectedRequest?.InternalNotes?.Contains("EMAIL DELIVERY BOUNCE DETECTED", StringComparison.OrdinalIgnoreCase) == true)
+                                                    {
+                                                        <div class="small text-danger fw-bold mt-1">
+                                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>Email Bounced / Undeliverable
+                                                        </div>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -2359,6 +2371,12 @@
                                                     <a href="mailto:@effectiveEmail" class="text-decoration-none text-primary">
                                                         <i class="bi bi-envelope me-1"></i>@effectiveEmail
                                                     </a>
+                                                    @if (_selectedRequest?.InternalNotes?.Contains("EMAIL DELIVERY BOUNCE DETECTED", StringComparison.OrdinalIgnoreCase) == true)
+                                                    {
+                                                        <div class="small text-danger fw-bold mt-1">
+                                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>Email Bounced / Undeliverable
+                                                        </div>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -8721,6 +8739,16 @@
             if (match != null) return match;
         }
 
+        if (!string.IsNullOrWhiteSpace(evt.Description))
+        {
+            var matchRef = System.Text.RegularExpressions.Regex.Match(evt.Description, @"\[Ref:\s*GFC-REQ-(\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (matchRef.Success && int.TryParse(matchRef.Groups[1].Value, out int refId))
+            {
+                var match = _cachedRentalRequests.FirstOrDefault(r => r.Id == refId);
+                if (match != null) return match;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(evt.GoogleEventId))
         {
             if (evt.GoogleEventId.StartsWith("db-rental-") && int.TryParse(evt.GoogleEventId.Substring("db-rental-".Length), out int dbId))
@@ -8733,7 +8761,23 @@
             if (gMatch != null) return gMatch;
         }
 
-        // Zero fuzzy guessing: if no explicit ID match, it's not an internal DB rental request
+        // Match by event date and applicant name
+        if (evt.Start != default)
+        {
+            var appData = ParseApplicationDetails(evt);
+            var cleanApplicant = !string.IsNullOrWhiteSpace(appData.ApplicantName) ? appData.ApplicantName.Trim() : GetCleanTitle(evt).Trim();
+            if (!string.IsNullOrWhiteSpace(cleanApplicant))
+            {
+                var match = _cachedRentalRequests.FirstOrDefault(r =>
+                    r.EventDate.Date == evt.Start.Date &&
+                    (!string.IsNullOrWhiteSpace(r.ApplicantName) && (
+                        cleanApplicant.Contains(r.ApplicantName.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                        r.ApplicantName.Trim().Contains(cleanApplicant, StringComparison.OrdinalIgnoreCase)
+                    )));
+                if (match != null) return match;
+            }
+        }
+
         return null;
     }
 
@@ -10825,21 +10869,24 @@ Warm regards,
             return true;
         }
 
-        // If it possesses hall rental / application structure, it is a rental
-        if (desc.Contains("Preferred Event Date:", StringComparison.OrdinalIgnoreCase) ||
+        // If it possesses hall rental / application structure or reference ID, it is a rental
+        if (desc.Contains("[Ref: GFC-REQ-", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Preferred Event Date:", StringComparison.OrdinalIgnoreCase) ||
             desc.Contains("Hall Rental Application", StringComparison.OrdinalIgnoreCase) ||
             desc.Contains("Full Name (Applicant):", StringComparison.OrdinalIgnoreCase) ||
-            desc.Contains("Contact Phone Number:", StringComparison.OrdinalIgnoreCase))
+            desc.Contains("Contact Phone Number:", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("Applicant:", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        // Check room location: if in secondary space (e.g. Office, Directors Room) and not a rental application, treat as internal meeting
-        var evtRoomNorm = NormalizeRoomName(evt.Location);
-        var managedLocNorm = NormalizeRoomName(_webSettings?.ManagedRentalLocation ?? "Function Hall");
-        if (evtRoomNorm != managedLocNorm && evtRoomNorm != "entire facility")
+        // If title has PENDING / Hall Rental convention, it is not a club event
+        var title = evt.Title ?? string.Empty;
+        if (title.StartsWith("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
+            title.StartsWith("PENDING -", StringComparison.OrdinalIgnoreCase) ||
+            title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return false;
         }
 
         if (FindMatchingRentalRequest(evt) != null)
@@ -10853,13 +10900,12 @@ Warm regards,
             return false;
         }
 
-        // Otherwise check title convention
-        var title = evt.Title ?? string.Empty;
-        if (title.StartsWith("Hall Rental", StringComparison.OrdinalIgnoreCase) ||
-            title.StartsWith("PENDING -", StringComparison.OrdinalIgnoreCase) ||
-            title.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+        // Check room location: if in secondary space (e.g. Office, Directors Room) and not a rental application, treat as internal meeting
+        var evtRoomNorm = NormalizeRoomName(evt.Location);
+        var managedLocNorm = NormalizeRoomName(_webSettings?.ManagedRentalLocation ?? "Function Hall");
+        if (evtRoomNorm != managedLocNorm && evtRoomNorm != "entire facility")
         {
-            return false;
+            return true;
         }
 
         return true;

@@ -572,7 +572,13 @@ namespace GFC.BlazorServer.Services
             // 4. Source classification
             if (!string.IsNullOrEmpty(current.Description))
             {
-                if (current.Description.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
+                if (current.Description.Contains("[Ref: GFC-REQ-", StringComparison.OrdinalIgnoreCase) ||
+                    current.Description.Contains("Applicant:", StringComparison.OrdinalIgnoreCase) ||
+                    current.Description.Contains("Hall Rental", StringComparison.OrdinalIgnoreCase))
+                {
+                    current.Source = "Rental Booking";
+                }
+                else if (current.Description.Contains("Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
                     current.Description.Contains("Event Category: Club Event", StringComparison.OrdinalIgnoreCase) ||
                     current.Description.Contains("Meeting / Internal", StringComparison.OrdinalIgnoreCase) ||
                     current.Description.Contains("Category: Meeting", StringComparison.OrdinalIgnoreCase))

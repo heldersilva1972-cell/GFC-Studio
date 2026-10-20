@@ -313,10 +313,42 @@ class MainActivity : AppCompatActivity() {
     private fun unlockToMainHub() {
         showView(OnboardingState.UNLOCKED)
         populateMainHubData()
+        refreshLivePermissions()
         checkNotificationPermissions()
         checkForAppUpdates()
         startPeriodicUpdateCheck()
         syncFcmToken()
+    }
+
+    private fun refreshLivePermissions() {
+        val storage = GfcConnectApp.instance.tokenStorage
+        val token = storage.getDeviceToken() ?: return
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = ApiClient.service.getCurrentUser(token)
+                if (response.isSuccessful && response.body() != null) {
+                    val result = response.body()!!
+                    val newPerms = result.permissions
+                    val u = result.user
+                    if (newPerms != null && u != null) {
+                        val memberFullName = "${u.firstName ?: ""} ${u.lastName ?: ""}".trim().ifEmpty { u.username }
+                        storage.saveAuthData(
+                            token = token,
+                            userId = u.userId,
+                            username = u.username,
+                            memberName = memberFullName,
+                            permissions = newPerms
+                        )
+                        withContext(Dispatchers.Main) {
+                            applyPermissionVisibility()
+                        }
+                    }
+                }
+            } catch (ex: Exception) {
+                // If offline or network error, silently retain existing cached permissions
+            }
+        }
     }
 
     private fun startPeriodicUpdateCheck() {
@@ -341,19 +373,33 @@ class MainActivity : AppCompatActivity() {
     private fun applyPermissionVisibility() {
         val storage = GfcConnectApp.instance.tokenStorage
 
-        // Check if user has hall-rentals permission (or fallback to visible)
-        binding.cardHallRentals.visibility = if (storage.hasPermission("hall-rentals")) View.VISIBLE else View.GONE
+        // 1. Rental Bookings & Approvals Card
+        // Strictly checks for gfc-connect/hall-rentals
+        val canAccessRentals = storage.hasPermission("gfc-connect/hall-rentals")
+        binding.cardHallRentals.visibility = if (canAccessRentals) View.VISIBLE else View.GONE
 
-        // Query active lottery variances matching user's threshold
-        checkActiveLotteryVariances()
+        // 2. Hall Rental Calendar Card
+        // Strictly checks for gfc-connect/rental-calendar
+        val canAccessCalendar = storage.hasPermission("gfc-connect/rental-calendar")
+        binding.cardRentalCalendar.visibility = if (canAccessCalendar) View.VISIBLE else View.GONE
+
+        // 3. Lottery Shifts & Variance Card
+        // Strictly checks for gfc-connect/lottery-shifts
+        val canAccessLottery = storage.hasPermission("gfc-connect/lottery-shifts")
+        binding.cardLotteryVariance.visibility = if (canAccessLottery) View.VISIBLE else View.GONE
+
+        if (canAccessLottery) {
+            checkActiveLotteryVariances()
+        }
+
+        // Show empty placeholder if no feature cards are assigned to this user
+        val hasAnyCard = canAccessRentals || canAccessCalendar || canAccessLottery
+        binding.layoutNoCards.visibility = if (!hasAnyCard) View.VISIBLE else View.GONE
     }
 
     private fun checkActiveLotteryVariances() {
         val appSettings = GfcConnectApp.instance.appSettings
         val threshold = appSettings.lotteryVarianceThreshold
-
-        // Card is always displayed
-        binding.cardLotteryVariance.visibility = View.VISIBLE
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {

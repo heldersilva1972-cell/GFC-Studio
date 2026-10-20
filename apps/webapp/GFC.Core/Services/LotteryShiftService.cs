@@ -541,6 +541,8 @@ namespace GFC.Core.Services
                 CreatedDate = shift.CreatedDate,
                 ModifiedBy = shift.ModifiedBy,
                 ModifiedDate = shift.ModifiedDate,
+                AcknowledgedBy = shift.AcknowledgedBy,
+                AcknowledgedAt = shift.AcknowledgedAt,
                 ShiftSalesActivity = shift.ShiftSalesActivity,
                 ShiftPayoutsActivity = shift.ShiftPayoutsActivity,
                 ShiftCancelsActivity = shift.ShiftCancelsActivity,

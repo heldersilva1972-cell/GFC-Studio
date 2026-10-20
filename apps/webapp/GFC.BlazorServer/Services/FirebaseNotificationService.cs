@@ -27,7 +27,7 @@ public interface IFirebaseNotificationService
 
 public class FirebaseNotificationService : IFirebaseNotificationService
 {
-    private readonly GfcDbContext _context;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _config;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -38,13 +38,13 @@ public class FirebaseNotificationService : IFirebaseNotificationService
     private static readonly SemaphoreSlim _tokenLock = new(1, 1);
 
     public FirebaseNotificationService(
-        GfcDbContext context,
+        IDbContextFactory<GfcDbContext> contextFactory,
         IWebHostEnvironment env,
         IConfiguration config,
         IHttpClientFactory httpClientFactory,
         ILogger<FirebaseNotificationService> logger)
     {
-        _context = context;
+        _contextFactory = contextFactory;
         _env = env;
         _config = config;
         _httpClientFactory = httpClientFactory;
@@ -53,7 +53,9 @@ public class FirebaseNotificationService : IFirebaseNotificationService
 
     public async Task<bool> SendToUserAsync(int userId, string title, string body, Dictionary<string, string>? data = null)
     {
-        var devices = await _context.UserDevices
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var devices = await context.UserDevices
+            .AsNoTracking()
             .Where(d => d.UserId == userId && d.IsActive && !string.IsNullOrEmpty(d.FcmDeviceToken))
             .ToListAsync();
 
@@ -70,7 +72,9 @@ public class FirebaseNotificationService : IFirebaseNotificationService
     public async Task<int> SendToUsersAsync(IEnumerable<int> userIds, string title, string body, Dictionary<string, string>? data = null)
     {
         var targetIds = userIds.Distinct().ToList();
-        var devices = await _context.UserDevices
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var devices = await context.UserDevices
+            .AsNoTracking()
             .Where(d => targetIds.Contains(d.UserId) && d.IsActive && !string.IsNullOrEmpty(d.FcmDeviceToken))
             .ToListAsync();
 
@@ -83,7 +87,9 @@ public class FirebaseNotificationService : IFirebaseNotificationService
 
     public async Task<int> BroadcastAsync(string title, string body, Dictionary<string, string>? data = null)
     {
-        var devices = await _context.UserDevices
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var devices = await context.UserDevices
+            .AsNoTracking()
             .Where(d => d.IsActive && !string.IsNullOrEmpty(d.FcmDeviceToken))
             .ToListAsync();
 
@@ -191,33 +197,63 @@ public class FirebaseNotificationService : IFirebaseNotificationService
         var endpoint = $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send";
         int successCount = 0;
 
+        var category = data != null && data.TryGetValue("category", out var catVal) ? catVal : "general";
+        bool isClientFiltered = category.Contains("lottery", StringComparison.OrdinalIgnoreCase);
+
+        var dataPayload = new Dictionary<string, string>(data ?? new Dictionary<string, string>())
+        {
+            ["title"] = title,
+            ["body"] = body
+        };
+
         foreach (var token in tokens.Distinct())
         {
-            var messagePayload = new
+            object messagePayload;
+            if (isClientFiltered)
             {
-                message = new
+                // Send as data-first high-priority message so Android wakes FcmService to evaluate
+                // the user's specific variance threshold ($5.00, etc.) and quiet hours before deciding to display
+                messagePayload = new
                 {
-                    token = token,
-                    notification = new
+                    message = new
                     {
-                        title = title,
-                        body = body
-                    },
-                    android = new
+                        token = token,
+                        android = new
+                        {
+                            priority = "high"
+                        },
+                        data = dataPayload
+                    }
+                };
+            }
+            else
+            {
+                messagePayload = new
+                {
+                    message = new
                     {
-                        priority = "high",
+                        token = token,
                         notification = new
                         {
-                            channel_id = channelId,
-                            sound = "default",
-                            notification_priority = "PRIORITY_HIGH",
-                            default_sound = true,
-                            default_vibrate_timings = true
-                        }
-                    },
-                    data = data ?? new Dictionary<string, string>()
-                }
-            };
+                            title = title,
+                            body = body
+                        },
+                        android = new
+                        {
+                            priority = "high",
+                            notification = new
+                            {
+                                channel_id = channelId,
+                                sound = "default",
+                                notification_priority = "PRIORITY_HIGH",
+                                default_sound = true,
+                                default_vibrate_timings = true
+                            }
+                        },
+                        data = dataPayload
+                    }
+                };
+            }
 
             var content = new StringContent(JsonSerializer.Serialize(messagePayload), Encoding.UTF8, "application/json");
             var response = await client.PostAsync(endpoint, content);
@@ -243,19 +279,41 @@ public class FirebaseNotificationService : IFirebaseNotificationService
         var client = _httpClientFactory.CreateClient();
         client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"key={serverKey}");
 
-        var fcmPayload = new
+        var category = data != null && data.TryGetValue("category", out var catVal) ? catVal : "general";
+        bool isClientFiltered = category.Contains("lottery", StringComparison.OrdinalIgnoreCase);
+
+        var dataPayload = new Dictionary<string, string>(data ?? new Dictionary<string, string>())
         {
-            registration_ids = tokens,
-            priority = "high",
-            notification = new
-            {
-                title = title,
-                body = body,
-                sound = "default",
-                android_channel_id = channelId
-            },
-            data = data ?? new Dictionary<string, string>()
+            ["title"] = title,
+            ["body"] = body
         };
+
+        object fcmPayload;
+        if (isClientFiltered)
+        {
+            fcmPayload = new
+            {
+                registration_ids = tokens,
+                priority = "high",
+                data = dataPayload
+            };
+        }
+        else
+        {
+            fcmPayload = new
+            {
+                registration_ids = tokens,
+                priority = "high",
+                notification = new
+                {
+                    title = title,
+                    body = body,
+                    sound = "default",
+                    android_channel_id = channelId
+                },
+                data = dataPayload
+            };
+        }
 
         var content = new StringContent(JsonSerializer.Serialize(fcmPayload), Encoding.UTF8, "application/json");
         var response = await client.PostAsync("https://fcm.googleapis.com/fcm/send", content);
