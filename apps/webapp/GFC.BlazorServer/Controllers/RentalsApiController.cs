@@ -1231,6 +1231,7 @@ Warm regards,
             public string? StartTime { get; set; }
             public string? EndTime { get; set; }
             public bool IsFullDay { get; set; } = true;
+            public bool ShowOnPublicCalendar { get; set; } = false;
         }
 
         [HttpPost("mobile/club-event")]
@@ -1316,7 +1317,7 @@ Warm regards,
                 }
 
                 var blackout = await _rentalService.AddBlackoutDateAsync(payload.Date, description, start, end);
-                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, blackoutId: blackout.Id);
+                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, blackoutId: blackout.Id, showOnPublicCalendar: payload.ShowOnPublicCalendar);
                 return Ok(new { success = true, message = $"Club event '{payload.Reason}' scheduled in {locName} for {payload.Date:MMM dd, yyyy}." });
             }
             catch (Exception ex)
@@ -1333,6 +1334,7 @@ Warm regards,
             public string? StartTime { get; set; }
             public string? EndTime { get; set; }
             public bool IsFullDay { get; set; } = true;
+            public bool ShowOnPublicCalendar { get; set; } = false;
         }
 
         [HttpPut("mobile/club-event/{id:int}")]
@@ -1419,7 +1421,7 @@ Warm regards,
                 }
 
                 await _rentalService.UpdateBlackoutDateAsync(id, payload.Date, description, start ?? string.Empty, end ?? string.Empty);
-                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, oldReason, blackoutId: id);
+                _ = _rentalService.SyncClubEventToGoogleCalendarAsync(payload.Date, payload.Reason.Trim(), locName, start, end, payload.IsFullDay, oldReason, blackoutId: id, showOnPublicCalendar: payload.ShowOnPublicCalendar);
                 return Ok(new { success = true, message = $"Club event '{payload.Reason}' updated successfully in {locName}." });
             }
             catch (Exception ex)

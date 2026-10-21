@@ -316,6 +316,10 @@
                                             .Where(f => f.IsEnabled)
                                             .OrderBy(f => f.Order)
                                             .ToList();
+                                        var monthClubFields = (_webSettings?.MonthClubEventFields ?? WebsiteSettings.GetDefaultMonthClubEventFields())
+                                            .Where(f => f.IsEnabled)
+                                            .OrderBy(f => f.Order)
+                                            .ToList();
                                     }
                                     @foreach (var evt in dayEvents.Take(3))
                                     {
@@ -389,25 +393,26 @@
                                         {
                                             <!-- Dynamic Multi-Line Card View based on Configured Order & Visibility -->
                                             <div class="event-multiline-card @(isClub ? "card-club" : (isPending ? "card-warning" : "card-primary"))" @onclick="() => ShowEventDetails(evt)" title="@evt.Title">
-                                                @if (isClub)
+
+                                                @foreach (var field in (isClub ? monthClubFields : monthFields))
                                                 {
-                                                    <div class="card-row-item d-flex align-items-center justify-content-between">
-                                                        @if (isSecSpace)
-                                                        {
-                                                            <span class="badge py-0 px-1.5 fw-bold" style="font-size: 0.65rem; background-color: #0284c7 !important; color: #ffffff !important;">
-                                                                <i class="bi bi-door-open me-1"></i>@secondaryLabel.ToUpper()
-                                                            </span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="badge py-0 px-1.5 fw-bold" style="font-size: 0.65rem; background-color: #7c3aed !important; color: #ffffff !important;">
-                                                                <i class="bi bi-shield-shaded me-1"></i>CLUB EVENT
-                                                            </span>
-                                                        }
-                                                    </div>
-                                                }
-                                                @foreach (var field in monthFields)
-                                                {
+                                                    if (field.FieldKey == "club_badge")
+                                                    {
+                                                        <div class="card-row-item d-flex align-items-center justify-content-between">
+                                                            @if (isSecSpace)
+                                                            {
+                                                                <span class="badge py-0 px-1.5 fw-bold" style="font-size: 0.65rem; background-color: #0284c7 !important; color: #ffffff !important;">
+                                                                    <i class="bi bi-door-open me-1"></i>@secondaryLabel.ToUpper()
+                                                                </span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge py-0 px-1.5 fw-bold" style="font-size: 0.65rem; background-color: #7c3aed !important; color: #ffffff !important;">
+                                                                    <i class="bi bi-shield-shaded me-1"></i>CLUB EVENT
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                    }
                                                     var fieldVal = GetMonthGridFieldValue(evt, field.FieldKey, appData, payStatus);
                                                     if (!string.IsNullOrWhiteSpace(fieldVal))
                                                     {
@@ -529,6 +534,27 @@
                                                                         <i class="bi bi-cup-straw text-danger"></i> Bar
                                                                     </span>
                                                                 }
+                                                                <span class="text-truncate">@fieldVal</span>
+                                                            </div>
+                                                        }
+                                                        else if (field.FieldKey == "club_event_title")
+                                                        {
+                                                            <div class="card-row-item fw-bold text-dark text-truncate d-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                                <i class="bi bi-star-fill me-1" style="color: #7c3aed; font-size: 0.70rem;"></i>
+                                                                <span class="text-truncate">@fieldVal</span>
+                                                            </div>
+                                                        }
+                                                        else if (field.FieldKey == "meeting_name")
+                                                        {
+                                                            <div class="card-row-item fw-bold text-dark text-truncate d-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                                <i class="bi bi-people-fill me-1" style="color: #0284c7; font-size: 0.70rem;"></i>
+                                                                <span class="text-truncate">@fieldVal</span>
+                                                            </div>
+                                                        }
+                                                        else if (field.FieldKey == "event_title")
+                                                        {
+                                                            <div class="card-row-item fw-bold text-dark text-truncate d-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                                <i class="bi bi-star-fill me-1" style="color: #7c3aed; font-size: 0.70rem;"></i>
                                                                 <span class="text-truncate">@fieldVal</span>
                                                             </div>
                                                         }
@@ -5010,8 +5036,8 @@
                         }
                         else
                         {
-                            <i class="bi bi-cloud-check fs-5"></i>
-                            <span>@(_isNewEvent ? (_recurrenceMode != "single" ? $"Create {plannedDates.Count} Event Occurrences" : "Create Event") : "Update in Google Calendar")</span>
+                            <i class="bi bi-calendar-check fs-5"></i>
+                            <span>@(_isNewEvent ? (_recurrenceMode != "single" ? $"Create {plannedDates.Count} Event Occurrences" : "Save Event") : "Save Changes")</span>
                         }
                     </button>
                 </div>
@@ -7305,7 +7331,7 @@
                         calendarEvents.Add(new CalendarEventItem
                         {
                             GoogleEventId = $"db-blackout-{unavail.Id}",
-                            Title = rawTitle.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) ? rawTitle : $"Club Event: {rawTitle}",
+                            Title = rawTitle,
                             Start = start,
                             End = end,
                             IsAllDay = isAllDay,
@@ -8247,17 +8273,20 @@
                         createdCount++;
                     }
 
-                    // If booking a club event in the managed rental space, ensure slot availability is blocked
+                    // Sync club event into AvailabilityCalendars so it appears on GFC Connect app and blocks availability
                     if (_bookingCategory == "club")
                     {
                         try
                         {
-                            if (_blockOutMode == "all")
+                            var locLabel = !string.IsNullOrWhiteSpace(_editEventModel.Location) ? _editEventModel.Location.Trim() : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
+                            var blackoutDesc = $"Club Event ({locLabel}): {_editEventModel.Title.Trim()}";
+
+                            if (_blockOutMode == "all" || (!isManagedSpaceBooking && _blockOutMode != "selected"))
                             {
-                                await RentalService.UpdateCalendarAvailabilityAsync(
+                                // Full-day blackout for the space (or non-managed space event)
+                                await RentalService.AddBlackoutDateAsync(
                                     pDate.Date, 
-                                    "Blackout", 
-                                    $"Club Event: {_editEventModel.Title.Trim()}", 
+                                    blackoutDesc, 
                                     null, 
                                     null
                                 );
@@ -8270,10 +8299,9 @@
                                     var parts = slotTime.Split('-');
                                     var sStart = parts.Length > 0 ? parts[0].Trim() : "";
                                     var sEnd = parts.Length > 1 ? parts[1].Trim() : "";
-                                    await RentalService.UpdateCalendarAvailabilityAsync(
+                                    await RentalService.AddBlackoutDateAsync(
                                         pDate.Date,
-                                        "Blackout",
-                                        $"Club Event: {_editEventModel.Title.Trim()}",
+                                        blackoutDesc,
                                         sStart,
                                         sEnd
                                     );
@@ -8284,10 +8312,9 @@
                                 // Automatically block out the designated event time window in the Function Hall
                                 var slotStartStr = eventInstance.Start.ToString("h:mm tt");
                                 var slotEndStr = eventInstance.End.ToString("h:mm tt");
-                                await RentalService.UpdateCalendarAvailabilityAsync(
+                                await RentalService.AddBlackoutDateAsync(
                                     pDate.Date,
-                                    "Blackout",
-                                    $"Club Event: {_editEventModel.Title.Trim()}",
+                                    blackoutDesc,
                                     slotStartStr,
                                     slotEndStr
                                 );
@@ -8390,12 +8417,14 @@
                 {
                     try
                     {
-                        if (_blockOutMode == "all" || _blockOutDayForRentals)
+                        var locLabel = !string.IsNullOrWhiteSpace(_editEventModel.Location) ? _editEventModel.Location.Trim() : (_webSettings?.ManagedRentalLocation ?? "Function Hall");
+                        var blackoutDesc = $"Club Event ({locLabel}): {_editEventModel.Title.Trim()}";
+
+                        if (_blockOutMode == "all" || _blockOutDayForRentals || (!isManagedSpaceBooking && _blockOutMode != "selected"))
                         {
-                            await RentalService.UpdateCalendarAvailabilityAsync(
+                            await RentalService.AddBlackoutDateAsync(
                                 _editEventModel.Start.Date, 
-                                "Blackout", 
-                                $"Club Event: {_editEventModel.Title.Trim()}", 
+                                blackoutDesc, 
                                 null, 
                                 null
                             );
@@ -8404,17 +8433,12 @@
                         {
                             var sStart = _editEventModel.Start.ToString("h:mm tt");
                             var sEnd = _editEventModel.End.ToString("h:mm tt");
-                            await RentalService.UpdateCalendarAvailabilityAsync(
+                            await RentalService.AddBlackoutDateAsync(
                                 _editEventModel.Start.Date,
-                                "Blackout",
-                                $"Club Event: {_editEventModel.Title.Trim()}",
+                                blackoutDesc,
                                 sStart,
                                 sEnd
                             );
-                        }
-                        else
-                        {
-                            await RentalService.UpdateCalendarAvailabilityAsync(_editEventModel.Start.Date, "Available");
                         }
                     }
                     catch (Exception ex)
@@ -8525,7 +8549,7 @@
             // 3. Update Availability Calendar if applicable
             try
             {
-                await RentalService.UpdateCalendarAvailabilityAsync(targetEvent.Start.Date, "Available");
+                await RentalService.RemoveBlackoutDateByEventAsync(targetEvent.Start.Date, targetEvent.Title);
             }
             catch { }
 
@@ -8586,7 +8610,7 @@
             // 3. Update Availability Calendar if applicable
             try
             {
-                await RentalService.UpdateCalendarAvailabilityAsync(targetEvent.Start.Date, "Available");
+                await RentalService.RemoveBlackoutDateByEventAsync(targetEvent.Start.Date, targetEvent.Title);
             }
             catch { }
 
@@ -10807,6 +10831,17 @@ Warm regards,
             title = title.Substring(6).Trim();
         }
 
+        // Strip "Club Event: " or "Club Event (Room): " prefixes from legacy or blackout descriptions
+        if (title.StartsWith("Club Event:", StringComparison.OrdinalIgnoreCase))
+        {
+            title = title.Substring(11).Trim();
+        }
+        else if (title.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) && title.Contains(':'))
+        {
+            var colonIdx = title.IndexOf(':');
+            title = title.Substring(colonIdx + 1).Trim();
+        }
+
         // Strip PENDING prefixes
         if (title.StartsWith("PENDING -", StringComparison.OrdinalIgnoreCase))
         {
@@ -12348,7 +12383,16 @@ Warm regards,
                 return GetCleanApplicantName(evt);
 
             case "event_type":
-                return !string.IsNullOrWhiteSpace(appData.EventType) ? appData.EventType : null;
+                return !string.IsNullOrWhiteSpace(appData.EventType) ? appData.EventType : (IsClubEvent(evt) ? GetCleanTitle(evt) : null);
+
+            case "event_title":
+                return GetCleanTitle(evt);
+
+            case "club_event_title":
+                return "Club Event";
+
+            case "meeting_name":
+                return GetCleanTitle(evt);
 
             case "room_location":
                 return !string.IsNullOrWhiteSpace(evt.Location) ? evt.Location : "Function Hall";

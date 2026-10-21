@@ -121,7 +121,8 @@ data class CreateClubEventPayload(
     @SerializedName("location") val location: String = "Function Hall",
     @SerializedName("startTime") val startTime: String?,
     @SerializedName("endTime") val endTime: String?,
-    @SerializedName("isFullDay") val isFullDay: Boolean = true
+    @SerializedName("isFullDay") val isFullDay: Boolean = true,
+    @SerializedName("showOnPublicCalendar") val showOnPublicCalendar: Boolean = false
 )
 
 data class UpdateClubEventPayload(
@@ -130,7 +131,8 @@ data class UpdateClubEventPayload(
     @SerializedName("location") val location: String = "Function Hall",
     @SerializedName("startTime") val startTime: String?,
     @SerializedName("endTime") val endTime: String?,
-    @SerializedName("isFullDay") val isFullDay: Boolean = true
+    @SerializedName("isFullDay") val isFullDay: Boolean = true,
+    @SerializedName("showOnPublicCalendar") val showOnPublicCalendar: Boolean = false
 )
 
 data class ApprovalActionRequest(

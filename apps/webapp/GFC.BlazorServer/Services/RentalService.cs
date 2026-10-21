@@ -596,7 +596,7 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task SyncClubEventToGoogleCalendarAsync(DateTime date, string reason, string? location, string? startTime, string? endTime, bool isFullDay, string? oldReason = null, int? blackoutId = null)
+        public async Task SyncClubEventToGoogleCalendarAsync(DateTime date, string reason, string? location, string? startTime, string? endTime, bool isFullDay, string? oldReason = null, int? blackoutId = null, bool showOnPublicCalendar = false)
         {
             if (_googleCalendarService == null || string.IsNullOrWhiteSpace(reason)) return;
             try
@@ -668,20 +668,18 @@ namespace GFC.BlazorServer.Services
                 }
 
                 var roomLoc = !string.IsNullOrWhiteSpace(location) ? location.Trim() : "Function Hall";
-                var isOffice = roomLoc.Contains("Office", StringComparison.OrdinalIgnoreCase);
-
                 var blackoutTag = blackoutId.HasValue ? $"\nDbBlackoutId:{blackoutId.Value}" : string.Empty;
+                var publicTag = showOnPublicCalendar ? "\nShow on Public Calendar: Yes" : string.Empty;
+
                 var googleEvt = new CalendarEventItem
                 {
-                    Title = $"Club Event: {cleanCurrent}",
+                    Title = cleanCurrent,
                     Start = start,
                     End = end,
                     IsAllDay = allDay,
                     Location = roomLoc,
                     Source = "Club Event",
-                    Description = isOffice
-                        ? $"Event Category: Club Event\nSpace: {roomLoc}\nNotes: {cleanCurrent}\nSource: GFC Connect App\nShow on Public Calendar: Yes{blackoutTag}"
-                        : $"Event Category: Club Event\nSpace: {roomLoc}\nNotes: {cleanCurrent}\nSource: GFC Connect App{blackoutTag}"
+                    Description = $"Event Category: Club Event\nSpace: {roomLoc}\nNotes: {cleanCurrent}\nSource: GFC Connect App{publicTag}{blackoutTag}"
                 };
 
                 var createResult = await _googleCalendarService.CreateGoogleEventAsync(googleEvt, writeSettings);
@@ -914,6 +912,38 @@ namespace GFC.BlazorServer.Services
             if (existing != null)
             {
                 context.AvailabilityCalendars.Remove(existing);
+                await context.SaveChangesAsync();
+                NotifyCalendarUpdated();
+            }
+        }
+
+        public async Task RemoveBlackoutDateByEventAsync(DateTime date, string? description = null)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var query = context.AvailabilityCalendars.Where(d => d.Date.Date == date.Date && d.Status == "Blackout");
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                var cleanDesc = description.Trim();
+                var matches = await query.ToListAsync();
+                var target = matches.FirstOrDefault(d => 
+                    !string.IsNullOrWhiteSpace(d.Description) && 
+                    (d.Description.Equals(cleanDesc, StringComparison.OrdinalIgnoreCase) ||
+                     d.Description.Contains(cleanDesc, StringComparison.OrdinalIgnoreCase) ||
+                     cleanDesc.Contains(d.Description, StringComparison.OrdinalIgnoreCase)));
+
+                if (target != null)
+                {
+                    context.AvailabilityCalendars.Remove(target);
+                    await context.SaveChangesAsync();
+                    NotifyCalendarUpdated();
+                    return;
+                }
+            }
+
+            var fallback = await query.FirstOrDefaultAsync();
+            if (fallback != null)
+            {
+                context.AvailabilityCalendars.Remove(fallback);
                 await context.SaveChangesAsync();
                 NotifyCalendarUpdated();
             }

@@ -903,6 +903,9 @@ window.GfcFullCalendar = (function () {
         let title = event.title || 'Reserved Event';
         // Strip any remaining PENDING: or INQUIRY: prefixes safely
         title = title.replace(/^(PENDING:\s*|INQUIRY:\s*)/i, '').trim();
+        // Strip legacy or database blackout "Club Event: " and "Club Event (...): " prefixes
+        const strippedTitle = title.replace(/^Club Event(?:\s*\([^)]*\))?:\s*/i, '').trim();
+        title = strippedTitle || title || 'Club Event';
 
         const location = event.extendedProps?.location || '';
         const desc = event.extendedProps?.description || '';
@@ -952,8 +955,8 @@ window.GfcFullCalendar = (function () {
             timeStr = formatTime(start) + (end ? ' - ' + formatTime(end) : '');
         }
 
-        const applicantName = event.extendedProps?.applicantName || '';
-        const eventType = event.extendedProps?.eventType || '';
+        let applicantName = (event.extendedProps?.applicantName || '').replace(/^Club Event(?:\s*\([^)]*\))?:\s*/i, '').trim();
+        let eventType = (event.extendedProps?.eventType || '').replace(/^Club Event(?:\s*\([^)]*\))?:\s*/i, '').trim();
 
         if (isCompact) {
             // Single-line compact badge
@@ -968,7 +971,11 @@ window.GfcFullCalendar = (function () {
 
         // Multi-line stacked card
         const lines = [];
-        fields.forEach(f => {
+        const activeFields = isClub && Array.isArray(config.monthClubFields) && config.monthClubFields.length > 0
+            ? config.monthClubFields
+            : fields;
+
+        activeFields.forEach(f => {
             switch (f.key) {
                 case 'time_window':
                     if (timeStr) {
@@ -979,16 +986,43 @@ window.GfcFullCalendar = (function () {
                     break;
                 case 'applicant_name':
                     if (applicantName) {
-                        lines.push(`<div class="gfc-fc-card-line fw-bold text-dark" style="font-size:0.80rem;"><i class="bi bi-person me-1"></i>${applicantName}</div>`);
+                        if (isClub) {
+                            if (!lines.some(l => l.includes(applicantName))) {
+                                lines.push(`<div class="gfc-fc-card-line fw-bold text-dark" style="font-size:0.80rem;"><i class="bi bi-star-fill me-1" style="font-size:0.70rem; opacity:0.85;"></i>${applicantName}</div>`);
+                            }
+                        } else {
+                            lines.push(`<div class="gfc-fc-card-line fw-bold text-dark" style="font-size:0.80rem;"><i class="bi bi-person me-1"></i>${applicantName}</div>`);
+                        }
                     }
                     break;
                 case 'event_type':
                     if (eventType) {
-                        lines.push(`<div class="gfc-fc-card-line text-muted fw-semibold" style="font-size:0.74rem;"><i class="bi bi-tag me-1"></i>${eventType}</div>`);
+                        if (isClub) {
+                            if (!lines.some(l => l.includes(eventType))) {
+                                lines.push(`<div class="gfc-fc-card-line fw-bold text-dark" style="font-size:0.80rem;"><i class="bi bi-star-fill me-1" style="font-size:0.70rem; opacity:0.85;"></i>${eventType}</div>`);
+                            }
+                        } else {
+                            lines.push(`<div class="gfc-fc-card-line text-muted fw-semibold" style="font-size:0.74rem;"><i class="bi bi-tag me-1"></i>${eventType}</div>`);
+                        }
                     }
                     break;
                 case 'event_title':
-                    lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.80rem;">${title}</div>`);
+                    if (!lines.some(l => l.includes(title))) {
+                        lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.80rem;"><i class="bi bi-star-fill me-1" style="font-size:0.70rem; opacity:0.85;"></i>${title}</div>`);
+                    }
+                    break;
+                case 'club_event_title':
+                    {
+                        const clubBadgeLabel = "Club Event";
+                        if (!lines.some(l => l.includes(clubBadgeLabel))) {
+                            lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.80rem;"><i class="bi bi-shield-shaded me-1" style="color:#7c3aed; font-size:0.70rem;"></i>${clubBadgeLabel}</div>`);
+                        }
+                    }
+                    break;
+                case 'meeting_name':
+                    if (!lines.some(l => l.includes(title))) {
+                        lines.push(`<div class="gfc-fc-card-line fw-bold" style="font-size:0.80rem;"><i class="bi bi-people-fill me-1" style="color:#0284c7; font-size:0.70rem;"></i>${title}</div>`);
+                    }
                     break;
                 case 'room_location':
                     if (location) {
@@ -1308,8 +1342,13 @@ window.GfcFullCalendar = (function () {
                     if (config.showPartialAvailabilityBadge === false) return;
                     if (isMobileViewport(containerId) && config.mobileDisplayMode !== 'standard') return;
 
-                    const dateStr = info.date ? info.date.toISOString().substring(0, 10) : '';
+                    const dateStr = (info.el && info.el.getAttribute('data-date')) || 
+                        (info.date ? (info.date.toLocaleDateString('en-CA') || info.date.toISOString().substring(0, 10)) : '');
                     if (!dateStr) return;
+
+                    // Do not display open slot badge on dates that have already passed
+                    const todayStr = new Date().toLocaleDateString('en-CA');
+                    if (dateStr < todayStr) return;
 
                     const dayEvents = (config.events || []).filter(e => {
                         const startD = e.start ? e.start.substring(0, 10) : '';

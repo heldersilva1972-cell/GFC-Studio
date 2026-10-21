@@ -27,6 +27,7 @@ namespace GFC.BlazorServer.Services
         Task<AvailabilityCalendar> AddBlackoutDateAsync(System.DateTime date, string? description = null, string? startTime = null, string? endTime = null);
         Task UpdateBlackoutDateAsync(int id, DateTime date, string description, string startTime, string endTime);
         Task RemoveBlackoutDateAsync(System.DateTime date);
+        Task RemoveBlackoutDateByEventAsync(System.DateTime date, string? description = null);
         Task RemoveBlackoutDateByIdAsync(int id);
         Task<List<UnavailableDateDto>> GetUnavailableDatesAsync(bool includeRentalRequests = true);
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);
@@ -49,7 +50,7 @@ namespace GFC.BlazorServer.Services
         event System.Action? OnCalendarUpdated;
         void NotifyCalendarUpdated();
         Task SyncRentalToGoogleCalendarAsync(HallRentalRequest request);
-        Task SyncClubEventToGoogleCalendarAsync(DateTime date, string reason, string? location, string? startTime, string? endTime, bool isFullDay, string? oldReason = null, int? blackoutId = null);
+        Task SyncClubEventToGoogleCalendarAsync(DateTime date, string reason, string? location, string? startTime, string? endTime, bool isFullDay, string? oldReason = null, int? blackoutId = null, bool showOnPublicCalendar = false);
         Task RemoveClubEventFromGoogleCalendarAsync(DateTime date, string reason, string? location);
 
         // Google Calendar Event Overrides (Fee, Bar, Slots)

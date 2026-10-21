@@ -69,9 +69,14 @@ namespace GFC.BlazorServer.Models
         public string MonthDisplayMode { get; set; } = "multiline";
 
         /// <summary>
-        /// Configurable and re-orderable fields to display inside the month grid event cards.
+        /// Configurable and re-orderable fields to display inside the month grid event cards for standard rentals.
         /// </summary>
         public List<CalendarFieldDisplayConfig> MonthCalendarFields { get; set; } = GetDefaultPublicMonthCalendarFields();
+
+        /// <summary>
+        /// Configurable and re-orderable fields to display inside the month grid event cards for internal club events.
+        /// </summary>
+        public List<CalendarFieldDisplayConfig> MonthClubEventFields { get; set; } = GetDefaultPublicMonthClubEventFields();
 
         /// <summary>
         /// Whether to show unapproved/pending applications on the public calendar.
@@ -227,6 +232,18 @@ namespace GFC.BlazorServer.Models
                 new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Main Function Hall, Coalition Room, etc.", IsEnabled = true, Order = 4 },
                 new() { FieldKey = "booking_status", Label = "Booking Status Badge (Pending / Reserved)", Description = "Dynamic PENDING / RESERVED status pill", IsEnabled = true, Order = 5 },
                 new() { FieldKey = "public_notes", Label = "Public Description / Note", Description = "Event details or public summary", IsEnabled = false, Order = 6 }
+            };
+        }
+
+        public static List<CalendarFieldDisplayConfig> GetDefaultPublicMonthClubEventFields()
+        {
+            return new List<CalendarFieldDisplayConfig>
+            {
+                new() { FieldKey = "time_window", Label = "Event Time Window", Description = "Event start and end time (e.g. 7 PM - 9 PM)", IsEnabled = true, Order = 1 },
+                new() { FieldKey = "club_event_title", Label = "Club Event Title", Description = "Title for public or member club activities", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "meeting_name", Label = "Meeting Name", Description = "Name for internal or committee meetings", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "room_location", Label = "Room / Space Location", Description = "Function Hall, Office, or flexible meeting room", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "public_notes", Label = "Public Notes / Summary", Description = "Event details or public description", IsEnabled = true, Order = 5 }
             };
         }
 

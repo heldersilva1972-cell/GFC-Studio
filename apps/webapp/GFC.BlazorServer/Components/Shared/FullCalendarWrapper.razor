@@ -291,7 +291,7 @@
                         calendarEvents.Add(new CalendarEventItem
                         {
                             GoogleEventId = $"db-blackout-{unavail.Date:yyyyMMdd}-{Math.Abs(rawTitle.GetHashCode()):X}",
-                            Title = rawTitle.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) ? rawTitle : $"Club Event: {rawTitle}",
+                            Title = rawTitle,
                             Start = start,
                             End = end,
                             IsAllDay = isAllDay,
@@ -532,6 +532,11 @@
                                     .OrderBy(f => f.Order)
                                     .Select(f => new { key = f.FieldKey, label = f.Label, order = f.Order })
                                     .ToArray(),
+            monthClubFields    = (_settings.MonthClubEventFields ?? CalendarSettings.GetDefaultPublicMonthClubEventFields())
+                                    .Where(f => f.IsEnabled)
+                                    .OrderBy(f => f.Order)
+                                    .Select(f => new { key = f.FieldKey, label = f.Label, order = f.Order })
+                                    .ToArray(),
             pendingBadgeText   = _settings.PendingBadgeText ?? "PENDING",
             approvedBadgeText  = _settings.ApprovedBadgeText ?? "RESERVED",
             showPendingBadge   = _settings.ShowPendingBadge,
@@ -603,19 +608,27 @@
                     rawTitle = rawTitle.Substring(8).Trim();
                 }
 
+                // Strip legacy or blackout "Club Event:" or "Club Event (...):" prefixes
+                if (rawTitle.StartsWith("Club Event:", StringComparison.OrdinalIgnoreCase))
+                {
+                    rawTitle = rawTitle.Substring(11).Trim();
+                }
+                else if (rawTitle.StartsWith("Club Event", StringComparison.OrdinalIgnoreCase) && rawTitle.Contains(':'))
+                {
+                    var colonIdx = rawTitle.IndexOf(':');
+                    rawTitle = rawTitle.Substring(colonIdx + 1).Trim();
+                }
+
                 // Parse separate applicantName and eventType from linked DB request, title, or description
                 string applicantName = "";
                 string eventType = "";
 
                 if (isClub)
                 {
-                    bool explicitlyPublic = e.Description != null && e.Description.Contains("Show on Public Calendar: Yes", StringComparison.OrdinalIgnoreCase);
-                    eventType = explicitlyPublic ? rawTitle : "Reserved";
-                    if (!explicitlyPublic)
-                    {
-                        rawTitle = "Reserved";
-                        publicDesc = string.Empty;
-                    }
+                    // For club events, set both applicantName and eventType to the actual typed title
+                    // so the event title displays regardless of whether the user enables "Applicant Name", "Event Type", or "Event Title"
+                    applicantName = rawTitle;
+                    eventType = rawTitle;
                 }
                 else
                 {

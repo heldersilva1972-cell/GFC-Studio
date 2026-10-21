@@ -582,7 +582,8 @@ namespace GFC.BlazorServer.Services
                     "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PoliciesJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [PoliciesJson] NVARCHAR(MAX) NULL;",
                     "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RoomsJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [RoomsJson] NVARCHAR(MAX) NULL;",
                     "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'AddonsJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [AddonsJson] NVARCHAR(MAX) NULL;",
-                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'DaySchedulesJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [DaySchedulesJson] NVARCHAR(MAX) NULL;"
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'DaySchedulesJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [DaySchedulesJson] NVARCHAR(MAX) NULL;",
+                    "IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'RentalRecipientsConfigJson') ALTER TABLE [dbo].[WebsiteSettings] ADD [RentalRecipientsConfigJson] NVARCHAR(MAX) NULL;"
                 };
 
                 foreach (var sql in criticalColumns)

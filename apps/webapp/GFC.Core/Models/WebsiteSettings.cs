@@ -121,6 +121,7 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
         // Web App Internal Calendar & Schedule List Display Configurations
         public string MonthCalendarDisplayMode { get; set; } = "multiline"; // "compact" or "multiline"
         public string? MonthCalendarFieldsJson { get; set; }
+        public string? MonthClubEventFieldsJson { get; set; }
         public string? ScheduleListColumnsJson { get; set; }
 
         // Web App Services & Amenities Visibility & Custom Display Names
@@ -248,6 +249,62 @@ When renting the Gloucester Fraternity Club, use of our parking lot is available
                 return;
             }
             ScheduleListColumnsJson = JsonSerializer.Serialize(list);
+        }
+
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public List<CalendarFieldDisplayConfig> MonthClubEventFields
+        {
+            get => GetMonthClubEventFieldsList();
+            set => SetMonthClubEventFieldsList(value);
+        }
+
+        public static List<CalendarFieldDisplayConfig> GetDefaultMonthClubEventFields()
+        {
+            return new List<CalendarFieldDisplayConfig>
+            {
+                new() { FieldKey = "club_badge", Label = "Club Event / Space Badge", Description = "CLUB EVENT or Office location badge pill", IsEnabled = true, Order = 1 },
+                new() { FieldKey = "time_window", Label = "Reserved Time Window", Description = "Event start and end time badge", IsEnabled = true, Order = 2 },
+                new() { FieldKey = "club_event_title", Label = "Club Event Title", Description = "Title for public or member-facing club events", IsEnabled = true, Order = 3 },
+                new() { FieldKey = "meeting_name", Label = "Meeting Name", Description = "Name of board, committee, or group meeting", IsEnabled = true, Order = 4 },
+                new() { FieldKey = "room_location", Label = "Room / Facility Space", Description = "Function Hall, Office, or flexible meeting room", IsEnabled = true, Order = 5 },
+                new() { FieldKey = "services", Label = "Requested Amenities & Bar Service", Description = "Bar Service Requested badge if enabled", IsEnabled = true, Order = 6 }
+            };
+        }
+
+        public List<CalendarFieldDisplayConfig> GetMonthClubEventFieldsList()
+        {
+            var defaults = GetDefaultMonthClubEventFields();
+            if (!string.IsNullOrWhiteSpace(MonthClubEventFieldsJson))
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<CalendarFieldDisplayConfig>>(MonthClubEventFieldsJson);
+                    if (items != null && items.Any())
+                    {
+                        foreach (var def in defaults)
+                        {
+                            if (!items.Any(i => i.FieldKey == def.FieldKey))
+                            {
+                                def.Order = items.Count + 1;
+                                items.Add(def);
+                            }
+                        }
+                        return items;
+                    }
+                }
+                catch { }
+            }
+            return defaults;
+        }
+
+        public void SetMonthClubEventFieldsList(IEnumerable<CalendarFieldDisplayConfig> list)
+        {
+            if (list == null)
+            {
+                MonthClubEventFieldsJson = null;
+                return;
+            }
+            MonthClubEventFieldsJson = JsonSerializer.Serialize(list);
         }
 
         public static List<CalendarFieldDisplayConfig> GetDefaultMonthCalendarFields()

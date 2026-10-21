@@ -19,6 +19,7 @@ namespace GFC.BlazorServer.Controllers
     {
         private readonly IRentalService _rentalService;
         private readonly IWebsiteSettingsService _settingsService;
+        private readonly IRentalEmailDispatcher _emailDispatcher;
         private readonly IFirebaseNotificationService _firebaseService;
         private readonly ILogger<ResendInboundWebhookController> _logger;
 
@@ -152,6 +153,8 @@ namespace GFC.BlazorServer.Controllers
                 }
 
                 var eventType = payload?.Type ?? string.Empty;
+                string subject = emailData.Subject ?? string.Empty;
+                string sender = emailData.From ?? string.Empty;
 
                 // =========================================================================
                 // 1. HANDLE EMAIL BOUNCES / DELIVERY FAILURES (email.bounced)
@@ -237,8 +240,6 @@ namespace GFC.BlazorServer.Controllers
                 // =========================================================================
                 // 2. HANDLE INBOUND EMAIL REPLIES (email.received)
                 // =========================================================================
-                string subject = emailData.Subject ?? string.Empty;
-                string sender = emailData.From ?? string.Empty;
                 string messageBody = !string.IsNullOrWhiteSpace(emailData.Text) 
                     ? emailData.Text 
                     : (StripHtmlTags(emailData.Html) ?? string.Empty);

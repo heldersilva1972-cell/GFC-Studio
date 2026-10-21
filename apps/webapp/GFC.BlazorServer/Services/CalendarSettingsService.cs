@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using GFC.BlazorServer.Models;
+using GFC.Core.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -32,7 +33,11 @@ namespace GFC.BlazorServer.Services
                 {
                     var json = await File.ReadAllTextAsync(_filePath);
                     var settings = JsonSerializer.Deserialize<CalendarSettings>(json);
-                    if (settings != null) return settings;
+                    if (settings != null)
+                    {
+                        EnsureMigratedClubFields(settings);
+                        return settings;
+                    }
                 }
             }
             catch (Exception ex)
@@ -40,7 +45,82 @@ namespace GFC.BlazorServer.Services
                 _logger.LogWarning(ex, "CalendarSettingsService: failed to read {File}", _filePath);
             }
 
-            return new CalendarSettings();
+            var defaultSettings = new CalendarSettings();
+            EnsureMigratedClubFields(defaultSettings);
+            return defaultSettings;
+        }
+
+        private static void EnsureMigratedClubFields(CalendarSettings settings)
+        {
+            if (settings.MonthClubEventFields == null || settings.MonthClubEventFields.Count == 0)
+            {
+                settings.MonthClubEventFields = CalendarSettings.GetDefaultPublicMonthClubEventFields();
+            }
+            else
+            {
+                var legacy = settings.MonthClubEventFields.FirstOrDefault(f => f.FieldKey == "event_title");
+                if (legacy != null)
+                {
+                    int order = legacy.Order;
+                    bool enabled = legacy.IsEnabled;
+                    settings.MonthClubEventFields.Remove(legacy);
+
+                    if (!settings.MonthClubEventFields.Any(f => f.FieldKey == "club_event_title"))
+                    {
+                        settings.MonthClubEventFields.Add(new CalendarFieldDisplayConfig
+                        {
+                            FieldKey = "club_event_title",
+                            Label = "Club Event Title",
+                            Description = "Title for public or member club activities",
+                            IsEnabled = enabled,
+                            Order = order
+                        });
+                    }
+
+                    if (!settings.MonthClubEventFields.Any(f => f.FieldKey == "meeting_name"))
+                    {
+                        settings.MonthClubEventFields.Add(new CalendarFieldDisplayConfig
+                        {
+                            FieldKey = "meeting_name",
+                            Label = "Meeting Name",
+                            Description = "Name for internal or committee meetings",
+                            IsEnabled = enabled,
+                            Order = order + 1
+                        });
+                    }
+
+                    int o = 1;
+                    foreach (var f in settings.MonthClubEventFields.OrderBy(x => x.Order))
+                    {
+                        f.Order = o++;
+                    }
+                }
+                else
+                {
+                    if (!settings.MonthClubEventFields.Any(f => f.FieldKey == "club_event_title"))
+                    {
+                        settings.MonthClubEventFields.Add(new CalendarFieldDisplayConfig
+                        {
+                            FieldKey = "club_event_title",
+                            Label = "Club Event Title",
+                            Description = "Title for public or member club activities",
+                            IsEnabled = true,
+                            Order = 2
+                        });
+                    }
+                    if (!settings.MonthClubEventFields.Any(f => f.FieldKey == "meeting_name"))
+                    {
+                        settings.MonthClubEventFields.Add(new CalendarFieldDisplayConfig
+                        {
+                            FieldKey = "meeting_name",
+                            Label = "Meeting Name",
+                            Description = "Name for internal or committee meetings",
+                            IsEnabled = true,
+                            Order = 3
+                        });
+                    }
+                }
+            }
         }
 
         /// <summary>Persists the provided <paramref name="settings"/> to disk.</summary>

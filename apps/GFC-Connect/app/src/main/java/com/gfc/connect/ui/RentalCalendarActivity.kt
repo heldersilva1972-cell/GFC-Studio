@@ -906,286 +906,138 @@ class RentalCalendarActivity : AppCompatActivity() {
             return
         }
 
-        val dp8 = (8 * resources.displayMetrics.density).toInt()
-        val dp12 = (12 * resources.displayMetrics.density).toInt()
-        val dp16 = (16 * resources.displayMetrics.density).toInt()
+        val dialogView = layoutInflater.inflate(R.layout.dialog_book_club_event, null)
+        val txtTargetDate = dialogView.findViewById<TextView>(R.id.txtDialogTargetDate)
+        val editTitle = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.editDialogEventTitle)
+        val radioGroupLocation = dialogView.findViewById<RadioGroup>(R.id.radioGroupLocation)
+        val rbFunctionHall = dialogView.findViewById<RadioButton>(R.id.rbDialogFunctionHall)
+        val rbOffice = dialogView.findViewById<RadioButton>(R.id.rbDialogOffice)
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp16, dp8, dp16, dp8)
-            isClickable = true
-            isFocusable = true
-            isFocusableInTouchMode = true
-        }
+        val cardHallSlots = dialogView.findViewById<View>(R.id.cardDialogHallSlots)
+        val radioGroupHallSlots = dialogView.findViewById<RadioGroup>(R.id.radioGroupHallSlots)
+        val rbFullDay = dialogView.findViewById<RadioButton>(R.id.rbDialogFullDay)
+        val rbAfternoon = dialogView.findViewById<RadioButton>(R.id.rbDialogAfternoon)
+        val rbEvening = dialogView.findViewById<RadioButton>(R.id.rbDialogEvening)
 
-        val dateLabel = TextView(this).apply {
-            text = "📅 Target Date: $selectedDateString"
-            setTextColor(getColor(R.color.gold_accent))
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, dp8)
-        }
-        layout.addView(dateLabel)
+        val cardOfficeSlots = dialogView.findViewById<View>(R.id.cardDialogOfficeSlots)
+        val radioGroupOfficeSlots = dialogView.findViewById<RadioGroup>(R.id.radioGroupOfficeSlots)
+        val rbOfficeCustom = dialogView.findViewById<RadioButton>(R.id.rbDialogOfficeCustom)
+        val rbOfficeFullDay = dialogView.findViewById<RadioButton>(R.id.rbDialogOfficeFullDay)
+        val layoutOfficeHoursRow = dialogView.findViewById<View>(R.id.layoutDialogOfficeHoursRow)
+        val btnStartTime = dialogView.findViewById<MaterialButton>(R.id.btnDialogStartTime)
+        val btnEndTime = dialogView.findViewById<MaterialButton>(R.id.btnDialogEndTime)
 
-        val inputReason = EditText(this).apply {
-            hint = "Club Event Title (e.g. Board Meeting, Club Dinner)"
-            setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_muted))
-            textSize = 14f
-            background = getDrawable(R.drawable.bg_edittext_dark)
-            setPadding(dp16, dp8 * 3 / 2, dp16, dp8 * 3 / 2)
-            maxLines = 1
-            isSingleLine = true
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            setOnEditorActionListener { v, actionId, _ ->
-                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                    imm?.hideSoftInputFromWindow(v.windowToken, 0)
-                    v.clearFocus()
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-        layout.addView(inputReason)
+        val switchPublicVisibility = dialogView.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.switchDialogPublicVisibility)
+        val cardStatus = dialogView.findViewById<MaterialCardView>(R.id.cardDialogStatus)
+        val txtStatusIcon = dialogView.findViewById<TextView>(R.id.txtDialogStatusIcon)
+        val txtStatus = dialogView.findViewById<TextView>(R.id.txtDialogStatus)
 
-        layout.setOnTouchListener { v, event ->
-            if (event.action == android.view.MotionEvent.ACTION_DOWN) {
-                val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                imm?.hideSoftInputFromWindow(v.windowToken, 0)
-                inputReason.clearFocus()
-            }
-            false
-        }
+        val btnCancel = dialogView.findViewById<MaterialButton>(R.id.btnDialogCancel)
+        val btnSubmit = dialogView.findViewById<MaterialButton>(R.id.btnDialogSubmit)
 
-        val locationLabel = TextView(this).apply {
-            text = "Select Event Space / Location:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8 * 2, 0, dp8 / 2)
-        }
-        layout.addView(locationLabel)
+        txtTargetDate.text = "Target Date: $selectedDateString"
 
-        val locationRadioGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-
-        val rbFunctionHall = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "🏛️ Function Hall (Primary Managed Space)"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = true
-        }
-        val rbOffice = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "🏢 Office (Secondary Flexible Space)"
-            setTextColor(getColor(R.color.text_primary))
-        }
-
-        locationRadioGroup.addView(rbFunctionHall)
-        locationRadioGroup.addView(rbOffice)
-        layout.addView(locationRadioGroup)
-
-        // ==========================================
-        // SECTION A: FUNCTION HALL FIXED SLOTS LAYOUT
-        // ==========================================
-        val layoutHallSlots = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.VISIBLE
-        }
-
-        val hallTimeLabel = TextView(this).apply {
-            text = "Function Hall Time Slot:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8, 0, dp8 / 2)
-        }
-        layoutHallSlots.addView(hallTimeLabel)
-
-        val hallRadioGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-
-        val rbFullDay = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = true
-        }
-        val rbAfternoon = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-        }
-        val rbEvening = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-        }
-
-        hallRadioGroup.addView(rbFullDay)
-        hallRadioGroup.addView(rbAfternoon)
-        hallRadioGroup.addView(rbEvening)
-        layoutHallSlots.addView(hallRadioGroup)
-        layout.addView(layoutHallSlots)
-
-        // ==========================================
-        // SECTION B: OFFICE CUSTOM TIME PICKER LAYOUT
-        // ==========================================
-        val layoutOfficeTime = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-
-        val officeTimeLabel = TextView(this).apply {
-            text = "Office Schedule / Hours:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8, 0, dp8 / 2)
-        }
-        layoutOfficeTime.addView(officeTimeLabel)
-
-        val officeTypeGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-        val rbOfficeCustom = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "⏰ Specific Custom Hours"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = true
-        }
-        val rbOfficeFullDay = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "📅 Full Day Event / Blackout"
-            setTextColor(getColor(R.color.text_primary))
-        }
-        officeTypeGroup.addView(rbOfficeCustom)
-        officeTypeGroup.addView(rbOfficeFullDay)
-        layoutOfficeTime.addView(officeTypeGroup)
-
-        // Custom start & end time pickers
         var officeStartMin = 18 * 60 // 6:00 PM default
         var officeEndMin = 20 * 60 + 30 // 8:30 PM default
 
-        val layoutCustomHoursRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp8, 0, 0)
-        }
-
-        val btnStartTime = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp8 / 2
-            }
-            text = "Start: ${formatMinutesTo12Hour(officeStartMin)}"
-            setTextColor(getColor(R.color.gold_accent))
-            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.gold_accent))
-            textSize = 12f
-        }
-
-        val btnEndTime = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp8 / 2
-            }
-            text = "End: ${formatMinutesTo12Hour(officeEndMin)}"
-            setTextColor(getColor(R.color.gold_accent))
-            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.gold_accent))
-            textSize = 12f
-        }
-
-        layoutCustomHoursRow.addView(btnStartTime)
-        layoutCustomHoursRow.addView(btnEndTime)
-        layoutOfficeTime.addView(layoutCustomHoursRow)
-        layout.addView(layoutOfficeTime)
-
-        // ==========================================
-        // CONFLICT / STATUS CARD LIVE BANNER
-        // ==========================================
-        val cardStatus = MaterialCardView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp12
-                bottomMargin = dp8
-            }
-            radius = 8 * resources.displayMetrics.density
-            strokeWidth = (1.5 * resources.displayMetrics.density).toInt()
-        }
-
-        val txtStatus = TextView(this).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(dp12, dp8, dp12, dp8)
-        }
-        cardStatus.addView(txtStatus)
-        layout.addView(cardStatus)
-
-        // Live evaluation function
-        lateinit var updateSlotEvaluations: () -> Unit
-        updateSlotEvaluations = {
+        val updateSlotEvaluations: () -> Unit = {
             if (rbFunctionHall.isChecked) {
-                layoutHallSlots.visibility = View.VISIBLE
-                layoutOfficeTime.visibility = View.GONE
+                cardHallSlots.visibility = View.VISIBLE
+                cardOfficeSlots.visibility = View.GONE
 
                 val fullDayConflict = checkSlotConflict(selectedDateString, "Function Hall", true, -1, -1)
                 val afternoonConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 12 * 60, 17 * 60)
                 val eveningConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 18 * 60, 23 * 60)
 
-                rbFullDay.text = if (fullDayConflict == null) "Full Day Blackout  •  🟢 Available" else "Full Day Blackout  •  🔴 Unavailable"
+                rbFullDay.text = if (fullDayConflict == null) "Full Day Blackout  •  🟢 Available" else "Full Day Blackout  •  🔴 Conflict"
                 rbAfternoon.text = if (afternoonConflict == null) "Afternoon (12:00 PM – 5:00 PM)  •  🟢 Available" else "Afternoon (12:00 PM – 5:00 PM)  •  🔴 Conflict"
                 rbEvening.text = if (eveningConflict == null) "Evening (6:00 PM – 11:00 PM)  •  🟢 Available" else "Evening (6:00 PM – 11:00 PM)  •  🔴 Conflict"
 
-                val currentConflict = when {
-                    rbFullDay.isChecked -> fullDayConflict
-                    rbAfternoon.isChecked -> afternoonConflict
-                    rbEvening.isChecked -> eveningConflict
-                    else -> null
-                }
-
-                if (currentConflict != null) {
+                val isSlotSelected = rbFullDay.isChecked || rbAfternoon.isChecked || rbEvening.isChecked
+                if (!isSlotSelected) {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
-                    cardStatus.strokeColor = getColor(R.color.coral_red)
-                    txtStatus.text = "⚠️ Function Hall Conflict: $currentConflict\nChoose a different slot or switch to Office."
-                    txtStatus.setTextColor(getColor(R.color.coral_red))
+                    cardStatus.strokeColor = getColor(R.color.border_dark)
+                    txtStatusIcon.text = "ℹ️"
+                    txtStatusIcon.setTextColor(getColor(R.color.text_secondary))
+                    txtStatus.text = "Please select a time slot above to verify availability."
+                    txtStatus.setTextColor(getColor(R.color.text_secondary))
                 } else {
-                    cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
-                    cardStatus.strokeColor = getColor(R.color.emerald_accent)
-                    txtStatus.text = "✓ Function Hall Available: No conflicting bookings for this slot."
-                    txtStatus.setTextColor(getColor(R.color.emerald_accent))
-                }
-            } else {
-                layoutHallSlots.visibility = View.GONE
-                layoutOfficeTime.visibility = View.VISIBLE
-                layoutCustomHoursRow.visibility = if (rbOfficeCustom.isChecked) View.VISIBLE else View.GONE
+                    val currentConflict = when {
+                        rbFullDay.isChecked -> fullDayConflict
+                        rbAfternoon.isChecked -> afternoonConflict
+                        rbEvening.isChecked -> eveningConflict
+                        else -> null
+                    }
 
-                val isOfficeFullDay = rbOfficeFullDay.isChecked
-                val conflict = if (isOfficeFullDay) {
-                    checkSlotConflict(selectedDateString, "Office", true, -1, -1)
-                } else {
-                    if (officeEndMin <= officeStartMin) {
-                        "End time must be after start time"
+                    if (currentConflict != null) {
+                        cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
+                        cardStatus.strokeColor = getColor(R.color.coral_red)
+                        txtStatusIcon.text = "⚠️"
+                        txtStatusIcon.setTextColor(getColor(R.color.coral_red))
+                        txtStatus.text = "Function Hall Conflict: $currentConflict\nChoose a different slot or switch to Office."
+                        txtStatus.setTextColor(getColor(R.color.coral_red))
                     } else {
-                        checkSlotConflict(selectedDateString, "Office", false, officeStartMin, officeEndMin)
+                        cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
+                        cardStatus.strokeColor = getColor(R.color.emerald_accent)
+                        txtStatusIcon.text = "✓"
+                        txtStatusIcon.setTextColor(getColor(R.color.emerald_accent))
+                        txtStatus.text = "Function Hall Available: No conflicting bookings for this slot."
+                        txtStatus.setTextColor(getColor(R.color.emerald_accent))
                     }
                 }
+            } else {
+                cardHallSlots.visibility = View.GONE
+                cardOfficeSlots.visibility = View.VISIBLE
+                layoutOfficeHoursRow.visibility = if (rbOfficeCustom.isChecked) View.VISIBLE else View.GONE
 
-                if (conflict != null) {
+                val isOfficeSlotSelected = rbOfficeCustom.isChecked || rbOfficeFullDay.isChecked
+                if (!isOfficeSlotSelected) {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
-                    cardStatus.strokeColor = getColor(R.color.coral_red)
-                    txtStatus.text = "⚠️ Office Conflict: $conflict\nPlease adjust office hours."
-                    txtStatus.setTextColor(getColor(R.color.coral_red))
+                    cardStatus.strokeColor = getColor(R.color.border_dark)
+                    txtStatusIcon.text = "ℹ️"
+                    txtStatusIcon.setTextColor(getColor(R.color.text_secondary))
+                    txtStatus.text = "Please select an office schedule option above."
+                    txtStatus.setTextColor(getColor(R.color.text_secondary))
                 } else {
-                    cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
-                    cardStatus.strokeColor = getColor(R.color.emerald_accent)
-                    val timeDesc = if (isOfficeFullDay) "Full Day" else "${formatMinutesTo12Hour(officeStartMin)} - ${formatMinutesTo12Hour(officeEndMin)}"
-                    txtStatus.text = "✓ Office Space Available ($timeDesc): No office conflicts."
-                    txtStatus.setTextColor(getColor(R.color.emerald_accent))
+                    val isOfficeFullDay = rbOfficeFullDay.isChecked
+                    val conflict = if (isOfficeFullDay) {
+                        checkSlotConflict(selectedDateString, "Office", true, -1, -1)
+                    } else {
+                        if (officeEndMin <= officeStartMin) {
+                            "End time must be after start time"
+                        } else {
+                            checkSlotConflict(selectedDateString, "Office", false, officeStartMin, officeEndMin)
+                        }
+                    }
+
+                    if (conflict != null) {
+                        cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
+                        cardStatus.strokeColor = getColor(R.color.coral_red)
+                        txtStatusIcon.text = "⚠️"
+                        txtStatusIcon.setTextColor(getColor(R.color.coral_red))
+                        txtStatus.text = "Office Conflict: $conflict\nPlease adjust office hours."
+                        txtStatus.setTextColor(getColor(R.color.coral_red))
+                    } else {
+                        cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
+                        cardStatus.strokeColor = getColor(R.color.emerald_accent)
+                        val timeDesc = if (isOfficeFullDay) "Full Day" else "${formatMinutesTo12Hour(officeStartMin)} - ${formatMinutesTo12Hour(officeEndMin)}"
+                        txtStatusIcon.text = "✓"
+                        txtStatusIcon.setTextColor(getColor(R.color.emerald_accent))
+                        txtStatus.text = "Office Space Available ($timeDesc): No office conflicts."
+                        txtStatus.setTextColor(getColor(R.color.emerald_accent))
+                    }
                 }
             }
+
+            // Only show the "Display on Public Calendar" option when the 2nd location (Office) is selected
+            val cardPublicVisibility = dialogView.findViewById<View>(R.id.cardDialogPublicVisibility)
+            cardPublicVisibility?.visibility = if (rbOffice.isChecked) View.VISIBLE else View.GONE
         }
 
         val hideKeyboardHelper = {
             val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-            imm?.hideSoftInputFromWindow(layout.windowToken, 0)
-            inputReason.clearFocus()
+            imm?.hideSoftInputFromWindow(dialogView.windowToken, 0)
+            editTitle.clearFocus()
         }
 
         btnStartTime.setOnClickListener {
@@ -1210,44 +1062,39 @@ class RentalCalendarActivity : AppCompatActivity() {
             }, curH, curM, false).show()
         }
 
-        locationRadioGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupLocation.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
-        hallRadioGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupHallSlots.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
-        officeTypeGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupOfficeSlots.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
 
-        // Initial evaluation
+        // Do not preselect any slot when opening a new event dialog
+        radioGroupHallSlots.clearCheck()
+        radioGroupOfficeSlots.clearCheck()
+
         updateSlotEvaluations()
 
-        val initFullConflict = checkSlotConflict(selectedDateString, "Function Hall", true, -1, -1)
-        val initAfternoonConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 12 * 60, 17 * 60)
-        val initEveningConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 18 * 60, 23 * 60)
-        if (initFullConflict != null) {
-            when {
-                initAfternoonConflict == null -> rbAfternoon.isChecked = true
-                initEveningConflict == null -> rbEvening.isChecked = true
-            }
-        }
-
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Book Club Event / Blackout")
-            .setMessage("Select date, location, and verified available time slot:")
-            .setView(layout)
-            .setPositiveButton("Book Event", null)
-            .setNegativeButton("Cancel", null)
+            .setView(dialogView)
+            .setCancelable(true)
             .create()
 
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.show()
 
-        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val reason = inputReason.text.toString().trim()
+        btnCancel.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnSubmit.setOnClickListener {
+            val reason = editTitle.text?.toString()?.trim().orEmpty()
             if (reason.isEmpty()) {
                 MaterialAlertDialogBuilder(this)
                     .setTitle("⚠️ Event Title Required")
@@ -1263,6 +1110,15 @@ class RentalCalendarActivity : AppCompatActivity() {
             val endTime: String?
 
             if (selectedLocation == "Office") {
+                if (!rbOfficeFullDay.isChecked && !rbOfficeCustom.isChecked) {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("⚠️ Time Slot Required")
+                        .setMessage("Please select an office schedule option (Custom Hours or Full Day) before booking.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                    return@setOnClickListener
+                }
+
                 if (rbOfficeFullDay.isChecked) {
                     isFullDay = true
                     startTime = null
@@ -1281,6 +1137,15 @@ class RentalCalendarActivity : AppCompatActivity() {
                     endTime = formatMinutesTo12Hour(officeEndMin)
                 }
             } else {
+                if (!rbFullDay.isChecked && !rbAfternoon.isChecked && !rbEvening.isChecked) {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("⚠️ Time Slot Required")
+                        .setMessage("Please select a Function Hall time slot (Full Day, Afternoon, or Evening) before booking.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                    return@setOnClickListener
+                }
+
                 isFullDay = rbFullDay.isChecked
                 startTime = when {
                     rbAfternoon.isChecked -> "12:00 PM"
@@ -1313,7 +1178,8 @@ class RentalCalendarActivity : AppCompatActivity() {
                 location = selectedLocation,
                 startTime = startTime,
                 endTime = endTime,
-                isFullDay = isFullDay
+                isFullDay = isFullDay,
+                showOnPublicCalendar = switchPublicVisibility.isChecked
             )
             dialog.dismiss()
             executeCreateClubEvent(payload)
@@ -1330,174 +1196,60 @@ class RentalCalendarActivity : AppCompatActivity() {
             return
         }
 
-        val dp8 = (8 * resources.displayMetrics.density).toInt()
-        val dp12 = (12 * resources.displayMetrics.density).toInt()
-        val dp16 = (16 * resources.displayMetrics.density).toInt()
-
         val rawTitle = unavail.eventType ?: unavail.reason ?: ""
         val cleanTitle = rawTitle
-            .replace(Regex("^Club Event \\([^)]+\\):?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^Club Event(\\s*\\([^)]+\\))?:?\\s*", RegexOption.IGNORE_CASE), "")
             .trim()
 
         val isOfficeInitial = rawTitle.contains("Office", ignoreCase = true)
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp16, dp8, dp16, dp8)
-            isClickable = true
-            isFocusable = true
-            isFocusableInTouchMode = true
+        val dialogView = layoutInflater.inflate(R.layout.dialog_book_club_event, null)
+        val txtTargetDate = dialogView.findViewById<TextView>(R.id.txtDialogTargetDate)
+        val editTitle = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.editDialogEventTitle)
+        val radioGroupLocation = dialogView.findViewById<RadioGroup>(R.id.radioGroupLocation)
+        val rbFunctionHall = dialogView.findViewById<RadioButton>(R.id.rbDialogFunctionHall)
+        val rbOffice = dialogView.findViewById<RadioButton>(R.id.rbDialogOffice)
+
+        val cardHallSlots = dialogView.findViewById<View>(R.id.cardDialogHallSlots)
+        val radioGroupHallSlots = dialogView.findViewById<RadioGroup>(R.id.radioGroupHallSlots)
+        val rbFullDay = dialogView.findViewById<RadioButton>(R.id.rbDialogFullDay)
+        val rbAfternoon = dialogView.findViewById<RadioButton>(R.id.rbDialogAfternoon)
+        val rbEvening = dialogView.findViewById<RadioButton>(R.id.rbDialogEvening)
+
+        val cardOfficeSlots = dialogView.findViewById<View>(R.id.cardDialogOfficeSlots)
+        val radioGroupOfficeSlots = dialogView.findViewById<RadioGroup>(R.id.radioGroupOfficeSlots)
+        val rbOfficeCustom = dialogView.findViewById<RadioButton>(R.id.rbDialogOfficeCustom)
+        val rbOfficeFullDay = dialogView.findViewById<RadioButton>(R.id.rbDialogOfficeFullDay)
+        val layoutOfficeHoursRow = dialogView.findViewById<View>(R.id.layoutDialogOfficeHoursRow)
+        val btnStartTime = dialogView.findViewById<MaterialButton>(R.id.btnDialogStartTime)
+        val btnEndTime = dialogView.findViewById<MaterialButton>(R.id.btnDialogEndTime)
+
+        val switchPublicVisibility = dialogView.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.switchDialogPublicVisibility)
+        val cardStatus = dialogView.findViewById<MaterialCardView>(R.id.cardDialogStatus)
+        val txtStatusIcon = dialogView.findViewById<TextView>(R.id.txtDialogStatusIcon)
+        val txtStatus = dialogView.findViewById<TextView>(R.id.txtDialogStatus)
+
+        val btnCancel = dialogView.findViewById<MaterialButton>(R.id.btnDialogCancel)
+        val btnSubmit = dialogView.findViewById<MaterialButton>(R.id.btnDialogSubmit)
+
+        txtTargetDate.text = "Target Date: $selectedDateString"
+        editTitle.setText(cleanTitle)
+        btnSubmit.text = "Save Changes"
+        switchPublicVisibility.isChecked = rawTitle.contains("Public", ignoreCase = true)
+
+        if (isOfficeInitial) {
+            rbOffice.isChecked = true
+        } else {
+            rbFunctionHall.isChecked = true
         }
 
-        val dateLabel = TextView(this).apply {
-            text = "📅 Target Date: $selectedDateString"
-            setTextColor(getColor(R.color.gold_accent))
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 0, 0, dp8)
-        }
-        layout.addView(dateLabel)
+        rbFullDay.isChecked = unavail.isFullDay || unavail.eventTime.isNullOrBlank()
+        rbAfternoon.isChecked = !unavail.isFullDay && unavail.eventTime?.contains("12", ignoreCase = true) == true
+        rbEvening.isChecked = !unavail.isFullDay && unavail.eventTime?.contains("6", ignoreCase = true) == true
 
-        val inputReason = EditText(this).apply {
-            hint = "Club Event Title (e.g. Board Meeting, Club Dinner)"
-            setText(cleanTitle)
-            setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_muted))
-            textSize = 14f
-            background = getDrawable(R.drawable.bg_edittext_dark)
-            setPadding(dp16, dp8 * 3 / 2, dp16, dp8 * 3 / 2)
-            maxLines = 1
-            isSingleLine = true
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            setOnEditorActionListener { v, actionId, _ ->
-                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                    imm?.hideSoftInputFromWindow(v.windowToken, 0)
-                    v.clearFocus()
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-        layout.addView(inputReason)
+        rbOfficeCustom.isChecked = !unavail.isFullDay && !unavail.eventTime.isNullOrBlank()
+        rbOfficeFullDay.isChecked = unavail.isFullDay || unavail.eventTime.isNullOrBlank()
 
-        layout.setOnTouchListener { v, event ->
-            if (event.action == android.view.MotionEvent.ACTION_DOWN) {
-                val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                imm?.hideSoftInputFromWindow(v.windowToken, 0)
-                inputReason.clearFocus()
-            }
-            false
-        }
-
-        val locationLabel = TextView(this).apply {
-            text = "Select Event Space / Location:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8 * 2, 0, dp8 / 2)
-        }
-        layout.addView(locationLabel)
-
-        val locationRadioGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-
-        val rbFunctionHall = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "🏛️ Function Hall (Primary Managed Space)"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = !isOfficeInitial
-        }
-        val rbOffice = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "🏢 Office (Secondary Flexible Space)"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = isOfficeInitial
-        }
-
-        locationRadioGroup.addView(rbFunctionHall)
-        locationRadioGroup.addView(rbOffice)
-        layout.addView(locationRadioGroup)
-
-        // ==========================================
-        // SECTION A: FUNCTION HALL FIXED SLOTS LAYOUT
-        // ==========================================
-        val layoutHallSlots = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = if (!isOfficeInitial) View.VISIBLE else View.GONE
-        }
-
-        val hallTimeLabel = TextView(this).apply {
-            text = "Function Hall Time Slot:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8, 0, dp8 / 2)
-        }
-        layoutHallSlots.addView(hallTimeLabel)
-
-        val hallRadioGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-
-        val rbFullDay = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = unavail.isFullDay || unavail.eventTime.isNullOrBlank()
-        }
-        val rbAfternoon = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = !unavail.isFullDay && unavail.eventTime?.contains("12", ignoreCase = true) == true
-        }
-        val rbEvening = RadioButton(this).apply {
-            id = View.generateViewId()
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = !unavail.isFullDay && unavail.eventTime?.contains("6", ignoreCase = true) == true
-        }
-
-        hallRadioGroup.addView(rbFullDay)
-        hallRadioGroup.addView(rbAfternoon)
-        hallRadioGroup.addView(rbEvening)
-        layoutHallSlots.addView(hallRadioGroup)
-        layout.addView(layoutHallSlots)
-
-        // ==========================================
-        // SECTION B: OFFICE CUSTOM TIME PICKER LAYOUT
-        // ==========================================
-        val layoutOfficeTime = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = if (isOfficeInitial) View.VISIBLE else View.GONE
-        }
-
-        val officeTimeLabel = TextView(this).apply {
-            text = "Office Schedule / Hours:"
-            setTextColor(getColor(R.color.text_secondary))
-            textSize = 13f
-            setPadding(0, dp8, 0, dp8 / 2)
-        }
-        layoutOfficeTime.addView(officeTimeLabel)
-
-        val officeTypeGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
-        val rbOfficeCustom = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "⏰ Specific Custom Hours"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = !unavail.isFullDay && !unavail.eventTime.isNullOrBlank()
-        }
-        val rbOfficeFullDay = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "📅 Full Day Event / Blackout"
-            setTextColor(getColor(R.color.text_primary))
-            isChecked = unavail.isFullDay || unavail.eventTime.isNullOrBlank()
-        }
-        officeTypeGroup.addView(rbOfficeCustom)
-        officeTypeGroup.addView(rbOfficeFullDay)
-        layoutOfficeTime.addView(officeTypeGroup)
-
-        // Parse initial times
         var officeStartMin = 18 * 60
         var officeEndMin = 20 * 60 + 30
         if (!unavail.eventTime.isNullOrBlank()) {
@@ -1510,69 +1262,19 @@ class RentalCalendarActivity : AppCompatActivity() {
             }
         }
 
-        val layoutCustomHoursRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp8, 0, 0)
-        }
+        btnStartTime.text = "Start: ${formatMinutesTo12Hour(officeStartMin)}"
+        btnEndTime.text = "End: ${formatMinutesTo12Hour(officeEndMin)}"
 
-        val btnStartTime = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp8 / 2
-            }
-            text = "Start: ${formatMinutesTo12Hour(officeStartMin)}"
-            setTextColor(getColor(R.color.gold_accent))
-            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.gold_accent))
-            textSize = 12f
-        }
-
-        val btnEndTime = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp8 / 2
-            }
-            text = "End: ${formatMinutesTo12Hour(officeEndMin)}"
-            setTextColor(getColor(R.color.gold_accent))
-            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.gold_accent))
-            textSize = 12f
-        }
-
-        layoutCustomHoursRow.addView(btnStartTime)
-        layoutCustomHoursRow.addView(btnEndTime)
-        layoutOfficeTime.addView(layoutCustomHoursRow)
-        layout.addView(layoutOfficeTime)
-
-        // Conflict / Status Card Live Banner
-        val cardStatus = MaterialCardView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp12
-                bottomMargin = dp8
-            }
-            radius = 8 * resources.displayMetrics.density
-            strokeWidth = (1.5 * resources.displayMetrics.density).toInt()
-        }
-
-        val txtStatus = TextView(this).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setPadding(dp12, dp8, dp12, dp8)
-        }
-        cardStatus.addView(txtStatus)
-        layout.addView(cardStatus)
-
-        // Live evaluation function
-        lateinit var updateSlotEvaluations: () -> Unit
-        updateSlotEvaluations = {
+        val updateSlotEvaluations: () -> Unit = {
             if (rbFunctionHall.isChecked) {
-                layoutHallSlots.visibility = View.VISIBLE
-                layoutOfficeTime.visibility = View.GONE
+                cardHallSlots.visibility = View.VISIBLE
+                cardOfficeSlots.visibility = View.GONE
 
                 val fullDayConflict = checkSlotConflict(selectedDateString, "Function Hall", true, -1, -1, unavail, unavail.id)
                 val afternoonConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 12 * 60, 17 * 60, unavail, unavail.id)
                 val eveningConflict = checkSlotConflict(selectedDateString, "Function Hall", false, 18 * 60, 23 * 60, unavail, unavail.id)
 
-                rbFullDay.text = if (fullDayConflict == null) "Full Day Blackout  •  🟢 Available" else "Full Day Blackout  •  🔴 Unavailable"
+                rbFullDay.text = if (fullDayConflict == null) "Full Day Blackout  •  🟢 Available" else "Full Day Blackout  •  🔴 Conflict"
                 rbAfternoon.text = if (afternoonConflict == null) "Afternoon (12:00 PM – 5:00 PM)  •  🟢 Available" else "Afternoon (12:00 PM – 5:00 PM)  •  🔴 Conflict"
                 rbEvening.text = if (eveningConflict == null) "Evening (6:00 PM – 11:00 PM)  •  🟢 Available" else "Evening (6:00 PM – 11:00 PM)  •  🔴 Conflict"
 
@@ -1586,18 +1288,22 @@ class RentalCalendarActivity : AppCompatActivity() {
                 if (currentConflict != null) {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
                     cardStatus.strokeColor = getColor(R.color.coral_red)
-                    txtStatus.text = "⚠️ Function Hall Conflict: $currentConflict\nChoose a different slot or switch to Office."
+                    txtStatusIcon.text = "⚠️"
+                    txtStatusIcon.setTextColor(getColor(R.color.coral_red))
+                    txtStatus.text = "Function Hall Conflict: $currentConflict\nChoose a different slot or switch to Office."
                     txtStatus.setTextColor(getColor(R.color.coral_red))
                 } else {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
                     cardStatus.strokeColor = getColor(R.color.emerald_accent)
-                    txtStatus.text = "✓ Function Hall Available: No conflicting bookings for this slot."
+                    txtStatusIcon.text = "✓"
+                    txtStatusIcon.setTextColor(getColor(R.color.emerald_accent))
+                    txtStatus.text = "Function Hall Available: No conflicting bookings for this slot."
                     txtStatus.setTextColor(getColor(R.color.emerald_accent))
                 }
             } else {
-                layoutHallSlots.visibility = View.GONE
-                layoutOfficeTime.visibility = View.VISIBLE
-                layoutCustomHoursRow.visibility = if (rbOfficeCustom.isChecked) View.VISIBLE else View.GONE
+                cardHallSlots.visibility = View.GONE
+                cardOfficeSlots.visibility = View.VISIBLE
+                layoutOfficeHoursRow.visibility = if (rbOfficeCustom.isChecked) View.VISIBLE else View.GONE
 
                 val isOfficeFullDay = rbOfficeFullDay.isChecked
                 val conflict = if (isOfficeFullDay) {
@@ -1613,22 +1319,30 @@ class RentalCalendarActivity : AppCompatActivity() {
                 if (conflict != null) {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
                     cardStatus.strokeColor = getColor(R.color.coral_red)
-                    txtStatus.text = "⚠️ Office Conflict: $conflict\nPlease adjust office hours."
+                    txtStatusIcon.text = "⚠️"
+                    txtStatusIcon.setTextColor(getColor(R.color.coral_red))
+                    txtStatus.text = "Office Conflict: $conflict\nPlease adjust office hours."
                     txtStatus.setTextColor(getColor(R.color.coral_red))
                 } else {
                     cardStatus.setCardBackgroundColor(getColor(R.color.surface_dark_muted))
                     cardStatus.strokeColor = getColor(R.color.emerald_accent)
                     val timeDesc = if (isOfficeFullDay) "Full Day" else "${formatMinutesTo12Hour(officeStartMin)} - ${formatMinutesTo12Hour(officeEndMin)}"
-                    txtStatus.text = "✓ Office Space Available ($timeDesc): No office conflicts."
+                    txtStatusIcon.text = "✓"
+                    txtStatusIcon.setTextColor(getColor(R.color.emerald_accent))
+                    txtStatus.text = "Office Space Available ($timeDesc): No office conflicts."
                     txtStatus.setTextColor(getColor(R.color.emerald_accent))
                 }
             }
+
+            // Only show the "Display on Public Calendar" option when the 2nd location (Office) is selected
+            val cardPublicVisibility = dialogView.findViewById<View>(R.id.cardDialogPublicVisibility)
+            cardPublicVisibility?.visibility = if (rbOffice.isChecked) View.VISIBLE else View.GONE
         }
 
         val hideKeyboardHelper = {
             val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-            imm?.hideSoftInputFromWindow(layout.windowToken, 0)
-            inputReason.clearFocus()
+            imm?.hideSoftInputFromWindow(dialogView.windowToken, 0)
+            editTitle.clearFocus()
         }
 
         btnStartTime.setOnClickListener {
@@ -1653,59 +1367,35 @@ class RentalCalendarActivity : AppCompatActivity() {
             }, curH, curM, false).show()
         }
 
-        locationRadioGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupLocation.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
-        hallRadioGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupHallSlots.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
-        officeTypeGroup.setOnCheckedChangeListener { _, _ -> 
+        radioGroupOfficeSlots.setOnCheckedChangeListener { _, _ ->
             hideKeyboardHelper()
-            updateSlotEvaluations() 
+            updateSlotEvaluations()
         }
 
-        // Initial evaluation
         updateSlotEvaluations()
 
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Edit Club Event")
-            .setMessage("Update event details, location, or hours:")
-            .setView(layout)
-            .setPositiveButton("Save", null)
-            .setNeutralButton("🗑️ Delete", null)
-            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .setView(dialogView)
+            .setCancelable(true)
             .create()
 
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.show()
 
-        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.apply {
-            setTextColor(getColor(R.color.text_secondary))
-            setOnClickListener { dialog.dismiss() }
+        btnCancel.setOnClickListener {
+            dialog.dismiss()
         }
 
-        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.apply {
-            setTextColor(getColor(R.color.cyan_accent))
-        }
-
-        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL)?.apply {
-            setTextColor(getColor(R.color.coral_red))
-            setOnClickListener {
-                MaterialAlertDialogBuilder(this@RentalCalendarActivity)
-                    .setTitle("Delete Club Event?")
-                    .setMessage("Are you sure you want to delete '$cleanTitle'? This will remove the event and reopen the time slot.")
-                    .setPositiveButton("Yes, Delete") { _, _ ->
-                        dialog.dismiss()
-                        executeDeleteClubEvent(unavail.id)
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }
-        }
-
-        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val reason = inputReason.text.toString().trim()
+        btnSubmit.setOnClickListener {
+            val reason = editTitle.text?.toString()?.trim().orEmpty()
             if (reason.isEmpty()) {
                 MaterialAlertDialogBuilder(this)
                     .setTitle("⚠️ Event Title Required")
@@ -1771,7 +1461,8 @@ class RentalCalendarActivity : AppCompatActivity() {
                 location = selectedLocation,
                 startTime = startTime,
                 endTime = endTime,
-                isFullDay = isFullDay
+                isFullDay = isFullDay,
+                showOnPublicCalendar = switchPublicVisibility.isChecked
             )
             dialog.dismiss()
             executeUpdateClubEvent(unavail.id, payload)
