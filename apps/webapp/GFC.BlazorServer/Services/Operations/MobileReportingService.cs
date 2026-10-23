@@ -406,8 +406,8 @@ public class MobileReportingService : IMobileReportingService
                 if (lotto.ShiftId == 0) await Task.Run(() => _lottoService.CreateShift(lotto, effectiveUsername));
                 else await Task.Run(() => _lottoService.UpdateShift(lotto, effectiveUsername));
 
-                // [VARIANCE ALERT DISPATCH] Dispatch lottery variance alert to Connect App if variance exists
-                if (Math.Abs(lotto.Variance) > 0.00m)
+                // [VARIANCE ALERT DISPATCH] Dispatch lottery variance alert to Connect App ONLY when the shift is officially Submitted
+                if (string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase) && Math.Abs(lotto.Variance) > 0.00m)
                 {
                     _ = Task.Run(async () =>
                     {
