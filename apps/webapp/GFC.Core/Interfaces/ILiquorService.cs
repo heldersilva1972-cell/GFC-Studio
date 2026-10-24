@@ -61,5 +61,15 @@ namespace GFC.Core.Interfaces
 
         // Categories
         Task<IEnumerable<PosCategory>> GetAllCategoriesAsync();
+
+        // Wholesale Pricing & Quotes
+        Task<IEnumerable<LiquorItem>> GetWholesaleItemsAsync(bool includeWatchlist = true);
+        Task<IEnumerable<LiquorVendorQuote>> GetQuotesForItemAsync(int itemId);
+        Task<LiquorVendorQuote> SaveQuoteAsync(LiquorVendorQuote quote, string? userId = null);
+        Task DeleteQuoteAsync(int quoteId);
+        Task SetPreferredVendorQuoteAsync(int quoteId, bool syncWithItemVendor = false, int? userId = null);
+        Task<IEnumerable<LiquorPriceHistory>> GetPriceHistoryAsync(int? quoteId = null, int? itemId = null, int limit = 100);
+        Task<LiquorItem> CreateWatchlistItemAsync(LiquorItem item, int? userId = null);
+        Task PromoteWatchlistItemAsync(int itemId, int? userId = null);
     }
 }

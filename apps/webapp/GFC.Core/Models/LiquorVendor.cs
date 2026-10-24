@@ -30,9 +30,23 @@ namespace GFC.Core.Models
         [StringLength(500)]
         public string? Website { get; set; }
 
+        [StringLength(100)]
+        public string? OrderCutoffTime { get; set; }
+
+        [StringLength(100)]
+        public string? DeliveryDays { get; set; }
+
+        [StringLength(150)]
+        public string? SalesRepName { get; set; }
+
+        [StringLength(50)]
+        public string? SalesRepPhone { get; set; }
+
         [JsonIgnore]
         public virtual ICollection<LiquorItem> Items { get; set; } = new List<LiquorItem>();
         [JsonIgnore]
         public virtual ICollection<LiquorOrder> Orders { get; set; } = new List<LiquorOrder>();
+        [JsonIgnore]
+        public virtual ICollection<LiquorVendorQuote> Quotes { get; set; } = new List<LiquorVendorQuote>();
     }
 }

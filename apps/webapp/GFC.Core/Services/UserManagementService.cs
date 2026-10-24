@@ -652,6 +652,10 @@ public class UserManagementService : IUserManagementService
         if (routes.Contains(normalized))
             return true;
 
+        // Wholesale pricing inherits permission from liquor hub
+        if ((normalized == "liquor/wholesale-pricing" || normalized == "liquor/price-comparison") && (routes.Contains("liquor/hub") || routes.Contains("liquor")))
+            return true;
+
         // 6. Strict Explicit Check
         // If the requested route matches any explicitly registered page in the system,
         // it MUST have its own explicit permission and cannot inherit from a parent.

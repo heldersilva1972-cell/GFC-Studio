@@ -2777,34 +2777,45 @@
             }
         }
         
-        // Final background save attempt with 'Submitted' status
-        await ReportingService.SaveShiftReportAsync(new MobileShiftData {
-            Date = ReportDate, ShiftType = ShiftType, IsRentalHall = IsRentalHall,
-            BarSales = BarSales, TotalHours = TotalHours, LottoSales = LottoSales,
-            LottoCashes = LottoCashes, LottoInstantTickets = LottoInstantTickets,
-            LottoNetDue = LottoNetDue, LottoOpeningCash = LottoOpeningCash,
-            LottoBackupBag = LottoBackupBag, LottoCashCounted = LottoCashCounted,
-            PrevDaySales = _prevDaySales, PrevDayCashes = _prevDayCashes,
-            PrevDayTickets = _prevDayTickets, PrevDayNetDue = _prevDayNetDue,
-            EnvelopeAmount = LottoEnvelopeAmount, BagRefillAmount = LottoBagRefill,
-            IsFullDayShift = _isFullDayShift,
-            Notes = Notes, Status = "Submitted"
-        }, _currentUsername);
+        // Attempt direct submission to server
+        bool directSaveSuccess = false;
+        try {
+            await ReportingService.SaveShiftReportAsync(new MobileShiftData {
+                Date = ReportDate, ShiftType = ShiftType, IsRentalHall = IsRentalHall,
+                BarSales = BarSales, TotalHours = TotalHours, LottoSales = LottoSales,
+                LottoCashes = LottoCashes, LottoInstantTickets = LottoInstantTickets,
+                LottoNetDue = LottoNetDue, LottoOpeningCash = LottoOpeningCash,
+                LottoBackupBag = LottoBackupBag, LottoCashCounted = LottoCashCounted,
+                PrevDaySales = _prevDaySales, PrevDayCashes = _prevDayCashes,
+                PrevDayTickets = _prevDayTickets, PrevDayNetDue = _prevDayNetDue,
+                EnvelopeAmount = LottoEnvelopeAmount, BagRefillAmount = LottoBagRefill,
+                IsFullDayShift = _isFullDayShift,
+                Notes = Notes, Status = "Submitted"
+            }, _currentUsername);
+            directSaveSuccess = true;
+        } catch {
+            // Direct submission failed (offline or network hiccup); will fall back to local outbox
+        }
         
-        // NO-GUESS WORKFLOW: We show success immediately because the data is safe LOCALLY.
-        // We mark it in local storage so the Hub can finish the cloud sync silently.
+        // Clean up or queue in local storage
         try {
             var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
-            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
-            if (!string.IsNullOrEmpty(json)) {
-                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                var outboxItem = new {
-                    Data = root,
-                    IsPendingSubmission = true,
-                    Timestamp = DateTime.UtcNow
-                };
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
+            if (directSaveSuccess) {
+                // Succeeded online: remove local draft so outbox worker does not resubmit
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+            } else {
+                // Failed online: flag for outbox background worker to sync when connection resumes
+                var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
+                if (!string.IsNullOrEmpty(json)) {
+                    using var doc = global::System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    var outboxItem = new {
+                        Data = root,
+                        IsPendingSubmission = true,
+                        Timestamp = DateTime.UtcNow
+                    };
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
+                }
             }
             if (_isFullDayShift) {
                 await JSRuntime.InvokeVoidAsync("localStorage.removeItem", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_Day");

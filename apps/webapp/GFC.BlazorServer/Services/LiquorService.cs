@@ -1472,6 +1472,239 @@ namespace GFC.BlazorServer.Services
 
             await db.SaveChangesAsync();
         }
+
+        #region Wholesale Pricing & Quotes
+
+        public async Task<IEnumerable<LiquorItem>> GetWholesaleItemsAsync(bool includeWatchlist = true)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var categories = await db.PosCategories.AsNoTracking().ToListAsync();
+            var generalCategoryNames = categories
+                .Where(c => c.InventoryTrackType == 2) // 2 represents General/Food destination in PosCategories
+                .Select(c => c.Name.ToLowerInvariant())
+                .ToHashSet();
+
+            var query = db.LiquorItems
+                .AsNoTracking()
+                .Include(i => i.Vendor)
+                .Include(i => i.Quotes)
+                    .ThenInclude(q => q.Vendor)
+                .Where(i => !i.ParentItemId.HasValue && i.InventoryTrackType != 3); // 3 = Force Food/General
+
+            if (!includeWatchlist)
+            {
+                query = query.Where(i => !i.IsWatchlistOnly);
+            }
+
+            var items = await query.OrderBy(i => i.Name).ToListAsync();
+
+            // Filter out items that inherit a Food/General category unless explicitly forced to Liquor (InventoryTrackType == 2)
+            return items.Where(i => {
+                if (i.InventoryTrackType == 2) return true; // Explicitly forced to Liquor Hub
+                if (!string.IsNullOrEmpty(i.Category) && generalCategoryNames.Contains(i.Category.ToLowerInvariant()))
+                {
+                    return false; // Inherits General/Food/Candy category
+                }
+                return true;
+            }).ToList();
+        }
+
+        public async Task<IEnumerable<LiquorVendorQuote>> GetQuotesForItemAsync(int itemId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorVendorQuotes
+                .AsNoTracking()
+                .Include(q => q.Vendor)
+                .Where(q => q.LiquorItemId == itemId)
+                .OrderByDescending(q => q.IsPreferredVendor)
+                .ThenBy(q => q.CasePrice)
+                .ToListAsync();
+        }
+
+        public async Task<LiquorVendorQuote> SaveQuoteAsync(LiquorVendorQuote quote, string? userId = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.LiquorVendorQuotes
+                .FirstOrDefaultAsync(q => q.LiquorItemId == quote.LiquorItemId && q.VendorId == quote.VendorId);
+
+            if (existing == null)
+            {
+                quote.CreatedAt = DateTime.UtcNow;
+                quote.UpdatedAt = DateTime.UtcNow;
+                quote.LastPriceChangeDate = DateTime.UtcNow;
+                db.LiquorVendorQuotes.Add(quote);
+                await db.SaveChangesAsync();
+
+                // Record initial history
+                var history = new LiquorPriceHistory
+                {
+                    LiquorVendorQuoteId = quote.Id,
+                    LiquorItemId = quote.LiquorItemId,
+                    VendorId = quote.VendorId,
+                    NewBottlePrice = quote.BottlePrice,
+                    NewCasePrice = quote.CasePrice,
+                    ChangeType = "InitialQuote",
+                    ChangeAmount = 0,
+                    ChangePercentage = 0,
+                    ChangeReason = "Initial quote entered",
+                    EffectiveDate = DateTime.UtcNow,
+                    RecordedByUserId = userId
+                };
+                db.LiquorPriceHistories.Add(history);
+                await db.SaveChangesAsync();
+                return quote;
+            }
+            else
+            {
+                // Check if price changed
+                bool priceChanged = (quote.BottlePrice.HasValue && quote.BottlePrice != existing.BottlePrice) 
+                                 || (quote.CasePrice.HasValue && quote.CasePrice != existing.CasePrice);
+
+                if (priceChanged)
+                {
+                    decimal? oldPrice = existing.CasePrice ?? existing.BottlePrice;
+                    decimal? newPrice = (quote.CasePrice.HasValue ? quote.CasePrice : existing.CasePrice) 
+                                     ?? (quote.BottlePrice.HasValue ? quote.BottlePrice : existing.BottlePrice);
+                    decimal changeAmount = (newPrice ?? 0m) - (oldPrice ?? 0m);
+                    decimal changePct = (oldPrice.HasValue && oldPrice.Value > 0) 
+                        ? Math.Round((changeAmount / oldPrice.Value) * 100m, 2) 
+                        : 0m;
+
+                    var history = new LiquorPriceHistory
+                    {
+                        LiquorVendorQuoteId = existing.Id,
+                        LiquorItemId = existing.LiquorItemId,
+                        VendorId = existing.VendorId,
+                        OldBottlePrice = existing.BottlePrice,
+                        NewBottlePrice = quote.BottlePrice ?? existing.BottlePrice,
+                        OldCasePrice = existing.CasePrice,
+                        NewCasePrice = quote.CasePrice ?? existing.CasePrice,
+                        ChangeType = quote.HasDeal ? "PromoAdjustment" : "StandardChange",
+                        ChangeAmount = changeAmount,
+                        ChangePercentage = changePct,
+                        ChangeReason = quote.DealDescription ?? "Price update",
+                        EffectiveDate = DateTime.UtcNow,
+                        RecordedByUserId = userId
+                    };
+                    db.LiquorPriceHistories.Add(history);
+                    existing.LastPriceChangeDate = DateTime.UtcNow;
+                }
+
+                // If user entered a case price but left bottle price empty (or vice versa), PRESERVE the existing price!
+                if (quote.BottlePrice.HasValue) existing.BottlePrice = quote.BottlePrice;
+                if (quote.CasePrice.HasValue) existing.CasePrice = quote.CasePrice;
+                existing.IsCaseOnly = quote.IsCaseOnly;
+                existing.PackSize = quote.PackSize;
+                existing.IsPreferredVendor = quote.IsPreferredVendor;
+                existing.HasDeal = quote.HasDeal;
+                existing.DealType = quote.DealType;
+                existing.DealDescription = quote.DealDescription;
+                existing.DealMinQty = quote.DealMinQty;
+                existing.DealFreeQty = quote.DealFreeQty;
+                existing.DealPrice = quote.DealPrice;
+                existing.DealStartDate = quote.DealStartDate;
+                existing.DealEndDate = quote.DealEndDate;
+                existing.SplitCaseFee = quote.SplitCaseFee;
+                existing.IncludesDeposit = quote.IncludesDeposit;
+                existing.DepositAmount = quote.DepositAmount;
+                existing.Notes = quote.Notes;
+                existing.UpdatedAt = DateTime.UtcNow;
+
+                await db.SaveChangesAsync();
+                return existing;
+            }
+        }
+
+        public async Task DeleteQuoteAsync(int quoteId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var quote = await db.LiquorVendorQuotes.FindAsync(quoteId);
+            if (quote != null)
+            {
+                db.LiquorVendorQuotes.Remove(quote);
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task SetPreferredVendorQuoteAsync(int quoteId, bool syncWithItemVendor = false, int? userId = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var targetQuote = await db.LiquorVendorQuotes.FindAsync(quoteId);
+            if (targetQuote == null) return;
+
+            // Reset other quotes for this item to not preferred
+            var itemQuotes = await db.LiquorVendorQuotes
+                .Where(q => q.LiquorItemId == targetQuote.LiquorItemId)
+                .ToListAsync();
+
+            foreach (var q in itemQuotes)
+            {
+                q.IsPreferredVendor = (q.Id == quoteId);
+                q.UpdatedAt = DateTime.UtcNow;
+            }
+
+            if (syncWithItemVendor)
+            {
+                var item = await db.LiquorItems.FindAsync(targetQuote.LiquorItemId);
+                if (item != null)
+                {
+                    item.VendorId = targetQuote.VendorId;
+                    if (targetQuote.BottlePrice.HasValue) item.CurrentPrice = targetQuote.BottlePrice.Value;
+                    if (targetQuote.CasePrice.HasValue) item.CasePrice = targetQuote.CasePrice.Value;
+                    item.OrderByCaseOnly = targetQuote.IsCaseOnly;
+                    item.PackSize = targetQuote.PackSize;
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        public async Task<IEnumerable<LiquorPriceHistory>> GetPriceHistoryAsync(int? quoteId = null, int? itemId = null, int limit = 100)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var query = db.LiquorPriceHistories
+                .AsNoTracking()
+                .Include(h => h.Vendor)
+                .AsQueryable();
+
+            if (quoteId.HasValue)
+            {
+                query = query.Where(h => h.LiquorVendorQuoteId == quoteId.Value);
+            }
+            if (itemId.HasValue)
+            {
+                query = query.Where(h => h.LiquorItemId == itemId.Value);
+            }
+
+            return await query
+                .OrderByDescending(h => h.EffectiveDate)
+                .Take(limit)
+                .ToListAsync();
+        }
+
+        public async Task<LiquorItem> CreateWatchlistItemAsync(LiquorItem item, int? userId = null)
+        {
+            item.IsWatchlistOnly = true;
+            item.ShowInPos = false;
+            item.CurrentStock = 0;
+            item.MinStockLimit = 0;
+            return await CreateItemAsync(item, userId);
+        }
+
+        public async Task PromoteWatchlistItemAsync(int itemId, int? userId = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var item = await db.LiquorItems.FindAsync(itemId);
+            if (item != null && item.IsWatchlistOnly)
+            {
+                item.IsWatchlistOnly = false;
+                item.ShowInPos = true;
+                item.IsActive = true;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        #endregion
     }
 }
 

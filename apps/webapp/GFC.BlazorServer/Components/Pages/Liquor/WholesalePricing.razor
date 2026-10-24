@@ -1,0 +1,1253 @@
+@page "/liquor/wholesale-pricing"
+@page "/liquor/price-comparison"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+
+<PageTitle>Wholesale Beverage Pricing & Deal Tracker | GFC</PageTitle>
+
+<div class="wholesale-page">
+    <!-- Screen Header (Hidden on Print) -->
+    <div class="d-print-none header-wrapper mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    @if (!InHub)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1" @onclick='() => NavigationManager.NavigateTo("/liquor/hub")'>
+                            <i class="bi bi-arrow-left me-1"></i> Liquor Hub
+                        </button>
+                    }
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1 fw-bold">
+                        Commercial Purchasing
+                    </span>
+                </div>
+                <h1 class="h3 fw-bold text-dark mb-0">Wholesale Pricing & Deal Comparison</h1>
+                <p class="text-muted small mb-0">Track bottle & case distributor quotes, temporary post-offs, volume tiers, and find the best deals.</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-outline-dark rounded-pill px-3 py-2 fw-semibold shadow-sm" @onclick="PrintReport">
+                    <i class="bi bi-printer me-1"></i> Print / Export Sheet
+                </button>
+                <button class="btn btn-outline-primary rounded-pill px-3 py-2 fw-semibold shadow-sm" @onclick="OpenAddWatchlistModal">
+                    <i class="bi bi-bookmark-plus me-1"></i> + Track New Item
+                </button>
+                <button class="btn btn-primary rounded-pill px-3 py-2 fw-semibold shadow-sm" @onclick="OpenAddQuoteModal">
+                    <i class="bi bi-plus-circle me-1"></i> + Add Vendor Quote
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric Summary Cards -->
+        <div class="row g-3 mt-2">
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-primary">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 0.05em;">TRACKED PRODUCTS</span>
+                            <h3 class="fw-black text-dark mb-0 mt-1">@_items.Count</h3>
+                            <span class="extra-small text-muted">@_items.Count(i => !i.IsWatchlistOnly) In Stock • @_items.Count(i => i.IsWatchlistOnly) Watchlist</span>
+                        </div>
+                        <div class="rounded-3 p-2 bg-primary-subtle text-primary">
+                            <i class="bi bi-boxes fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-warning">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 0.05em;">ACTIVE PROMOTIONS</span>
+                            <h3 class="fw-black text-dark mb-0 mt-1">@TotalActiveDeals</h3>
+                            <span class="extra-small text-warning-emphasis fw-semibold">Live post-offs & tiered deals</span>
+                        </div>
+                        <div class="rounded-3 p-2 bg-warning-subtle text-warning">
+                            <i class="bi bi-tag-fill fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-success">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 0.05em;">CHEAPER VENDORS FOUND</span>
+                            <h3 class="fw-black text-dark mb-0 mt-1">@ItemsWithCheaperOptions</h3>
+                            <span class="extra-small text-success fw-bold">Items where an alternate vendor is cheaper</span>
+                        </div>
+                        <div class="rounded-3 p-2 bg-success-subtle text-success">
+                            <i class="bi bi-graph-down-arrow fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-lg-3">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-info">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 0.05em;">QUOTING DISTRIBUTORS</span>
+                            <h3 class="fw-black text-dark mb-0 mt-1">@_vendors.Count</h3>
+                            <span class="extra-small text-muted">Active distributors with pricing</span>
+                        </div>
+                        <div class="rounded-3 p-2 bg-info-subtle text-info">
+                            <i class="bi bi-truck fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mt-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-12 col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" class="form-control bg-light border-0 shadow-none" placeholder="Search product name, brand, volume..." @bind="_searchTerm" @bind:event="oninput" />
+                        @if (!string.IsNullOrEmpty(_searchTerm))
+                        {
+                            <button class="btn btn-light border-0" @onclick='() => _searchTerm = ""'><i class="bi bi-x"></i></button>
+                        }
+                    </div>
+                </div>
+                <div class="col-12 col-md-8">
+                    <div class="d-flex flex-wrap align-items-center justify-content-md-end gap-2">
+                        <!-- Category Filter Pills -->
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn @(_categoryFilter == "ALL" ? "btn-dark" : "btn-outline-secondary") rounded-start-pill" @onclick='() => _categoryFilter = "ALL"'>All</button>
+                            <button type="button" class="btn @(_categoryFilter == "LIQUOR" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _categoryFilter = "LIQUOR"'>Liquor</button>
+                            <button type="button" class="btn @(_categoryFilter == "BEER" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _categoryFilter = "BEER"'>Beer</button>
+                            <button type="button" class="btn @(_categoryFilter == "PROMOS" ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") rounded-end-pill" @onclick='() => _categoryFilter = "PROMOS"'>
+                                <i class="bi bi-tag-fill me-1"></i> Promos Only
+                            </button>
+                        </div>
+
+                        <!-- Vendor Filter -->
+                        <select class="form-select form-select-sm w-auto rounded-pill border-secondary-subtle" @bind="_selectedVendorFilter">
+                            <option value="0">All Distributors</option>
+                            @foreach (var v in _vendors)
+                            {
+                                <option value="@v.Id">@v.Name</option>
+                            }
+                        </select>
+
+                        <!-- Watchlist filter toggle -->
+                        <button class="btn btn-sm @(_showWatchlistOnly ? "btn-info text-white" : "btn-outline-secondary") rounded-pill" @onclick='() => _showWatchlistOnly = !_showWatchlistOnly'>
+                            <i class="bi bi-bookmark me-1"></i> Watchlist (@_items.Count(i => i.IsWatchlistOnly))
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PRINT HEADER (Only visible when printing or in print preview) -->
+    <div class="d-none d-print-block print-sheet-header mb-4">
+        <div class="d-flex justify-content-between align-items-center border-bottom pb-3">
+            <div>
+                <h2 class="fw-bold mb-1">GFC Wholesale Beverage Price & Deal Comparison</h2>
+                <div class="text-muted small">Generated on @DateTime.Now.ToString("MMMM dd, yyyy - hh:mm tt")</div>
+            </div>
+            <div class="text-end">
+                <span class="badge border border-dark text-dark px-3 py-2">CONFIDENTIAL • PURCHASING REPORT</span>
+            </div>
+        </div>
+        <div class="row mt-2 small text-muted">
+            <div class="col-6"><strong>Filter Applied:</strong> @(_categoryFilter == "ALL" ? "All Categories" : _categoryFilter) | @(_selectedVendorFilter == 0 ? "All Distributors" : _vendors.FirstOrDefault(v => v.Id == _selectedVendorFilter)?.Name)</div>
+            <div class="col-6 text-end"><strong>Active Opportunities:</strong> @ItemsWithCheaperOptions items have cheaper alternate quotes</div>
+        </div>
+    </div>
+
+    <!-- Master Multi-Product Matrix Table -->
+    <div class="card border-0 shadow-sm rounded-4 bg-white overflow-hidden">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 wholesale-table">
+                <thead class="bg-light text-muted small text-uppercase">
+                    <tr>
+                        <th style="min-width: 220px;" class="ps-4">Product & Packaging</th>
+                        <th style="min-width: 140px;">Packaging Type</th>
+                        <th style="min-width: 220px;">Current Active Supplier</th>
+                        <th style="min-width: 260px;">Competing Vendor Quotes & Deals</th>
+                        <th style="min-width: 200px;">Best Deal / Savings</th>
+                        <th style="min-width: 130px;" class="text-end pe-4 d-print-none">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_isLoading)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
+                                <div class="fw-bold small">Loading Wholesale Quotes & Distributors...</div>
+                            </td>
+                        </tr>
+                    }
+                    else if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <tr>
+                            <td colspan="6" class="p-4">
+                                <div class="alert alert-danger mb-0 rounded-4 border-0 d-flex align-items-center gap-3">
+                                    <i class="bi bi-exclamation-triangle-fill fs-3"></i>
+                                    <div>
+                                        <div class="fw-bold">Database Error Loading Quotes</div>
+                                        <div class="small">@_errorMessage</div>
+                                        <div class="extra-small text-muted mt-1">If the new tables were not yet created, run the migration script: <code>database/migrations/20261024_Add_LiquorVendorQuotes_And_PriceHistory.sql</code></div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else if (FilteredItems.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
+                                <span class="fw-bold">No products match your current search or filter.</span>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in FilteredItems)
+                        {
+                            var quotes = item.Quotes.ToList();
+                            var preferred = quotes.FirstOrDefault(q => q.IsPreferredVendor) ?? quotes.FirstOrDefault();
+                            
+                            // Find the best vendor for single bottles, and the best vendor for cases independently
+                            var bestBottleQuote = !item.OrderByCaseOnly
+                                ? quotes.Where(q => q.EffectiveBottlePrice > 0).OrderBy(q => q.EffectiveBottlePrice).FirstOrDefault()
+                                : null;
+                                
+                            var bestCaseQuote = quotes.Where(q => q.EffectiveCasePrice > 0).OrderBy(q => q.EffectiveCasePrice).FirstOrDefault();
+
+                            bool hasBottleSavings = preferred != null && bestBottleQuote != null && bestBottleQuote.Id != preferred.Id 
+                                                    && preferred.EffectiveBottlePrice > 0 && bestBottleQuote.EffectiveBottlePrice < preferred.EffectiveBottlePrice;
+
+                            bool hasCaseSavings = preferred != null && bestCaseQuote != null && bestCaseQuote.Id != preferred.Id 
+                                                  && preferred.EffectiveCasePrice > 0 && bestCaseQuote.EffectiveCasePrice < preferred.EffectiveCasePrice;
+
+                            bool hasSavings = hasBottleSavings || hasCaseSavings;
+
+                            <tr class="@(hasSavings ? "table-success-subtle" : "")">
+                                <!-- 1. Product Info -->
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center">
+                                        <div>
+                                            <div class="fw-bold text-dark fs-6">
+                                                @item.Name
+                                                @if (item.IsWatchlistOnly)
+                                                {
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill extra-small ms-1">Watchlist</span>
+                                                }
+                                            </div>
+                                            <div class="extra-small text-muted">
+                                                <span>@(string.IsNullOrWhiteSpace(item.Category) ? "General" : item.Category)</span>
+                                                @if (!string.IsNullOrEmpty(item.BottleSize))
+                                                {
+                                                    <span> • @item.BottleSize</span>
+                                                }
+                                                @if (!string.IsNullOrEmpty(item.UpcCode))
+                                                {
+                                                    <span> • UPC: @item.UpcCode</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <!-- 2. Packaging Specs -->
+                                <td>
+                                    <div class="small fw-semibold text-dark">
+                                        @(item.OrderByCaseOnly ? "Case Only" : "Bottle or Case")
+                                    </div>
+                                    <div class="extra-small text-muted">
+                                        @item.PackSize @(item.PackSize == 1 ? "unit/cs" : "units/cs")
+                                    </div>
+                                </td>
+
+                                <!-- 3. Current Active Supplier -->
+                                <td>
+                                    @if (preferred != null)
+                                    {
+                                        <div class="p-2 rounded-3 bg-light border border-1">
+                                            <div class="d-flex align-items-center justify-content-between mb-1">
+                                                <span class="fw-bold text-dark small text-truncate" style="max-width: 140px;">
+                                                    @(preferred.Vendor?.Name ?? "Assigned Vendor")
+                                                </span>
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle extra-small">Active</span>
+                                            </div>
+                                            <div class="small fw-black text-dark">
+                                                @if (preferred.IsCaseOnly)
+                                                {
+                                                    <span>$@preferred.EffectiveCasePrice.ToString("F2") <span class="fw-normal text-muted extra-small">/cs</span></span>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex align-items-baseline gap-2">
+                                                        <span>$@preferred.EffectiveBottlePrice.ToString("F2") <span class="fw-normal text-muted extra-small">/btl</span></span>
+                                                        @if (preferred.CasePrice.HasValue)
+                                                        {
+                                                            <span class="text-muted extra-small">($@preferred.EffectiveCasePrice.ToString("F2")/cs)</span>
+                                                        }
+                                                    </div>
+                                                    @if (preferred.CasePrice.HasValue && preferred.BottlePrice.HasValue && preferred.PackSize > 1)
+                                                    {
+                                                        var caseCost = preferred.EffectiveCasePrice;
+                                                        var bottleSum = preferred.EffectiveBottlePrice * preferred.PackSize;
+                                                        var caseSavings = bottleSum - caseCost;
+                                                        if (caseSavings > 0)
+                                                        {
+                                                            <div class="extra-small text-success fw-bold mt-0.5">
+                                                                <i class="bi bi-arrow-down-circle me-1"></i>Case saves $@caseSavings.ToString("F2") ($@((caseCost / preferred.PackSize).ToString("F2"))/btl)
+                                                            </div>
+                                                        }
+                                                    }
+                                                }
+                                            </div>
+                                            @if (preferred.IsDealActive)
+                                            {
+                                                <div class="extra-small text-warning-emphasis fw-semibold mt-1">
+                                                    <i class="bi bi-tag-fill me-1"></i>@preferred.DealDescription
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small fst-italic">No active quote</span>
+                                    }
+                                </td>
+
+                                <!-- 4. Competing Quotes -->
+                                <td>
+                                    @{
+                                        var alternateQuotes = quotes.Where(q => preferred == null || q.Id != preferred.Id).ToList();
+                                    }
+                                    @if (alternateQuotes.Count == 0)
+                                    {
+                                        <span class="text-muted extra-small fst-italic">No alternate quotes logged</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-column gap-1">
+                                            @foreach (var alt in alternateQuotes)
+                                            {
+                                                <div class="p-1 px-2 rounded-2 border bg-white small d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <span class="fw-bold text-dark me-1">@(alt.Vendor?.Name ?? "Vendor")</span>
+                                                        <span class="text-muted">
+                                                            @(alt.IsCaseOnly ? $"${alt.EffectiveCasePrice:F2}/cs" : $"${alt.EffectiveBottlePrice:F2}/btl (${alt.EffectiveCasePrice:F2}/cs)")
+                                                        </span>
+                                                        @if (alt.IsDealActive)
+                                                        {
+                                                            <span class="badge bg-warning-subtle text-dark border border-warning extra-small ms-1">
+                                                                <i class="bi bi-percent"></i> Promo
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <div class="d-print-none">
+                                                        <button class="btn btn-sm btn-outline-secondary py-0 px-2 extra-small rounded-pill" title="Set as primary vendor" @onclick="() => PromptSwitchActiveVendor(alt)">
+                                                            Set Active
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+
+                                <!-- 5. Best Deal / Savings -->
+                                <td>
+                                    @if (hasSavings && preferred != null)
+                                    {
+                                        <div class="d-flex flex-column gap-1">
+                                            @if (hasBottleSavings && bestBottleQuote != null)
+                                            {
+                                                decimal btlSavings = preferred.EffectiveBottlePrice - bestBottleQuote.EffectiveBottlePrice;
+                                                decimal btlPct = preferred.EffectiveBottlePrice > 0 ? (btlSavings / preferred.EffectiveBottlePrice) * 100m : 0m;
+
+                                                <div class="p-1 px-2 rounded-2 bg-success-subtle border border-success-subtle small">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <span class="extra-small text-uppercase fw-bold text-success">Cheaper Bottle</span>
+                                                        <span class="fw-bold text-dark extra-small">@bestBottleQuote.Vendor?.Name</span>
+                                                    </div>
+                                                    <div class="fw-black text-success small">
+                                                        Save $@btlSavings.ToString("F2")/btl ($@bestBottleQuote.EffectiveBottlePrice.ToString("F2"))
+                                                    </div>
+                                                    <span class="extra-small text-muted">(@btlPct.ToString("F1")% cheaper than @preferred.Vendor?.Name)</span>
+                                                </div>
+                                            }
+
+                                            @if (hasCaseSavings && bestCaseQuote != null)
+                                            {
+                                                decimal csSavings = preferred.EffectiveCasePrice - bestCaseQuote.EffectiveCasePrice;
+                                                decimal csPct = preferred.EffectiveCasePrice > 0 ? (csSavings / preferred.EffectiveCasePrice) * 100m : 0m;
+
+                                                <div class="p-1 px-2 rounded-2 bg-success-subtle border border-success-subtle small">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <span class="extra-small text-uppercase fw-bold text-success">Cheaper Case</span>
+                                                        <span class="fw-bold text-dark extra-small">@bestCaseQuote.Vendor?.Name</span>
+                                                    </div>
+                                                    <div class="fw-black text-success small">
+                                                        Save $@csSavings.ToString("F2")/case ($@bestCaseQuote.EffectiveCasePrice.ToString("F2"))
+                                                    </div>
+                                                    <span class="extra-small text-muted">(@csPct.ToString("F1")% cheaper than @preferred.Vendor?.Name)</span>
+                                                    @if (bestCaseQuote.IsDealActive)
+                                                    {
+                                                        <div class="extra-small text-dark fw-bold mt-0.5">
+                                                            <i class="bi bi-tag-fill text-warning me-1"></i>@bestCaseQuote.DealDescription
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else if (preferred != null)
+                                    {
+                                        <div class="p-2 rounded-3 bg-light border text-muted small">
+                                            <span class="fw-bold text-dark">Current is Best</span>
+                                            <div class="extra-small text-muted">Lowest quoted prices for both bottle and case</div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted extra-small fst-italic">--</span>
+                                    }
+                                </td>
+
+                                <!-- 6. Row Actions -->
+                                <td class="text-end pe-4 d-print-none">
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-light rounded-circle shadow-none p-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 rounded-3">
+                                            @if (preferred != null)
+                                            {
+                                                <li>
+                                                    <button class="dropdown-item small" @onclick="() => EditSpecificQuote(preferred)">
+                                                        <i class="bi bi-pencil-square me-2 text-primary"></i> Edit Current Quote (@(preferred.Vendor?.Name ?? "Active"))
+                                                    </button>
+                                                </li>
+                                            }
+                                            <li>
+                                                <button class="dropdown-item small" @onclick="() => OpenAddQuoteForItem(item)">
+                                                    <i class="bi bi-plus-circle me-2 text-success"></i> + Add Competing Vendor Quote
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item small" @onclick="() => ViewItemQuotes(item)">
+                                                    <i class="bi bi-list-columns-reverse me-2 text-info"></i> View All Quotes (@quotes.Count)
+                                                </button>
+                                            </li>
+                                            <li>
+                                                <button class="dropdown-item small" @onclick="() => ViewPriceHistory(item)">
+                                                    <i class="bi bi-clock-history me-2 text-secondary"></i> Price Trend History
+                                                </button>
+                                            </li>
+                                            @if (item.IsWatchlistOnly)
+                                            {
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <button class="dropdown-item small text-success fw-bold" @onclick="() => PromoteWatchlistItem(item)">
+                                                        <i class="bi bi-check2-circle me-2"></i> Promote to Bar Inventory
+                                                    </button>
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Print Footer (Discussion notes for Bar Manager meeting) -->
+    <div class="d-none d-print-block print-sheet-footer mt-5 pt-4 border-top">
+        <div class="row">
+            <div class="col-8">
+                <h6 class="fw-bold mb-2">Meeting Notes & Supplier Action Items:</h6>
+                <div class="border rounded p-3" style="min-height: 100px;">
+                    <span class="text-muted small fst-italic">Handwritten notes / approved vendor transitions:</span>
+                </div>
+            </div>
+            <div class="col-4 d-flex flex-column justify-content-between">
+                <div>
+                    <h6 class="fw-bold mb-1">Reviewed By:</h6>
+                    <div class="border-bottom border-dark mt-4" style="height: 1px;"></div>
+                    <div class="text-muted extra-small mt-1">Bar Manager / Beverage Director Signature</div>
+                </div>
+                <div>
+                    <div class="border-bottom border-dark mt-4" style="height: 1px;"></div>
+                    <div class="text-muted extra-small mt-1">Date Reviewed</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: Add / Edit Vendor Quote -->
+<!-- ========================================================================= -->
+@if (_showQuoteModal)
+{
+    <div class="modal d-block animate-fade-in" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <h5 class="modal-title fw-bold text-dark">
+                        <i class="bi bi-tag-fill me-2 text-primary"></i>
+                        @(_activeQuote.Id == 0 ? "Add Vendor Price Quote" : "Edit Vendor Price Quote")
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showQuoteModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <!-- Product Selection -->
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-bold text-muted">PRODUCT</label>
+                            @if (_quoteTargetItem != null)
+                            {
+                                <input type="text" class="form-control bg-light" value="@_quoteTargetItem.Name (@_quoteTargetItem.BottleSize)" disabled />
+                            }
+                            else
+                            {
+                                <select class="form-select" @bind="_activeQuote.LiquorItemId">
+                                    <option value="0">-- Select Product --</option>
+                                    @foreach (var itm in _items)
+                                    {
+                                        <option value="@itm.Id">@itm.Name (@itm.BottleSize)</option>
+                                    }
+                                </select>
+                            }
+                        </div>
+
+                        <!-- Vendor Selection -->
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-bold text-muted">DISTRIBUTOR / VENDOR</label>
+                            <select class="form-select" value="@_activeQuote.VendorId" @onchange="OnVendorSelectionChanged">
+                                <option value="0">-- Select Vendor --</option>
+                                @foreach (var v in _vendors)
+                                {
+                                    <option value="@v.Id">@v.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <!-- Case Only Toggle -->
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="caseOnlySwitch" @bind="_activeQuote.IsCaseOnly" />
+                                <label class="form-check-label fw-bold small text-dark" for="caseOnlySwitch">
+                                    Sold by the Case Only (Beer, Cans, Pre-Packaged)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Pack Size -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-bold text-muted">PACK SIZE (UNITS / CS)</label>
+                            <input type="number" class="form-control" min="1" @bind="_activeQuote.PackSize" />
+                        </div>
+
+                        <!-- Bottle Price -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-bold text-muted">BOTTLE / UNIT COST ($)</label>
+                            <input type="number" step="0.01" class="form-control" disabled="@_activeQuote.IsCaseOnly" @bind="_activeQuote.BottlePrice" placeholder="@(_activeQuote.IsCaseOnly ? "N/A (Case Only)" : "0.00")" />
+                        </div>
+
+                        <!-- Case Price -->
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small fw-bold text-muted">CASE COST ($)</label>
+                            <input type="number" step="0.01" class="form-control" @bind="_activeQuote.CasePrice" placeholder="0.00" />
+                        </div>
+
+                        <!-- Live Cost Comparison & Savings helper -->
+                        @if (!_activeQuote.IsCaseOnly && _activeQuote.BottlePrice.HasValue && _activeQuote.BottlePrice.Value > 0 && _activeQuote.CasePrice.HasValue && _activeQuote.CasePrice.Value > 0 && _activeQuote.PackSize > 1)
+                        {
+                            var totalIfBoughtByBottle = _activeQuote.BottlePrice.Value * _activeQuote.PackSize;
+                            var casePrice = _activeQuote.CasePrice.Value;
+                            var diff = totalIfBoughtByBottle - casePrice;
+                            var bottleEquivFromCase = Math.Round(casePrice / _activeQuote.PackSize, 2);
+
+                            <div class="col-12 mt-1">
+                                <div class="p-2 px-3 rounded-3 border @(diff > 0 ? "bg-success-subtle border-success-subtle text-success" : (diff < 0 ? "bg-warning-subtle border-warning-subtle text-dark" : "bg-light text-muted")) small d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-info-circle-fill me-1"></i>
+                                        <span>Buying by the case equals <strong>$@bottleEquivFromCase.ToString("F2") / bottle</strong> (vs $@_activeQuote.BottlePrice.Value.ToString("F2") by the bottle).</span>
+                                    </div>
+                                    @if (diff > 0)
+                                    {
+                                        <span class="badge bg-success text-white fw-bold">Case saves $@diff.ToString("F2") per case</span>
+                                    }
+                                    else if (diff < 0)
+                                    {
+                                        <span class="badge bg-warning text-dark fw-bold">Bottle is cheaper by $@Math.Abs(diff).ToString("F2")</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Deal / Promo Section -->
+                        <div class="col-12 mt-4">
+                            <div class="card border rounded-3 p-3 bg-light-subtle">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="hasDealSwitch" @bind="_activeQuote.HasDeal" />
+                                    <label class="form-check-label fw-bold text-dark" for="hasDealSwitch">
+                                        <i class="bi bi-tag-fill text-warning me-1"></i> Add Limited-Time Deal or Promotional Post-Off
+                                    </label>
+                                </div>
+
+                                @if (_activeQuote.HasDeal)
+                                {
+                                    <div class="row g-2 mt-1">
+                                        <div class="col-12 col-md-4">
+                                            <label class="form-label extra-small fw-bold text-muted">DEAL STRUCTURE</label>
+                                            <select class="form-select form-select-sm" @bind="_activeQuote.DealType">
+                                                <option value="PostOffFlat">Post-Off / Sale Case Price</option>
+                                                <option value="BuyXGetY">Buy X, Get Y Free</option>
+                                                <option value="TieredQty">Tiered Quantity Break</option>
+                                                <option value="PercentOff">Percent Off (%)</option>
+                                            </select>
+                                        </div>
+
+                                        @if (_activeQuote.DealType == "BuyXGetY")
+                                        {
+                                            <div class="col-6 col-md-4">
+                                                <label class="form-label extra-small fw-bold text-muted">BUY THIS MANY</label>
+                                                <input type="number" class="form-control form-control-sm" min="1" @bind="_activeQuote.DealMinQty" placeholder="e.g. 3" />
+                                            </div>
+                                            <div class="col-6 col-md-4">
+                                                <label class="form-label extra-small fw-bold text-muted">GET THIS MANY FREE</label>
+                                                <input type="number" class="form-control form-control-sm" min="1" @bind="_activeQuote.DealFreeQty" placeholder="e.g. 1" />
+                                            </div>
+                                        }
+                                        else if (_activeQuote.DealType == "TieredQty")
+                                        {
+                                            <div class="col-6 col-md-4">
+                                                <label class="form-label extra-small fw-bold text-muted">MINIMUM CASES</label>
+                                                <input type="number" class="form-control form-control-sm" min="1" @bind="_activeQuote.DealMinQty" placeholder="e.g. 3" />
+                                            </div>
+                                            <div class="col-6 col-md-4">
+                                                <label class="form-label extra-small fw-bold text-muted">TIER CASE PRICE ($)</label>
+                                                <input type="number" step="0.01" class="form-control form-control-sm" @bind="_activeQuote.DealPrice" placeholder="0.00" />
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="col-12 col-md-8">
+                                                <label class="form-label extra-small fw-bold text-muted">DISCOUNTED PRICE / %</label>
+                                                <input type="number" step="0.01" class="form-control form-control-sm" @bind="_activeQuote.DealPrice" placeholder="e.g. 36.00" />
+                                            </div>
+                                        }
+
+                                        <!-- Promo Dates -->
+                                        <div class="col-6 col-md-6 mt-2">
+                                            <label class="form-label extra-small fw-bold text-muted">PROMO START DATE</label>
+                                            <input type="date" class="form-control form-control-sm" @bind="_activeQuote.DealStartDate" />
+                                        </div>
+                                        <div class="col-6 col-md-6 mt-2">
+                                            <label class="form-label extra-small fw-bold text-muted">PROMO END DATE</label>
+                                            <input type="date" class="form-control form-control-sm" @bind="_activeQuote.DealEndDate" />
+                                        </div>
+
+                                        <div class="col-12 mt-2">
+                                            <label class="form-label extra-small fw-bold text-muted">PROMO LABEL / DESCRIPTION</label>
+                                            <input type="text" class="form-control form-control-sm" @bind="_activeQuote.DealDescription" placeholder="e.g. October Post-Off: Buy 3 get 1 free" />
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Preferred Vendor Checkbox -->
+                        <div class="col-12 mt-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="preferredCheck" @bind="_activeQuote.IsPreferredVendor" />
+                                <label class="form-check-label fw-bold small text-dark" for="preferredCheck">
+                                    Set this as our Primary / Currently Purchased Supplier
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3 px-4 d-flex justify-content-between">
+                    @if (_activeQuote.Id > 0)
+                    {
+                        <button class="btn btn-outline-danger btn-sm rounded-pill" @onclick="DeleteCurrentQuote">
+                            <i class="bi bi-trash me-1"></i> Delete Quote
+                        </button>
+                    }
+                    else
+                    {
+                        <div></div>
+                    }
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _showQuoteModal = false">Cancel</button>
+                        <button class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="SaveCurrentQuote">Save Quote</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL: Track New Watchlist / Market Research Item -->
+<!-- ========================================================================= -->
+@if (_showWatchlistModal)
+{
+    <div class="modal d-block animate-fade-in" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <h5 class="modal-title fw-bold text-dark">
+                        <i class="bi bi-bookmark-plus me-2 text-info"></i> Track New Research Product
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showWatchlistModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="small text-muted mb-3">
+                        This item will be saved for wholesale price tracking and deal comparisons <strong>without</strong> appearing in your bar register or active POS inventory.
+                    </p>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label small fw-bold text-muted">PRODUCT NAME</label>
+                            <input type="text" class="form-control" @bind="_newWatchlistItem.Name" placeholder="e.g. Casamigos Reposado Tequila" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">CATEGORY</label>
+                            <input type="text" class="form-control" @bind="_newWatchlistItem.Category" placeholder="e.g. Liquor, Beer, Seltzer" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">BOTTLE / CAN SIZE</label>
+                            <input type="text" class="form-control" @bind="_newWatchlistItem.BottleSize" placeholder="e.g. 750ml, 1 Liter, 12oz" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">PACK SIZE (UNITS/CASE)</label>
+                            <input type="number" class="form-control" min="1" @bind="_newWatchlistItem.PackSize" />
+                        </div>
+                        <div class="col-6 d-flex align-items-end">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="watchCaseOnly" @bind="_newWatchlistItem.OrderByCaseOnly" />
+                                <label class="form-check-label small fw-bold" for="watchCaseOnly">Case Only</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3 px-4 d-flex justify-content-end gap-2">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _showWatchlistModal = false">Cancel</button>
+                    <button class="btn btn-info text-white rounded-pill px-4 fw-bold" @onclick="SaveWatchlistItem">Track Item</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL: Price Trend History -->
+<!-- ========================================================================= -->
+@if (_showHistoryModal && _selectedItemForHistory != null)
+{
+    <div class="modal d-block animate-fade-in" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <h5 class="modal-title fw-bold text-dark">
+                        <i class="bi bi-clock-history me-2 text-secondary"></i> Price Change History: @_selectedItemForHistory.Name
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showHistoryModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (_historyLogs.Count == 0)
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-journal-x fs-2 d-block mb-2"></i>
+                            <span>No price change records logged yet. Prices entered will build an audit trail over time.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead class="text-muted small">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Distributor</th>
+                                        <th>Old Price</th>
+                                        <th>New Price</th>
+                                        <th>Change</th>
+                                        <th>Reason / Note</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var log in _historyLogs)
+                                    {
+                                        <tr>
+                                            <td class="small text-muted">@log.EffectiveDate.ToLocalTime().ToString("MMM dd, yyyy")</td>
+                                            <td class="fw-bold small">@(log.Vendor?.Name ?? "Vendor")</td>
+                                            <td class="small text-muted">@(log.OldCasePrice.HasValue ? $"${log.OldCasePrice:F2}" : "--")</td>
+                                            <td class="small fw-bold">@(log.NewCasePrice.HasValue ? $"${log.NewCasePrice:F2}" : "--")</td>
+                                            <td>
+                                                @if (log.ChangeAmount.HasValue && log.ChangeAmount.Value != 0)
+                                                {
+                                                    <span class="badge @(log.ChangeAmount.Value > 0 ? "bg-danger-subtle text-danger" : "bg-success-subtle text-success") extra-small">
+                                                        @(log.ChangeAmount.Value > 0 ? "▲ +" : "▼ ")$@Math.Abs(log.ChangeAmount.Value).ToString("F2")
+                                                        (@log.ChangePercentage?.ToString("F1")%)
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary-subtle text-secondary extra-small">Initial</span>
+                                                }
+                                            </td>
+                                            <td class="extra-small text-muted">@log.ChangeReason</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light p-3 px-4">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _showHistoryModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL: Manage Quotes For An Item -->
+<!-- ========================================================================= -->
+@if (_showManageQuotesModal && _selectedItemForQuotes != null)
+{
+    <div class="modal d-block animate-fade-in" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-light border-bottom p-3 px-4 d-flex justify-content-between align-items-center">
+                    <h5 class="modal-title fw-bold text-dark">
+                        <i class="bi bi-list-columns-reverse me-2 text-info"></i> Distributor Quotes: @_selectedItemForQuotes.Name
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showManageQuotesModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="small text-muted">Manage distributor pricing and designate preferred supplier.</span>
+                        <button class="btn btn-sm btn-primary rounded-pill px-3" @onclick="() => { _showManageQuotesModal = false; OpenAddQuoteForItem(_selectedItemForQuotes); }">
+                            <i class="bi bi-plus-circle me-1"></i> + Add Quote
+                        </button>
+                    </div>
+
+                    <div class="d-flex flex-column gap-2">
+                        @foreach (var q in _selectedItemForQuotes.Quotes)
+                        {
+                            <div class="card border rounded-3 p-3 @(q.IsPreferredVendor ? "border-success bg-success-subtle" : "bg-white")">
+                                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                    <div>
+                                        <div class="fw-bold text-dark fs-6 d-flex align-items-center gap-2">
+                                            <span>@(q.Vendor?.Name ?? "Distributor")</span>
+                                            @if (q.IsPreferredVendor)
+                                            {
+                                                <span class="badge bg-success text-white extra-small">Active Preferred</span>
+                                            }
+                                        </div>
+                                        <div class="small text-muted mt-1">
+                                            <span>Case Cost: $@(q.CasePrice?.ToString("F2") ?? "--")</span>
+                                            @if (!q.IsCaseOnly)
+                                            {
+                                                <span> • Bottle Cost: $@(q.BottlePrice?.ToString("F2") ?? "--")</span>
+                                            }
+                                            <span> • Pack: @q.PackSize</span>
+                                        </div>
+                                        @if (q.HasDeal)
+                                        {
+                                            <div class="extra-small text-warning-emphasis fw-bold mt-1">
+                                                <i class="bi bi-tag-fill me-1"></i>@q.DealDescription (Effective Case: $@q.EffectiveCasePrice.ToString("F2"))
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        @if (!q.IsPreferredVendor)
+                                        {
+                                            <button class="btn btn-sm btn-outline-success rounded-pill px-3" @onclick="() => SetActiveQuote(q)">
+                                                Make Preferred
+                                            </button>
+                                        }
+                                        <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => EditSpecificQuote(q)">
+                                            Edit
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3 px-4">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _showManageQuotesModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .wholesale-page {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #f8fafc;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    .fw-black {
+        font-weight: 900;
+    }
+
+    .extra-small {
+        font-size: 0.72rem;
+    }
+
+    .wholesale-table tbody tr:hover {
+        background-color: #f1f5f9;
+    }
+
+    /* Print Optimization Rules */
+    @@media print {
+        .wholesale-page {
+            background-color: white !important;
+            padding: 0 !important;
+        }
+
+        .d-print-none {
+            display: none !important;
+        }
+
+        .d-print-block {
+            display: block !important;
+        }
+
+        body {
+            background: white !important;
+            color: black !important;
+        }
+
+        @@page {
+            size: letter landscape;
+            margin: 0.4in;
+        }
+
+        .wholesale-table {
+            border: 1px solid #000 !important;
+            font-size: 8.5pt !important;
+        }
+
+        .wholesale-table th, .wholesale-table td {
+            border-bottom: 1px solid #ccc !important;
+            padding: 4px 6px !important;
+        }
+
+        .wholesale-table thead {
+            background-color: #e2e8f0 !important;
+            color: black !important;
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public bool InHub { get; set; } = false;
+
+    private List<LiquorItem> _items = new();
+    private List<LiquorVendor> _vendors = new();
+    private string _searchTerm = "";
+    private string _categoryFilter = "ALL";
+    private int _selectedVendorFilter = 0;
+    private bool _showWatchlistOnly = false;
+
+    // Modals
+    private bool _showQuoteModal = false;
+    private LiquorVendorQuote _activeQuote = new();
+    private LiquorItem? _quoteTargetItem;
+
+    private bool _showWatchlistModal = false;
+    private LiquorItem _newWatchlistItem = new();
+
+    private bool _showHistoryModal = false;
+    private LiquorItem? _selectedItemForHistory;
+    private List<LiquorPriceHistory> _historyLogs = new();
+
+    private bool _showManageQuotesModal = false;
+    private LiquorItem? _selectedItemForQuotes;
+    private bool _isLoading = true;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _isLoading = true;
+            _errorMessage = null;
+
+            var itemsTask = LiquorService.GetWholesaleItemsAsync(includeWatchlist: true);
+            var vendorsTask = LiquorService.GetAllVendorsAsync();
+            await Task.WhenAll(itemsTask, vendorsTask);
+
+            _items = (await itemsTask).ToList();
+            _vendors = (await vendorsTask).OrderBy(v => v.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private List<LiquorItem> FilteredItems
+    {
+        get
+        {
+            var query = _items.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                var term = _searchTerm.Trim().ToLowerInvariant();
+                query = query.Where(i => 
+                    i.Name.ToLowerInvariant().Contains(term) ||
+                    (i.Category?.ToLowerInvariant().Contains(term) ?? false) ||
+                    (i.BottleSize?.ToLowerInvariant().Contains(term) ?? false) ||
+                    (i.UpcCode?.ToLowerInvariant().Contains(term) ?? false)
+                );
+            }
+
+            if (_categoryFilter == "LIQUOR")
+            {
+                query = query.Where(i => !i.IsBeer && !i.OrderByCaseOnly);
+            }
+            else if (_categoryFilter == "BEER")
+            {
+                query = query.Where(i => i.IsBeer || i.OrderByCaseOnly);
+            }
+            else if (_categoryFilter == "PROMOS")
+            {
+                query = query.Where(i => i.Quotes.Any(q => q.IsDealActive));
+            }
+
+            if (_selectedVendorFilter > 0)
+            {
+                query = query.Where(i => i.Quotes.Any(q => q.VendorId == _selectedVendorFilter));
+            }
+
+            if (_showWatchlistOnly)
+            {
+                query = query.Where(i => i.IsWatchlistOnly);
+            }
+
+            return query.ToList();
+        }
+    }
+
+    private int TotalActiveDeals => _items.Sum(i => i.Quotes.Count(q => q.IsDealActive));
+
+    private int ItemsWithCheaperOptions
+    {
+        get
+        {
+            int count = 0;
+            foreach (var item in _items)
+            {
+                var quotes = item.Quotes.ToList();
+                var preferred = quotes.FirstOrDefault(q => q.IsPreferredVendor) ?? quotes.FirstOrDefault();
+                if (preferred != null)
+                {
+                    bool hasCheaperBottle = !item.OrderByCaseOnly && quotes.Any(q => q.Id != preferred.Id && q.EffectiveBottlePrice > 0 && q.EffectiveBottlePrice < preferred.EffectiveBottlePrice);
+                    bool hasCheaperCase = quotes.Any(q => q.Id != preferred.Id && q.EffectiveCasePrice > 0 && q.EffectiveCasePrice < preferred.EffectiveCasePrice);
+                    if (hasCheaperBottle || hasCheaperCase)
+                    {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+    }
+
+    private LiquorVendorQuote? GetBestQuote(LiquorItem item, List<LiquorVendorQuote> quotes)
+    {
+        if (quotes.Count == 0) return null;
+        if (!item.OrderByCaseOnly)
+        {
+            return quotes
+                .OrderBy(q => q.EffectiveBottlePrice > 0 ? q.EffectiveBottlePrice : decimal.MaxValue)
+                .ThenBy(q => q.EffectiveCasePrice > 0 ? q.EffectiveCasePrice : decimal.MaxValue)
+                .FirstOrDefault();
+        }
+
+        return quotes
+            .OrderBy(q => q.EffectiveCasePrice > 0 ? q.EffectiveCasePrice : decimal.MaxValue)
+            .ThenBy(q => q.EffectiveBottlePrice > 0 ? q.EffectiveBottlePrice : decimal.MaxValue)
+            .FirstOrDefault();
+    }
+
+    private void OpenAddQuoteModal()
+    {
+        _quoteTargetItem = null;
+        _activeQuote = new LiquorVendorQuote
+        {
+            PackSize = 1,
+            IsCaseOnly = false
+        };
+        _showQuoteModal = true;
+    }
+
+    private void OpenAddQuoteForItem(LiquorItem item)
+    {
+        _quoteTargetItem = item;
+        _activeQuote = new LiquorVendorQuote
+        {
+            Id = 0,
+            LiquorItemId = item.Id,
+            VendorId = 0,
+            PackSize = item.PackSize > 0 ? item.PackSize : 1,
+            IsCaseOnly = item.OrderByCaseOnly,
+            IsPreferredVendor = false
+        };
+        _showQuoteModal = true;
+    }
+
+    private void OnVendorSelectionChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var selectedVendorId) && _quoteTargetItem != null)
+        {
+            _activeQuote.VendorId = selectedVendorId;
+            var existingForVendor = _quoteTargetItem.Quotes.FirstOrDefault(q => q.VendorId == selectedVendorId);
+            if (existingForVendor != null)
+            {
+                _activeQuote.Id = existingForVendor.Id;
+                _activeQuote.BottlePrice = existingForVendor.BottlePrice;
+                _activeQuote.CasePrice = existingForVendor.CasePrice;
+                _activeQuote.IsCaseOnly = existingForVendor.IsCaseOnly;
+                _activeQuote.PackSize = existingForVendor.PackSize;
+                _activeQuote.IsPreferredVendor = existingForVendor.IsPreferredVendor;
+                _activeQuote.HasDeal = existingForVendor.HasDeal;
+                _activeQuote.DealType = existingForVendor.DealType;
+                _activeQuote.DealDescription = existingForVendor.DealDescription;
+                _activeQuote.DealMinQty = existingForVendor.DealMinQty;
+                _activeQuote.DealFreeQty = existingForVendor.DealFreeQty;
+                _activeQuote.DealPrice = existingForVendor.DealPrice;
+                _activeQuote.DealStartDate = existingForVendor.DealStartDate;
+                _activeQuote.DealEndDate = existingForVendor.DealEndDate;
+            }
+            else
+            {
+                _activeQuote.Id = 0;
+            }
+        }
+    }
+
+    private void EditSpecificQuote(LiquorVendorQuote quote)
+    {
+        _quoteTargetItem = _items.FirstOrDefault(i => i.Id == quote.LiquorItemId);
+        _activeQuote = quote;
+        _showManageQuotesModal = false;
+        _showQuoteModal = true;
+    }
+
+    private async Task SaveCurrentQuote()
+    {
+        if (_activeQuote.LiquorItemId == 0 && _quoteTargetItem != null)
+        {
+            _activeQuote.LiquorItemId = _quoteTargetItem.Id;
+        }
+
+        if (_activeQuote.LiquorItemId == 0 || _activeQuote.VendorId == 0)
+        {
+            return;
+        }
+
+        await LiquorService.SaveQuoteAsync(_activeQuote);
+        _showQuoteModal = false;
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteCurrentQuote()
+    {
+        if (_activeQuote.Id > 0)
+        {
+            await LiquorService.DeleteQuoteAsync(_activeQuote.Id);
+            _showQuoteModal = false;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task PromptSwitchActiveVendor(LiquorVendorQuote quote)
+    {
+        await LiquorService.SetPreferredVendorQuoteAsync(quote.Id, syncWithItemVendor: false);
+        await LoadDataAsync();
+    }
+
+    private async Task SetActiveQuote(LiquorVendorQuote quote)
+    {
+        await LiquorService.SetPreferredVendorQuoteAsync(quote.Id, syncWithItemVendor: false);
+        await LoadDataAsync();
+        _showManageQuotesModal = false;
+    }
+
+    private void OpenAddWatchlistModal()
+    {
+        _newWatchlistItem = new LiquorItem
+        {
+            PackSize = 1,
+            OrderByCaseOnly = false
+        };
+        _showWatchlistModal = true;
+    }
+
+    private async Task SaveWatchlistItem()
+    {
+        if (string.IsNullOrWhiteSpace(_newWatchlistItem.Name)) return;
+
+        await LiquorService.CreateWatchlistItemAsync(_newWatchlistItem);
+        _showWatchlistModal = false;
+        await LoadDataAsync();
+    }
+
+    private async Task PromoteWatchlistItem(LiquorItem item)
+    {
+        await LiquorService.PromoteWatchlistItemAsync(item.Id);
+        await LoadDataAsync();
+    }
+
+    private async Task ViewPriceHistory(LiquorItem item)
+    {
+        _selectedItemForHistory = item;
+        _historyLogs = (await LiquorService.GetPriceHistoryAsync(itemId: item.Id)).ToList();
+        _showHistoryModal = true;
+    }
+
+    private void ViewItemQuotes(LiquorItem item)
+    {
+        _selectedItemForQuotes = item;
+        _showManageQuotesModal = true;
+    }
+
+    private async Task PrintReport()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+}

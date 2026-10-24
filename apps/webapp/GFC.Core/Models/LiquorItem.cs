@@ -77,6 +77,7 @@ namespace GFC.Core.Models
         public bool AllowLooseReconciliation { get; set; } = false;
         public int DisplayOrder { get; set; } = 0;
         public bool ExcludeFromPredictions { get; set; } = false;
+        public bool IsWatchlistOnly { get; set; } = false;
 
         public int? ParentItemId { get; set; }
         [ForeignKey("ParentItemId")]
@@ -95,6 +96,9 @@ namespace GFC.Core.Models
 
         [JsonIgnore]
         public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();
+
+        [JsonIgnore]
+        public virtual ICollection<LiquorVendorQuote> Quotes { get; set; } = new List<LiquorVendorQuote>();
 
         [NotMapped]
         public string StockSummary

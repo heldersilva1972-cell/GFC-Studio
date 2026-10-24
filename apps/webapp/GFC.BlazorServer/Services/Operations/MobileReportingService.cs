@@ -344,6 +344,9 @@ public class MobileReportingService : IMobileReportingService
                     baselineCancels = 0;
                 }
 
+                // Check if shift was already submitted prior to this save
+                bool wasAlreadySubmitted = string.Equals(lotto.Status, "Submitted", StringComparison.OrdinalIgnoreCase);
+
                 // [SAFE-SYNC] Apply values only if we aren't protecting a previously submitted report
                 if (!protectExistingValues)
                 {
@@ -388,7 +391,7 @@ public class MobileReportingService : IMobileReportingService
                     }
 
                     // Preserve 'Submitted' status
-                    if (!string.Equals(lotto.Status, "Submitted", StringComparison.OrdinalIgnoreCase))
+                    if (!wasAlreadySubmitted)
                     {
                         lotto.Status = data.Status ?? "Draft";
                     }
@@ -403,11 +406,11 @@ public class MobileReportingService : IMobileReportingService
                 lotto.ShiftPayoutsActivity = lotto.TotalPayouts - baselinePayouts;
                 lotto.ShiftCancelsActivity = lotto.TotalCancels - baselineCancels;
 
-                if (lotto.ShiftId == 0) await Task.Run(() => _lottoService.CreateShift(lotto, effectiveUsername));
+                if (lotto.ShiftId == 0) lotto.ShiftId = await Task.Run(() => _lottoService.CreateShift(lotto, effectiveUsername));
                 else await Task.Run(() => _lottoService.UpdateShift(lotto, effectiveUsername));
 
-                // [VARIANCE ALERT DISPATCH] Dispatch lottery variance alert to Connect App ONLY when the shift is officially Submitted
-                if (string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase) && Math.Abs(lotto.Variance) > 0.00m)
+                // [VARIANCE ALERT DISPATCH] Dispatch lottery variance alert to Connect App ONLY on initial transition to Submitted
+                if (!wasAlreadySubmitted && string.Equals(data.Status, "Submitted", StringComparison.OrdinalIgnoreCase) && Math.Abs(lotto.Variance) > 0.00m)
                 {
                     _ = Task.Run(async () =>
                     {

@@ -1,5 +1,6 @@
 package com.gfc.connect.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -71,6 +72,17 @@ class LotteryVarianceActivity : AppCompatActivity() {
         setupRecyclerViews()
         setupSwipeRefresh()
 
+        loadData()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        loadData()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
         loadData()
     }
 

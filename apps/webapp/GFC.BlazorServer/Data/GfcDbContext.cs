@@ -133,6 +133,8 @@ public class GfcDbContext : DbContext
     // Liquor Inventory System
     public DbSet<LiquorItem> LiquorItems => Set<LiquorItem>();
     public DbSet<LiquorVendor> LiquorVendors => Set<LiquorVendor>();
+    public DbSet<LiquorVendorQuote> LiquorVendorQuotes => Set<LiquorVendorQuote>();
+    public DbSet<LiquorPriceHistory> LiquorPriceHistories => Set<LiquorPriceHistory>();
     public DbSet<LiquorOrder> LiquorOrders => Set<LiquorOrder>();
     public DbSet<LiquorOrderItem> LiquorOrderItems => Set<LiquorOrderItem>();
     public DbSet<LiquorTransaction> LiquorTransactions => Set<LiquorTransaction>();
@@ -1158,6 +1160,32 @@ public class GfcDbContext : DbContext
             entity.ToTable("LiquorVendors");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MinimumOrderAmount).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<LiquorVendorQuote>(entity =>
+        {
+            entity.ToTable("LiquorVendorQuotes");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.LiquorItem)
+                .WithMany(i => i.Quotes)
+                .HasForeignKey(e => e.LiquorItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Vendor)
+                .WithMany(v => v.Quotes)
+                .HasForeignKey(e => e.VendorId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.LiquorItemId, e.VendorId }).IsUnique();
+        });
+
+        modelBuilder.Entity<LiquorPriceHistory>(entity =>
+        {
+            entity.ToTable("LiquorPriceHistories");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.LiquorVendorQuote)
+                .WithMany()
+                .HasForeignKey(e => e.LiquorVendorQuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.EffectiveDate);
         });
 
         modelBuilder.Entity<LiquorOrder>(entity =>
