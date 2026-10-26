@@ -1610,6 +1610,16 @@ namespace GFC.BlazorServer.Services
                 existing.Notes = quote.Notes;
                 existing.UpdatedAt = DateTime.UtcNow;
 
+                // Sync pack size back to the parent item if it was updated
+                if (quote.PackSize > 1)
+                {
+                    var parentItem = await db.LiquorItems.FindAsync(quote.LiquorItemId);
+                    if (parentItem != null && parentItem.PackSize != quote.PackSize)
+                    {
+                        parentItem.PackSize = quote.PackSize;
+                    }
+                }
+
                 await db.SaveChangesAsync();
                 return existing;
             }
@@ -1700,6 +1710,30 @@ namespace GFC.BlazorServer.Services
                 item.IsWatchlistOnly = false;
                 item.ShowInPos = true;
                 item.IsActive = true;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task UpdateItemPackagingAsync(int itemId, int packSize, bool orderByCaseOnly)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var item = await db.LiquorItems
+                .Include(i => i.Quotes)
+                .FirstOrDefaultAsync(i => i.Id == itemId);
+
+            if (item != null)
+            {
+                item.PackSize = Math.Max(1, packSize);
+                item.OrderByCaseOnly = orderByCaseOnly;
+
+                // Also update any existing quotes for this item if their pack size was default or unaligned
+                foreach (var q in item.Quotes)
+                {
+                    q.PackSize = Math.Max(1, packSize);
+                    q.IsCaseOnly = orderByCaseOnly;
+                    q.UpdatedAt = DateTime.UtcNow;
+                }
+
                 await db.SaveChangesAsync();
             }
         }

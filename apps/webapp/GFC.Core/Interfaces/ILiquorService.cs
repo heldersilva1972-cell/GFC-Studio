@@ -71,5 +71,6 @@ namespace GFC.Core.Interfaces
         Task<IEnumerable<LiquorPriceHistory>> GetPriceHistoryAsync(int? quoteId = null, int? itemId = null, int limit = 100);
         Task<LiquorItem> CreateWatchlistItemAsync(LiquorItem item, int? userId = null);
         Task PromoteWatchlistItemAsync(int itemId, int? userId = null);
+        Task UpdateItemPackagingAsync(int itemId, int packSize, bool orderByCaseOnly);
     }
 }

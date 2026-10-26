@@ -262,11 +262,20 @@
 
                                 <!-- 2. Packaging Specs -->
                                 <td>
-                                    <div class="small fw-semibold text-dark">
-                                        @(item.OrderByCaseOnly ? "Case Only" : "Bottle or Case")
-                                    </div>
-                                    <div class="extra-small text-muted">
-                                        @item.PackSize @(item.PackSize == 1 ? "unit/cs" : "units/cs")
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div>
+                                            <div class="small fw-semibold text-dark">
+                                                @(item.OrderByCaseOnly ? "Case Only" : "Bottle or Case")
+                                            </div>
+                                            <div class="extra-small text-muted">
+                                                @item.PackSize @(item.PackSize == 1 ? "unit/cs" : "units/cs")
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary py-0 px-1 extra-small rounded-pill d-print-none" 
+                                                title="Edit Pack Size (units per case)" 
+                                                @onclick="() => OpenEditPackagingModal(item)">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </button>
                                     </div>
                                 </td>
 
@@ -274,52 +283,100 @@
                                 <td>
                                     @if (preferred != null)
                                     {
-                                        <div class="p-2 rounded-3 bg-light border border-1">
-                                            <div class="d-flex align-items-center justify-content-between mb-1">
-                                                <span class="fw-bold text-dark small text-truncate" style="max-width: 140px;">
+                                        int effectivePack = preferred.PackSize > 1 ? preferred.PackSize : (item.PackSize > 1 ? item.PackSize : 1);
+                                        decimal effectiveBottleCostByCase = preferred.CasePrice.HasValue && preferred.CasePrice.Value > 0
+                                            ? Math.Round(preferred.EffectiveCasePrice / effectivePack, 2)
+                                            : 0m;
+                                        decimal effectiveSavings = preferred.BottlePrice.HasValue && preferred.BottlePrice.Value > 0 && effectiveBottleCostByCase > 0
+                                            ? Math.Round(preferred.BottlePrice.Value - effectiveBottleCostByCase, 2)
+                                            : 0m;
+                                        <div class="supplier-card active-card p-2 rounded-3 border">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <span class="fw-bold text-dark text-truncate" style="max-width: 140px;">
                                                     @(preferred.Vendor?.Name ?? "Assigned Vendor")
                                                 </span>
-                                                <span class="badge bg-success-subtle text-success border border-success-subtle extra-small">Active</span>
+                                                <span class="badge bg-success text-white extra-small px-2 py-0.5 rounded-pill">Active</span>
                                             </div>
-                                            <div class="small fw-black text-dark">
-                                                @if (preferred.IsCaseOnly)
-                                                {
-                                                    <span>$@preferred.EffectiveCasePrice.ToString("F2") <span class="fw-normal text-muted extra-small">/cs</span></span>
-                                                }
-                                                else
-                                                {
-                                                    <div class="d-flex align-items-baseline gap-2">
-                                                        <span>$@preferred.EffectiveBottlePrice.ToString("F2") <span class="fw-normal text-muted extra-small">/btl</span></span>
-                                                        @if (preferred.CasePrice.HasValue)
-                                                        {
-                                                            <span class="text-muted extra-small">($@preferred.EffectiveCasePrice.ToString("F2")/cs)</span>
-                                                        }
+
+                                            @if (preferred.IsCaseOnly)
+                                            {
+                                                <div class="price-grid-single p-1.5 rounded-2 bg-white border">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <span class="text-muted extra-small fw-semibold text-uppercase">Case Only:</span>
+                                                        <span class="fw-bold text-dark">$@preferred.EffectiveCasePrice.ToString("F2")</span>
                                                     </div>
-                                                    @if (preferred.CasePrice.HasValue && preferred.BottlePrice.HasValue && preferred.PackSize > 1)
+                                                    @if (preferred.PackSize > 1)
                                                     {
-                                                        var caseCost = preferred.EffectiveCasePrice;
-                                                        var bottleSum = preferred.EffectiveBottlePrice * preferred.PackSize;
-                                                        var caseSavings = bottleSum - caseCost;
-                                                        if (caseSavings > 0)
-                                                        {
-                                                            <div class="extra-small text-success fw-bold mt-0.5">
-                                                                <i class="bi bi-arrow-down-circle me-1"></i>Case saves $@caseSavings.ToString("F2") ($@((caseCost / preferred.PackSize).ToString("F2"))/btl)
-                                                            </div>
-                                                        }
+                                                        <div class="d-flex justify-content-between align-items-center mt-1 pt-1 border-top extra-small">
+                                                            <span class="text-muted">Bottle Cost:</span>
+                                                            <span class="fw-bold text-primary">$@preferred.BottleCostByCase.ToString("F2") <span class="fw-normal text-muted">(@preferred.PackSize pk)</span></span>
+                                                        </div>
                                                     }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <!-- Side-by-side Bottle vs Case Comparison Block -->
+                                                <div class="price-grid p-2 rounded-2 bg-white border">
+                                                    <div class="row g-2 text-center">
+                                                        <div class="col-6 border-end">
+                                                            <div class="text-muted extra-small fw-semibold text-uppercase">Single Bottle</div>
+                                                            <div class="fw-bold text-dark fs-6 mt-0.5">
+                                                                $@preferred.EffectiveBottlePrice.ToString("F2")
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="text-muted extra-small fw-semibold text-uppercase">By The Case</div>
+                                                            @if (preferred.CasePrice.HasValue && preferred.CasePrice.Value > 0)
+                                                            {
+                                                                <div class="fw-bold text-dark fs-6 mt-0.5">
+                                                                    $@preferred.EffectiveCasePrice.ToString("F2")
+                                                                </div>
+                                                                <div class="text-primary fw-bold extra-small mt-0.5">
+                                                                    $@effectiveBottleCostByCase.ToString("F2")/btl
+                                                                    @if (effectivePack > 1)
+                                                                    {
+                                                                        <span class="text-muted fw-normal">(@effectivePack pk)</span>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="text-muted extra-small mt-1">--</div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                @if (preferred.CasePrice.HasValue && preferred.BottlePrice.HasValue && effectiveSavings > 0)
+                                                {
+                                                    <div class="mt-1.5 py-1 px-2 rounded-2 bg-success-subtle border border-success-subtle text-success extra-small fw-bold d-flex align-items-center justify-content-between">
+                                                        <span><i class="bi bi-arrow-down-circle-fill me-1"></i>Case Savings:</span>
+                                                        <span>Save $@effectiveSavings.ToString("F2") / bottle</span>
+                                                    </div>
                                                 }
-                                            </div>
+                                                else if (preferred.CasePrice.HasValue && preferred.BottlePrice.HasValue && effectiveSavings < 0)
+                                                {
+                                                    <div class="mt-1.5 py-1 px-2 rounded-2 bg-warning-subtle border border-warning-subtle text-dark extra-small fw-bold d-flex align-items-center justify-content-between">
+                                                        <span><i class="bi bi-exclamation-circle-fill text-warning me-1"></i>Single Bottle:</span>
+                                                        <span>$@Math.Abs(effectiveSavings).ToString("F2") cheaper</span>
+                                                    </div>
+                                                }
+                                            }
+
                                             @if (preferred.IsDealActive)
                                             {
-                                                <div class="extra-small text-warning-emphasis fw-semibold mt-1">
-                                                    <i class="bi bi-tag-fill me-1"></i>@preferred.DealDescription
+                                                <div class="extra-small text-warning-emphasis fw-semibold mt-1.5 pt-1 border-top">
+                                                    <i class="bi bi-tag-fill me-1 text-warning"></i>@preferred.DealDescription
                                                 </div>
                                             }
                                         </div>
                                     }
                                     else
                                     {
-                                        <span class="text-muted small fst-italic">No active quote</span>
+                                        <div class="p-3 text-center rounded-3 bg-light border border-dashed text-muted small fst-italic">
+                                            No active quote
+                                        </div>
                                     }
                                 </td>
 
@@ -334,27 +391,73 @@
                                     }
                                     else
                                     {
-                                        <div class="d-flex flex-column gap-1">
+                                        <div class="d-flex flex-column gap-2">
                                             @foreach (var alt in alternateQuotes)
                                             {
-                                                <div class="p-1 px-2 rounded-2 border bg-white small d-flex justify-content-between align-items-center">
-                                                    <div>
-                                                        <span class="fw-bold text-dark me-1">@(alt.Vendor?.Name ?? "Vendor")</span>
-                                                        <span class="text-muted">
-                                                            @(alt.IsCaseOnly ? $"${alt.EffectiveCasePrice:F2}/cs" : $"${alt.EffectiveBottlePrice:F2}/btl (${alt.EffectiveCasePrice:F2}/cs)")
-                                                        </span>
-                                                        @if (alt.IsDealActive)
+                                                int altPack = alt.PackSize > 1 ? alt.PackSize : (item.PackSize > 1 ? item.PackSize : 1);
+                                                decimal altBottleCostByCase = alt.CasePrice.HasValue && alt.CasePrice.Value > 0
+                                                    ? Math.Round(alt.EffectiveCasePrice / altPack, 2)
+                                                    : 0m;
+                                                decimal altSavings = alt.BottlePrice.HasValue && alt.BottlePrice.Value > 0 && altBottleCostByCase > 0
+                                                    ? Math.Round(alt.BottlePrice.Value - altBottleCostByCase, 2)
+                                                    : 0m;
+
+                                                <div class="p-2 rounded-3 border bg-white shadow-none">
+                                                    <div class="d-flex justify-content-between align-items-center mb-1.5">
+                                                        <div class="d-flex align-items-center gap-1">
+                                                            <span class="fw-bold text-dark">@(alt.Vendor?.Name ?? "Vendor")</span>
+                                                            @if (alt.IsDealActive)
+                                                            {
+                                                                <span class="badge bg-warning text-dark border extra-small px-1.5">
+                                                                    <i class="bi bi-tag-fill me-0.5"></i> Deal
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                        <div class="d-print-none">
+                                                            <button class="btn btn-xs btn-outline-primary py-0 px-2 extra-small rounded-pill" title="Set as primary supplier" @onclick="() => PromptSwitchActiveVendor(alt)">
+                                                                Make Active
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Clean 2-column or single-column price block -->
+                                                    @if (alt.IsCaseOnly)
+                                                    {
+                                                        <div class="d-flex justify-content-between align-items-center p-1 px-2 rounded-2 bg-light extra-small">
+                                                            <span class="text-muted fw-semibold">CASE ONLY:</span>
+                                                            <span class="fw-bold text-dark">$@alt.EffectiveCasePrice.ToString("F2")</span>
+                                                            <span class="text-primary fw-semibold">($@altBottleCostByCase.ToString("F2")/btl)</span>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="row g-1 p-1 px-2 rounded-2 bg-light extra-small align-items-center">
+                                                            <div class="col-6">
+                                                                <span class="text-muted">Bottle:</span>
+                                                                <strong class="text-dark ms-1">$@alt.EffectiveBottlePrice.ToString("F2")</strong>
+                                                            </div>
+                                                            <div class="col-6 text-end">
+                                                                <span class="text-muted">Case:</span>
+                                                                @if (alt.CasePrice.HasValue && alt.CasePrice.Value > 0)
+                                                                {
+                                                                    <strong class="text-dark ms-1">$@alt.EffectiveCasePrice.ToString("F2")</strong>
+                                                                    <span class="text-primary fw-bold ms-0.5">($@altBottleCostByCase.ToString("F2")/btl)</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="text-muted ms-1">--</span>
+                                                                }
+                                                            </div>
+                                                        </div>
+
+                                                        @if (alt.CasePrice.HasValue && alt.BottlePrice.HasValue && altSavings > 0)
                                                         {
-                                                            <span class="badge bg-warning-subtle text-dark border border-warning extra-small ms-1">
-                                                                <i class="bi bi-percent"></i> Promo
-                                                            </span>
+                                                            <div class="mt-1 extra-small text-success fw-bold d-flex align-items-center gap-1">
+                                                                <i class="bi bi-arrow-down-circle-fill"></i>
+                                                                <span>Case saves $@altSavings.ToString("F2") per bottle</span>
+                                                            </div>
                                                         }
-                                                    </div>
-                                                    <div class="d-print-none">
-                                                        <button class="btn btn-sm btn-outline-secondary py-0 px-2 extra-small rounded-pill" title="Set as primary vendor" @onclick="() => PromptSwitchActiveVendor(alt)">
-                                                            Set Active
-                                                        </button>
-                                                    </div>
+                                                    }
                                                 </div>
                                             }
                                         </div>
@@ -365,21 +468,23 @@
                                 <td>
                                     @if (hasSavings && preferred != null)
                                     {
-                                        <div class="d-flex flex-column gap-1">
+                                        <div class="d-flex flex-column gap-2">
                                             @if (hasBottleSavings && bestBottleQuote != null)
                                             {
                                                 decimal btlSavings = preferred.EffectiveBottlePrice - bestBottleQuote.EffectiveBottlePrice;
                                                 decimal btlPct = preferred.EffectiveBottlePrice > 0 ? (btlSavings / preferred.EffectiveBottlePrice) * 100m : 0m;
 
-                                                <div class="p-1 px-2 rounded-2 bg-success-subtle border border-success-subtle small">
-                                                    <div class="d-flex justify-content-between align-items-center">
-                                                        <span class="extra-small text-uppercase fw-bold text-success">Cheaper Bottle</span>
+                                                <div class="p-2 rounded-3 bg-white border border-success-subtle shadow-none">
+                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                        <span class="badge bg-success-subtle text-success extra-small fw-bold border border-success-subtle">CHEAPER BOTTLE</span>
                                                         <span class="fw-bold text-dark extra-small">@bestBottleQuote.Vendor?.Name</span>
                                                     </div>
-                                                    <div class="fw-black text-success small">
-                                                        Save $@btlSavings.ToString("F2")/btl ($@bestBottleQuote.EffectiveBottlePrice.ToString("F2"))
+                                                    <div class="fw-black text-success fs-6">
+                                                        Save $@btlSavings.ToString("F2") <span class="fw-normal text-muted extra-small">/btl</span>
                                                     </div>
-                                                    <span class="extra-small text-muted">(@btlPct.ToString("F1")% cheaper than @preferred.Vendor?.Name)</span>
+                                                    <div class="extra-small text-muted">
+                                                        $@bestBottleQuote.EffectiveBottlePrice.ToString("F2") vs $@preferred.EffectiveBottlePrice.ToString("F2") (@btlPct.ToString("F1")% less)
+                                                    </div>
                                                 </div>
                                             }
 
@@ -388,18 +493,20 @@
                                                 decimal csSavings = preferred.EffectiveCasePrice - bestCaseQuote.EffectiveCasePrice;
                                                 decimal csPct = preferred.EffectiveCasePrice > 0 ? (csSavings / preferred.EffectiveCasePrice) * 100m : 0m;
 
-                                                <div class="p-1 px-2 rounded-2 bg-success-subtle border border-success-subtle small">
-                                                    <div class="d-flex justify-content-between align-items-center">
-                                                        <span class="extra-small text-uppercase fw-bold text-success">Cheaper Case</span>
+                                                <div class="p-2 rounded-3 bg-white border border-success-subtle shadow-none">
+                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                        <span class="badge bg-success text-white extra-small fw-bold">CHEAPER CASE</span>
                                                         <span class="fw-bold text-dark extra-small">@bestCaseQuote.Vendor?.Name</span>
                                                     </div>
-                                                    <div class="fw-black text-success small">
-                                                        Save $@csSavings.ToString("F2")/case ($@bestCaseQuote.EffectiveCasePrice.ToString("F2"))
+                                                    <div class="fw-black text-success fs-6">
+                                                        Save $@csSavings.ToString("F2") <span class="fw-normal text-muted extra-small">/case</span>
                                                     </div>
-                                                    <span class="extra-small text-muted">(@csPct.ToString("F1")% cheaper than @preferred.Vendor?.Name)</span>
+                                                    <div class="extra-small text-muted">
+                                                        $@bestCaseQuote.EffectiveCasePrice.ToString("F2") (@bestCaseQuote.BottleCostByCase.ToString("F2")/btl) vs $@preferred.EffectiveCasePrice.ToString("F2")
+                                                    </div>
                                                     @if (bestCaseQuote.IsDealActive)
                                                     {
-                                                        <div class="extra-small text-dark fw-bold mt-0.5">
+                                                        <div class="extra-small text-dark fw-bold mt-1 pt-1 border-top">
                                                             <i class="bi bi-tag-fill text-warning me-1"></i>@bestCaseQuote.DealDescription
                                                         </div>
                                                     }
@@ -571,28 +678,45 @@
                         </div>
 
                         <!-- Live Cost Comparison & Savings helper -->
-                        @if (!_activeQuote.IsCaseOnly && _activeQuote.BottlePrice.HasValue && _activeQuote.BottlePrice.Value > 0 && _activeQuote.CasePrice.HasValue && _activeQuote.CasePrice.Value > 0 && _activeQuote.PackSize > 1)
+                        @if (!_activeQuote.IsCaseOnly && _activeQuote.CasePrice.HasValue && _activeQuote.CasePrice.Value > 0 && _activeQuote.PackSize > 1)
                         {
-                            var totalIfBoughtByBottle = _activeQuote.BottlePrice.Value * _activeQuote.PackSize;
                             var casePrice = _activeQuote.CasePrice.Value;
-                            var diff = totalIfBoughtByBottle - casePrice;
                             var bottleEquivFromCase = Math.Round(casePrice / _activeQuote.PackSize, 2);
 
                             <div class="col-12 mt-1">
-                                <div class="p-2 px-3 rounded-3 border @(diff > 0 ? "bg-success-subtle border-success-subtle text-success" : (diff < 0 ? "bg-warning-subtle border-warning-subtle text-dark" : "bg-light text-muted")) small d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <i class="bi bi-info-circle-fill me-1"></i>
-                                        <span>Buying by the case equals <strong>$@bottleEquivFromCase.ToString("F2") / bottle</strong> (vs $@_activeQuote.BottlePrice.Value.ToString("F2") by the bottle).</span>
+                                @if (_activeQuote.BottlePrice.HasValue && _activeQuote.BottlePrice.Value > 0)
+                                {
+                                    var singleBottlePrice = _activeQuote.BottlePrice.Value;
+                                    var totalIfBoughtByBottle = singleBottlePrice * _activeQuote.PackSize;
+                                    var diffPerCase = totalIfBoughtByBottle - casePrice;
+                                    var diffPerBottle = singleBottlePrice - bottleEquivFromCase;
+
+                                    <div class="p-2 px-3 rounded-3 border @(diffPerBottle > 0 ? "bg-success-subtle border-success-subtle text-success" : (diffPerBottle < 0 ? "bg-warning-subtle border-warning-subtle text-dark" : "bg-light text-muted")) small d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                        <div>
+                                            <i class="bi bi-info-circle-fill me-1"></i>
+                                            Case of @_activeQuote.PackSize breaks down to <strong class="text-dark">$@bottleEquivFromCase.ToString("F2") / bottle</strong> (vs $@singleBottlePrice.ToString("F2") loose bottle).
+                                        </div>
+                                        @if (diffPerBottle > 0)
+                                        {
+                                            <span class="badge bg-success text-white fw-bold px-2 py-1">
+                                                <i class="bi bi-arrow-down-circle me-1"></i>Save $@diffPerBottle.ToString("F2")/bottle ($@diffPerCase.ToString("F2") per case)
+                                            </span>
+                                        }
+                                        else if (diffPerBottle < 0)
+                                        {
+                                            <span class="badge bg-warning text-dark fw-bold px-2 py-1">
+                                                Loose bottle is cheaper by $@Math.Abs(diffPerBottle).ToString("F2")/btl
+                                            </span>
+                                        }
                                     </div>
-                                    @if (diff > 0)
-                                    {
-                                        <span class="badge bg-success text-white fw-bold">Case saves $@diff.ToString("F2") per case</span>
-                                    }
-                                    else if (diff < 0)
-                                    {
-                                        <span class="badge bg-warning text-dark fw-bold">Bottle is cheaper by $@Math.Abs(diff).ToString("F2")</span>
-                                    }
-                                </div>
+                                }
+                                else
+                                {
+                                    <div class="p-2 px-3 rounded-3 border bg-light text-muted small">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Case of @_activeQuote.PackSize costs <strong>$@casePrice.ToString("F2")</strong>, which breaks down to <strong>$@bottleEquivFromCase.ToString("F2") per bottle</strong>.
+                                    </div>
+                                }
                             </div>
                         }
 
@@ -649,19 +773,33 @@
                                             </div>
                                         }
 
-                                        <!-- Promo Dates -->
-                                        <div class="col-6 col-md-6 mt-2">
-                                            <label class="form-label extra-small fw-bold text-muted">PROMO START DATE</label>
+                                        <!-- Promo Dates (Optional / Ongoing) -->
+                                        <div class="col-12 mt-2">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label extra-small fw-bold text-muted mb-0">PROMO DATES (OPTIONAL)</label>
+                                                <span class="badge bg-light text-muted border extra-small">Leave blank for ongoing / no expiration</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6 col-md-6">
+                                            <label class="form-label extra-small text-muted">START DATE (OPTIONAL)</label>
                                             <input type="date" class="form-control form-control-sm" @bind="_activeQuote.DealStartDate" />
                                         </div>
-                                        <div class="col-6 col-md-6 mt-2">
-                                            <label class="form-label extra-small fw-bold text-muted">PROMO END DATE</label>
+                                        <div class="col-6 col-md-6">
+                                            <label class="form-label extra-small text-muted">END DATE (OPTIONAL)</label>
                                             <input type="date" class="form-control form-control-sm" @bind="_activeQuote.DealEndDate" />
                                         </div>
+                                        @if (!_activeQuote.DealStartDate.HasValue && !_activeQuote.DealEndDate.HasValue)
+                                        {
+                                            <div class="col-12 mt-1">
+                                                <span class="extra-small text-success fw-semibold">
+                                                    <i class="bi bi-infinity me-1"></i>Active continuously with no expiration date (ongoing promotional quote).
+                                                </span>
+                                            </div>
+                                        }
 
                                         <div class="col-12 mt-2">
                                             <label class="form-label extra-small fw-bold text-muted">PROMO LABEL / DESCRIPTION</label>
-                                            <input type="text" class="form-control form-control-sm" @bind="_activeQuote.DealDescription" placeholder="e.g. October Post-Off: Buy 3 get 1 free" />
+                                            <input type="text" class="form-control form-control-sm" @bind="_activeQuote.DealDescription" placeholder="e.g. Volume deal, ongoing rep discount, or promo post-off" />
                                         </div>
                                     </div>
                                 }
@@ -861,17 +999,34 @@
                                             }
                                         </div>
                                         <div class="small text-muted mt-1">
-                                            <span>Case Cost: $@(q.CasePrice?.ToString("F2") ?? "--")</span>
-                                            @if (!q.IsCaseOnly)
+                                            @if (q.CasePrice.HasValue)
                                             {
-                                                <span> • Bottle Cost: $@(q.BottlePrice?.ToString("F2") ?? "--")</span>
+                                                <span>Case Cost: $@q.CasePrice.Value.ToString("F2")</span>
+                                                @if (q.PackSize > 1)
+                                                {
+                                                    <span class="text-dark fw-bold"> (= $@q.BottleCostByCase.ToString("F2")/btl)</span>
+                                                }
                                             }
-                                            <span> • Pack: @q.PackSize</span>
+                                            @if (!q.IsCaseOnly && q.BottlePrice.HasValue)
+                                            {
+                                                <span> • Loose Bottle: $@q.BottlePrice.Value.ToString("F2")</span>
+                                            }
+                                            <span> • Pack: @q.PackSize pk</span>
                                         </div>
+                                        @if (!q.IsCaseOnly && q.CasePrice.HasValue && q.BottlePrice.HasValue && q.CaseSavingsPerBottle > 0)
+                                        {
+                                            <div class="extra-small text-success fw-bold mt-1">
+                                                <i class="bi bi-arrow-down-circle-fill me-1"></i>Buying by the case saves $@q.CaseSavingsPerBottle.ToString("F2") per bottle
+                                            </div>
+                                        }
                                         @if (q.HasDeal)
                                         {
                                             <div class="extra-small text-warning-emphasis fw-bold mt-1">
-                                                <i class="bi bi-tag-fill me-1"></i>@q.DealDescription (Effective Case: $@q.EffectiveCasePrice.ToString("F2"))
+                                                <i class="bi bi-tag-fill me-1"></i>@q.DealDescription (Effective Case: $@q.EffectiveCasePrice.ToString("F2") = $@q.BottleCostByCase.ToString("F2")/btl)
+                                                @if (!q.DealStartDate.HasValue && !q.DealEndDate.HasValue)
+                                                {
+                                                    <span class="badge bg-secondary-subtle text-secondary extra-small ms-1">Ongoing</span>
+                                                }
                                             </div>
                                         }
                                     </div>
@@ -899,12 +1054,74 @@
     </div>
 }
 
+<!-- ========================================================================= -->
+<!-- MODAL: Quick Edit Packaging Specs (Pack Size & Case Only) -->
+<!-- ========================================================================= -->
+@if (_showPackagingModal && _targetPackagingItem != null)
+{
+    <div class="modal d-block animate-fade-in" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10500;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-white">
+                <div class="modal-header bg-light border-bottom p-3 px-4">
+                    <h5 class="modal-title fw-bold text-dark">
+                        <i class="bi bi-box-seam me-2 text-primary"></i> Edit Packaging Specs: @_targetPackagingItem.Name
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showPackagingModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="small text-muted mb-3">
+                        Specify how many bottles/units are in a full wholesale case. This immediately calculates the bottle cost breakdown and bottle savings when buying by the case.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">PACK SIZE (UNITS / CASE)</label>
+                        <input type="number" class="form-control form-control-lg fw-bold" min="1" max="144" @bind="_editPackagingPackSize" />
+                        <div class="extra-small text-muted mt-1">Common pack sizes: 12 (standard 750ml/1L liquor), 6 (large bottles/tequila), 24 (beer/cans).</div>
+                    </div>
+
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="editCaseOnlySwitch" @bind="_editPackagingCaseOnly" />
+                        <label class="form-check-label fw-bold small text-dark" for="editCaseOnlySwitch">
+                            Sold by the Case Only (Beer, Cans, Pre-Packaged)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3 px-4 d-flex justify-content-between">
+                    <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _showPackagingModal = false">Cancel</button>
+                    <button class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="SavePackagingSpecsAsync">
+                        Save Packaging Specs
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .wholesale-page {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         background-color: #f8fafc;
         min-height: 100vh;
         padding: 1.5rem;
+    }
+
+    .supplier-card {
+        background-color: #f8fafc;
+        border-color: #e2e8f0 !important;
+    }
+
+    .active-card {
+        background-color: #f0fdf4 !important;
+        border-color: #86efac !important;
+    }
+
+    .price-grid {
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+
+    .btn-xs {
+        padding: 0.15rem 0.5rem;
+        font-size: 0.72rem;
     }
 
     .fw-black {
@@ -1249,5 +1466,28 @@
     private async Task PrintReport()
     {
         await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    // Packaging Specs Quick Edit
+    private bool _showPackagingModal = false;
+    private LiquorItem? _targetPackagingItem;
+    private int _editPackagingPackSize = 1;
+    private bool _editPackagingCaseOnly = false;
+
+    private void OpenEditPackagingModal(LiquorItem item)
+    {
+        _targetPackagingItem = item;
+        _editPackagingPackSize = item.PackSize > 0 ? item.PackSize : 1;
+        _editPackagingCaseOnly = item.OrderByCaseOnly;
+        _showPackagingModal = true;
+    }
+
+    private async Task SavePackagingSpecsAsync()
+    {
+        if (_targetPackagingItem == null) return;
+
+        await LiquorService.UpdateItemPackagingAsync(_targetPackagingItem.Id, _editPackagingPackSize, _editPackagingCaseOnly);
+        _showPackagingModal = false;
+        await LoadDataAsync();
     }
 }

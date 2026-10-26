@@ -135,5 +135,37 @@ namespace GFC.Core.Models
                 return BottlePrice ?? (CasePrice.HasValue && PackSize > 0 ? Math.Round(CasePrice.Value / PackSize, 2) : 0m);
             }
         }
+
+        /// <summary>
+        /// What a single bottle costs when purchased as part of the case (EffectiveCasePrice / PackSize).
+        /// </summary>
+        [NotMapped]
+        public decimal BottleCostByCase
+        {
+            get
+            {
+                int pack = Math.Max(1, PackSize);
+                return Math.Round(EffectiveCasePrice / pack, 2);
+            }
+        }
+
+        /// <summary>
+        /// How much is saved per bottle when buying by the case vs buying loose single bottles.
+        /// Positive value indicates buying by the case is cheaper per bottle.
+        /// </summary>
+        [NotMapped]
+        public decimal CaseSavingsPerBottle
+        {
+            get
+            {
+                if (IsCaseOnly || !BottlePrice.HasValue || BottlePrice.Value <= 0 || !CasePrice.HasValue || CasePrice.Value <= 0 || PackSize <= 1)
+                {
+                    return 0m;
+                }
+                decimal singleBottleCost = BottlePrice.Value;
+                decimal caseBottleCost = BottleCostByCase;
+                return Math.Round(singleBottleCost - caseBottleCost, 2);
+            }
+        }
     }
 }
