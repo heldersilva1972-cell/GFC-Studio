@@ -830,10 +830,19 @@
                     window.GfcWebappCardScanner = {
                         listener: null,
                         initialize: (dotnetObj) => {
+                            if (window.GfcWebappCardScanner && window.GfcWebappCardScanner.listener) {
+                                window.removeEventListener('keydown', window.GfcWebappCardScanner.listener);
+                                window.GfcWebappCardScanner.listener = null;
+                            }
                             let cardBuffer = '';
                             let lastKeyTime = 0;
                             
                             window.GfcWebappCardScanner.listener = (e) => {
+                                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+                                    cardBuffer = '';
+                                    return;
+                                }
+
                                 const now = Date.now();
                                 
                                 // Hardware scanners type at < 50ms intervals. 
@@ -848,7 +857,11 @@
                                     if (cardBuffer.length >= 5) { 
                                         e.preventDefault(); // Stop form submission or scrolling
                                         console.log('[WEB SCANNER] Card Detected:', cardBuffer.length, 'digits');
-                                        dotnetObj.invokeMethodAsync('OnCardScanned', cardBuffer);
+                                        if (dotnetObj) {
+                                            dotnetObj.invokeMethodAsync('OnCardScanned', cardBuffer).catch((err) => {
+                                                console.warn('[WEB SCANNER] DotNet invocation discarded or error:', err);
+                                            });
+                                        }
                                     }
                                     cardBuffer = '';
                                 } else if (e.key.length === 1 && /[0-9]/.test(e.key)) {
