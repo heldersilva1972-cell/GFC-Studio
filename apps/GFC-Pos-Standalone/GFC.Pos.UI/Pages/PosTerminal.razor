@@ -14,6 +14,7 @@
 @inject IVersionService VersionService
 @inject IUpdateService UpdateService
 @inject IStationSettingsService StationSettings
+@inject ICustomerDisplayStateService CustomerDisplay
 @inject IPrinterService PrinterService
 @inject IPrinterConfigService PrinterConfig
 @inject HttpClient Http
@@ -3521,6 +3522,44 @@
                                 <div class="py-2">
                                     <div class="settings-switch-container">
                                         <div>
+                                            <div class="settings-switch-label mb-1">Customer Facing Display (CFD)</div>
+                                            <div class="text-muted small" style="max-width: 480px; line-height: 1.3;">Enables dual-screen output on the secondary HDMI monitor (1024x600). Broadcasts real-time cart items, subtotals, and change due to customers.</div>
+                                            @if (_customerDisplayEnabled)
+                                            {
+                                                <div class="mt-2 d-flex align-items-center gap-3 flex-wrap">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" @onclick="OpenCustomerDisplayPreviewWindow">
+                                                        <i class="bi bi-display me-1"></i> Preview Screen (1024x600)
+                                                    </button>
+                                                    <div class="d-inline-flex align-items-center gap-2 bg-dark bg-opacity-50 px-3 py-1 rounded-pill border border-secondary border-opacity-25">
+                                                        <span class="text-secondary small fw-semibold">Completed Screen:</span>
+                                                        <select class="form-select form-select-sm bg-dark text-white border-0 fw-bold py-0" style="width: auto; cursor: pointer;"
+                                                                value="@_customerDisplayDurationSeconds" 
+                                                                @onchange="ChangeCustomerDisplayDuration">
+                                                            <option value="5">5 seconds</option>
+                                                            <option value="10">10 seconds</option>
+                                                            <option value="15">15 seconds</option>
+                                                            <option value="20">20 seconds (Default)</option>
+                                                            <option value="30">30 seconds</option>
+                                                            <option value="45">45 seconds</option>
+                                                            <option value="60">60 seconds</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                        <label class="premium-switch">
+                                            <input type="checkbox" checked="@_customerDisplayEnabled" @onchange="(e) => ToggleCustomerDisplay(e.Value)">
+                                            <span class="slider-track">
+                                                <span class="slider-thumb"></span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <hr class="settings-divider" />
+                                <div class="py-2">
+                                    <div class="settings-switch-container">
+                                        <div>
                                             <div class="settings-switch-label mb-1">Enable Training Mode</div>
                                             <div class="text-muted small" style="max-width: 480px; line-height: 1.3;">When active, all transactions are completely simulated. No database commits or inventory updates are made.</div>
                                         </div>
@@ -5381,7 +5420,7 @@
           <div class="checkout-card animate__animated animate__zoomIn animate__faster">
               <div class="d-flex justify-content-between align-items-center">
                   <h3 class="fw-black mb-0">CHECKOUT</h3>
-                  <button class="btn btn-light rounded-circle p-2" @onclick="() => ShowCheckoutOverlay = false">
+                  <button class="btn btn-light rounded-circle p-2" @onclick="CloseCheckoutOverlay">
                       <i class="bi bi-x-lg fs-5"></i>
                   </button>
               </div>
@@ -5481,7 +5520,7 @@
                   <button class="btn btn-primary btn-complete" @onclick="FinalizeSale" disabled="@_isFinalizingSale">
                       @(_isCorrectionMode ? "CONFIRM ADJUSTMENT" : "COMPLETE TRANSACTION")
                   </button>
-                  <button class="btn btn-outline-secondary btn-add-more" @onclick="() => ShowCheckoutOverlay = false">BACK TO ORDER</button>
+                  <button class="btn btn-outline-secondary btn-add-more" @onclick="CloseCheckoutOverlay">BACK TO ORDER</button>
               </div>
           </div>
     </div>
@@ -7592,6 +7631,10 @@
             // 2. [BACKGROUND-INIT] Now handle connectivity and network sync sequentially and safely
             await Connectivity.InitializeAsync();
             await LoadTerminalName();
+            if (_customerDisplayEnabled)
+            {
+                CustomerDisplay.SetWelcome(force: true);
+            }
             await PosService.InitializeAsync();
             await RefreshData(cacheOnly: false);
             try { _todayDartsSales = await PosService.GetDartsRoundsTodayAsync(TerminalName) ?? new(); } catch {}
@@ -8960,6 +9003,7 @@
             SelectedCartItem = newItem;
         }
         
+        SyncCustomerDisplay();
         StateHasChanged();
         
         // SPEED OPTIMIZATION: Don't await JS scroll, fire and forget for instant response
@@ -8992,7 +9036,7 @@
             return;
         }
 
-        var tokenName = $"{matchedToken.Name} ({item.Name}) (TOKEN SALE)";
+        var tokenName = $"{item.Name} (TOKEN SALE)";
         var tokenId   = -matchedToken.Id;
 
         if (item.Quantity > 1)
@@ -9016,6 +9060,7 @@
             item.Category = "TOKENS";
         }
 
+        SyncCustomerDisplay();
         StateHasChanged();
     }
 
@@ -9029,6 +9074,7 @@
         if (existing != null) existing.Quantity++;
         else CartItems.Add(new ProductItem { Id = tokenId, Name = name, Price = price, Category = "TOKENS", Quantity = 1 });
         
+        SyncCustomerDisplay();
         StateHasChanged();
         
         // SPEED OPTIMIZATION: Don't await JS scroll
@@ -9292,6 +9338,7 @@
         {
             showRedeemOverlay = false;
         }
+        SyncCustomerDisplay();
         StateHasChanged();
     }
 
@@ -9353,9 +9400,10 @@
                 CartItems.Remove(item);
             }
         }
+        SyncCustomerDisplay();
         StateHasChanged();
     }
-    private void ClearCart() { CartItems.Clear(); isDartsModeActive = false; UpdateSpeedBar(); }
+    private void ClearCart() { CartItems.Clear(); isDartsModeActive = false; UpdateSpeedBar(); SyncCustomerDisplay(); }
     private void Checkout()
     {
         if (CartItems.Count == 0 && !_isCorrectionMode) return;
@@ -9584,6 +9632,27 @@
                 }
             }
             
+            if (_customerDisplayEnabled)
+            {
+                if (payment == "CASH")
+                {
+                    decimal? paid = CashReceived.HasValue ? CashReceived.Value : amountToRecord;
+                    decimal? change = (CashReceived.HasValue && CashReceived.Value > amountToRecord) ? (CashReceived.Value - amountToRecord) : 0m;
+                    CustomerDisplay.CompleteTransaction(paid, change, null, _customerDisplayDurationSeconds);
+                }
+                else if (payment == "TAB")
+                {
+                    string tabLabel = !string.IsNullOrEmpty(_selectedActiveEvent?.Name) 
+                        ? $"CHARGED TO {_selectedActiveEvent.Name.ToUpper()}" 
+                        : "CHARGED TO TAB";
+                    CustomerDisplay.CompleteTransaction(null, null, tabLabel, _customerDisplayDurationSeconds);
+                }
+                else
+                {
+                    CustomerDisplay.CompleteTransaction(null, null, "TOKEN / COMP", _customerDisplayDurationSeconds);
+                }
+            }
+
             // PERFORMANCE: Reset all UI state and clear the cart FIRST — this makes the
             // terminal feel instant and prevents having to tap PAY twice on production hardware.
             var directEvent = DbActiveEvents?.FirstOrDefault(ev => ev.Name.EndsWith(" [Direct]") || ev.Name.EndsWith("[Direct]"));
@@ -11370,6 +11439,7 @@
         
         if (decimal.TryParse(CashInputString, out var v)) CashReceived = v; 
         else CashReceived = null; 
+        SyncCustomerDisplay();
     }
     
     private void SetCashReceived(decimal a) 
@@ -11377,6 +11447,7 @@
         CashReceived = Math.Round(a, 2); 
         CashInputString = CashReceived.Value.ToString("F2"); 
         _isQuickCashInput = true; // Mark as quick-cash for smart replacement
+        SyncCustomerDisplay();
     }
 
     private void AddCashReceived(decimal a)
@@ -11384,6 +11455,7 @@
         CashReceived = Math.Round((CashReceived ?? 0) + a, 2);
         CashInputString = CashReceived.Value.ToString("F2");
         _isQuickCashInput = true;
+        SyncCustomerDisplay();
     }
 
     private void ClearCashReceived()
@@ -11391,13 +11463,88 @@
         CashReceived = null;
         CashInputString = string.Empty;
         _isQuickCashInput = false;
+        SyncCustomerDisplay();
+    }
+
+    private void CloseCheckoutOverlay()
+    {
+        ClearCashReceived();
+        ShowCheckoutOverlay = false;
     }
     private async Task SaveTerminalName()
     {
         await StationSettings.SaveTerminalNameAsync(TerminalName);
         await RefreshData();
     }
-    private async Task LoadTerminalName() { TerminalName = await StationSettings.GetTerminalNameAsync(); }
+    private async Task LoadTerminalName() 
+    { 
+        TerminalName = await StationSettings.GetTerminalNameAsync(); 
+        _customerDisplayEnabled = await StationSettings.GetCustomerDisplayEnabledAsync();
+        _customerDisplayDurationSeconds = await StationSettings.GetCustomerDisplayDurationSecondsAsync();
+    }
+    private bool _customerDisplayEnabled = false;
+    private int _customerDisplayDurationSeconds = 20;
+
+    private async Task ChangeCustomerDisplayDuration(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var seconds) && seconds > 0)
+        {
+            _customerDisplayDurationSeconds = seconds;
+            await StationSettings.SaveCustomerDisplayDurationSecondsAsync(seconds);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleCustomerDisplay(object? val)
+    {
+        if (val is bool isChecked)
+        {
+            _customerDisplayEnabled = isChecked;
+            await StationSettings.SaveCustomerDisplayEnabledAsync(_customerDisplayEnabled);
+            if (_customerDisplayEnabled)
+            {
+                SyncCustomerDisplay();
+            }
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenCustomerDisplayPreviewWindow()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "window.open('/customer-display', 'GfcCustomerDisplay', 'width=1024,height=600,menubar=no,toolbar=no,location=no,status=no,resizable=yes');");
+        }
+        catch
+        {
+            Navigation.NavigateTo("/customer-display");
+        }
+    }
+
+    private void SyncCustomerDisplay()
+    {
+        if (!_customerDisplayEnabled) return;
+
+        if (CartItems == null || CartItems.Count == 0)
+        {
+            CustomerDisplay.SetWelcome();
+            return;
+        }
+
+        var items = CartItems.Select(ci => new CustomerDisplayItem
+        {
+            Name = ci.Name,
+            Quantity = ci.Quantity,
+            Price = ci.Price,
+            Modifiers = ci.Modifiers?.Select(m => m.Name).ToList() ?? new()
+        });
+
+        decimal? cashGiven = CashReceived;
+        decimal? change = CashReceived.HasValue ? ChangeDue : null;
+
+        CustomerDisplay.UpdateCart(items, Subtotal, 0m, cashGiven, change);
+    }
+    
     private async Task ToggleTrainingMode(object? val) { if (val is bool isChecked) { forceTrainingMode = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_training_mode", forceTrainingMode.ToString().ToLower()); await RefreshData(); } }
     private async Task ToggleHardwarePractice(object? val) { if (val is bool isChecked) { allowHardwareInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_hardware_practice", allowHardwareInTraining.ToString().ToLower()); } }
     private async Task ToggleDartsOptionInTraining(object? val) { if (val is bool isChecked) { forceDartsOptionInTraining = isChecked; await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_darts_in_training", forceDartsOptionInTraining.ToString().ToLower()); StateHasChanged(); } }

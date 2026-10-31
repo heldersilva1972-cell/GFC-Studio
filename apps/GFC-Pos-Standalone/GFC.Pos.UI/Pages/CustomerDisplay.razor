@@ -1,0 +1,647 @@
+@page "/customer-display"
+@using GFC.Pos.UI.Services
+@using System.Text.Json
+@inject ICustomerDisplayStateService DisplayState
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="cfd-container">
+    @if (CurrentSnapshot.Mode == CustomerDisplayMode.Welcome)
+    {
+        <!-- IDLE / WELCOME SCREEN -->
+        <div class="cfd-welcome">
+            <div class="cfd-welcome-card">
+                <div class="cfd-welcome-icon">
+                    <svg width="68" height="68" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <path d="M16 10a4 4 0 0 1-8 0"></path>
+                    </svg>
+                </div>
+                <h1 class="cfd-welcome-title">@CurrentSnapshot.StoreName</h1>
+                <p class="cfd-welcome-subtitle">@CurrentSnapshot.HeaderMessage</p>
+                <div class="cfd-welcome-time">@DateTime.Now.ToString("dddd, MMMM d • h:mm tt")</div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- ACTIVE CART & COMPLETED TRANSACTION HORIZONTAL SPLIT -->
+        <div class="cfd-split">
+            <!-- LEFT COLUMN: ITEM LIST (60%) -->
+            <div class="cfd-left">
+                <div class="cfd-column-header">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="cfd-header-title">CURRENT ORDER</span>
+                    </div>
+                    <span class="cfd-header-badge">@CurrentSnapshot.Items.Sum(x => x.Quantity) items</span>
+                </div>
+
+                <div class="cfd-items-list" id="cfdItemsList">
+                    @if (CurrentSnapshot.Items.Count == 0)
+                    {
+                        <div class="cfd-empty-hint">Scanning items...</div>
+                    }
+                    else
+                    {
+                        @foreach (var item in CurrentSnapshot.Items)
+                        {
+                            bool isTokenRedeemed = item.Name.Contains("(TOKEN REDEEMED)");
+                            bool isTokenSale = item.Name.Contains("(TOKEN SALE)");
+
+                            string displayName = item.Name;
+                            if (isTokenRedeemed)
+                            {
+                                displayName = displayName.Replace("(TOKEN REDEEMED)", "").Trim();
+                            }
+                            if (isTokenSale)
+                            {
+                                displayName = displayName.Replace("(TOKEN SALE)", "").Trim();
+                                // Clean up any remaining wrapped legacy parentheses or prefixes e.g. "BEER TOKEN (Corona)" -> "Corona"
+                                if (displayName.Contains("(") && displayName.EndsWith(")"))
+                                {
+                                    int openIdx = displayName.IndexOf("(");
+                                    displayName = displayName.Substring(openIdx + 1, displayName.Length - openIdx - 2).Trim();
+                                }
+                            }
+
+                            string rowClass = isTokenRedeemed ? "cfd-row-redeemed" : (isTokenSale ? "cfd-row-tokensale" : "");
+
+                            <div class="cfd-item-row @rowClass">
+                                <div class="cfd-item-info">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="cfd-item-name">@displayName</div>
+                                        @if (isTokenRedeemed)
+                                        {
+                                            <span class="cfd-token-redeemed-badge">TOKEN REDEEMED</span>
+                                        }
+                                        else if (isTokenSale)
+                                        {
+                                            <span class="cfd-token-sale-badge">TOKEN</span>
+                                        }
+                                    </div>
+                                    @if (item.Modifiers.Any())
+                                    {
+                                        <div class="cfd-item-mods">
+                                            @string.Join(" • ", item.Modifiers)
+                                        </div>
+                                    }
+                                </div>
+                                <div class="cfd-item-qty">x@(item.Quantity)</div>
+                                <div class="cfd-item-price @(isTokenRedeemed ? "text-success" : "")">
+                                    @(isTokenRedeemed ? "$0.00" : item.Total.ToString("C"))
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: TOTALS & DUE (40%) -->
+            <div class="cfd-right">
+                <div class="cfd-column-header">
+                    <span class="cfd-header-title">SUMMARY</span>
+                </div>
+
+                <div class="cfd-summary-panel">
+                    <!-- Top Fixed Section: Subtotal, Tax, and Hero Total Due -->
+                    <div class="cfd-fixed-totals">
+                        <div class="cfd-summary-line">
+                            <span class="cfd-summary-label">Subtotal</span>
+                            <span class="cfd-summary-val">@CurrentSnapshot.Subtotal.ToString("C")</span>
+                        </div>
+
+                        @if (CurrentSnapshot.Tax > 0)
+                        {
+                            <div class="cfd-summary-line">
+                                <span class="cfd-summary-label">Sales Tax</span>
+                                <span class="cfd-summary-val">@CurrentSnapshot.Tax.ToString("C")</span>
+                            </div>
+                        }
+
+                        <div class="cfd-total-banner">
+                            <div class="cfd-total-label">TOTAL DUE</div>
+                            <div class="cfd-total-amount">@CurrentSnapshot.TotalDue.ToString("C")</div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Dynamic Section: Tender or Completion -->
+                    <div class="cfd-dynamic-bottom">
+                        @if (CurrentSnapshot.Mode == CustomerDisplayMode.Completed)
+                        {
+                            <div class="cfd-completed-box animate__animated animate__fadeIn">
+                                <div class="cfd-completed-header">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                    TRANSACTION COMPLETE
+                                </div>
+                                <div class="cfd-completed-sub">THANK YOU!</div>
+                                <div class="cfd-completed-divider"></div>
+                                @if (!string.IsNullOrEmpty(CurrentSnapshot.PaymentNote))
+                                {
+                                    <div class="cfd-completed-note">@CurrentSnapshot.PaymentNote</div>
+                                }
+                                @if (CurrentSnapshot.AmountPaid.HasValue)
+                                {
+                                    <div class="cfd-completed-row">
+                                        <span>Cash Given:</span>
+                                        <span class="fw-bold">@CurrentSnapshot.AmountPaid.Value.ToString("C")</span>
+                                    </div>
+                                }
+                                @if (CurrentSnapshot.ChangeDue.HasValue && CurrentSnapshot.ChangeDue.Value > 0)
+                                {
+                                    <div class="cfd-completed-row cfd-change-highlight">
+                                        <span>Change Due:</span>
+                                        <span class="cfd-change-amount">@CurrentSnapshot.ChangeDue.Value.ToString("C")</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (CurrentSnapshot.AmountPaid.HasValue && CurrentSnapshot.AmountPaid.Value > 0)
+                        {
+                            <div class="cfd-tender-box animate__animated animate__fadeIn">
+                                <div class="cfd-tender-row">
+                                    <span>Cash Given:</span>
+                                    <span class="fw-bold text-white fs-5">@CurrentSnapshot.AmountPaid.Value.ToString("C")</span>
+                                </div>
+                                @if (CurrentSnapshot.ChangeDue.HasValue)
+                                {
+                                    <div class="cfd-tender-row @(CurrentSnapshot.ChangeDue.Value >= 0 ? "cfd-tender-change" : "cfd-tender-owed")">
+                                        <span>@(CurrentSnapshot.ChangeDue.Value >= 0 ? "Change Due:" : "Still Owed:")</span>
+                                        <span class="fw-black fs-3">@Math.Abs(CurrentSnapshot.ChangeDue.Value).ToString("C")</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    /* STRICT 1024x600 LANDSCAPE CONTAINER */
+    .cfd-container {
+        width: 100vw;
+        height: 100vh;
+        max-width: 1024px;
+        max-height: 600px;
+        margin: 0 auto;
+        background: #090d16;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        user-select: none;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+    }
+
+    /* IDLE / WELCOME VIEW */
+    .cfd-welcome {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #172554 0%, #090d16 100%);
+        padding: 24px;
+    }
+    .cfd-welcome-card {
+        text-align: center;
+        max-width: 580px;
+        animation: cfdPixelShift 28s ease-in-out infinite;
+    }
+    .cfd-welcome-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 110px;
+        height: 110px;
+        background: rgba(59, 130, 246, 0.15);
+        color: #38bdf8;
+        border-radius: 50%;
+        margin-bottom: 22px;
+        box-shadow: 0 0 50px rgba(56, 189, 248, 0.25);
+        animation: cfdIconPulse 6s ease-in-out infinite;
+    }
+    .cfd-welcome-title {
+        font-size: 2.8rem;
+        font-weight: 900;
+        letter-spacing: 3px;
+        color: #ffffff;
+        margin: 0 0 10px 0;
+        text-transform: uppercase;
+    }
+    .cfd-welcome-subtitle {
+        font-size: 1.4rem;
+        color: #94a3b8;
+        margin: 0 0 24px 0;
+    }
+    .cfd-welcome-time {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+    }
+
+    @@keyframes cfdPixelShift {
+        0%, 100% { transform: translate(0, 0); }
+        25% { transform: translate(3px, -2px); }
+        50% { transform: translate(-2px, 3px); }
+        75% { transform: translate(2px, 2px); }
+    }
+
+    @@keyframes cfdIconPulse {
+        0%, 100% {
+            box-shadow: 0 0 35px rgba(56, 189, 248, 0.2);
+            transform: scale(1);
+        }
+        50% {
+            box-shadow: 0 0 55px rgba(56, 189, 248, 0.4);
+            transform: scale(1.03);
+        }
+    }
+
+    /* SPLIT TWO-COLUMN SCREEN */
+    .cfd-split {
+        flex: 1;
+        display: flex;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+    }
+
+    /* LEFT COLUMN (60% WIDTH) */
+    .cfd-left {
+        width: 60%;
+        background: #0f172a;
+        border-right: 2px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        padding: 18px 22px;
+        box-sizing: border-box;
+    }
+    .cfd-column-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 12px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 12px;
+    }
+    .cfd-header-title {
+        font-size: 0.9rem;
+        font-weight: 900;
+        letter-spacing: 2px;
+        color: #94a3b8;
+        text-transform: uppercase;
+    }
+    .cfd-header-badge {
+        font-size: 0.8rem;
+        font-weight: 800;
+        background: #1e293b;
+        color: #38bdf8;
+        padding: 4px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .cfd-items-list {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .cfd-items-list::-webkit-scrollbar {
+        width: 6px;
+    }
+    .cfd-items-list::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 3px;
+    }
+
+    /* MODERN ITEM ROW */
+    .cfd-item-row {
+        display: flex;
+        align-items: center;
+        background: rgba(30, 41, 59, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-left: 5px solid #2563eb;
+        padding: 12px 16px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .cfd-row-redeemed {
+        border-left: 5px solid #22c55e !important;
+        background: rgba(20, 83, 45, 0.35) !important;
+    }
+    .cfd-row-tokensale {
+        border-left: 5px solid #f59e0b !important;
+        background: rgba(120, 53, 15, 0.25) !important;
+    }
+    .cfd-token-redeemed-badge {
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 1px;
+        background: #166534;
+        color: #86efac;
+        padding: 2px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(134, 239, 172, 0.4);
+    }
+    .cfd-token-sale-badge {
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 1px;
+        background: #78350f;
+        color: #fde68a;
+        padding: 2px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(253, 230, 138, 0.4);
+    }
+    .cfd-item-info {
+        flex: 1;
+        min-width: 0;
+    }
+    .cfd-item-name {
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: #ffffff;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        letter-spacing: 0.3px;
+    }
+    .cfd-item-mods {
+        font-size: 0.82rem;
+        color: #94a3b8;
+        margin-top: 3px;
+        font-weight: 500;
+    }
+    .cfd-item-qty {
+        font-size: 1.35rem;
+        font-weight: 900;
+        color: #38bdf8;
+        background: rgba(56, 189, 248, 0.15);
+        border: 1.5px solid rgba(56, 189, 248, 0.35);
+        padding: 4px 14px;
+        border-radius: 10px;
+        margin: 0 16px;
+        letter-spacing: 0.5px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 48px;
+    }
+    .cfd-item-price {
+        font-size: 1.4rem;
+        font-weight: 900;
+        color: #ffffff;
+        min-width: 90px;
+        text-align: right;
+    }
+    .cfd-empty-hint {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #475569;
+        font-size: 1.2rem;
+        font-style: italic;
+    }
+
+    /* RIGHT COLUMN (40% WIDTH) */
+    .cfd-right {
+        width: 40%;
+        background: #0b1329;
+        display: flex;
+        flex-direction: column;
+        padding: 18px 22px;
+        box-sizing: border-box;
+    }
+    .cfd-summary-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .cfd-fixed-totals {
+        display: flex;
+        flex-direction: column;
+    }
+    .cfd-summary-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.15rem;
+        color: #94a3b8;
+        padding: 5px 4px;
+    }
+    .cfd-summary-label {
+        font-weight: 600;
+    }
+    .cfd-summary-val {
+        font-weight: 800;
+        color: #e2e8f0;
+    }
+
+    /* GLOWING HERO TOTAL DUE BANNER */
+    .cfd-total-banner {
+        background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+        border: 2px solid #3b82f6;
+        border-radius: 16px;
+        padding: 14px 20px;
+        text-align: center;
+        margin-top: 10px;
+        box-shadow: 0 10px 30px -5px rgba(29, 78, 216, 0.45);
+    }
+    .cfd-total-label {
+        font-size: 0.9rem;
+        font-weight: 900;
+        letter-spacing: 2.5px;
+        color: #93c5fd;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+    }
+    .cfd-total-amount {
+        font-size: 3rem;
+        font-weight: 900;
+        color: #ffffff;
+        letter-spacing: 1px;
+        line-height: 1.1;
+    }
+
+    /* BOTTOM DYNAMIC SLOT (Tender / Completion) */
+    .cfd-dynamic-bottom {
+        margin-top: auto;
+    }
+
+    /* LIVE TENDER BOX */
+    .cfd-tender-box {
+        background: rgba(30, 41, 59, 0.85);
+        border: 2px solid #334155;
+        border-radius: 14px;
+        padding: 12px 18px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+    .cfd-tender-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.1rem;
+        color: #94a3b8;
+        padding: 4px 0;
+    }
+    .cfd-tender-change {
+        border-top: 1px solid #334155;
+        margin-top: 6px;
+        padding-top: 6px;
+        color: #4ade80 !important;
+    }
+    .cfd-tender-owed {
+        border-top: 1px solid #334155;
+        margin-top: 6px;
+        padding-top: 6px;
+        color: #f87171 !important;
+    }
+
+    /* COMPLETED TRANSACTION BOX */
+    .cfd-completed-box {
+        background: radial-gradient(circle at center, #166534 0%, #14532d 100%);
+        border: 2px solid #22c55e;
+        border-radius: 14px;
+        padding: 14px 18px;
+        text-align: center;
+        box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.4);
+    }
+    .cfd-completed-header {
+        font-size: 0.95rem;
+        font-weight: 900;
+        letter-spacing: 2px;
+        color: #86efac;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .cfd-completed-sub {
+        font-size: 1.8rem;
+        font-weight: 900;
+        letter-spacing: 2px;
+        color: #ffffff;
+        margin: 4px 0 6px 0;
+    }
+    .cfd-completed-note {
+        font-size: 1.15rem;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        color: #93c5fd;
+        text-transform: uppercase;
+        margin: 4px 0 6px 0;
+    }
+    .cfd-completed-divider {
+        height: 1px;
+        background: rgba(134, 239, 172, 0.3);
+        margin: 6px 0 8px 0;
+    }
+    .cfd-completed-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.1rem;
+        color: #dcfce7;
+        padding: 3px 0;
+    }
+    .cfd-change-highlight {
+        border-top: 1px solid rgba(134, 239, 172, 0.4);
+        margin-top: 4px;
+        padding-top: 4px;
+    }
+    .cfd-change-amount {
+        font-size: 1.6rem;
+        font-weight: 900;
+        color: #ffffff;
+    }
+</style>
+
+@code {
+    private CustomerDisplaySnapshot CurrentSnapshot => DisplayState.Current;
+    private System.Threading.CancellationTokenSource? _pollCts;
+    private string _lastRawJson = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        DisplayState.OnStateChanged += OnDisplayStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _pollCts = new System.Threading.CancellationTokenSource();
+            _ = StartCrossWindowSyncLoopAsync(_pollCts.Token);
+        }
+    }
+
+    private async Task StartCrossWindowSyncLoopAsync(System.Threading.CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var json = await JS.InvokeAsync<string>("localStorage.getItem", CustomerDisplayStateService.StorageKey);
+                if (!string.IsNullOrEmpty(json) && json != _lastRawJson)
+                {
+                    _lastRawJson = json;
+                    ApplySnapshotJson(json);
+                }
+            }
+            catch
+            {
+                // Ignored
+            }
+
+            await Task.Delay(200, token);
+        }
+    }
+
+    private void ApplySnapshotJson(string json)
+    {
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<CustomerDisplaySnapshot>(json);
+            if (snapshot != null)
+            {
+                if (snapshot.Mode == CustomerDisplayMode.Welcome)
+                {
+                    DisplayState.SetWelcome(snapshot.HeaderMessage, force: true);
+                }
+                else if (snapshot.Mode == CustomerDisplayMode.Completed)
+                {
+                    DisplayState.CompleteTransaction(snapshot.AmountPaid, snapshot.ChangeDue, snapshot.PaymentNote);
+                }
+                else
+                {
+                    DisplayState.UpdateCart(snapshot.Items, snapshot.Subtotal, snapshot.Tax, snapshot.AmountPaid, snapshot.ChangeDue);
+                }
+                InvokeAsync(StateHasChanged);
+            }
+        }
+        catch { }
+    }
+
+    private void OnDisplayStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        DisplayState.OnStateChanged -= OnDisplayStateChanged;
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+    }
+}

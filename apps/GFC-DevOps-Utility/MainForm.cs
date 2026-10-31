@@ -1251,61 +1251,13 @@ namespace GFCDevOpsUtility
                 return false;
             }
 
-            bool webBuildSuccess = false;
-
-            // STEP 1: Web Terminal Build
+            // Execute Native Android Mobile Build (APK)
             LogPublish("\n=======================================================", false, ColorPrimary);
-            LogPublish(">>> STEP 1/2: Publishing POS Web Terminal", false, ColorPrimary);
+            LogPublish($">>> STEP: Publishing Native Android Mobile APK for POS ({revision})", false, ColorPrimary);
             LogPublish("=======================================================", false, ColorPrimary);
 
-            string projectPath = Path.Combine("apps", "GFC-Pos-Standalone", "GFC.Pos.Terminal", "GFC.Pos.Terminal.csproj");
-            string tempOut = Path.Combine(workspace, "publish_pos_temp");
-
-            if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
-
-            if (_isPublishAborted) return false;
-            LogPublish(">>> Executing dotnet publish for POS Terminal...", false, ColorWait);
-            var runner = new ProcessRunner((line, err) => LogPublish(line, err));
-            _activePublishRunner = runner;
-            int exit = -1;
-            try
-            {
-                exit = await runner.RunAsync("dotnet", $"publish \"{projectPath}\" -c Release -o \"{tempOut}\" /p:TreatWarningsAsErrors=false", workspace);
-            }
-            finally
-            {
-                _activePublishRunner = null;
-            }
-
-            if (exit == 0 && !_isPublishAborted)
-            {
-                // Write version.txt
-                string wwwrootPath = Path.Combine(tempOut, "wwwroot");
-                if (!Directory.Exists(wwwrootPath)) Directory.CreateDirectory(wwwrootPath);
-                File.WriteAllText(Path.Combine(wwwrootPath, "version.txt"), version);
-
-                if (!Directory.Exists(app.SourceZipFolder))
-                {
-                    Directory.CreateDirectory(app.SourceZipFolder);
-                }
-                string zipPath = Path.Combine(app.SourceZipFolder, $"{app.AppName}_{revision}.zip");
-                LogPublish($">>> Compressing output wwwroot directly to: {zipPath}", false, ColorWait);
-
-                await CreateZipFromDirectoryAsync(wwwrootPath, zipPath);
-                
-                Directory.Delete(tempOut, true);
-                LogPublish(">>> [OK] POS Web Terminal published and compressed successfully.", false, ColorSuccess);
-                webBuildSuccess = true;
-            }
-            else
-            {
-                LogPublish($"!!! dotnet publish failed for POS Terminal with code {exit}", true);
-                if (Directory.Exists(tempOut)) Directory.Delete(tempOut, true);
-                webBuildSuccess = false;
-            }
-
-            // STEP 2: Native Android Mobile Build
-            return webBuildSuccess;
+            bool apkBuildSuccess = await PublishApkHelperAsync(workspace, app, revision);
+            return apkBuildSuccess;
         }
 
         private async Task<bool> PublishWebAppAsync(string workspace, AppPipelineConfig app, string revision)
@@ -1938,22 +1890,54 @@ namespace GFCDevOpsUtility
                     if (foundApkPath != null)
                     {
                         Log($">>> Located APK installer for APK-Only deployment: {foundApkPath}", false, ColorWait);
-                        string distFolder = _config.PosApkDistFolder;
-                        if (string.IsNullOrEmpty(distFolder))
+                        
+                        // Extract revision if present in filename: e.g. POS_2.43.196.apk
+                        string apkFilename = Path.GetFileNameWithoutExtension(foundApkPath);
+                        string apkRevision = apkFilename.Contains("_") ? apkFilename.Substring(apkFilename.IndexOf('_') + 1) : "";
+
+                        // Ensure destination distribution directories exist (supports both Download and downloads paths)
+                        var distFolders = new List<string>();
+                        if (!string.IsNullOrEmpty(app.LiveTargetFolder))
                         {
-                            distFolder = !string.IsNullOrEmpty(app.LiveTargetFolder)
-                                ? Path.Combine(app.LiveTargetFolder, "Download")
-                                : @"C:\inetpub\wwwroot\GFCPOS\Download";
+                            distFolders.Add(Path.Combine(app.LiveTargetFolder, "Download"));
+                            distFolders.Add(Path.Combine(app.LiveTargetFolder, "downloads"));
+                            
+                            // Write latest version.txt so the POS terminal knows this version is live
+                            if (!string.IsNullOrEmpty(apkRevision))
+                            {
+                                try
+                                {
+                                    string versionTxtPath = Path.Combine(app.LiveTargetFolder, "version.txt");
+                                    File.WriteAllText(versionTxtPath, apkRevision);
+                                    Log($">>> Updated {versionTxtPath} to version {apkRevision}", false, ColorSuccess);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log($"!!! Warning: Could not write version.txt: {ex.Message}", false, ColorWarning);
+                                }
+                            }
+                        }
+                        if (!string.IsNullOrEmpty(_config.PosApkDistFolder) && !distFolders.Contains(_config.PosApkDistFolder))
+                        {
+                            distFolders.Add(_config.PosApkDistFolder);
                         }
 
-                        if (!Directory.Exists(distFolder))
+                        foreach (var folder in distFolders)
                         {
-                            Directory.CreateDirectory(distFolder);
+                            try
+                            {
+                                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                                string destApk = Path.Combine(folder, "GFC_POS_Mobile.apk");
+                                Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
+                                File.Copy(foundApkPath, destApk, true);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"!!! Warning: Error copying to {folder}: {ex.Message}", false, ColorWarning);
+                            }
                         }
-                        string destApk = Path.Combine(distFolder, "GFC_POS_Mobile.apk");
-                        Log($">>> Copying APK to distribution path: {destApk}", false, ColorWait);
-                        File.Copy(foundApkPath, destApk, true);
-                        Log($">>> [OK] APK successfully copied to server (APK-Only).", false, ColorSuccess);
+
+                        Log($">>> [OK] APK successfully copied to distribution server (APK-Only).", false, ColorSuccess);
 
                         try
                         {

@@ -57,8 +57,33 @@ public class MainActivity : MauiAppCompatActivity
             Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() =>
             {
                 SetWindowLayout();
+                InitCustomerDisplay();
             });
         });
+    }
+
+    private Platforms.Android.CustomerDisplayManager? _cfdManager;
+
+    private void InitCustomerDisplay()
+    {
+        try
+        {
+            var services = IPlatformApplication.Current?.Services;
+            var stateService = services?.GetService(typeof(GFC.Pos.UI.Services.ICustomerDisplayStateService)) as GFC.Pos.UI.Services.ICustomerDisplayStateService;
+            
+            _cfdManager ??= new Platforms.Android.CustomerDisplayManager(this, stateService);
+            _cfdManager.CheckAndShow();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainActivity] CFD init error: {ex.Message}");
+        }
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        _cfdManager?.CheckAndShow();
     }
 
     public override void OnWindowFocusChanged(bool hasFocus)

@@ -49,6 +49,7 @@ builder.Services.AddScoped<PosTerminalService>();               // Scoped (= sin
 builder.Services.AddScoped<IPosTerminalService>(sp => sp.GetRequiredService<PosTerminalService>());
 builder.Services.AddSingleton<IVersionService, PosVersionService>();
 builder.Services.AddScoped<IStationSettingsService, WebStationSettingsService>();
+builder.Services.AddScoped<ICustomerDisplayStateService, CustomerDisplayStateService>();
 builder.Services.AddScoped<IPrinterConfigService, WebPrinterConfigService>();
 builder.Services.AddScoped<IPrinterService, WebPrinterService>();
 builder.Services.AddScoped<IUpdateService, FallbackUpdateService>();
