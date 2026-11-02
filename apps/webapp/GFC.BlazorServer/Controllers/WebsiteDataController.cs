@@ -14,20 +14,17 @@ namespace GFC.BlazorServer.Controllers
     {
         private readonly IAnnouncementService _announcementService;
         private readonly IAvailabilityService _availabilityService;
-        private readonly IPublicReviewService _publicReviewService;
         private readonly IRentalService _rentalService;
         private readonly GFC.Core.Interfaces.IWebsiteSettingsService _websiteSettingsService;
 
         public WebsiteDataController(
             IAnnouncementService announcementService,
             IAvailabilityService availabilityService,
-            IPublicReviewService publicReviewService,
             IRentalService rentalService,
             GFC.Core.Interfaces.IWebsiteSettingsService websiteSettingsService)
         {
             _announcementService = announcementService;
             _availabilityService = availabilityService;
-            _publicReviewService = publicReviewService;
             _rentalService = rentalService;
             _websiteSettingsService = websiteSettingsService;
         }
@@ -47,10 +44,9 @@ namespace GFC.BlazorServer.Controllers
         }
 
         [HttpGet("PublicReviews")]
-        public async Task<IActionResult> GetPublicReviews()
+        public IActionResult GetPublicReviews()
         {
-            var reviews = await _publicReviewService.GetApprovedAndFeaturedReviewsAsync();
-            return Ok(reviews);
+            return Ok(System.Array.Empty<PublicReview>());
         }
 
         [HttpGet("WebsiteSettings")]
@@ -73,5 +69,3 @@ namespace GFC.BlazorServer.Controllers
         }
     }
 }
-
-

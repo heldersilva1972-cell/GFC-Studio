@@ -32,7 +32,6 @@ namespace GFC.BlazorServer.Middleware
             "/service-worker",    // Service worker
             "/pwa-icons",         // PWA icons
             "/animationhub",      // SignalR hubs
-            "/studiopreviewhub",
             "/videoaccesshub",
             "/cameras/secure-access", // The access request page itself
             "/setup",             // Setup pages

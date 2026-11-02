@@ -28,7 +28,6 @@ namespace GFC.BlazorServer.Middleware
             "/service-worker",
             "/pwa-icons",
             "/animationhub",
-            "/studiopreviewhub",
             "/videoaccesshub",
             "/version.txt",
             "/version.json",

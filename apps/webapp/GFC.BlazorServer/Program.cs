@@ -194,8 +194,6 @@ public class Program
                 options.ApiToken = settingsMonitor.CurrentValue.ResendApiKey ?? string.Empty;
             });
 
-        builder.Services.AddHttpClient<IImportService, ImportService>();
-        builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
@@ -345,17 +343,6 @@ public class Program
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<IToastService, ToastService>();
         builder.Services.AddHttpClient();
-        builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
-        builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
-        builder.Services.AddScoped<IStaticExportService, StaticExportService>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
-        builder.Services.AddScoped<IStudioCmsService, StudioCmsService>();
-        builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
-        builder.Services.AddScoped<ITemplateService, TemplateService>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
-        builder.Services.AddScoped<GFC.Core.Interfaces.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
-        builder.Services.AddScoped<IFormService, FormService>();
-        builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddSingleton<IRentalAnalyticsService, RentalAnalyticsService>();
@@ -382,15 +369,10 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<IMobileReportingService, MobileReportingService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
-        builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
-        builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IGoogleCalendarService, GoogleCalendarService>();
-        builder.Services.AddScoped<IPublicReviewService, PublicReviewService>();
         builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
         builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
-        builder.Services.AddScoped<IPageService, PageService>();
-        builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
         builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
         builder.Services.AddScoped<IFinancialAnalyticsService, FinancialAnalyticsService>();
@@ -1473,7 +1455,6 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         app.MapBlazorHub();
         app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
   
-        app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
         app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
         app.MapHub<GFC.BlazorServer.Hubs.ControllerEventHub>("/controllereventhub");
         app.MapFallbackToPage("/_Host");
