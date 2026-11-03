@@ -4660,18 +4660,29 @@
                                         <p class="small text-muted fw-bold mb-0">@(isBanquetPrePaid ? "PREPAID" : "RUNNING TAB")</p>
                                         @if (isBanquetPrePaid)
                                         {
-                                            var displayBal = isSelected ? (ev.CurrentBalance - Subtotal) : ev.CurrentBalance;
-                                            <span class="fw-black rounded-pill px-3 py-1 @(displayBal < 0 ? "bg-danger" : "bg-success") text-white"
-                                                  style="font-size: 1rem; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                                                BAL: @displayBal.ToString("C")
+                                            var baseBal = ev.CurrentBalance;
+                                            <span class="fw-black rounded-pill px-3 py-1 @(baseBal <= 0 ? "bg-danger" : "bg-success") text-white"
+                                                  style="font-size: 0.95rem; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);"
+                                                  title="Current committed prepaid balance">
+                                                BAL: @baseBal.ToString("C")
                                             </span>
                                         }
                                         else
                                         {
-                                            var displayTab = isSelected ? Math.Abs(ev.CurrentBalance - Subtotal) : Math.Abs(ev.CurrentBalance);
+                                            var baseTab = Math.Abs(ev.CurrentBalance);
                                             <span class="fw-black rounded-pill px-3 py-1 bg-primary text-white"
-                                                  style="font-size: 1rem; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                                                TAB: @displayTab.ToString("C")
+                                                  style="font-size: 0.95rem; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);"
+                                                  title="Current committed running tab amount">
+                                                TAB: @baseTab.ToString("C")
+                                            </span>
+                                        }
+
+                                        @if (_lastAddedToTabEventId == ev.Id && _lastAddedToTabAmount > 0)
+                                        {
+                                            <span class="fw-black rounded-pill px-3 py-1 text-success border border-success-subtle animate__animated animate__fadeIn"
+                                                  style="font-size: 0.85rem; letter-spacing: 0.3px; background: rgba(220, 252, 231, 0.9); box-shadow: 0 2px 6px rgba(0,0,0,0.08);"
+                                                  title="Last amount successfully charged to this tab">
+                                                <i class="bi bi-check-circle-fill me-1 text-success"></i>LAST ADDED: +@_lastAddedToTabAmount.ToString("C")
                                             </span>
                                         }
                                     </div>
@@ -4718,13 +4729,16 @@
                                     </button>
                                 }
 
-                                <button type="button" class="btn btn-secondary rounded-pill fw-black transition-all ms-2 shadow-sm"
-                                        style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
-                                               background: #64748b !important; color: white !important; border: 2px solid #475569 !important;
-                                               box-shadow: 0 4px 12px rgba(100, 116, 139, 0.2) !important;"
-                                        @onclick="() => CancelActiveEvent(ev)">
-                                    <i class="bi bi-x-circle me-1"></i> CANCEL
-                                </button>
+                                @if (CanCancelActiveEvent(ev))
+                                {
+                                    <button type="button" class="btn btn-secondary rounded-pill fw-black transition-all ms-2 shadow-sm"
+                                            style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
+                                                   background: #64748b !important; color: white !important; border: 2px solid #475569 !important;
+                                                   box-shadow: 0 4px 12px rgba(100, 116, 139, 0.2) !important;"
+                                            @onclick="() => CancelActiveEvent(ev)">
+                                        <i class="bi bi-x-circle me-1"></i> CANCEL
+                                    </button>
+                                }
 
                                 <button type="button" class="btn btn-danger rounded-pill fw-black transition-all ms-1"
                                         style="border-radius: 50px !important; font-size: 0.85rem !important; letter-spacing: 0.5px !important; font-weight: 900 !important; transition: all 0.2s ease-in-out !important;
@@ -6489,6 +6503,22 @@
         return tallies.Sum(t => GetTallyClubPortion(ae, t));
     }
 
+    private bool CanCancelActiveEvent(ActiveEvent? ev)
+    {
+        if (ev == null) return false;
+        // Running tab: cannot cancel if balance has increased (money owed)
+        if (ev.Type == GFC.Core.Enums.EventTabType.RunningTab && Math.Abs(ev.CurrentBalance) > 0) return false;
+        // Prepaid tab: cannot cancel if funds were consumed or changed from starting deposit
+        if (ev.Type == GFC.Core.Enums.EventTabType.PrePaid && ev.CurrentBalance != ev.InitialAmount) return false;
+        // Beer tally: cannot cancel if any drinks have been consumed/taken
+        if (ev.EnableBeerTally)
+        {
+            var tallies = GetActiveEventTallies(ev);
+            if (tallies.Any(t => t.QuantityTaken > 0 || t.Consumed > 0)) return false;
+        }
+        return true;
+    }
+
     private async Task CancelActiveEvent(ActiveEvent ev)
     {
         if (ev == null) return;
@@ -6841,17 +6871,7 @@
 
         if (clubPortionOwed > 0)
         {
-            try
-            {
-                if (!forceTrainingMode || allowHardwareInTraining)
-                {
-                    await PrinterService.KickDrawerAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] Tally Settle KickDrawerAsync failed: {ex.Message}");
-            }
+            KickDrawerBackground();
         }
 
         if (closeEvent && totalConsumedCost > 0)
@@ -7016,6 +7036,8 @@
     private PosMenuDto? _cachedMenu; // Keep full menu for local updates
     private ActiveEvent? _selectedActiveEvent = null;
     private bool _isTabPayment = false;
+    private decimal _lastAddedToTabAmount = 0;
+    private int? _lastAddedToTabEventId = null;
 
     // ── PERFORMANCE: Cached filtered product list ─────────────────────────────
     // Re-computed only when category/event/menu changes, not on every render.
@@ -9536,6 +9558,8 @@
             if (_isTabPayment && _selectedActiveEvent != null)
             {
                 _selectedActiveEvent.CurrentBalance -= amountToRecord;
+                _lastAddedToTabAmount = amountToRecord;
+                _lastAddedToTabEventId = _selectedActiveEvent.Id;
                 if (!forceTrainingMode && _cachedMenu != null)
                 {
                     await PosService.SaveMenuToVaultAsync(_cachedMenu);
@@ -11476,6 +11500,22 @@
         await StationSettings.SaveTerminalNameAsync(TerminalName);
         await RefreshData();
     }
+    private void KickDrawerBackground()
+    {
+        if (forceTrainingMode && !allowHardwareInTraining) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PrinterService.KickDrawerAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] Background KickDrawerAsync failed: {ex.Message}");
+            }
+        });
+    }
+
     private async Task LoadTerminalName() 
     { 
         TerminalName = await StationSettings.GetTerminalNameAsync(); 
@@ -12374,49 +12414,9 @@
                 }
             }
 
-            // 2. Adjust for pending offline Add Funds requests
-            var vaultItems = await JSRuntime.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
-            if (vaultItems.ValueKind == JsonValueKind.Array && DbActiveEvents != null && DbActiveEvents.Any())
-            {
-                var pendingAddFunds = new Dictionary<int, decimal>();
-                foreach (var item in vaultItems.EnumerateArray())
-                {
-                    var key = item.GetProperty("key").GetString();
-                    if (key != null && key.StartsWith("gfc_pos_vault_event_add_funds_"))
-                    {
-                        try
-                        {
-                            var rawData = item.GetProperty("data");
-                            AddFundsRequest? req = null;
-                            if (rawData.ValueKind == JsonValueKind.String)
-                                req = JsonSerializer.Deserialize<AddFundsRequest>(rawData.GetString()!, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                            else
-                                req = JsonSerializer.Deserialize<AddFundsRequest>(rawData.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                            
-                            if (req != null && req.Amount > 0)
-                            {
-                                if (pendingAddFunds.ContainsKey(req.Id))
-                                    pendingAddFunds[req.Id] += req.Amount;
-                                else
-                                    pendingAddFunds[req.Id] = req.Amount;
-                            }
-                        }
-                        catch {}
-                    }
-                }
-
-                if (pendingAddFunds.Any())
-                {
-                    foreach (var ev in DbActiveEvents)
-                    {
-                        if (pendingAddFunds.TryGetValue(ev.Id, out var pendingAddition))
-                        {
-                            ev.CurrentBalance += pendingAddition;
-                            Console.WriteLine($"[POS] Adjusted event '{ev.Name}' balance with pending offline added funds: +{pendingAddition:C} (New Balance: {ev.CurrentBalance:C})");
-                        }
-                    }
-                }
-            }
+            // 2. Adjust for pending offline Add Funds requests (only for unsynced requests that have NOT been reflected)
+            // Note: ConfirmAddFunds already updates in-memory balance immediately upon entry.
+            // AdjustActiveEventBalancesWithPendingSales only needs to ensure server-fetched events stay in sync.
         }
         catch (Exception ex)
         {
@@ -12584,17 +12584,7 @@
         {
             if (_newBanquetAmount > 0)
             {
-                try
-                {
-                    if (!forceTrainingMode || allowHardwareInTraining)
-                    {
-                        await PrinterService.KickDrawerAsync();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[POS] StartBanquet KickDrawerAsync failed: {ex.Message}");
-                }
+                KickDrawerBackground();
             }
 
             var cleanName = template.Name;
@@ -12686,7 +12676,7 @@
                 _newBanquetAmount = 0;
                 _newEventDirectCheckout = false;
                 showBanquetsModal = false; // Close the modal cleanly!
-                await RefreshData();
+                _ = RefreshData();
                 StateHasChanged();
                 return;
             }
@@ -12726,7 +12716,7 @@
                 _newEventDirectCheckout = false;
                 _selectedBanquetToAddFunds = null;
                 showBanquetsModal = false; // Close the modal cleanly!
-                await RefreshData();
+                _ = RefreshData();
                 StateHasChanged();
             }
             else
@@ -12782,17 +12772,7 @@
 
         if (!_isDeductFundsMode && _addFundsAmount > 0)
         {
-            try
-            {
-                if (!forceTrainingMode || allowHardwareInTraining)
-                {
-                    await PrinterService.KickDrawerAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] ConfirmAddFunds KickDrawerAsync failed: {ex.Message}");
-            }
+            KickDrawerBackground();
         }
 
         var actualAmount = _isDeductFundsMode ? -_addFundsAmount : _addFundsAmount;
@@ -12831,25 +12811,26 @@
         }
         catch {}
 
-        try
+        _ = Task.Run(async () =>
         {
-            // 2. BACKGROUND SERVER SYNC
-            var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
-            if (response.IsSuccessStatusCode)
+            try
             {
-                Toast.ShowSuccess("Funds synced to server");
-                try
+                // 2. BACKGROUND SERVER SYNC
+                var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
+                if (response.IsSuccessStatusCode)
                 {
-                    await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", addFundsKey);
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", addFundsKey);
+                    }
+                    catch {}
                 }
-                catch {}
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[POS] ConfirmAddFunds Server Sync failed: {ex.Message}");
-            Toast.ShowWarning("Funds added locally. Server sync pending.");
-        }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] ConfirmAddFunds Server Sync failed: {ex.Message}");
+            }
+        });
     }
 
     public class ReceivedDonationInfo
@@ -13744,17 +13725,7 @@
         var remainingFunds = _closingBanquet.CurrentBalance;
         if (remainingFunds > 0)
         {
-            try
-            {
-                if (!forceTrainingMode || allowHardwareInTraining)
-                {
-                    await PrinterService.KickDrawerAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] ConfirmBanquetRefund KickDrawerAsync failed: {ex.Message}");
-            }
+            KickDrawerBackground();
         }
 
         _refundedAmount = remainingFunds;
@@ -13805,18 +13776,7 @@
         decimal amountOwed = ev.CurrentBalance < 0 ? Math.Abs(ev.CurrentBalance) : 0;
         if (amountOwed > 0)
         {
-            try
-            {
-                if (!forceTrainingMode || allowHardwareInTraining)
-                {
-                    await PrinterService.KickDrawerAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] ExecuteCloseBanquet KickDrawerAsync failed: {ex.Message}");
-            }
-
+            KickDrawerBackground();
             ev.CurrentBalance = 0;
             await LogTabDeposit(ev.Name, amountOwed, ev.Id, isInitial: false);
         }
@@ -13890,25 +13850,26 @@
             }
         }
 
-        try
+        _ = Task.Run(async () =>
         {
-            // 2. Background Server Update
-            var response = await Http.PostAsync($"api/pos/events/close/{ev.Id}", null);
-            if (response.IsSuccessStatusCode)
+            try
             {
-                Toast.ShowSuccess("Event closed on server");
-                try
+                // 2. Background Server Update
+                var response = await Http.PostAsync($"api/pos/events/close/{ev.Id}", null);
+                if (response.IsSuccessStatusCode)
                 {
-                    await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", closeKey);
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", closeKey);
+                    }
+                    catch {}
                 }
-                catch {}
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[POS] CloseBanquet Server Sync failed (will retry on next refresh): {ex.Message}");
-            Toast.ShowWarning("Banquet closed locally. Server sync pending.");
-        }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POS] CloseBanquet Server Sync failed (will retry on next refresh): {ex.Message}");
+            }
+        });
     }
 
     private async Task PrintBanquetMasterSummary(ActiveEvent ev, bool isReprint = false)

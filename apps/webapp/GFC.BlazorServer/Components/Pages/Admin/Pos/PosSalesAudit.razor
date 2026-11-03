@@ -5410,7 +5410,7 @@
                                                         {
                                                             @foreach (var sale in evSales)
                                                             {
-                                                                var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS")));
+                                                                var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS") || sale.ItemsJson.Contains("RETURNED FUNDS") || sale.ItemsJson.Contains("DEPOSIT CORRECTION")));
                                                                 <tr>
                                                                     <td class="ps-4 py-2.5">
                                                                         <div class="fw-bold text-dark">@sale.Timestamp.ToString("ddd, MMM dd, yyyy")</div>
@@ -6074,7 +6074,7 @@
                                                         {
                                                             @foreach (var sale in evSales)
                                                             {
-                                                                var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS")));
+                                                                var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS") || sale.ItemsJson.Contains("RETURNED FUNDS") || sale.ItemsJson.Contains("DEPOSIT CORRECTION")));
                                                                 var (clubPart, eventPart) = GetSalePortions(sale, latestEv);
                                                                 var totalRow = isDepositSale ? sale.TotalAmount : (clubPart + eventPart);
                                                                 <tr>
@@ -10462,14 +10462,14 @@
                 }
             }
 
-            var depSales = allSales.Where(s => s.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("INITIAL DEPOSIT") || s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS")))).ToList();
+            var depSales = allSales.Where(s => s.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("INITIAL DEPOSIT") || s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS") || s.ItemsJson.Contains("RETURNED FUNDS") || s.ItemsJson.Contains("DEPOSIT CORRECTION")))).ToList();
             var drinkSales = allSales.Where(s => !depSales.Contains(s)).ToList();
 
             decimal initialPrepaid = eventList.Sum(e => e.InitialAmount);
-            decimal addedFunds = depSales.Where(s => string.IsNullOrEmpty(s.ItemsJson) || !s.ItemsJson.Contains("INITIAL DEPOSIT")).Sum(s => s.TotalAmount);
+            decimal addedFunds = depSales.Where(s => !string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS"))).Sum(s => s.TotalAmount);
             decimal totalFunding = initialPrepaid + addedFunds;
             decimal netSpend = drinkSales.Sum(s => GetCorrectedEventSettlementAmount(s, latest));
-            decimal totalSpent = latest.Type == GFC.Core.Enums.EventTabType.RunningTab ? drinkSales.Sum(s => s.TotalAmount) : allSales.Sum(s => s.TotalAmount);
+            decimal totalSpent = drinkSales.Sum(s => s.TotalAmount);
             decimal calculatedBalance = latest.Type == GFC.Core.Enums.EventTabType.PrePaid ? (totalFunding - netSpend) : latest.CurrentBalance;
 
             // Distributions made BY this event (donor actions)
@@ -13789,10 +13789,13 @@
     private string GetTransactionItemsSummary(PosSale sale)
     {
         if (sale == null) return "";
-        var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS")));
+        var isDepositSale = sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS") || sale.ItemsJson.Contains("RETURNED FUNDS") || sale.ItemsJson.Contains("DEPOSIT CORRECTION")));
         if (isDepositSale)
         {
-            return sale.ItemsJson?.Contains("INITIAL DEPOSIT") == true ? "Initial Event Deposit" : "Event Deposit / Added Top-Up";
+            if (sale.ItemsJson?.Contains("INITIAL DEPOSIT") == true) return "Initial Event Deposit";
+            if (sale.ItemsJson?.Contains("RETURNED FUNDS") == true) return "Returned Event Funds (Refund)";
+            if (sale.ItemsJson?.Contains("DEPOSIT CORRECTION") == true) return "Deposit Correction";
+            return "Event Deposit / Added Top-Up";
         }
 
         var items = GetItemsList(sale.ItemsJson);
@@ -13877,7 +13880,7 @@
     {
         if (sale == null) return (0m, 0m);
 
-        if (sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS"))))
+        if (sale.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(sale.ItemsJson) && (sale.ItemsJson.Contains("INITIAL DEPOSIT") || sale.ItemsJson.Contains("TAB DEPOSIT") || sale.ItemsJson.Contains("ADDED FUNDS") || sale.ItemsJson.Contains("RETURNED FUNDS") || sale.ItemsJson.Contains("DEPOSIT CORRECTION"))))
         {
             return (sale.TotalAmount, 0m);
         }
