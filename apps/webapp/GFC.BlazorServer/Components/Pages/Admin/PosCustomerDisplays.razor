@@ -1,0 +1,596 @@
+@page "/admin/pos-customer-displays"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.Core.Models
+@using GFC.BlazorServer.Components.Shared
+@attribute [Authorize]
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject GFC.BlazorServer.Services.IToastService ToastService
+@inject NavigationManager Navigation
+
+<PageTitle>Customer Screen Displays | GFC</PageTitle>
+
+@* Ensure Toast notifications render on this page *@
+<Toast />
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <button class="btn btn-light rounded-circle me-3 shadow-sm border" @onclick="GoBack" title="Exit / Go Back">
+                <i class="bi bi-arrow-left fs-5"></i>
+            </button>
+            <div>
+                <h1 class="h3 mb-1 fw-bold text-dark d-flex align-items-center gap-2">
+                    <i class="bi bi-tv text-primary"></i> Customer Screen Displays &amp; Bulletins
+                </h1>
+                <p class="text-muted mb-0">Manage rotating announcements, specials, and event notices displayed on POS customer-facing screens when registers are idle.</p>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary rounded-pill px-3 shadow-sm fw-semibold" @onclick="GoBack">
+                <i class="bi bi-x-lg me-1"></i> Exit
+            </button>
+            <button class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-lg me-2"></i> New Announcement
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(feedbackMessage))
+    {
+        <div class="alert @(isErrorFeedback ? "alert-danger" : "alert-success") alert-dismissible fade show rounded-3 shadow-sm mb-4" role="alert">
+            <i class="bi @(isErrorFeedback ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-2"></i>
+            @feedbackMessage
+            <button type="button" class="btn-close" @onclick="() => feedbackMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center p-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (!announcements.Any())
+    {
+        <div class="card shadow-sm border-0 rounded-4 text-center p-5">
+            <div class="card-body">
+                <i class="bi bi-megaphone text-muted" style="font-size: 3.5rem;"></i>
+                <h4 class="mt-3 fw-bold">No Announcements Found</h4>
+                <p class="text-muted">Create eye-catching promotions, sweet bread notices, or membership dues reminders to display on the customer screen.</p>
+                <button class="btn btn-outline-primary rounded-pill px-4" @onclick="OpenCreateModal">
+                    <i class="bi bi-plus-lg me-1"></i> Add Your First Announcement
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 70px;">Order</th>
+                            <th>Theme &amp; Title</th>
+                            <th>Body Message</th>
+                            <th>Badge</th>
+                            <th>Schedule Window</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-end" style="width: 140px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in announcements)
+                        {
+                            <tr class="@(!item.IsActive ? "table-secondary text-muted" : "")">
+                                <td>
+                                    <span class="badge bg-light text-dark border fw-bold px-2 py-1">#@item.DisplayOrder</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge @GetThemeBadgeClass(item.Theme) px-2 py-1">@item.Theme</span>
+                                        <span class="fw-bold">@item.Title</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="text-truncate" style="max-width: 320px;" title="@item.Message">@item.Message</div>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.BadgeText))
+                                    {
+                                        <span class="badge bg-dark-subtle text-dark border">@item.BadgeText</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        @if (!item.StartDate.HasValue && !item.EndDate.HasValue)
+                                        {
+                                            <span class="text-success"><i class="bi bi-infinity me-1"></i> Always Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span>@(item.StartDate?.ToString("MMM d, yyyy") ?? "Immediate") ➔ @(item.EndDate?.ToString("MMM d, yyyy") ?? "No Expiration")</span>
+                                        }
+                                    </small>
+                                </td>
+                                <td class="text-center">
+                                    <div class="form-check form-switch d-inline-block">
+                                        <input class="form-check-input" type="checkbox" checked="@item.IsActive" @onchange="() => ToggleActive(item)" role="switch">
+                                    </div>
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-secondary rounded-pill me-1" @onclick="() => EditAnnouncement(item)" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill" @onclick="() => DeleteAnnouncement(item)" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@* CREATE / EDIT MODAL *@
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+                <div class="modal-header bg-dark text-white px-4 py-3">
+                    <h5 class="modal-title fw-bold text-white d-flex align-items-center">
+                        <i class="bi @(currentModel.Id == 0 ? "bi-plus-circle" : "bi-pencil-square") me-2"></i>
+                        @(currentModel.Id == 0 ? "New Customer Screen Announcement" : "Edit Customer Screen Announcement")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(modalError))
+                    {
+                        <div class="alert alert-danger rounded-3 py-2 px-3 mb-3 small">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i> @modalError
+                        </div>
+                    }
+
+                    <div class="row g-4">
+                        <!-- LEFT COLUMN: FORM CONTROLS -->
+                        <div class="col-lg-6">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Headline / Title <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control rounded-3" placeholder="e.g., Sweet Bread Available Today!" @bind="currentModel.Title" maxlength="150" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Body Message <span class="text-danger">*</span></label>
+                                <textarea class="form-control rounded-3" rows="3" placeholder="e.g., Freshly baked and warm at the counter. Stop by before supplies run out!" @bind="currentModel.Message" maxlength="500"></textarea>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Theme Style</label>
+                                    <select class="form-select rounded-3" @bind="currentModel.Theme">
+                                        <option value="Bakery">Gold Warm Amber</option>
+                                        <option value="Notice">Crimson Red Alert</option>
+                                        <option value="Event">Royal Purple</option>
+                                        <option value="Promo">Emerald Green</option>
+                                        <option value="ClubInfo">Deep Ocean Blue</option>
+                                        <option value="Sunset">Sunset Coral Orange</option>
+                                        <option value="Charcoal">Charcoal Midnight Luxury</option>
+                                        <option value="Teal">Teal Cyan</option>
+                                        <option value="Rose">Rose Magenta</option>
+                                        <option value="Slate">Slate Steel</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Top Badge Tag (Optional)</label>
+                                    <input type="text" class="form-control rounded-3" placeholder="e.g., FRESH DAILY, REMINDER" @bind="currentModel.BadgeText" maxlength="50" />
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Icon or Graphic Preset</label>
+                                    <select class="form-select rounded-3" @bind="currentModel.IconOrImageUrl">
+                                        <option value="none">No Icon / Graphic</option>
+                                        <option value="bakery">🍞 Sweet Bread Loaf</option>
+                                        <option value="dues">💳 Membership Card / Dues</option>
+                                        <option value="calendar">📅 Calendar / Schedule</option>
+                                        <option value="beer">🍺 Draft Beer / Mug</option>
+                                        <option value="cocktail">🍸 Cocktail / Mixed Drink</option>
+                                        <option value="wine">🍷 Wine Glass</option>
+                                        <option value="pizza">🍕 Pizza / Food</option>
+                                        <option value="food">🍽️ Dinner / Banquet</option>
+                                        <option value="coffee">☕ Hot Coffee</option>
+                                        <option value="party">🎉 Party Celebration</option>
+                                        <option value="trophy">🏆 Trophy / Competition</option>
+                                        <option value="darts">🎯 Darts / Bullseye</option>
+                                        <option value="bingo">🎱 Bingo / Games</option>
+                                        <option value="music">🎵 Music / DJ / Band</option>
+                                        <option value="star">⭐ Star Feature</option>
+                                        <option value="megaphone">📢 Megaphone / Announcement</option>
+                                        <option value="warning">⚠️ Warning / Urgent Alert</option>
+                                        <option value="tag">🏷️ Special Discount / Sale</option>
+                                        <option value="clock">⏰ Time / Hours Reminder</option>
+                                        <option value="dollar">💰 Cash / Money / Payment</option>
+                                        <option value="flag">🇵🇹 Portuguese Flag</option>
+                                        <option value="heart">❤️ Heart / Charity</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Display Order</label>
+                                    <input type="number" class="form-control rounded-3" min="0" @bind="currentModel.DisplayOrder" />
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Start Date (Optional)</label>
+                                    <input type="date" class="form-control rounded-3" @bind="currentModel.StartDate" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">End Date (Optional)</label>
+                                    <input type="date" class="form-control rounded-3" @bind="currentModel.EndDate" />
+                                </div>
+                            </div>
+
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" id="isActiveSwitch" @bind="currentModel.IsActive" role="switch">
+                                <label class="form-check-label fw-bold ms-2" for="isActiveSwitch">Active for Customer Display</label>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: LIVE CUSTOMER DISPLAY MOCKUP -->
+                        <div class="col-lg-6">
+                            <label class="form-label fw-bold text-muted small text-uppercase">Live Customer Screen Preview</label>
+                            <div class="cfd-preview-card-wrap p-4 rounded-4 text-center d-flex flex-column justify-content-center align-items-center @GetPreviewThemeClass(currentModel.Theme)" style="min-height: 380px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
+                                @if (!string.IsNullOrWhiteSpace(currentModel.BadgeText))
+                                {
+                                    <div class="cfd-preview-badge mb-3">
+                                        <span class="badge rounded-pill px-3 py-2 fw-bold text-uppercase" style="letter-spacing: 1.5px; font-size: 0.85rem; background: rgba(255,255,255,0.35); border: 1px solid rgba(255,255,255,0.5); color: #ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.4);">
+                                            @currentModel.BadgeText
+                                        </span>
+                                    </div>
+                                }
+                                <div class="cfd-preview-icon mb-3" style="font-size: 3.5rem;">
+                                    @GetPreviewIcon(currentModel.IconOrImageUrl, currentModel.Theme)
+                                </div>
+                                <h3 class="fw-bold mb-2 text-white" style="text-shadow: 0 2px 6px rgba(0,0,0,0.5); letter-spacing: -0.5px;">
+                                    @(string.IsNullOrWhiteSpace(currentModel.Title) ? "Announcement Headline" : currentModel.Title)
+                                </h3>
+                                <p class="text-white px-3 mb-0" style="font-size: 1.15rem; line-height: 1.6; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.5); opacity: 0.95;">
+                                    @(string.IsNullOrWhiteSpace(currentModel.Message) ? "Your eye-catching message will appear here in rotation on the customer-facing screen when the POS register is idle." : currentModel.Message)
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light px-4 py-3">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" @onclick="CloseModal">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="SaveAnnouncement" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg me-1"></i>
+                            <span>Save Announcement</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* PREVIEW THEME GRADIENTS */
+    .theme-bakery {
+        background: radial-gradient(circle at 50% 35%, #f59e0b 0%, #b45309 45%, #451a03 100%) !important;
+        color: #fff;
+    }
+    .theme-notice {
+        background: radial-gradient(circle at 50% 35%, #f43f5e 0%, #be123c 45%, #4c0519 100%) !important;
+        color: #fff;
+    }
+    .theme-event {
+        background: radial-gradient(circle at 50% 35%, #8b5cf6 0%, #6d28d9 45%, #2e1065 100%) !important;
+        color: #fff;
+    }
+    .theme-promo {
+        background: radial-gradient(circle at 50% 35%, #10b981 0%, #047857 45%, #022c22 100%) !important;
+        color: #fff;
+    }
+    .theme-clubinfo {
+        background: radial-gradient(circle at 50% 35%, #38bdf8 0%, #1d4ed8 45%, #0f172a 100%) !important;
+        color: #fff;
+    }
+    .theme-sunset {
+        background: radial-gradient(circle at 50% 35%, #fb923c 0%, #ea580c 45%, #7c2d12 100%) !important;
+        color: #fff;
+    }
+    .theme-charcoal {
+        background: radial-gradient(circle at 50% 35%, #475569 0%, #1e293b 45%, #020617 100%) !important;
+        color: #fff;
+    }
+    .theme-teal {
+        background: radial-gradient(circle at 50% 35%, #2dd4bf 0%, #0f766e 45%, #134e4a 100%) !important;
+        color: #fff;
+    }
+    .theme-rose {
+        background: radial-gradient(circle at 50% 35%, #fb7185 0%, #e11d48 45%, #881337 100%) !important;
+        color: #fff;
+    }
+    .theme-slate {
+        background: radial-gradient(circle at 50% 35%, #94a3b8 0%, #475569 45%, #1e293b 100%) !important;
+        color: #fff;
+    }
+</style>
+
+@code {
+    private List<PosCustomerAnnouncement> announcements = new();
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isSaving = false;
+    private string? modalError = null;
+    private string? feedbackMessage = null;
+    private bool isErrorFeedback = false;
+    private PosCustomerAnnouncement currentModel = new();
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAnnouncements();
+    }
+
+    private async Task LoadAnnouncements()
+    {
+        isLoading = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            announcements = await db.PosCustomerAnnouncements
+                .AsNoTracking()
+                .OrderBy(a => a.DisplayOrder)
+                .ThenBy(a => a.Id)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"Failed to load announcements: {ex.Message}";
+            isErrorFeedback = true;
+            await ToastService.ShowError(feedbackMessage);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        modalError = null;
+        currentModel = new PosCustomerAnnouncement
+        {
+            DisplayOrder = announcements.Count + 1,
+            IsActive = true,
+            Theme = "Bakery"
+        };
+        showModal = true;
+    }
+
+    private void EditAnnouncement(PosCustomerAnnouncement item)
+    {
+        modalError = null;
+        currentModel = new PosCustomerAnnouncement
+        {
+            Id = item.Id,
+            Title = item.Title,
+            Message = item.Message,
+            Theme = item.Theme,
+            IconOrImageUrl = item.IconOrImageUrl,
+            BadgeText = item.BadgeText,
+            StartDate = item.StartDate,
+            EndDate = item.EndDate,
+            DisplayOrder = item.DisplayOrder,
+            IsActive = item.IsActive
+        };
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        modalError = null;
+    }
+
+    private async Task SaveAnnouncement()
+    {
+        modalError = null;
+        if (string.IsNullOrWhiteSpace(currentModel.Title))
+        {
+            modalError = "Please enter an announcement title.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(currentModel.Message))
+        {
+            modalError = "Please enter an announcement message.";
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            if (currentModel.Id == 0)
+            {
+                currentModel.CreatedAt = DateTime.UtcNow;
+                currentModel.ModifiedAt = DateTime.UtcNow;
+                db.PosCustomerAnnouncements.Add(currentModel);
+            }
+            else
+            {
+                var existing = await db.PosCustomerAnnouncements.FirstOrDefaultAsync(a => a.Id == currentModel.Id);
+                if (existing != null)
+                {
+                    existing.Title = currentModel.Title;
+                    existing.Message = currentModel.Message;
+                    existing.Theme = currentModel.Theme;
+                    existing.IconOrImageUrl = currentModel.IconOrImageUrl;
+                    existing.BadgeText = currentModel.BadgeText;
+                    existing.StartDate = currentModel.StartDate;
+                    existing.EndDate = currentModel.EndDate;
+                    existing.DisplayOrder = currentModel.DisplayOrder;
+                    existing.IsActive = currentModel.IsActive;
+                    existing.ModifiedAt = DateTime.UtcNow;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            showModal = false;
+            feedbackMessage = "Customer announcement saved successfully!";
+            isErrorFeedback = false;
+            await ToastService.ShowSuccess(feedbackMessage);
+            await LoadAnnouncements();
+        }
+        catch (Exception ex)
+        {
+            modalError = $"Database error: {ex.Message}";
+            feedbackMessage = modalError;
+            isErrorFeedback = true;
+            await ToastService.ShowError(modalError);
+        }
+        finally
+        {
+            isSaving = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ToggleActive(PosCustomerAnnouncement item)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existing = await db.PosCustomerAnnouncements.FirstOrDefaultAsync(a => a.Id == item.Id);
+            if (existing != null)
+            {
+                existing.IsActive = !existing.IsActive;
+                existing.ModifiedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+                item.IsActive = existing.IsActive;
+                feedbackMessage = $"Announcement marked {(item.IsActive ? "active" : "inactive")}.";
+                isErrorFeedback = false;
+                await ToastService.ShowSuccess(feedbackMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"Failed to update status: {ex.Message}";
+            isErrorFeedback = true;
+            await ToastService.ShowError(feedbackMessage);
+        }
+    }
+
+    private async Task DeleteAnnouncement(PosCustomerAnnouncement item)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existing = await db.PosCustomerAnnouncements.FirstOrDefaultAsync(a => a.Id == item.Id);
+            if (existing != null)
+            {
+                existing.IsDeleted = true;
+                existing.ModifiedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+                announcements.Remove(item);
+                feedbackMessage = "Announcement deleted.";
+                isErrorFeedback = false;
+                await ToastService.ShowSuccess(feedbackMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            feedbackMessage = $"Failed to delete: {ex.Message}";
+            isErrorFeedback = true;
+            await ToastService.ShowError(feedbackMessage);
+        }
+    }
+
+    private string GetThemeBadgeClass(string? theme) => theme switch
+    {
+        "Bakery" => "bg-warning text-dark",
+        "Notice" => "bg-danger text-white",
+        "Event" => "bg-primary text-white",
+        "Promo" => "bg-success text-white",
+        "Sunset" => "bg-warning-subtle text-dark border",
+        "Charcoal" => "bg-dark text-white",
+        "Teal" => "bg-info text-dark",
+        "Rose" => "bg-danger-subtle text-danger border",
+        "Slate" => "bg-secondary text-white",
+        _ => "bg-info text-white"
+    };
+
+    private string GetPreviewThemeClass(string? theme) => theme switch
+    {
+        "Bakery" => "theme-bakery",
+        "Notice" => "theme-notice",
+        "Event" => "theme-event",
+        "Promo" => "theme-promo",
+        "Sunset" => "theme-sunset",
+        "Charcoal" => "theme-charcoal",
+        "Teal" => "theme-teal",
+        "Rose" => "theme-rose",
+        "Slate" => "theme-slate",
+        _ => "theme-clubinfo"
+    };
+
+    private string GetPreviewIcon(string? iconKey, string? theme)
+    {
+        if (iconKey == "none") return string.Empty;
+
+        return iconKey switch
+        {
+            "bakery" => "🍞",
+            "dues" => "💳",
+            "calendar" => "📅",
+            "beer" => "🍺",
+            "cocktail" => "🍸",
+            "wine" => "🍷",
+            "pizza" => "🍕",
+            "food" => "🍽️",
+            "coffee" => "☕",
+            "party" => "🎉",
+            "trophy" => "🏆",
+            "darts" => "🎯",
+            "bingo" => "🎱",
+            "music" => "🎵",
+            "star" => "⭐",
+            "megaphone" => "📢",
+            "warning" => "⚠️",
+            "tag" => "🏷️",
+            "clock" => "⏰",
+            "dollar" => "💰",
+            "flag" => "🇵🇹",
+            "heart" => "❤️",
+            _ => "⭐"
+        };
+    }
+}

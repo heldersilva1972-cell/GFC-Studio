@@ -8,6 +8,8 @@ public class MauiStationSettingsService : IStationSettingsService
     private const string Key = "GfcPos_TerminalName";
     private const string CfdKey = "GfcPos_CustomerDisplayEnabled";
     private const string CfdDurationKey = "GfcPos_CustomerDisplayDurationSeconds";
+    private const string CfdAnnouncementsKey = "GfcPos_CustomerAnnouncementsEnabled";
+    private const string CfdAnnouncementIntervalKey = "GfcPos_CustomerAnnouncementIntervalSeconds";
 
     public Task<string> GetTerminalNameAsync()
     {
@@ -43,6 +45,30 @@ public class MauiStationSettingsService : IStationSettingsService
     public Task SaveCustomerDisplayDurationSecondsAsync(int seconds)
     {
         Preferences.Default.Set(CfdDurationKey, seconds);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> GetCustomerAnnouncementsEnabledAsync()
+    {
+        var enabled = Preferences.Default.Get(CfdAnnouncementsKey, true);
+        return Task.FromResult(enabled);
+    }
+
+    public Task SaveCustomerAnnouncementsEnabledAsync(bool enabled)
+    {
+        Preferences.Default.Set(CfdAnnouncementsKey, enabled);
+        return Task.CompletedTask;
+    }
+
+    public Task<int> GetCustomerAnnouncementIntervalSecondsAsync()
+    {
+        var secs = Preferences.Default.Get(CfdAnnouncementIntervalKey, 8);
+        return Task.FromResult(secs > 0 ? secs : 8);
+    }
+
+    public Task SaveCustomerAnnouncementIntervalSecondsAsync(int seconds)
+    {
+        Preferences.Default.Set(CfdAnnouncementIntervalKey, seconds);
         return Task.CompletedTask;
     }
 }

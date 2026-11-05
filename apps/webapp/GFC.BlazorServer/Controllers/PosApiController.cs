@@ -2010,4 +2010,121 @@ public class PosApiController : ControllerBase
 
         return (null, false);
     }
+
+    #region Customer Screen Announcements / Displays
+
+    [HttpGet("customer-displays/active")]
+    public async Task<IActionResult> GetActiveCustomerAnnouncements()
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var now = DateTime.UtcNow;
+
+            var announcements = await db.PosCustomerAnnouncements
+                .AsNoTracking()
+                .Where(a => a.IsActive && !a.IsDeleted)
+                .Where(a => (!a.StartDate.HasValue || a.StartDate.Value <= now) &&
+                            (!a.EndDate.HasValue || a.EndDate.Value >= now))
+                .OrderBy(a => a.DisplayOrder)
+                .ThenBy(a => a.Id)
+                .ToListAsync();
+
+            return Ok(announcements);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching active customer announcements");
+            return StatusCode(500, "Internal server error fetching customer announcements");
+        }
+    }
+
+    [HttpGet("customer-displays")]
+    public async Task<IActionResult> GetAllCustomerAnnouncements()
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var list = await db.PosCustomerAnnouncements
+                .AsNoTracking()
+                .OrderBy(a => a.DisplayOrder)
+                .ThenBy(a => a.Id)
+                .ToListAsync();
+            return Ok(list);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching all customer announcements");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    [HttpPost("customer-displays")]
+    public async Task<IActionResult> SaveCustomerAnnouncement([FromBody] PosCustomerAnnouncement announcement)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(announcement.Title) || string.IsNullOrWhiteSpace(announcement.Message))
+            {
+                return BadRequest("Title and Message are required.");
+            }
+
+            using var db = await _dbFactory.CreateDbContextAsync();
+            if (announcement.Id == 0)
+            {
+                announcement.CreatedAt = DateTime.UtcNow;
+                announcement.ModifiedAt = DateTime.UtcNow;
+                db.PosCustomerAnnouncements.Add(announcement);
+            }
+            else
+            {
+                var existing = await db.PosCustomerAnnouncements.FirstOrDefaultAsync(a => a.Id == announcement.Id);
+                if (existing == null) return NotFound("Announcement not found.");
+
+                existing.Title = announcement.Title;
+                existing.Message = announcement.Message;
+                existing.Theme = announcement.Theme;
+                existing.IconOrImageUrl = announcement.IconOrImageUrl;
+                existing.BadgeText = announcement.BadgeText;
+                existing.StartDate = announcement.StartDate;
+                existing.EndDate = announcement.EndDate;
+                existing.DisplayOrder = announcement.DisplayOrder;
+                existing.IsActive = announcement.IsActive;
+                existing.ModifiedAt = DateTime.UtcNow;
+            }
+
+            await db.SaveChangesAsync();
+            return Ok(announcement);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving customer announcement");
+            return StatusCode(500, "Internal server error saving announcement");
+        }
+    }
+
+    [HttpDelete("customer-displays/{id}")]
+    public async Task<IActionResult> DeleteCustomerAnnouncement(int id)
+    {
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.PosCustomerAnnouncements.FirstOrDefaultAsync(a => a.Id == id);
+            if (existing == null) return NotFound();
+
+            existing.IsDeleted = true;
+            existing.ModifiedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting customer announcement {Id}", id);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    #endregion
+
 }

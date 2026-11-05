@@ -1314,6 +1314,19 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                                 SET PageName = 'Lottery Shifts', Category = 'GFC CONNECT', IsActive = 1, DisplayOrder = 1030 
                                 WHERE PageRoute = '/gfc-connect/lottery-shifts';
                             END
+
+                            -- Register Customer Displays under POS SYSTEM
+                            IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/admin/pos-customer-displays')
+                            BEGIN
+                                INSERT INTO AppPages (PageName, PageRoute, Category, IsActive, RequiresAdmin, DisplayOrder, Description)
+                                VALUES ('Customer Displays', '/admin/pos-customer-displays', 'POS SYSTEM', 1, 0, 525, 'Manage rotating customer screen announcements, events, and bulletins');
+                            END
+                            ELSE
+                            BEGIN
+                                UPDATE AppPages 
+                                SET PageName = 'Customer Displays', Category = 'POS SYSTEM', IsActive = 1, DisplayOrder = 525 
+                                WHERE PageRoute = '/admin/pos-customer-displays';
+                            END
                             
                             PRINT 'Updated AppPages names and active states, registered Income page, set Bar/Lottery Entries category, consolidated mobile categories, cleaned GFC Connect pages';
                         END

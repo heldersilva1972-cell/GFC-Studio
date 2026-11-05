@@ -160,6 +160,7 @@ public class GfcDbContext : DbContext
     public DbSet<PosMenuProfile> PosMenuProfiles => Set<PosMenuProfile>();
     public DbSet<PosMenuOverride> PosMenuOverrides => Set<PosMenuOverride>();
     public DbSet<PosTerminal> PosTerminals => Set<PosTerminal>();
+    public DbSet<PosCustomerAnnouncement> PosCustomerAnnouncements => Set<PosCustomerAnnouncement>();
     public DbSet<TokenAuditLogEntry> TokenAuditLogs => Set<TokenAuditLogEntry>();
     
     // Events & Banquets
@@ -1340,6 +1341,13 @@ public class GfcDbContext : DbContext
             entity.ToTable("PosMenuOverrides");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.OverridePrice).HasColumnType("decimal(18,2)");
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<PosCustomerAnnouncement>(entity =>
+        {
+            entity.ToTable("PosCustomerAnnouncements");
+            entity.HasKey(e => e.Id);
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
