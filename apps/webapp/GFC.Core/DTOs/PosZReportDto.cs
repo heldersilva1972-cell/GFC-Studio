@@ -22,4 +22,9 @@ public class PosZReportDto
     public string? PhysicalTokensJson { get; set; }
     public string? ShiftDrinkJson { get; set; }
     public int? QuarterRollsCount { get; set; }
+    public int BirthdayCompsCount { get; set; }
+    public decimal BirthdayCompsValue { get; set; }
+    public int GeneralCompsCount { get; set; }
+    public decimal GeneralCompsValue { get; set; }
+    public string? CompsSummaryJson { get; set; }
 }

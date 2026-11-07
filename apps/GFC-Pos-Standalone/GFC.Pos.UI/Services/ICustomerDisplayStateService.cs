@@ -14,6 +14,9 @@ public class CustomerDisplayItem
     public decimal Price { get; set; }
     public decimal Total => Quantity * Price;
     public List<string> Modifiers { get; set; } = new();
+    public bool IsComped { get; set; }
+    public string? CompType { get; set; }
+    public decimal OriginalPrice { get; set; }
 }
 
 public class CustomerDisplaySnapshot

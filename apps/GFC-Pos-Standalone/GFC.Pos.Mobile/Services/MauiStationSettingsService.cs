@@ -10,6 +10,7 @@ public class MauiStationSettingsService : IStationSettingsService
     private const string CfdDurationKey = "GfcPos_CustomerDisplayDurationSeconds";
     private const string CfdAnnouncementsKey = "GfcPos_CustomerAnnouncementsEnabled";
     private const string CfdAnnouncementIntervalKey = "GfcPos_CustomerAnnouncementIntervalSeconds";
+    private const string CartCompGestureKey = "GfcPos_CartCompGestureEnabled";
 
     public Task<string> GetTerminalNameAsync()
     {
@@ -69,6 +70,18 @@ public class MauiStationSettingsService : IStationSettingsService
     public Task SaveCustomerAnnouncementIntervalSecondsAsync(int seconds)
     {
         Preferences.Default.Set(CfdAnnouncementIntervalKey, seconds);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> GetCartCompGestureEnabledAsync()
+    {
+        var enabled = Preferences.Default.Get(CartCompGestureKey, true);
+        return Task.FromResult(enabled);
+    }
+
+    public Task SaveCartCompGestureEnabledAsync(bool enabled)
+    {
+        Preferences.Default.Set(CartCompGestureKey, enabled);
         return Task.CompletedTask;
     }
 }

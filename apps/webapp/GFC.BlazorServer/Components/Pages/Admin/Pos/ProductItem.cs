@@ -17,5 +17,8 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
         public Guid? AssociatedCartItemId { get; set; }
         public int? AppliedTokenId { get; set; }
         public int ZReportGroup { get; set; }
+        public bool IsComped { get; set; }
+        public string? CompType { get; set; }
+        public decimal OriginalPrice { get; set; }
     }
 }

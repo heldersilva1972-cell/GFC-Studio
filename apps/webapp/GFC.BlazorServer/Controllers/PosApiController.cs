@@ -967,6 +967,11 @@ public class PosApiController : ControllerBase
                 PhysicalTokensJson = reportDto.PhysicalTokensJson,
                 ShiftDrinkJson = reportDto.ShiftDrinkJson,
                 QuarterRollsCount = reportDto.QuarterRollsCount,
+                BirthdayCompsCount = reportDto.BirthdayCompsCount,
+                BirthdayCompsValue = reportDto.BirthdayCompsValue,
+                GeneralCompsCount = reportDto.GeneralCompsCount,
+                GeneralCompsValue = reportDto.GeneralCompsValue,
+                CompsSummaryJson = reportDto.CompsSummaryJson,
                 IsSynced = true
             };
 
@@ -1189,7 +1194,12 @@ public class PosApiController : ControllerBase
                 RecordSalesToBar = r.RecordSalesToBar,
                 PhysicalTokensJson = r.PhysicalTokensJson,
                 ShiftDrinkJson = r.ShiftDrinkJson,
-                QuarterRollsCount = r.QuarterRollsCount
+                QuarterRollsCount = r.QuarterRollsCount,
+                BirthdayCompsCount = r.BirthdayCompsCount,
+                BirthdayCompsValue = r.BirthdayCompsValue,
+                GeneralCompsCount = r.GeneralCompsCount,
+                GeneralCompsValue = r.GeneralCompsValue,
+                CompsSummaryJson = r.CompsSummaryJson
             })
             .ToListAsync();
         return Ok(reports);
@@ -1219,7 +1229,12 @@ public class PosApiController : ControllerBase
             RecordSalesToBar = r.RecordSalesToBar,
             PhysicalTokensJson = r.PhysicalTokensJson,
             ShiftDrinkJson = r.ShiftDrinkJson,
-            QuarterRollsCount = r.QuarterRollsCount
+            QuarterRollsCount = r.QuarterRollsCount,
+            BirthdayCompsCount = r.BirthdayCompsCount,
+            BirthdayCompsValue = r.BirthdayCompsValue,
+            GeneralCompsCount = r.GeneralCompsCount,
+            GeneralCompsValue = r.GeneralCompsValue,
+            CompsSummaryJson = r.CompsSummaryJson
         });
     }
 

@@ -14,4 +14,8 @@ public interface IStationSettingsService
     Task SaveCustomerAnnouncementsEnabledAsync(bool enabled);
     Task<int> GetCustomerAnnouncementIntervalSecondsAsync();
     Task SaveCustomerAnnouncementIntervalSecondsAsync(int seconds);
+
+    // Cart Comp Gestures
+    Task<bool> GetCartCompGestureEnabledAsync();
+    Task SaveCartCompGestureEnabledAsync(bool enabled);
 }

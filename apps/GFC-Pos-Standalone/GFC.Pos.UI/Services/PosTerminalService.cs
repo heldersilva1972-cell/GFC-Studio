@@ -303,6 +303,23 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 foreach (var i in flatList)
                                 {
                                     decimal effectivePrice = (i.Name.Contains("(DARTS", StringComparison.OrdinalIgnoreCase) || string.Equals(i.Category, "DARTS ROUND", StringComparison.OrdinalIgnoreCase)) ? 0m : i.Price;
+                                    
+                                    // ─── COMPS TRACKING ───
+                                    if (i.IsComped)
+                                    {
+                                        decimal compValue = (i.OriginalPrice > 0 ? i.OriginalPrice : effectivePrice) * i.Quantity;
+                                        if (string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            audit.BirthdayCompsCount += i.Quantity;
+                                            audit.BirthdayCompsValue += compValue;
+                                        }
+                                        else
+                                        {
+                                            audit.GeneralCompsCount += i.Quantity;
+                                            audit.GeneralCompsValue += compValue;
+                                        }
+                                    }
+
                                     if (!audit.ItemSummary.ContainsKey(i.Name)) audit.ItemSummary[i.Name] = 0;
                                     if (!audit.ItemTotals.ContainsKey(i.Name)) audit.ItemTotals[i.Name] = 0;
                                     

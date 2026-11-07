@@ -16,6 +16,10 @@ public class ShiftAuditDto
     public List<BanquetShiftReportDto> Banquets { get; set; } = new();
     public decimal PayoutTotal { get; set; }
     public List<PosSaleDto> Payouts { get; set; } = new();
+    public int BirthdayCompsCount { get; set; }
+    public decimal BirthdayCompsValue { get; set; }
+    public int GeneralCompsCount { get; set; }
+    public decimal GeneralCompsValue { get; set; }
 }
 
 public class BanquetShiftReportDto

@@ -45,6 +45,12 @@ namespace GFC.BlazorServer.Data.Entities
         public string? ShiftDrinkJson { get; set; }
         public int? QuarterRollsCount { get; set; }
 
+        public int BirthdayCompsCount { get; set; } = 0;
+        public decimal BirthdayCompsValue { get; set; } = 0;
+        public int GeneralCompsCount { get; set; } = 0;
+        public decimal GeneralCompsValue { get; set; } = 0;
+        public string? CompsSummaryJson { get; set; }
+
         public bool IsSynced { get; set; } = false;
     }
 }

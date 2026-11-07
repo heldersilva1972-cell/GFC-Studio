@@ -10,6 +10,7 @@ public class WebStationSettingsService : IStationSettingsService
     private const string CfdDurationKey = "GfcPos_CustomerDisplayDurationSeconds";
     private const string CfdAnnouncementsKey = "GfcPos_CustomerAnnouncementsEnabled";
     private const string CfdAnnouncementIntervalKey = "GfcPos_CustomerAnnouncementIntervalSeconds";
+    private const string CartCompGestureKey = "GfcPos_CartCompGestureEnabled";
 
     public WebStationSettingsService(IJSRuntime js)
     {
@@ -68,5 +69,16 @@ public class WebStationSettingsService : IStationSettingsService
     public async Task SaveCustomerAnnouncementIntervalSecondsAsync(int seconds)
     {
         await _js.InvokeVoidAsync("localStorage.setItem", CfdAnnouncementIntervalKey, seconds.ToString());
+    }
+
+    public async Task<bool> GetCartCompGestureEnabledAsync()
+    {
+        var val = await _js.InvokeAsync<string>("localStorage.getItem", CartCompGestureKey);
+        return bool.TryParse(val, out var enabled) ? enabled : true; // Default enabled
+    }
+
+    public async Task SaveCartCompGestureEnabledAsync(bool enabled)
+    {
+        await _js.InvokeVoidAsync("localStorage.setItem", CartCompGestureKey, enabled.ToString().ToLower());
     }
 }
