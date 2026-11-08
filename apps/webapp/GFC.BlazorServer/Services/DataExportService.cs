@@ -54,45 +54,114 @@ namespace GFC.BlazorServer.Services
 
         public byte[] ExportToExcel(ExportOptions options)
         {
+            return ExportToExcel(options, null);
+        }
+
+        public byte[] ExportToExcel(ExportOptions options, Action<string, int>? progressCallback)
+        {
             using var package = new ExcelPackage();
-            
+
+            // Calculate total steps
+            int totalSteps = 0;
+            if (options.IncludeMembers) totalSteps++;
+            if (options.IncludeDues) totalSteps++;
+            if (options.IncludeKeyCards) totalSteps++;
+            if (options.IncludePhysicalKeys) totalSteps++;
+            if (options.IncludeLotteryShifts) totalSteps++;
+            if (options.IncludeBarSales) totalSteps++;
+            if (options.IncludeBoardMembers) totalSteps++;
+            if (options.IncludeNpQueue) totalSteps++;
+            if (options.IncludeLifeEligibility) totalSteps++;
+            if (options.IncludeUsers) totalSteps++;
+            if (options.IncludeSignInNumberDraw) totalSteps++;
+            if (options.IncludePagePermissions) totalSteps++;
+
+            if (totalSteps == 0) totalSteps = 1;
+
+            int currentStep = 0;
+            void Report(string name)
+            {
+                currentStep++;
+                int percent = Math.Min(95, (int)Math.Round((double)currentStep / totalSteps * 90.0));
+                progressCallback?.Invoke($"Exporting {name} ({currentStep} of {totalSteps})...", percent);
+            }
+
             if (options.IncludeMembers)
+            {
+                Report("Members");
                 AddMembersSheet(package);
-            
+            }
+
             if (options.IncludeDues)
+            {
+                Report("Dues Payments");
                 AddDuesSheet(package);
-            
+            }
+
             if (options.IncludeKeyCards)
+            {
+                Report("Key Cards");
                 AddKeyCardsSheet(package);
-            
+            }
+
             if (options.IncludePhysicalKeys)
+            {
+                Report("Physical Keys");
                 AddPhysicalKeysSheet(package);
-            
+            }
+
             if (options.IncludeLotteryShifts)
+            {
+                Report("Lottery Shifts");
                 AddLotteryShiftsSheet(package);
-            
+            }
+
             if (options.IncludeBarSales)
+            {
+                Report("Bar Sales & Hours");
                 AddBarSalesSheet(package);
-            
+            }
+
             if (options.IncludeBoardMembers)
+            {
+                Report("Board Members");
                 AddBoardMembersSheet(package);
-            
+            }
+
             if (options.IncludeNpQueue)
+            {
+                Report("Non-Portuguese Queue");
                 AddNpQueueSheet(package);
-            
+            }
+
             if (options.IncludeLifeEligibility)
+            {
+                Report("Life Eligibility");
                 AddLifeEligibilitySheet(package);
-            
+            }
+
             if (options.IncludeUsers)
+            {
+                Report("Users");
                 AddUsersSheet(package);
-            
+            }
+
             if (options.IncludeSignInNumberDraw)
+            {
+                Report("Sign-in Number Draw");
                 AddSignInNumberDrawSheet(package);
+            }
 
             if (options.IncludePagePermissions)
+            {
+                Report("Page Access Permissions");
                 AddPagePermissionsSheet(package);
+            }
 
-            return package.GetAsByteArray();
+            progressCallback?.Invoke("Finalizing Excel workbook...", 98);
+            var bytes = package.GetAsByteArray();
+            progressCallback?.Invoke("Export complete!", 100);
+            return bytes;
         }
 
         private void AddMembersSheet(ExcelPackage package)

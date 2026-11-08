@@ -19,7 +19,7 @@
 @inject GFC.Core.Interfaces.ILiquorService LiquorService
 @attribute [Authorize]
 
-<PageTitle>POS Sales Audit</PageTitle>
+<PageTitle>POS Transactions</PageTitle>
 
 <div class="audit-page-wrapper">
     <!-- COMPACT TOP BAR -->
@@ -29,7 +29,7 @@
                 <i class="bi bi-chevron-left fs-5"></i>
             </button>
             <div>
-                <h4 class="fw-black mb-0">POS TRANSACTION AUDIT</h4>
+                <h4 class="fw-black mb-0">POS TRANSACTIONS</h4>
                 <div class="d-flex align-items-center gap-2">
                     <span class="badge bg-light text-muted border" style="font-size: 0.6rem;">v.@VersionService.GetRevision()</span>
                     <span class="text-muted" style="font-size: 0.65rem;">Live feed of station activity</span>
@@ -123,12 +123,32 @@
                                                                           item.Category == "TOKEN_CREDIT" || 
                                                                           (item.Price == 0 && (item.Name ?? "").ToUpper().Contains("TOKEN") && !(item.Name ?? "").ToUpper().Contains("TOKEN SALE"))).Sum(i => i.Quantity);
 
+                                int birthdayCompQty = sItems.Where(item => (item.IsComped && string.Equals(item.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) ||
+                                                                           (item.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Quantity);
+
+                                int generalCompQty = sItems.Where(item => ((item.IsComped && !string.Equals(item.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) ||
+                                                                          (item.Name ?? "").Contains("(COMP DRINK", StringComparison.OrdinalIgnoreCase) ||
+                                                                          (item.Price == 0 && !item.IsTokenApplied && !(item.Name ?? "").ToUpper().Contains("TOKEN") && string.Equals(sale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase))) &&
+                                                                          !(item.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Quantity);
+
                                 <div class="sale-item @(SelectedSale == sale ? "active" : "")" @onclick="() => SelectedSale = sale">
                                     <div class="d-flex flex-column flex-grow-1 me-2">
                                         <div class="d-flex align-items-center justify-content-between mb-1">
                                             <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
                                             
                                             <div class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
+                                                @if (birthdayCompQty > 0)
+                                                {
+                                                    <span class="badge rounded-pill fw-bold px-1.5 py-0.5" style="font-size: 0.62rem; background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe;">
+                                                        🎂 @(birthdayCompQty > 1 ? $"{birthdayCompQty} BIRTHDAY DRINKS" : "BIRTHDAY DRINK")
+                                                    </span>
+                                                }
+                                                @if (generalCompQty > 0 && birthdayCompQty == 0)
+                                                {
+                                                    <span class="badge rounded-pill fw-bold px-1.5 py-0.5" style="font-size: 0.62rem; background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;">
+                                                        🍸 @(generalCompQty > 1 ? $"{generalCompQty} COMP DRINKS" : "COMP DRINK")
+                                                    </span>
+                                                }
                                                 @if (tokenRedeemQty > 0)
                                                 {
                                                     <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold px-1.5 py-0.5 rounded-pill" style="font-size: 0.62rem;">
@@ -2527,6 +2547,23 @@
                                                 <i class="bi bi-journal-check me-1"></i>EVENT TAB: @(string.IsNullOrEmpty(selEvName) ? "ACTIVE TAB" : selEvName.ToUpper())
                                             </div>
                                         }
+                                        @{
+                                            var selItems = GetItemsList(SelectedSale.ItemsJson);
+                                            bool hasSelBday = selItems.Any(i => (i.IsComped && string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
+                                            bool hasSelComp = selItems.Any(i => ((i.IsComped && !string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(COMP DRINK", StringComparison.OrdinalIgnoreCase) || (i.Price == 0 && !i.IsTokenApplied && !(i.Name ?? "").ToUpper().Contains("TOKEN") && string.Equals(SelectedSale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase))) && !(i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
+                                        }
+                                        @if (hasSelBday)
+                                        {
+                                            <div class="badge rounded-pill fw-bold px-3 py-1 mt-2 shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px; background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe;">
+                                                🎂 BIRTHDAY DRINK CELEBRATION
+                                            </div>
+                                        }
+                                        else if (hasSelComp)
+                                        {
+                                            <div class="badge rounded-pill fw-bold px-3 py-1 mt-2 shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px; background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;">
+                                                🍸 COMPED TRANSACTION
+                                            </div>
+                                        }
                                     </div>
 
                                     <div class="receipt-body">
@@ -2535,12 +2572,22 @@
                                         {
                                             bool isItemSale = !item.IsTokenApplied && (item.Category == "TOKENS" || item.Category == "TOKEN" || (item.Name ?? "").ToUpper().Contains("TOKEN SALE")) && !(item.Name ?? "").ToUpper().Contains("TOKEN REDEEMED") && !(item.Name ?? "").ToUpper().Contains("(CREDITED");
                                             bool isItemRedeem = item.IsTokenApplied || (item.Name ?? "").ToUpper().Contains("TOKEN REDEEMED") || (item.Name ?? "").ToUpper().Contains("(CREDITED") || item.Category == "TOKEN_CREDIT" || (item.Price == 0 && (item.Name ?? "").ToUpper().Contains("TOKEN") && !(item.Name ?? "").ToUpper().Contains("TOKEN SALE"));
+                                            bool isItemBdayComp = (item.IsComped && string.Equals(item.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (item.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase);
+                                            bool isItemGeneralComp = !isItemBdayComp && ((item.IsComped && !string.Equals(item.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (item.Name ?? "").Contains("(COMP DRINK", StringComparison.OrdinalIgnoreCase) || (item.Price == 0 && !isItemRedeem && !isItemSale && string.Equals(SelectedSale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase)));
 
                                             <div class="receipt-item">
                                                 <span class="qty">@item.Quantity x</span>
                                                 <span class="name">
                                                     @item.Name
-                                                    @if (isItemRedeem)
+                                                    @if (isItemBdayComp)
+                                                    {
+                                                        <span class="badge rounded-pill ms-1" style="font-size: 0.6rem; padding: 2px 6px; background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe;">🎂 BIRTHDAY</span>
+                                                    }
+                                                    else if (isItemGeneralComp)
+                                                    {
+                                                        <span class="badge rounded-pill ms-1" style="font-size: 0.6rem; padding: 2px 6px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">🍸 COMP</span>
+                                                    }
+                                                    else if (isItemRedeem)
                                                     {
                                                         <span class="badge bg-success-subtle text-success rounded-pill ms-1" style="font-size: 0.6rem; padding: 1px 5px;">REDEEMED</span>
                                                     }
@@ -2549,7 +2596,13 @@
                                                         <span class="badge bg-danger-subtle text-danger rounded-pill ms-1" style="font-size: 0.6rem; padding: 1px 5px;">TOKEN SALE</span>
                                                     }
                                                 </span>
-                                                <span class="price">@((item.Price * item.Quantity).ToString("C"))</span>
+                                                <span class="price">
+                                                    @if ((isItemBdayComp || isItemGeneralComp) && item.OriginalPrice > 0)
+                                                    {
+                                                        <span class="text-muted text-decoration-line-through me-1" style="font-size: 0.75rem; font-weight: normal;">@((item.OriginalPrice * item.Quantity).ToString("C"))</span>
+                                                    }
+                                                    @((item.Price * item.Quantity).ToString("C"))
+                                                </span>
                                             </div>
                                             @if (item.Modifiers != null && item.Modifiers.Any())
                                             {

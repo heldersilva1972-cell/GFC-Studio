@@ -98,6 +98,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -156,6 +157,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -304,6 +306,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -341,6 +344,7 @@ namespace GFC.Data.Repositories
                         s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
                         s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
                         s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        s.AcknowledgedBy, s.AcknowledgedAt,
                         ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
                     FROM LotteryShifts s
                     LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
@@ -506,9 +510,19 @@ namespace GFC.Data.Repositories
                 ModifiedBy = reader["ModifiedBy"] as string,
                 ModifiedDate = reader["ModifiedDate"] as DateTime?,
                 TicketImageUrl = reader["TicketImageUrl"] as string,
-                AcknowledgedBy = reader["AcknowledgedBy"] as string,
-                AcknowledgedAt = reader["AcknowledgedAt"] as DateTime?
+                AcknowledgedBy = HasColumn(reader, "AcknowledgedBy") ? reader["AcknowledgedBy"] as string : null,
+                AcknowledgedAt = HasColumn(reader, "AcknowledgedAt") ? reader["AcknowledgedAt"] as DateTime? : null
             };
+        }
+
+        private static bool HasColumn(SqlDataReader reader, string columnName)
+        {
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                if (reader.GetName(i).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private static void MapShiftToParameters(SqlCommand command, LotteryShift shift)

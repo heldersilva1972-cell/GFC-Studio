@@ -3,6 +3,7 @@ namespace GFC.Core.Interfaces
     public interface IDataExportService
     {
         byte[] ExportToExcel(ExportOptions options);
+        byte[] ExportToExcel(ExportOptions options, System.Action<string, int>? progressCallback);
         Task<Models.ImportResult> ImportFromExcelAsync(System.IO.Stream fileStream);
     }
 
