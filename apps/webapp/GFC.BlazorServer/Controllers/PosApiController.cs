@@ -1932,7 +1932,9 @@ public class PosApiController : ControllerBase
         var allOtherEvents = await db.ActiveEvents
             .AsNoTracking()
             .Where(e => (!eventId.HasValue || e.Id != eventId.Value) && !e.IsDeleted && (!string.IsNullOrEmpty(e.DonatedItemIdsJson) || !string.IsNullOrEmpty(e.DonatedItemTalliesJson) || !string.IsNullOrEmpty(e.BeerTalliesJson)))
+            .Select(e => new { e.Id, e.Name, e.TemplateId, e.Status, e.RecipientEventName, e.DonatedItemIdsJson, e.DonatedItemTalliesJson, e.BeerTalliesJson })
             .OrderByDescending(e => e.Id)
+            .Take(100)
             .ToListAsync();
 
         var allDonationRecords = new List<DonatedLogEntry>();
