@@ -131,12 +131,20 @@
                                                                           (item.Price == 0 && !item.IsTokenApplied && !(item.Name ?? "").ToUpper().Contains("TOKEN") && string.Equals(sale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase))) &&
                                                                           !(item.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase)).Sum(i => i.Quantity);
 
+                                int upstairsQty = sItems.Where(item => item.IsUpstairsPrice).Sum(i => i.Quantity);
+
                                 <div class="sale-item @(SelectedSale == sale ? "active" : "")" @onclick="() => SelectedSale = sale">
                                     <div class="d-flex flex-column flex-grow-1 me-2">
                                         <div class="d-flex align-items-center justify-content-between mb-1">
                                             <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
                                             
                                             <div class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
+                                                @if (upstairsQty > 0)
+                                                {
+                                                    <span class="badge rounded-pill fw-bold px-1.5 py-0.5" style="font-size: 0.62rem; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">
+                                                        🏢 @(upstairsQty > 1 ? $"{upstairsQty} UPSTAIRS PRICE" : "UPSTAIRS PRICE")
+                                                    </span>
+                                                }
                                                 @if (birthdayCompQty > 0)
                                                 {
                                                     <span class="badge rounded-pill fw-bold px-1.5 py-0.5" style="font-size: 0.62rem; background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe;">
@@ -2549,8 +2557,15 @@
                                         }
                                         @{
                                             var selItems = GetItemsList(SelectedSale.ItemsJson);
+                                            bool hasSelUpstairs = selItems.Any(i => i.IsUpstairsPrice);
                                             bool hasSelBday = selItems.Any(i => (i.IsComped && string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
                                             bool hasSelComp = selItems.Any(i => ((i.IsComped && !string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(COMP DRINK", StringComparison.OrdinalIgnoreCase) || (i.Price == 0 && !i.IsTokenApplied && !(i.Name ?? "").ToUpper().Contains("TOKEN") && string.Equals(SelectedSale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase))) && !(i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
+                                        }
+                                        @if (hasSelUpstairs)
+                                        {
+                                            <div class="badge rounded-pill fw-bold px-3 py-1 mt-2 shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">
+                                                🏢 UPSTAIRS BAR PRICING APPLIED
+                                            </div>
                                         }
                                         @if (hasSelBday)
                                         {
@@ -2579,6 +2594,10 @@
                                                 <span class="qty">@item.Quantity x</span>
                                                 <span class="name">
                                                     @item.Name
+                                                    @if (item.IsUpstairsPrice)
+                                                    {
+                                                        <span class="badge rounded-pill ms-1" style="font-size: 0.6rem; padding: 2px 6px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">🏢 UPSTAIRS</span>
+                                                    }
                                                     @if (isItemBdayComp)
                                                     {
                                                         <span class="badge rounded-pill ms-1" style="font-size: 0.6rem; padding: 2px 6px; background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe;">🎂 BIRTHDAY</span>
@@ -2600,6 +2619,10 @@
                                                     @if ((isItemBdayComp || isItemGeneralComp) && item.OriginalPrice > 0)
                                                     {
                                                         <span class="text-muted text-decoration-line-through me-1" style="font-size: 0.75rem; font-weight: normal;">@((item.OriginalPrice * item.Quantity).ToString("C"))</span>
+                                                    }
+                                                    else if (item.IsUpstairsPrice && item.BaseMemberPrice.HasValue && item.BaseMemberPrice.Value > 0 && item.BaseMemberPrice.Value != item.Price)
+                                                    {
+                                                        <span class="text-muted me-1" style="font-size: 0.72rem; font-weight: normal;" title="Standard Downstairs Member Price">(Reg: @((item.BaseMemberPrice.Value * item.Quantity).ToString("C")))</span>
                                                     }
                                                     @((item.Price * item.Quantity).ToString("C"))
                                                 </span>
@@ -6824,8 +6847,6 @@
                                         int bCount = beer.PackSize;
                                         totalBottles += bCount;
                                         totalRetail += bCount * beer.BanquetPrice;
-                                        clubShare += bCount * beer.ClubSplitAmount;
-                                        eventShare += bCount * beer.EventSplitAmount;
                                     }
                                 }
 
@@ -6865,12 +6886,12 @@
                                                                     }
                                                                 </select>
                                                             </div>
-                                                            <span class="badge @(totalProjectedCases > 3 ? "bg-danger" : (totalProjectedCases == 3 ? "bg-success" : "bg-primary")) px-3 py-1.5 rounded-pill fw-bold" style="font-size: 0.72rem;">
-                                                                @totalProjectedCases / 3 Cases Used for @selectedHorseshoeYear
+                                                            <span class="badge @(existingCases >= 3 ? "bg-success" : (totalProjectedCases > 3 ? "bg-danger" : "bg-primary")) px-3 py-1.5 rounded-pill fw-bold" style="font-size: 0.72rem;">
+                                                                @existingCases / 3 Cases Allocated for @selectedHorseshoeYear
                                                             </span>
                                                         </div>
                                                         <div class="progress" style="height: 8px;">
-                                                            <div class="progress-bar @(totalProjectedCases > 3 ? "bg-danger" : "bg-warning")" role="progressbar" style="width: @(Math.Min(100, (totalProjectedCases / 3.0) * 100))%;"></div>
+                                                            <div class="progress-bar @(existingCases >= 3 ? "bg-success" : (totalProjectedCases > 3 ? "bg-danger" : "bg-warning"))" role="progressbar" style="width: @(Math.Min(100, (existingCases / 3.0) * 100))%;"></div>
                                                         </div>
                                                         <div class="small text-muted mt-1.5" style="font-size: 0.7rem;">
                                                             Horseshoes is restricted to a maximum of <strong>3 cases (72 bottles)</strong> per year.
@@ -6938,22 +6959,22 @@
 
                                                     @if (horseshoeCaseSlots.Any())
                                                     {
-                                                        <!-- SPLIT PROJECTION SUMMARY -->
+                                                        <!-- DONATED PROJECTION SUMMARY -->
                                                         <div class="p-3 bg-white rounded-3 border">
                                                             <div class="fw-bold text-dark small text-uppercase mb-2 border-bottom pb-1" style="font-size: 0.7rem; letter-spacing: 0.5px;">
-                                                                <i class="bi bi-calculator me-1 text-primary"></i>Split Projection (@horseshoeCaseSlots.Count Case@(horseshoeCaseSlots.Count == 1 ? "" : "s") / @totalBottles Bottles)
+                                                                <i class="bi bi-gift-fill me-1 text-success"></i>Donated Beer Projection (@horseshoeCaseSlots.Count Case@(horseshoeCaseSlots.Count == 1 ? "" : "s") / @totalBottles Bottles)
                                                             </div>
                                                             <div class="d-flex justify-content-between small mb-1">
                                                                 <span class="text-muted">Total Banquet Retail Value:</span>
                                                                 <strong class="text-dark">@totalRetail.ToString("C")</strong>
                                                             </div>
                                                             <div class="d-flex justify-content-between small mb-1">
-                                                                <span class="text-info fw-bold">Club Split Portion:</span>
-                                                                <strong class="text-info">@clubShare.ToString("C")</strong>
+                                                                <span class="text-muted">Club Portion:</span>
+                                                                <strong class="text-muted">$0.00</strong>
                                                             </div>
                                                             <div class="d-flex justify-content-between small border-top pt-1">
-                                                                <span class="text-warning fw-bold text-dark">Horseshoes Event Share:</span>
-                                                                <strong class="text-warning text-dark">@eventShare.ToString("C")</strong>
+                                                                <span class="text-success fw-bold">Horseshoes Event Share (100%):</span>
+                                                                <strong class="text-success fw-bold">@totalRetail.ToString("C")</strong>
                                                             </div>
                                                         </div>
                                                     }
@@ -10996,6 +11017,11 @@
                                                 .ToList();
 
         var stockMap = new Dictionary<string, DonatedBrandStock>(StringComparer.OrdinalIgnoreCase);
+        DateTime? earliestDonationTime = horseshoeReceived.Any() ? horseshoeReceived.Min(d => d.Timestamp) : (DateTime?)null;
+        DateTime? earliestDonationLocal = earliestDonationTime.HasValue
+            ? (earliestDonationTime.Value.Kind == DateTimeKind.Utc ? earliestDonationTime.Value.ToLocalTime() : earliestDonationTime.Value)
+            : null;
+
         foreach (var rec in horseshoeReceived)
         {
             if (rec.Cans <= 0) continue;
@@ -11019,7 +11045,13 @@
                 var matchedBrand = stockMap.Keys.FirstOrDefault(k => k.Equals(cleanName, StringComparison.OrdinalIgnoreCase) ||
                                                                      cleanName.Contains(k, StringComparison.OrdinalIgnoreCase) ||
                                                                      k.Contains(cleanName, StringComparison.OrdinalIgnoreCase));
-                if (matchedBrand != null)
+                // Only sales that occurred on or after the donation was made (or within the same calendar day / donation season) consume from donated stock
+                DateTime saleLocal = sale.Timestamp.Kind == DateTimeKind.Utc ? sale.Timestamp.ToLocalTime() : sale.Timestamp;
+                bool isEligibleDonatedSale = !earliestDonationLocal.HasValue ||
+                                             saleLocal >= earliestDonationLocal.Value.AddMinutes(-10) ||
+                                             saleLocal.Date >= earliestDonationLocal.Value.Date;
+
+                if (matchedBrand != null && isEligibleDonatedSale)
                 {
                     stockMap[matchedBrand].Consumed += sItem.Quantity;
                 }
@@ -11268,7 +11300,7 @@
                     Cases = casesCount,
                     ActionType = "redonate",
                     RecipientEventName = targetEvent.Name,
-                    Timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.Now
                 });
 
                 var tallyMatch = tallies.FirstOrDefault(t => t.ItemId == beer.ItemId);
@@ -11296,6 +11328,30 @@
 
             targetEvent.DonatedItemTalliesJson = JsonSerializer.Serialize(existingDistributions);
             targetEvent.BeerTalliesJson = JsonSerializer.Serialize(tallies);
+
+            // Synchronize DonatedItemIdsJson (beer item pool) and flag 100% event proceeds
+            var poolMap = new Dictionary<int, int>();
+            if (!string.IsNullOrEmpty(targetEvent.DonatedItemIdsJson))
+            {
+                try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(targetEvent.DonatedItemIdsJson) ?? new(); } catch {}
+            }
+            foreach (var grp in horseshoeCaseSlots.GroupBy(s => s.ItemId))
+            {
+                var beer = eligibleBeers.First(b => b.ItemId == grp.Key);
+                int bCount = grp.Count() * beer.PackSize;
+                poolMap[beer.ItemId] = (poolMap.TryGetValue(beer.ItemId, out var existingBtls) ? existingBtls : 0) + bCount;
+            }
+            targetEvent.DonatedItemIdsJson = JsonSerializer.Serialize(poolMap);
+            targetEvent.Enable100PercentDonatedProceeds = true;
+
+            // Also synchronize active open session if different from targetEvent
+            var openHorseshoeEvent = allDbActiveEvents.FirstOrDefault(e => e.Id != targetEvent.Id && e.Status == GFC.Core.Enums.EventTabStatus.Open && (e.Name ?? "").Contains("horseshoe", StringComparison.OrdinalIgnoreCase));
+            if (openHorseshoeEvent != null)
+            {
+                openHorseshoeEvent.DonatedItemIdsJson = targetEvent.DonatedItemIdsJson;
+                openHorseshoeEvent.Enable100PercentDonatedProceeds = true;
+                openHorseshoeEvent.DonatedItemTalliesJson = targetEvent.DonatedItemTalliesJson;
+            }
 
             await db.SaveChangesAsync();
 

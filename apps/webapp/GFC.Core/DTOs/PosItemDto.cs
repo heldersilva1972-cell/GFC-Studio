@@ -8,4 +8,5 @@ public class PosItemDto
     public string Category { get; set; } = "MISC";
     public int DisplayOrder { get; set; }
     public int ZReportGroup { get; set; }
+    public decimal? UpstairsPrice { get; set; }
 }

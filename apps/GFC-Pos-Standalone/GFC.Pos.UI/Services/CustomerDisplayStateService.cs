@@ -60,7 +60,7 @@ public class CustomerDisplayStateService : ICustomerDisplayStateService
         NotifyStateChanged();
     }
 
-    public void UpdateCart(IEnumerable<CustomerDisplayItem> items, decimal subtotal, decimal tax = 0m, decimal? cashGiven = null, decimal? changeDue = null)
+    public void UpdateCart(IEnumerable<CustomerDisplayItem> items, decimal subtotal, decimal tax = 0m, decimal? cashGiven = null, decimal? changeDue = null, bool showEventPricingBadge = false, string? eventPricingBadgeText = null)
     {
         _resetTimer?.Dispose();
         _resetTimer = null;
@@ -81,7 +81,9 @@ public class CustomerDisplayStateService : ICustomerDisplayStateService
             Tax = tax,
             TotalDue = subtotal + tax,
             AmountPaid = cashGiven,
-            ChangeDue = changeDue
+            ChangeDue = changeDue,
+            ShowEventPricingBadge = showEventPricingBadge,
+            EventPricingBadgeText = string.IsNullOrWhiteSpace(eventPricingBadgeText) ? "HALL PRICING" : eventPricingBadgeText
         };
 
         NotifyStateChanged();

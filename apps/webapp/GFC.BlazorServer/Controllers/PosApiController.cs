@@ -357,6 +357,46 @@ public class PosApiController : ControllerBase
                 : new List<PosMenuOverride>();
 
             var overrideMap = overrides.GroupBy(o => o.LiquorItemId).ToDictionary(g => g.Key, g => g.First());
+
+            // Resolve Upstairs / Event Menu Profile for secondary pricing on Downstairs terminals
+            var allProfiles = await db.PosMenuProfiles.Where(p => !p.IsDeleted).ToListAsync();
+            var upstairsProfile = allProfiles.FirstOrDefault(p => p.Name != null && (p.Name.Contains("Upstairs", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Event", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Hall", StringComparison.OrdinalIgnoreCase)))
+                               ?? allProfiles.FirstOrDefault(p => !profileId.HasValue || p.Id != profileId.Value);
+
+            var upstairsPriceMap = new Dictionary<int, decimal>();
+            if (upstairsProfile != null && (!profileId.HasValue || upstairsProfile.Id != profileId.Value))
+            {
+                var upstairsOverrides = await db.PosMenuOverrides
+                    .Where(o => o.MenuProfileId == upstairsProfile.Id && o.OverridePrice.HasValue)
+                    .ToListAsync();
+                foreach (var uo in upstairsOverrides)
+                {
+                    if (!upstairsPriceMap.ContainsKey(uo.LiquorItemId) && uo.OverridePrice.HasValue)
+                    {
+                        upstairsPriceMap[uo.LiquorItemId] = uo.OverridePrice.Value;
+                    }
+                }
+            }
+
+            // Also resolve Downstairs / Member Menu Profile in case the Master price (LiquorItem.RetailPrice)
+            // was overwritten while editing under the Upstairs profile
+            var downstairsProfile = allProfiles.FirstOrDefault(p => p.Name != null && (p.Name.Contains("Downstairs", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Member", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Main", StringComparison.OrdinalIgnoreCase)))
+                                 ?? (profileId.HasValue ? allProfiles.FirstOrDefault(p => p.Id == profileId.Value) : null);
+
+            var downstairsPriceMap = new Dictionary<int, decimal>();
+            if (downstairsProfile != null && (upstairsProfile == null || downstairsProfile.Id != upstairsProfile.Id))
+            {
+                var downstairsOverrides = await db.PosMenuOverrides
+                    .Where(o => o.MenuProfileId == downstairsProfile.Id && o.OverridePrice.HasValue)
+                    .ToListAsync();
+                foreach (var dno in downstairsOverrides)
+                {
+                    if (!downstairsPriceMap.ContainsKey(dno.LiquorItemId) && dno.OverridePrice.HasValue)
+                    {
+                        downstairsPriceMap[dno.LiquorItemId] = dno.OverridePrice.Value;
+                    }
+                }
+            }
             var resolvedVisibility = new Dictionary<int, bool>();
             foreach (var i in liquorItems)
             {
@@ -428,6 +468,23 @@ public class PosApiController : ControllerBase
                         effectiveZGroup = catZ;
                     }
 
+                    decimal? upstairsPrice = upstairsPriceMap.TryGetValue(i.Id, out var uPrice) ? uPrice : null;
+
+                    // If an item's RetailPrice was saved directly while on the Upstairs profile (no override row exists yet,
+                    // or the terminal has no profile assigned and Downstairs has an explicit override), ensure price & upstairsPrice are distinct:
+                    if (!profileId.HasValue && downstairsPriceMap.TryGetValue(i.Id, out var dPrice))
+                    {
+                        if (!upstairsPrice.HasValue && i.RetailPrice > dPrice)
+                        {
+                            upstairsPrice = i.RetailPrice;
+                        }
+                        price = dPrice;
+                    }
+                    else if (!upstairsPrice.HasValue && i.RetailPrice > price)
+                    {
+                        upstairsPrice = i.RetailPrice;
+                    }
+
                     items.Add(new PosItemDto 
                     {
                         Id = i.Id,
@@ -435,7 +492,8 @@ public class PosApiController : ControllerBase
                         Price = price,
                         Category = cleanCat,
                         DisplayOrder = displayOrder,
-                        ZReportGroup = effectiveZGroup
+                        ZReportGroup = effectiveZGroup,
+                        UpstairsPrice = upstairsPrice
                     });
                 }
             }
@@ -1911,13 +1969,19 @@ public class PosApiController : ControllerBase
 
     private class DonatedLogEntry
     {
-        public string? RecordId { get; set; }
+        public object? RecordId { get; set; }
         public int ItemId { get; set; }
         public string? BeerName { get; set; }
         public int Cases { get; set; }
-        public int Cans { get; set; }
+        private int _cans;
+        public int Cans
+        {
+            get => _cans > 0 ? _cans : (Cases * 24);
+            set => _cans = value;
+        }
         public string? ActionType { get; set; }
         public string? RecipientEventName { get; set; }
+        public DateTime? Timestamp { get; set; }
     }
 
     private static async Task<(string? Json, bool Enable100)> ResolveDonatedPoolAsync(GfcDbContext db, int? eventId, string? eventName, int? templateId, string? currentJson)
@@ -1929,18 +1993,18 @@ public class PosApiController : ControllerBase
             try { poolMap = JsonSerializer.Deserialize<Dictionary<int, int>>(currentJson) ?? new(); } catch { }
         }
 
-        var allOtherEvents = await db.ActiveEvents
+        var allEvents = await db.ActiveEvents
             .AsNoTracking()
-            .Where(e => (!eventId.HasValue || e.Id != eventId.Value) && !e.IsDeleted && (!string.IsNullOrEmpty(e.DonatedItemIdsJson) || !string.IsNullOrEmpty(e.DonatedItemTalliesJson) || !string.IsNullOrEmpty(e.BeerTalliesJson)))
-            .Select(e => new { e.Id, e.Name, e.TemplateId, e.Status, e.RecipientEventName, e.DonatedItemIdsJson, e.DonatedItemTalliesJson, e.BeerTalliesJson })
+            .Where(e => !e.IsDeleted && (!string.IsNullOrEmpty(e.DonatedItemIdsJson) || !string.IsNullOrEmpty(e.DonatedItemTalliesJson) || !string.IsNullOrEmpty(e.BeerTalliesJson)))
+            .Select(e => new { e.Id, e.Name, e.TemplateId, e.Status, e.RecipientEventName, e.DonatedItemIdsJson, e.DonatedItemTalliesJson, e.BeerTalliesJson, e.CreatedAt })
             .OrderByDescending(e => e.Id)
-            .Take(100)
+            .Take(150)
             .ToListAsync();
 
         var allDonationRecords = new List<DonatedLogEntry>();
 
-        // 1. Scan donor events that re-donated to this recipient event
-        foreach (var dev in allOtherEvents)
+        // 1. Scan donor events (and the recipient event itself) that have redonated / allocated cases
+        foreach (var dev in allEvents)
         {
             if (!string.IsNullOrEmpty(dev.DonatedItemTalliesJson))
             {
@@ -1963,10 +2027,14 @@ public class PosApiController : ControllerBase
         }
 
         var distinctRecords = allDonationRecords
-            .Where(r => !string.IsNullOrEmpty(r.RecordId))
-            .DistinctBy(r => r.RecordId)
+            .Where(r => r.RecordId != null && !string.IsNullOrEmpty(r.RecordId.ToString()))
+            .DistinctBy(r => r.RecordId!.ToString())
             .ToList();
-        distinctRecords.AddRange(allDonationRecords.Where(r => string.IsNullOrEmpty(r.RecordId)));
+        distinctRecords.AddRange(allDonationRecords.Where(r => r.RecordId == null || string.IsNullOrEmpty(r.RecordId.ToString())));
+
+        DateTime? earliestDonationTimestamp = distinctRecords.Any(r => r.Timestamp.HasValue)
+            ? distinctRecords.Where(r => r.Timestamp.HasValue).Min(r => r.Timestamp)
+            : null;
 
         foreach (var group in distinctRecords.GroupBy(r => r.ItemId))
         {
@@ -1975,14 +2043,14 @@ public class PosApiController : ControllerBase
             poolMap[group.Key] = Math.Max(cur, totalDonatedCans);
         }
 
-        // 2. If poolMap is still empty, check previous session of this exact event
+        // 2. If poolMap is still empty, check latest closed/open session of this event for DonatedItemIdsJson
         if (!poolMap.Any())
         {
-            var prevSession = allOtherEvents.FirstOrDefault(e =>
-                (templateId.HasValue && templateId.Value > 0 && e.TemplateId == templateId.Value) ||
-                string.Equals(e.Name, cleanName, StringComparison.OrdinalIgnoreCase) ||
-                (e.Name != null && e.Name.StartsWith(cleanName)) ||
-                (cleanName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe")));
+            var prevSession = allEvents.FirstOrDefault(e => (!eventId.HasValue || e.Id != eventId.Value) &&
+                ((templateId.HasValue && templateId.Value > 0 && e.TemplateId == templateId.Value) ||
+                 string.Equals(e.Name, cleanName, StringComparison.OrdinalIgnoreCase) ||
+                 (e.Name != null && e.Name.StartsWith(cleanName)) ||
+                 (cleanName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe"))));
 
             if (prevSession != null && !string.IsNullOrEmpty(prevSession.DonatedItemIdsJson))
             {
@@ -1990,14 +2058,21 @@ public class PosApiController : ControllerBase
             }
         }
 
-        // 3. Deduct cans consumed in prior closed sessions of this recipient event
+        // 3. Deduct cans consumed in prior closed sessions of this recipient event (ONLY after the donation occurred)
         if (poolMap.Any())
         {
-            var priorClosedSessions = allOtherEvents.Where(e => e.Status == GFC.Core.Enums.EventTabStatus.Closed &&
+            var priorClosedSessions = allEvents.Where(e => (!eventId.HasValue || e.Id != eventId.Value) &&
+                e.Status == GFC.Core.Enums.EventTabStatus.Closed &&
                 ((templateId.HasValue && templateId.Value > 0 && e.TemplateId == templateId.Value) ||
                  string.Equals(e.Name, cleanName, StringComparison.OrdinalIgnoreCase) ||
                  (e.Name != null && e.Name.StartsWith(cleanName)) ||
                  (cleanName.ToLower().Contains("horseshoe") && (e.Name ?? "").ToLower().Contains("horseshoe")))).ToList();
+
+            // CRITICAL: Only deduct sessions that were created on or after the donation timestamp!
+            if (earliestDonationTimestamp.HasValue)
+            {
+                priorClosedSessions = priorClosedSessions.Where(e => e.CreatedAt >= earliestDonationTimestamp.Value).ToList();
+            }
 
             foreach (var itemId in poolMap.Keys.ToList())
             {

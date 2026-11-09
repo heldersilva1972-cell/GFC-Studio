@@ -17,6 +17,7 @@ public class CustomerDisplayItem
     public bool IsComped { get; set; }
     public string? CompType { get; set; }
     public decimal OriginalPrice { get; set; }
+    public bool IsUpstairsPrice { get; set; }
 }
 
 public class CustomerDisplaySnapshot
@@ -31,6 +32,8 @@ public class CustomerDisplaySnapshot
     public string? PaymentNote { get; set; }
     public string StoreName { get; set; } = "GFC CLUB";
     public string HeaderMessage { get; set; } = "Welcome!";
+    public bool ShowEventPricingBadge { get; set; }
+    public string EventPricingBadgeText { get; set; } = "HALL PRICING";
 }
 
 public interface ICustomerDisplayStateService
@@ -39,6 +42,6 @@ public interface ICustomerDisplayStateService
     event Action? OnStateChanged;
 
     void SetWelcome(string? message = null, bool force = false);
-    void UpdateCart(IEnumerable<CustomerDisplayItem> items, decimal subtotal, decimal tax = 0m, decimal? cashGiven = null, decimal? changeDue = null);
+    void UpdateCart(IEnumerable<CustomerDisplayItem> items, decimal subtotal, decimal tax = 0m, decimal? cashGiven = null, decimal? changeDue = null, bool showEventPricingBadge = false, string? eventPricingBadgeText = null);
     void CompleteTransaction(decimal? totalPaid, decimal? changeDue, string? paymentNote = null, int? durationSeconds = null);
 }

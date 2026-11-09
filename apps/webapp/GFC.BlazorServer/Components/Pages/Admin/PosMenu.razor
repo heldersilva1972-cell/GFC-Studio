@@ -3903,6 +3903,19 @@
                 }
                 db.LiquorItems.Add(editingItem);
                 await db.SaveChangesAsync();
+
+                if (selectedProfileId > 0)
+                {
+                    db.PosMenuOverrides.Add(new PosMenuOverride
+                    {
+                        MenuProfileId = selectedProfileId,
+                        LiquorItemId = editingItem.Id,
+                        OverridePrice = editingItem.RetailPrice,
+                        IsVisible = editingItem.ShowInPos
+                    });
+                    await db.SaveChangesAsync();
+                }
+
                 await ToastService.ShowSuccess("Item added successfully.");
             }
             else
@@ -3915,28 +3928,48 @@
                     original.InventoryTrackType = editingItem.InventoryTrackType;
                     original.IsActive = editingItem.IsActive;
                     
+                    decimal targetPrice = isWine ? bottlePrice : editingItem.RetailPrice;
+                    bool targetShowInPos = isWine ? (editingItem.IsUnitBased ? true : sellByBottle) : editingItem.ShowInPos;
+
                     if (isWine)
                     {
                         if (editingItem.IsUnitBased)
                         {
-                            original.ShowInPos = true;
-                            original.RetailPrice = bottlePrice;
                             original.BottleVolumeOunces = null;
                             original.IsUnitBased = true;
                         }
                         else
                         {
-                            original.ShowInPos = sellByBottle;
-                            original.RetailPrice = bottlePrice;
                             original.BottleVolumeOunces = bottleVolumeMl * 0.033814m;
                             original.PourVolumeOunces = sellByGlass ? glassPourSize : null;
                             original.IsUnitBased = false;
                         }
                     }
+
+                    if (selectedProfileId > 0)
+                    {
+                        var o = await db.PosMenuOverrides.FirstOrDefaultAsync(x => x.MenuProfileId == selectedProfileId && x.LiquorItemId == original.Id);
+                        if (o == null)
+                        {
+                            o = new PosMenuOverride
+                            {
+                                MenuProfileId = selectedProfileId,
+                                LiquorItemId = original.Id,
+                                OverridePrice = targetPrice,
+                                IsVisible = targetShowInPos
+                            };
+                            db.PosMenuOverrides.Add(o);
+                        }
+                        else
+                        {
+                            o.OverridePrice = targetPrice;
+                            o.IsVisible = targetShowInPos;
+                        }
+                    }
                     else
                     {
-                        original.ShowInPos = editingItem.ShowInPos;
-                        original.RetailPrice = editingItem.RetailPrice;
+                        original.ShowInPos = targetShowInPos;
+                        original.RetailPrice = targetPrice;
                     }
                     
                     if (showFullInventoryDetails)

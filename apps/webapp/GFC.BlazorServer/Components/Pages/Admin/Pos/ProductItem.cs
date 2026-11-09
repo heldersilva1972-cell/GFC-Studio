@@ -20,5 +20,8 @@ namespace GFC.BlazorServer.Components.Pages.Admin.Pos
         public bool IsComped { get; set; }
         public string? CompType { get; set; }
         public decimal OriginalPrice { get; set; }
+        public decimal? UpstairsPrice { get; set; }
+        public bool IsUpstairsPrice { get; set; }
+        public decimal? BaseMemberPrice { get; set; }
     }
 }

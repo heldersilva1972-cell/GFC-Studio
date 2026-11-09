@@ -10,4 +10,6 @@ public class PosSaleItemDto
     public bool IsComped { get; set; }
     public string? CompType { get; set; }
     public decimal OriginalPrice { get; set; }
+    public bool IsUpstairsPrice { get; set; }
+    public decimal? BaseMemberPrice { get; set; }
 }
