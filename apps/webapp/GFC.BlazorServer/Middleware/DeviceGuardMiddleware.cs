@@ -13,6 +13,11 @@ namespace GFC.BlazorServer.Middleware
         { 
             "/setup", 
             "/setup/wizard",
+            "/rentals",
+            "/public/calendar",
+            "/hall-rentals/pricing-guide",
+            "/hall-rentals/liquor-menu",
+            "/hall-rentals/policy-guide",
             "/api", 
             "/error", 
             "/_framework", 
