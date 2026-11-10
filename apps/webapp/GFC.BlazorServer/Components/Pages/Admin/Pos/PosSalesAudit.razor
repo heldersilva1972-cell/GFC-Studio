@@ -10994,6 +10994,36 @@
                                          .OrderByDescending(s => s.Timestamp)
                                          .ToList();
 
+        // Include tallies recorded across horseshoe sessions (both open and closed) that have not posted a separate finalized POS sale
+        foreach (var ae in horseshoeEvents)
+        {
+            var activeTallies = GetActiveEventTallies(ae).Where(t => t.Consumed > 0).ToList();
+            if (activeTallies.Any() && !masterSales.Any(s => s.ActiveEventId == ae.Id && s.PaymentType != "EVENT TALLY"))
+            {
+                var itemsForSale = activeTallies.Select(t => new ProductItem {
+                    Name = $"TALLY: {t.Name}",
+                    Quantity = t.Consumed,
+                    Price = t.Price,
+                    Category = "BEER"
+                }).ToList();
+
+                decimal liveTotal = activeTallies.Sum(t => t.Subtotal);
+
+                var liveSale = new PosSale
+                {
+                    Id = Guid.NewGuid(),
+                    ActiveEventId = ae.Id,
+                    PaymentType = "EVENT TALLY",
+                    BartenderName = ae.Status == GFC.Core.Enums.EventTabStatus.Open ? "Live Tally" : "Settled Tally",
+                    TerminalName = "POS Terminal",
+                    Timestamp = ae.CreatedAt,
+                    TotalAmount = liveTotal,
+                    ItemsJson = JsonSerializer.Serialize(itemsForSale)
+                };
+                masterSales.Add(liveSale);
+            }
+        }
+
         var masterDepSales = masterSales.Where(s => s.PaymentType == "DEPOSIT" || (!string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("INITIAL DEPOSIT") || s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS") || s.ItemsJson.Contains("RETURNED FUNDS") || s.ItemsJson.Contains("DEPOSIT CORRECTION")))).ToList();
         var masterDrinkSales = masterSales.Where(s => !masterDepSales.Contains(s)).ToList();
 
