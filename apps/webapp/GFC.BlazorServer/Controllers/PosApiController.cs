@@ -190,7 +190,7 @@ public class PosApiController : ControllerBase
 
         var termName = telemetry.TerminalName.Trim();
         _telemetryService.UpdateTelemetry(telemetry);
-        TouchTerminalLastSeen(termName);
+        TouchTerminalLastSeen(termName, telemetry.AppVersion);
 
         var resetCmd = _telemetryService.ConsumeResetRetries(termName);
         var forceSyncCmd = _telemetryService.ConsumeForceSync(termName);
@@ -204,7 +204,7 @@ public class PosApiController : ControllerBase
         });
     }
 
-    private void TouchTerminalLastSeen(string? terminalName)
+    private void TouchTerminalLastSeen(string? terminalName, string? appVersion = null)
     {
         if (string.IsNullOrWhiteSpace(terminalName)) return;
         _ = Task.Run(async () =>
@@ -213,9 +213,22 @@ public class PosApiController : ControllerBase
             {
                 using var db = await _dbFactory.CreateDbContextAsync();
                 var searchName = terminalName.Trim();
-                await db.PosTerminals
-                    .Where(t => !t.IsDeleted && (t.TerminalName == searchName || t.TerminalName.ToLower() == searchName.ToLower()))
-                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastSeenAt, DateTime.UtcNow));
+                var terminal = await db.PosTerminals
+                    .FirstOrDefaultAsync(t => !t.IsDeleted && (t.TerminalName == searchName || t.TerminalName.ToLower() == searchName.ToLower()));
+
+                if (terminal != null)
+                {
+                    terminal.LastSeenAt = DateTime.UtcNow;
+                    if (!string.IsNullOrWhiteSpace(appVersion))
+                    {
+                        if (terminal.AppVersion != appVersion)
+                        {
+                            terminal.AppVersion = appVersion;
+                            terminal.LastUpdatedAt = DateTime.UtcNow;
+                        }
+                    }
+                    await db.SaveChangesAsync();
+                }
             }
             catch
             {
@@ -2111,13 +2124,13 @@ public class PosApiController : ControllerBase
         try
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var now = DateTime.UtcNow;
+            var today = DateTime.Now.Date;
 
             var announcements = await db.PosCustomerAnnouncements
                 .AsNoTracking()
                 .Where(a => a.IsActive && !a.IsDeleted)
-                .Where(a => (!a.StartDate.HasValue || a.StartDate.Value <= now) &&
-                            (!a.EndDate.HasValue || a.EndDate.Value >= now))
+                .Where(a => (!a.StartDate.HasValue || a.StartDate.Value.Date <= today) &&
+                            (!a.EndDate.HasValue || a.EndDate.Value.Date >= today))
                 .OrderBy(a => a.DisplayOrder)
                 .ThenBy(a => a.Id)
                 .ToListAsync();

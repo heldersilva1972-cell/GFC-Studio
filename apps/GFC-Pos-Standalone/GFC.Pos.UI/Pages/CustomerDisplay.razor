@@ -36,7 +36,22 @@
                                 </div>
                             }
                             <h1 class="cfd-announcement-title">@announce.Title</h1>
-                            <p class="cfd-announcement-desc">@announce.Message</p>
+                            <div class="cfd-announcement-desc">
+                                @{
+                                    var displayLines = GetMessageLines(announce.Message);
+                                }
+                                @if (displayLines.Count <= 1)
+                                {
+                                    <div class="cfd-announcement-line cfd-line-large">@announce.Message</div>
+                                }
+                                else
+                                {
+                                    @foreach (var line in displayLines)
+                                    {
+                                        <div class="cfd-announcement-line @(displayLines.Count <= 2 ? "cfd-line-large" : "")">@line</div>
+                                    }
+                                }
+                            </div>
                             
                             @if (_activeAnnouncements.Count > 1)
                             {
@@ -378,12 +393,25 @@
         text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
     }
     .cfd-announcement-desc {
-        font-size: 1.3rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 0;
+        max-width: 100%;
+    }
+    .cfd-announcement-line {
+        font-size: 1.35rem;
         color: #ffffff;
-        line-height: 1.65;
+        line-height: 1.45;
         margin-bottom: 0;
         font-weight: 600;
         text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .cfd-line-large {
+        font-size: 1.55rem;
     }
     .cfd-announcement-dots {
         display: flex;
@@ -929,12 +957,20 @@
     {
         try
         {
+            _announcementsEnabled = await StationSettings.GetCustomerAnnouncementsEnabledAsync();
+            var newInterval = await StationSettings.GetCustomerAnnouncementIntervalSecondsAsync();
+            if (newInterval != _announcementIntervalSeconds && newInterval > 0)
+            {
+                _announcementIntervalSeconds = newInterval;
+                StartAnnouncementRotation();
+            }
+
             var res = await Http.GetAsync("api/pos/customer-displays/active");
             if (res.IsSuccessStatusCode)
             {
                 var json = await res.Content.ReadAsStringAsync();
                 var fresh = JsonSerializer.Deserialize<List<PosCustomerAnnouncement>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (fresh != null && fresh.Any())
+                if (fresh != null)
                 {
                     _activeAnnouncements = fresh;
                     if (_currentAnnouncementIndex >= _activeAnnouncements.Count)
@@ -978,6 +1014,15 @@
         }, null, intervalMs, intervalMs);
     }
 
+    private List<string> GetMessageLines(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return new();
+        return message
+            .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None)
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+    }
+
     private string GetAnnouncementThemeClass(string? theme) => theme switch
     {
         "Bakery" => "cfd-theme-bakery",
@@ -994,7 +1039,7 @@
 
     private string GetAnnouncementIcon(string? iconKey, string? theme)
     {
-        if (iconKey == "none") return string.Empty;
+        if (string.IsNullOrEmpty(iconKey) || iconKey == "none") return string.Empty;
 
         return iconKey switch
         {
@@ -1020,7 +1065,7 @@
             "dollar" => "💰",
             "flag" => "🇵🇹",
             "heart" => "❤️",
-            _ => "⭐"
+            _ => string.Empty
         };
     }
 

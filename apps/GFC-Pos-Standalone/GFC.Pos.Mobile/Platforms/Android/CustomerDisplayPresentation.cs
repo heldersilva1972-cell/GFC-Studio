@@ -16,6 +16,15 @@ public class CustomerDisplayPresentation : Presentation
     private AndroidWebView? _webView;
     private readonly ICustomerDisplayStateService? _stateService;
     private bool _pageLoaded = false;
+    private System.Threading.CancellationTokenSource? _pollCts;
+    private static readonly System.Net.Http.HttpClient _http = new()
+    {
+        BaseAddress = new Uri("https://gfc.lovanow.com/"),
+        Timeout = TimeSpan.FromSeconds(10)
+    };
+    private const string CfdAnnouncementsKey = "GfcPos_CustomerAnnouncementsEnabled";
+    private const string CfdAnnouncementIntervalKey = "GfcPos_CustomerAnnouncementIntervalSeconds";
+    private const string CachedAnnouncementsPrefKey = "GfcPos_CachedAnnouncements_Native";
 
     public CustomerDisplayPresentation(Context outerContext, Display display, ICustomerDisplayStateService? stateService = null) 
         : base(outerContext, display)
@@ -49,6 +58,7 @@ public class CustomerDisplayPresentation : Presentation
             {
                 PushStateToWebView(_stateService.Current);
             }
+            StartAnnouncementSyncLoop();
         }));
 
         SetContentView(_webView);
@@ -60,6 +70,90 @@ public class CustomerDisplayPresentation : Presentation
         {
             _stateService.OnStateChanged += HandleStateChanged;
         }
+    }
+
+    private void StartAnnouncementSyncLoop()
+    {
+        _pollCts?.Cancel();
+        _pollCts = new System.Threading.CancellationTokenSource();
+        var token = _pollCts.Token;
+
+        // Immediately push cached announcements + current settings if available
+        var cachedJson = Preferences.Default.Get(CachedAnnouncementsPrefKey, "[]");
+        var enabled = Preferences.Default.Get(CfdAnnouncementsKey, true);
+        var intervalSec = Math.Max(3, Preferences.Default.Get(CfdAnnouncementIntervalKey, 8));
+        PushAnnouncementsToWebView(cachedJson, enabled, intervalSec);
+
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            int tick = 0;
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    bool curEnabled = Preferences.Default.Get(CfdAnnouncementsKey, true);
+                    int curInterval = Math.Max(3, Preferences.Default.Get(CfdAnnouncementIntervalKey, 8));
+
+                    // Poll API on first run and every ~15 seconds (every 5 ticks of 3s)
+                    if (tick % 5 == 0)
+                    {
+                        try
+                        {
+                            var res = await _http.GetAsync("api/pos/customer-displays/active", token);
+                            if (res.IsSuccessStatusCode)
+                            {
+                                var freshJson = await res.Content.ReadAsStringAsync(token);
+                                if (!string.IsNullOrWhiteSpace(freshJson))
+                                {
+                                    cachedJson = freshJson;
+                                    Preferences.Default.Set(CachedAnnouncementsPrefKey, cachedJson);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[CFD] Announcement poll error: {ex.Message}");
+                        }
+                    }
+
+                    PushAnnouncementsToWebView(cachedJson, curEnabled, curInterval);
+                    tick++;
+                }
+                catch { }
+
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(3000, token);
+                }
+                catch (System.Threading.Tasks.TaskCanceledException)
+                {
+                    break;
+                }
+            }
+        }, token);
+    }
+
+    private void PushAnnouncementsToWebView(string announcementsJson, bool enabled, int intervalSeconds)
+    {
+        if (!_pageLoaded || _webView == null) return;
+        _webView.Post(() =>
+        {
+            try
+            {
+                if (_webView == null) return;
+                var escaped = (announcementsJson ?? "[]")
+                    .Replace("\\", "\\\\")
+                    .Replace("'", "\\'")
+                    .Replace("\n", "\\n")
+                    .Replace("\r", "");
+                var enabledStr = enabled ? "true" : "false";
+                _webView.EvaluateJavascript($"window.updateCfdAnnouncements && window.updateCfdAnnouncements('{escaped}', {enabledStr}, {intervalSeconds});", null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CFD] PushAnnouncements error: {ex.Message}");
+            }
+        });
     }
 
     private void HandleStateChanged()
@@ -89,6 +183,10 @@ public class CustomerDisplayPresentation : Presentation
 
     public override void Dismiss()
     {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+        _pollCts = null;
+
         if (_stateService != null)
         {
             _stateService.OnStateChanged -= HandleStateChanged;
@@ -243,11 +341,62 @@ public class CustomerDisplayPresentation : Presentation
   .cfd-completed-row { display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; color: #dcfce7; padding: 3px 0; }
   .cfd-change-highlight { border-top: 1px solid rgba(134, 239, 172, 0.4); margin-top: 4px; padding-top: 4px; }
   .cfd-change-amount { font-size: 1.5rem; font-weight: 900; color: #ffffff; }
+
+  /* ANNOUNCEMENT SLIDER STYLES */
+  .cfd-slider-stage { position: relative; width: 100%; height: 100%; overflow: hidden; background: #0b0f19; display: none; }
+  .cfd-slide-layer {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center; padding: 2.2rem;
+    transition: opacity 1.1s cubic-bezier(0.4, 0, 0.2, 1), transform 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+  }
+  .cfd-slide-layer.slide-active { opacity: 1; transform: translateX(0) scale(1); z-index: 5; pointer-events: auto; }
+  .cfd-slide-layer.slide-hidden { opacity: 0; transform: scale(0.96); z-index: 1; }
+  .cfd-glow-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.45; pointer-events: none; animation: orbFloat 10s ease-in-out infinite alternate; }
+  .cfd-glow-1 { width: 320px; height: 320px; top: -60px; left: -40px; background: rgba(255, 255, 255, 0.35); }
+  .cfd-glow-2 { width: 280px; height: 280px; bottom: -60px; right: -40px; background: rgba(0, 0, 0, 0.3); }
+  @keyframes orbFloat { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(30px, 20px) scale(1.12); } }
+  .cfd-announcement-card {
+    position: relative; z-index: 2; max-width: 840px; width: 100%; text-align: center;
+    padding: 2.8rem 3.5rem; border-radius: 32px; background: rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    color: #fff; transition: transform 1.1s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.9s ease;
+  }
+  .card-in { transform: translateY(0); opacity: 1; }
+  .card-out { transform: translateY(18px); opacity: 0; }
+  .cfd-announcement-badge-wrap { margin-bottom: 12px; }
+  .cfd-announcement-badge {
+    display: inline-block; padding: 7px 22px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28); border: 1px solid rgba(255, 255, 255, 0.45);
+    font-weight: 800; font-size: 0.88rem; letter-spacing: 2px; text-transform: uppercase;
+    color: #ffffff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  }
+  .cfd-announcement-icon { font-size: 4.2rem; line-height: 1; margin-bottom: 12px; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.35)); }
+  .cfd-announcement-title { font-size: 2.6rem; font-weight: 900; letter-spacing: -0.7px; margin-bottom: 0.85rem; color: #ffffff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
+  .cfd-announcement-desc { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 0; max-width: 100%; }
+  .cfd-announcement-line { font-size: 1.35rem; color: #ffffff; line-height: 1.45; margin-bottom: 0; font-weight: 600; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); word-break: break-word; }
+  .cfd-line-large { font-size: 1.55rem; }
+  .cfd-announcement-dots { display: flex; justify-content: center; gap: 10px; margin-top: 24px; }
+  .cfd-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+  .cfd-dot.active { width: 34px; border-radius: 8px; background: #ffffff; box-shadow: 0 0 12px rgba(255, 255, 255, 0.8); }
+
+  .cfd-theme-bakery { background: radial-gradient(circle at 50% 35%, #f59e0b 0%, #b45309 45%, #451a03 100%) !important; }
+  .cfd-theme-notice { background: radial-gradient(circle at 50% 35%, #f43f5e 0%, #be123c 45%, #4c0519 100%) !important; }
+  .cfd-theme-event { background: radial-gradient(circle at 50% 35%, #8b5cf6 0%, #6d28d9 45%, #2e1065 100%) !important; }
+  .cfd-theme-promo { background: radial-gradient(circle at 50% 35%, #10b981 0%, #047857 45%, #022c22 100%) !important; }
+  .cfd-theme-clubinfo { background: radial-gradient(circle at 50% 35%, #38bdf8 0%, #1d4ed8 45%, #0f172a 100%) !important; }
+  .cfd-theme-sunset { background: radial-gradient(circle at 50% 35%, #fb923c 0%, #ea580c 45%, #7c2d12 100%) !important; }
+  .cfd-theme-charcoal { background: radial-gradient(circle at 50% 35%, #475569 0%, #1e293b 45%, #020617 100%) !important; }
+  .cfd-theme-teal { background: radial-gradient(circle at 50% 35%, #2dd4bf 0%, #0f766e 45%, #134e4a 100%) !important; }
+  .cfd-theme-rose { background: radial-gradient(circle at 50% 35%, #fb7185 0%, #e11d48 45%, #881337 100%) !important; }
+  .cfd-theme-slate { background: radial-gradient(circle at 50% 35%, #94a3b8 0%, #475569 45%, #1e293b 100%) !important; }
 </style>
 </head>
 <body>
-  <div id=""viewWelcome"" class=""cfd-welcome"">
-    <div class=""cfd-welcome-card"">
+  <div id=""viewWelcome"" class=""cfd-welcome"" style=""padding:0; position:relative;"">
+    <div id=""welcomeDefaultCard"" class=""cfd-welcome-card"" style=""padding:24px;"">
       <div class=""cfd-welcome-icon"">
         <svg viewBox=""0 0 24 24"">
           <path d=""M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"" stroke-linecap=""round"" stroke-linejoin=""round""/>
@@ -259,6 +408,7 @@ public class CustomerDisplayPresentation : Presentation
       <p id=""cfdSubMsg"" class=""cfd-welcome-subtitle"">Welcome!</p>
       <div id=""cfdClock"" class=""cfd-welcome-time""></div>
     </div>
+    <div id=""welcomeAnnouncementsStage"" class=""cfd-slider-stage""></div>
   </div>
 
   <div id=""viewOrder"" class=""cfd-split"" style=""display:none;"">
@@ -306,6 +456,203 @@ public class CustomerDisplayPresentation : Presentation
     return '$' + (Number(num) || 0).toFixed(2);
   }
 
+  let _cfdAnnouncements = [];
+  let _cfdAnnouncementsEnabled = true;
+  let _cfdAnnouncementIntervalSec = 8;
+  let _cfdCurrentSlideIdx = 0;
+  let _cfdSlideTimer = null;
+  let _lastAnnouncementsSignature = '';
+
+  function getThemeClass(theme) {
+    switch (theme) {
+      case 'Bakery': return 'cfd-theme-bakery';
+      case 'Notice': return 'cfd-theme-notice';
+      case 'Event': return 'cfd-theme-event';
+      case 'Promo': return 'cfd-theme-promo';
+      case 'Sunset': return 'cfd-theme-sunset';
+      case 'Charcoal': return 'cfd-theme-charcoal';
+      case 'Teal': return 'cfd-theme-teal';
+      case 'Rose': return 'cfd-theme-rose';
+      case 'Slate': return 'cfd-theme-slate';
+      default: return 'cfd-theme-clubinfo';
+    }
+  }
+
+  function getAnnouncementIcon(iconKey) {
+    if (!iconKey || iconKey === 'none') return '';
+    switch (iconKey) {
+      case 'bakery': return '🍞';
+      case 'dues': return '💳';
+      case 'calendar': return '📅';
+      case 'beer': return '🍺';
+      case 'cocktail': return '🍸';
+      case 'wine': return '🍷';
+      case 'pizza': return '🍕';
+      case 'food': return '🍽️';
+      case 'coffee': return '☕';
+      case 'party': return '🎉';
+      case 'trophy': return '🏆';
+      case 'darts': return '🎯';
+      case 'bingo': return '🎱';
+      case 'music': return '🎵';
+      case 'star': return '⭐';
+      case 'megaphone': return '📢';
+      case 'warning': return '⚠️';
+      case 'tag': return '🏷️';
+      case 'clock': return '⏰';
+      case 'dollar': return '💰';
+      case 'flag': return '🇵🇹';
+      case 'heart': return '❤️';
+      default: return '';
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/""/g, '&quot;');
+  }
+
+  function renderWelcomeMode() {
+    const defaultCard = document.getElementById('welcomeDefaultCard');
+    const stage = document.getElementById('welcomeAnnouncementsStage');
+    if (!defaultCard || !stage) return;
+
+    if (_cfdAnnouncementsEnabled && _cfdAnnouncements && _cfdAnnouncements.length > 0) {
+      defaultCard.style.display = 'none';
+      stage.style.display = 'block';
+    } else {
+      defaultCard.style.display = 'block';
+      stage.style.display = 'none';
+    }
+  }
+
+  function buildAnnouncementSlides() {
+    const stage = document.getElementById('welcomeAnnouncementsStage');
+    if (!stage) return;
+    stage.innerHTML = '';
+
+    if (!_cfdAnnouncements || _cfdAnnouncements.length === 0) {
+      renderWelcomeMode();
+      return;
+    }
+
+    if (_cfdCurrentSlideIdx >= _cfdAnnouncements.length) {
+      _cfdCurrentSlideIdx = 0;
+    }
+
+    _cfdAnnouncements.forEach((ann, idx) => {
+      const title = ann.Title || ann.title || '';
+      const message = ann.Message || ann.message || '';
+      const theme = ann.Theme || ann.theme || 'Bakery';
+      const iconKey = ann.IconOrImageUrl !== undefined ? ann.IconOrImageUrl : ann.iconOrImageUrl;
+      const badge = ann.BadgeText || ann.badgeText || '';
+      const isCurrent = idx === _cfdCurrentSlideIdx;
+
+      const layer = document.createElement('div');
+      layer.className = 'cfd-slide-layer ' + getThemeClass(theme) + ' ' + (isCurrent ? 'slide-active' : 'slide-hidden');
+      layer.setAttribute('data-slide-idx', idx);
+
+      const iconStr = getAnnouncementIcon(iconKey);
+      const badgeHtml = badge && badge.trim().length > 0
+        ? `<div class=""cfd-announcement-badge-wrap""><span class=""cfd-announcement-badge"">${escapeHtml(badge)}</span></div>`
+        : '';
+      const iconHtml = iconStr
+        ? `<div class=""cfd-announcement-icon"">${iconStr}</div>`
+        : '';
+
+      let dotsHtml = '';
+      if (_cfdAnnouncements.length > 1) {
+        dotsHtml = '<div class=""cfd-announcement-dots"">';
+        for (let d = 0; d < _cfdAnnouncements.length; d++) {
+          dotsHtml += `<span class=""cfd-dot ${d === _cfdCurrentSlideIdx ? 'active' : ''}""></span>`;
+        }
+        dotsHtml += '</div>';
+      }
+
+      const rawMsg = ann.Message || ann.message || '';
+      const lines = rawMsg ? rawMsg.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0) : [];
+      let messageHtml = '';
+      if (lines.length <= 1) {
+        messageHtml = `<div class=""cfd-announcement-line cfd-line-large"">${escapeHtml(rawMsg)}</div>`;
+      } else {
+        const lineClass = lines.length <= 2 ? 'cfd-announcement-line cfd-line-large' : 'cfd-announcement-line';
+        messageHtml = lines.map(line => `<div class=""${lineClass}"">${escapeHtml(line)}</div>`).join('');
+      }
+
+      layer.innerHTML = `
+        <div class=""cfd-glow-orb cfd-glow-1""></div>
+        <div class=""cfd-glow-orb cfd-glow-2""></div>
+        <div class=""cfd-announcement-card ${isCurrent ? 'card-in' : 'card-out'}"">
+          ${badgeHtml}
+          ${iconHtml}
+          <h1 class=""cfd-announcement-title"">${escapeHtml(title)}</h1>
+          <div class=""cfd-announcement-desc"">${messageHtml}</div>
+          ${dotsHtml}
+        </div>
+      `;
+      stage.appendChild(layer);
+    });
+
+    renderWelcomeMode();
+  }
+
+  function advanceSlide() {
+    if (!_cfdAnnouncementsEnabled || !_cfdAnnouncements || _cfdAnnouncements.length <= 1) return;
+    _cfdCurrentSlideIdx = (_cfdCurrentSlideIdx + 1) % _cfdAnnouncements.length;
+
+    const stage = document.getElementById('welcomeAnnouncementsStage');
+    if (!stage) return;
+    const layers = stage.querySelectorAll('.cfd-slide-layer');
+    layers.forEach((layer, idx) => {
+      const isCurrent = idx === _cfdCurrentSlideIdx;
+      layer.classList.toggle('slide-active', isCurrent);
+      layer.classList.toggle('slide-hidden', !isCurrent);
+      const card = layer.querySelector('.cfd-announcement-card');
+      if (card) {
+        card.classList.toggle('card-in', isCurrent);
+        card.classList.toggle('card-out', !isCurrent);
+      }
+      const dots = layer.querySelectorAll('.cfd-dot');
+      dots.forEach((dot, dIdx) => {
+        dot.classList.toggle('active', dIdx === _cfdCurrentSlideIdx);
+      });
+    });
+  }
+
+  function restartSlideTimer() {
+    if (_cfdSlideTimer) clearInterval(_cfdSlideTimer);
+    const ms = Math.max(3, Number(_cfdAnnouncementIntervalSec) || 8) * 1000;
+    _cfdSlideTimer = setInterval(advanceSlide, ms);
+  }
+
+  window.updateCfdAnnouncements = function(jsonStr, enabled, intervalSec) {
+    try {
+      const intervalChanged = _cfdAnnouncementIntervalSec !== intervalSec;
+      _cfdAnnouncementsEnabled = !!enabled;
+      _cfdAnnouncementIntervalSec = intervalSec || 8;
+
+      const sig = jsonStr || '[]';
+      if (sig !== _lastAnnouncementsSignature) {
+        _lastAnnouncementsSignature = sig;
+        const parsed = JSON.parse(sig);
+        _cfdAnnouncements = Array.isArray(parsed) ? parsed : [];
+        buildAnnouncementSlides();
+        restartSlideTimer();
+      } else {
+        renderWelcomeMode();
+        if (intervalChanged || !_cfdSlideTimer) {
+          restartSlideTimer();
+        }
+      }
+    } catch (e) {
+      console.error('[CFD] Announcement update error:', e);
+    }
+  };
+
   window.updateCfdState = function(jsonStr) {
     try {
       const snap = JSON.parse(jsonStr);
@@ -317,6 +664,7 @@ public class CustomerDisplayPresentation : Presentation
       if (!isOrder) {
         document.getElementById('cfdWelcomeTitle').textContent = snap.StoreName || 'GFC CLUB';
         document.getElementById('cfdSubMsg').textContent = snap.HeaderMessage || 'Welcome!';
+        renderWelcomeMode();
         return;
       }
 
@@ -464,6 +812,14 @@ public class CustomerDisplayManager : Java.Lang.Object, DisplayManager.IDisplayL
         _displayManager = (DisplayManager)context.GetSystemService(Context.DisplayService)!;
         _stateService = stateService;
         _displayManager.RegisterDisplayListener(this, new Handler(Looper.MainLooper));
+
+        if (_stateService != null)
+        {
+            _stateService.OnStateChanged += () =>
+            {
+                new Handler(Looper.MainLooper).Post(CheckAndShow);
+            };
+        }
     }
 
     public void CheckAndShow()

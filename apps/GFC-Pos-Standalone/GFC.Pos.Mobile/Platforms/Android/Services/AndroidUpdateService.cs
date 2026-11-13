@@ -118,49 +118,27 @@ public class AndroidUpdateService : IUpdateService
                     return false;
                 }
 
-                // If existing local file is corrupted/larger than the server size, delete it
+                // Always start with a fresh download file to prevent corrupting by appending onto previous APKs
                 if (File.Exists(tempApkPath))
                 {
-                    var fileInfo = new FileInfo(tempApkPath);
-                    if (fileInfo.Length >= contentLength.Value)
-                    {
-                        File.Delete(tempApkPath);
-                    }
-                    else
-                    {
-                        totalRead = fileInfo.Length;
-                        Console.WriteLine($"[GFC UPDATE] Found existing partial download. Resuming from {totalRead} bytes.");
-                    }
+                    try { File.Delete(tempApkPath); } catch { }
                 }
 
                 while (retries > 0 && !downloadComplete)
                 {
                     try
                     {
+                        totalRead = 0;
                         using (var request = new HttpRequestMessage(HttpMethod.Get, apkUrl))
                         {
-                            if (totalRead > 0)
-                            {
-                                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(totalRead, null);
-                            }
-
                             using (var response = await cleanHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
                             {
-                                // If server returns 200 OK instead of 206 PartialContent when range is specified, restart from 0
-                                if (response.StatusCode == System.Net.HttpStatusCode.OK && totalRead > 0)
-                                {
-                                    totalRead = 0;
-                                    if (File.Exists(tempApkPath)) File.Delete(tempApkPath);
-                                }
-                                else
-                                {
-                                    response.EnsureSuccessStatusCode();
-                                }
+                                response.EnsureSuccessStatusCode();
 
                                 using (var downloadStream = await response.Content.ReadAsStreamAsync())
-                                using (var fileStream = new FileStream(tempApkPath, totalRead > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
+                                using (var fileStream = new FileStream(tempApkPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, true))
                                 {
-                                    var buffer = new byte[8192];
+                                    var buffer = new byte[65536];
                                     int bytesRead;
 
                                     while ((bytesRead = await downloadStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
@@ -168,7 +146,7 @@ public class AndroidUpdateService : IUpdateService
                                         await fileStream.WriteAsync(buffer, 0, bytesRead);
                                         totalRead += bytesRead;
 
-                                        if (progressCallback != null)
+                                        if (progressCallback != null && contentLength.Value > 0)
                                         {
                                             double progress = (double)totalRead / contentLength.Value;
                                             progressCallback.Invoke(progress);
@@ -190,6 +168,8 @@ public class AndroidUpdateService : IUpdateService
                     catch (Exception ex)
                     {
                         retries--;
+                        totalRead = 0;
+                        if (File.Exists(tempApkPath)) { try { File.Delete(tempApkPath); } catch { } }
                         Console.WriteLine($"[GFC UPDATE] Download failed: {ex.Message}. Retries remaining: {retries}");
                         if (retries > 0)
                         {
@@ -205,11 +185,20 @@ public class AndroidUpdateService : IUpdateService
 
             Console.WriteLine($"[GFC UPDATE] Download complete. Verified {new FileInfo(tempApkPath).Length} bytes. Saved to: {tempApkPath}");
 
-            // 3. Silent Installation via PackageInstaller API
+            // 3. Verify APK integrity before launching installer
             var context = Android.App.Application.Context;
             var packageManager = context.PackageManager;
             if (packageManager == null) return false;
 
+            var archiveInfo = packageManager.GetPackageArchiveInfo(tempApkPath, 0);
+            if (archiveInfo == null)
+            {
+                Console.WriteLine("[GFC UPDATE ERROR] Downloaded APK is not a valid Android package archive or is corrupt.");
+                if (File.Exists(tempApkPath)) { try { File.Delete(tempApkPath); } catch { } }
+                return false;
+            }
+
+            // 4. Silent Installation via PackageInstaller API
             var packageInstaller = packageManager.PackageInstaller;
             if (packageInstaller == null) return false;
 

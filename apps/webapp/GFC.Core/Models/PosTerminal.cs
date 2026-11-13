@@ -20,5 +20,10 @@ namespace GFC.Core.Models
         public virtual PosMenuProfile? MenuProfile { get; set; }
 
         public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
+
+        [StringLength(50)]
+        public string? AppVersion { get; set; }
+
+        public DateTime? LastUpdatedAt { get; set; }
     }
 }

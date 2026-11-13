@@ -1823,6 +1823,79 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($"Error auto-creating Salibration tables: {ex.Message}");
                 }
+
+                // [AUTO-FIX 16] Auto-create PosCustomerAnnouncements table if missing
+                try
+                {
+                    var posAnnouncementsTableSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PosCustomerAnnouncements')
+                        BEGIN
+                            CREATE TABLE [dbo].[PosCustomerAnnouncements] (
+                                [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                                [GlobalId] UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_GlobalId DEFAULT (NEWID()),
+                                [Title] NVARCHAR(150) NOT NULL,
+                                [Message] NVARCHAR(500) NOT NULL,
+                                [Theme] NVARCHAR(50) NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_Theme DEFAULT ('Bakery'),
+                                [IconOrImageUrl] NVARCHAR(500) NULL,
+                                [BadgeText] NVARCHAR(100) NULL,
+                                [StartDate] DATETIME2(7) NULL,
+                                [EndDate] DATETIME2(7) NULL,
+                                [DisplayOrder] INT NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_DisplayOrder DEFAULT (0),
+                                [IsActive] BIT NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_IsActive DEFAULT (1),
+                                [IsDeleted] BIT NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_IsDeleted DEFAULT (0),
+                                [CreatedAt] DATETIME2(7) NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_CreatedAt DEFAULT (SYSUTCDATETIME()),
+                                [ModifiedAt] DATETIME2(7) NULL,
+                                [CreatedBy] NVARCHAR(100) NULL,
+                                [ModifiedBy] NVARCHAR(100) NULL,
+                                [SyncDate] DATETIME2(7) NULL,
+                                [RowVersion] ROWVERSION
+                            );
+
+                            CREATE NONCLUSTERED INDEX IX_PosCustomerAnnouncements_Active_Schedule 
+                            ON [dbo].[PosCustomerAnnouncements] ([IsActive], [IsDeleted], [DisplayOrder])
+                            INCLUDE ([Title], [Message], [Theme], [StartDate], [EndDate]);
+                        END
+                        ELSE
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'GlobalId')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [GlobalId] UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_PosCustomerAnnouncements_GlobalId DEFAULT (NEWID());
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'ModifiedAt')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [ModifiedAt] DATETIME2(7) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'CreatedBy')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [CreatedBy] NVARCHAR(100) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'ModifiedBy')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [ModifiedBy] NVARCHAR(100) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'SyncDate')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [SyncDate] DATETIME2(7) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosCustomerAnnouncements') AND name = 'RowVersion')
+                                ALTER TABLE [dbo].[PosCustomerAnnouncements] ADD [RowVersion] ROWVERSION;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(posAnnouncementsTableSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error auto-creating PosCustomerAnnouncements table: {ex.Message}");
+                }
+
+                // [AUTO-FIX 17] Ensure PosTerminals table has AppVersion and LastUpdatedAt columns
+                try
+                {
+                    var posTerminalsColumnsSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'PosTerminals')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosTerminals') AND name = 'AppVersion')
+                                ALTER TABLE [dbo].[PosTerminals] ADD [AppVersion] NVARCHAR(50) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.PosTerminals') AND name = 'LastUpdatedAt')
+                                ALTER TABLE [dbo].[PosTerminals] ADD [LastUpdatedAt] DATETIME2(7) NULL;
+                        END
+                    ";
+                    db.Database.ExecuteSqlRaw(posTerminalsColumnsSql);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error verifying PosTerminals columns: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {
