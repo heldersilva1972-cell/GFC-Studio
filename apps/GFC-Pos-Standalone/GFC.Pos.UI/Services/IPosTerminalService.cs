@@ -18,6 +18,7 @@ public interface IPosTerminalService
     Task SaveZReportAsync(PosZReportDto report);
     event Action? OutboxChanged;
     event Action<PosMenuDto>? MenuRefreshed;
+    event Action<int, int>? EventIdRemapped;
     int TotalPendingCount { get; }
     int PendingSalesCount { get; }
     int PendingZCount { get; }

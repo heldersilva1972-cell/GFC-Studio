@@ -1493,9 +1493,9 @@
         </div>
 
         <div class="header-actions">
-            @if (_showLastSaleBar && _lastSale != null && !_isCorrectionMode)
+            @if (_showLastSaleBar && _lastSale != null && !_isCorrectionMode && IsSaleEligibleForCorrection(_lastSale))
             {
-                <div class="last-transaction-pill animate__animated animate__fadeInRight" @onclick="() => _showCorrectionConfirm = true">
+                <div class="last-transaction-pill animate__animated animate__fadeInRight" @onclick="ConfirmStartCorrection">
                     <i class="bi bi-clock-history"></i>
                     <span>LAST: <span class="pill-amount">@_lastSale.TotalAmount.ToString("C")</span></span>
                     @if (_lastSale.IsCorrection)
@@ -7327,6 +7327,10 @@
                 var directEvent = DbActiveEvents?.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
                 _selectedActiveEvent = directEvent;
             }
+            if (_lastSale?.ActiveEventId == evId)
+            {
+                _lastSale = null;
+            }
 
             var closeVaultKey = $"gfc_pos_vault_event_close_{evId}";
             try { await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", closeVaultKey, evId); } catch {}
@@ -8556,19 +8560,15 @@
             _payoutCategories = new() { "FOOD", "SUPPLIES", "MAINTENANCE", "REBATE/REFUND", "OTHER" };
         }
 
-
-
         Connectivity.ConnectivityChanged += OnConnectivityChanged;
         PosService.OutboxChanged += OnOutboxChanged;
         PosService.MenuRefreshed += OnMenuRefreshed;
+        PosService.EventIdRemapped += OnEventIdRemapped;
         
         await PosService.GetTotalPendingAsync();
         
         // Load Idle Settings
         var idleStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_idle_timeout");
-        if (int.TryParse(idleStored, out var mins)) _idleTimeoutMinutes = mins;
-
-        // Load Last Sale Bar Setting
         var lastBarStored = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pos_show_last_sale_bar");
         if (!string.IsNullOrEmpty(lastBarStored)) _showLastSaleBar = bool.Parse(lastBarStored);
 
@@ -8977,25 +8977,10 @@
 
     private void OnOutboxChanged()
     {
-        // PERFORMANCE: Do NOT call StateHasChanged here — the pending count badge
-        // is non-critical and will update naturally after RefreshData completes.
-        InvokeAsync(async () =>
-        {
-            if (!_isRefreshingMenu)
-            {
-                _isRefreshingMenu = true;
-                try
-                {
-                    // Debounce batch syncs (e.g. 100 offline sales) to prevent API spam
-                    await Task.Delay(1500);
-                    await RefreshData();
-                }
-                finally
-                {
-                    _isRefreshingMenu = false;
-                }
-            }
-        });
+        // PERFORMANCE: Do NOT call RefreshData() on every outbox write — doing a full menu hydration
+        // and server fetch 1.5s after every sale/deposit causes heavy JS interop lag and race conditions
+        // while the sync engine is actively flushing the outbox.
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnMenuRefreshed(PosMenuDto freshMenu)
@@ -9012,12 +8997,45 @@
         });
     }
 
+    private void OnEventIdRemapped(int tempId, int realId)
+    {
+        InvokeAsync(async () =>
+        {
+            if (DbActiveEvents != null)
+            {
+                foreach (var ev in DbActiveEvents.Where(e => e.Id == tempId))
+                {
+                    ev.Id = realId;
+                }
+            }
+            if (_selectedActiveEvent != null && _selectedActiveEvent.Id == tempId)
+            {
+                _selectedActiveEvent.Id = realId;
+                try { await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", realId.ToString()); } catch {}
+            }
+            if (_selectedBanquetToAddFunds != null && _selectedBanquetToAddFunds.Id == tempId)
+            {
+                _selectedBanquetToAddFunds.Id = realId;
+            }
+            if (_closingBanquet != null && _closingBanquet.Id == tempId)
+            {
+                _closingBanquet.Id = realId;
+            }
+            if (_lastSale != null && _lastSale.ActiveEventId == tempId)
+            {
+                _lastSale.ActiveEventId = realId;
+            }
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         _disposed = true;
         Connectivity.ConnectivityChanged -= OnConnectivityChanged;
         PosService.OutboxChanged -= OnOutboxChanged;
         PosService.MenuRefreshed -= OnMenuRefreshed;
+        PosService.EventIdRemapped -= OnEventIdRemapped;
     }
 
     private void LockTerminal()
@@ -12201,10 +12219,36 @@
         await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pos_legacy_mixed_token_value", _legacyMixedTokenValue.ToString("F2"));
     }
 
+    private bool IsSaleEligibleForCorrection(PosSaleDto? sale)
+    {
+        if (sale == null || sale.IsVoided) return false;
+        if (sale.PaymentType == "PAYOUT" || sale.PaymentType == "NO SALE" || (sale.PaymentType != null && sale.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        if (!string.IsNullOrEmpty(sale.ItemsJson) && (
+            sale.ItemsJson.Contains("TAB DEPOSIT:") ||
+            sale.ItemsJson.Contains("INITIAL DEPOSIT:") ||
+            sale.ItemsJson.Contains("DEPOSIT CORRECTION:") ||
+            sale.ItemsJson.Contains("RETURNED FUNDS:") ||
+            sale.ItemsJson.Contains("NO SALE")))
+            return false;
+        if (sale.ActiveEventId.HasValue)
+        {
+            if (DbActiveEvents == null || !DbActiveEvents.Any(e => e.Id == sale.ActiveEventId.Value && e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted))
+                return false;
+        }
+        return true;
+    }
+
     private void ConfirmStartCorrection() 
     { 
-        if (_isCorrectionMode) return;
-        if (_lastSale != null && (_lastSale.TotalAmount == 0 || _lastSale.PaymentType == "TOKEN/COMP" || (_lastSale.ItemsJson != null && _lastSale.ItemsJson.Contains("(DARTS"))))
+        if (_isCorrectionMode || _lastSale == null) return;
+        if (!IsSaleEligibleForCorrection(_lastSale))
+        {
+            _lastSale = null;
+            ShowNotice("Event Closed", "This transaction belonged to an event that is already settled and closed, so it cannot be modified.", "warning");
+            return;
+        }
+        if (_lastSale.TotalAmount == 0 || _lastSale.PaymentType == "TOKEN/COMP" || (_lastSale.ItemsJson != null && _lastSale.ItemsJson.Contains("(DARTS")))
         {
             StartCorrection();
         }
@@ -12216,7 +12260,11 @@
 
     private void StartCorrection()
     {
-        if (_lastSale == null) return;
+        if (_lastSale == null || !IsSaleEligibleForCorrection(_lastSale))
+        {
+            _showCorrectionConfirm = false;
+            return;
+        }
         
         _isCorrectionMode = true;
         _originalSaleAmount = _lastSale.TotalAmount;
@@ -13452,11 +13500,11 @@
         }
 
         _isStartingBanquet = true;
-        StateHasChanged();
 
         try
         {
-            if (_newBanquetAmount > 0)
+            var initialAmt = _newBanquetAmount;
+            if (initialAmt > 0)
             {
                 KickDrawerBackground();
             }
@@ -13481,14 +13529,14 @@
                 Name = cleanName + (_newEventDirectCheckout ? " [Direct]" : ""),
                 Type = template.DefaultType,
                 TemplateId = template.Id,   // ← Link to template for price overrides & category filtering
-                CurrentBalance = _newBanquetAmount,
+                CurrentBalance = initialAmt,
                 Status = GFC.Core.Enums.EventTabStatus.Open,
-                InitialAmount = _newBanquetAmount,
+                InitialAmount = initialAmt,
                 EnableBeerTally = template.EnableBeerTally,
                 ClubDonatedCasesCap = template.ClubDonatedCasesCap,
-                DonatedItemIdsJson = carryOverDonatedPool,
+                DonatedItemIdsJson = template.EnableBeerTally || (template.Name != null && template.Name.Contains("horseshoe", StringComparison.OrdinalIgnoreCase)) ? carryOverDonatedPool : null,
                 DonatedItemTalliesJson = null,
-                Enable100PercentDonatedProceeds = !string.IsNullOrEmpty(carryOverDonatedPool) || template.Enable100PercentDonatedProceeds,
+                Enable100PercentDonatedProceeds = (template.EnableBeerTally || (template.Name != null && template.Name.Contains("horseshoe", StringComparison.OrdinalIgnoreCase))) && (!string.IsNullOrEmpty(carryOverDonatedPool) || template.Enable100PercentDonatedProceeds),
                 IsRecurring = template.IsRecurring,
                 RecipientEventName = template.RecipientEventName,
                 CreatedAt = DateTime.UtcNow
@@ -13503,136 +13551,65 @@
                 {
                     _cachedMenu.ActiveEvents = DbActiveEvents;
                 }
-                if (_newBanquetAmount > 0)
-                {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
-                }
 
                 _selectedActiveEvent = newEvent;
-                try { await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", newEvent.Id.ToString()); } catch {}
-
+                _newBanquetTemplateId = 0;
+                _newBanquetAmount = 0;
+                _newEventDirectCheckout = false;
+                showBanquetsModal = false; // Close the modal cleanly!
                 Toast.ShowSuccess($"Event started in memory: {newEvent.Name}");
-                _newBanquetTemplateId = 0;
-                _newBanquetAmount = 0;
-                _newEventDirectCheckout = false;
-                showBanquetsModal = false; // Close the modal cleanly!
                 StateHasChanged();
+
+                try { _ = JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", newEvent.Id.ToString()); } catch {}
+                if (initialAmt > 0)
+                {
+                    await LogTabDeposit(template.Name, initialAmt, newEvent.Id, isInitial: true);
+                }
                 return;
             }
-            
-            if (!Connectivity.IsOnline)
+
+            // ── OPTIMISTIC INSTANT START (Zero UI Delay, Zero Duplicate Race) ──
+            newEvent.Id = new Random().Next(-999999, -1000);
+            if (DbActiveEvents == null) DbActiveEvents = new();
+            DbActiveEvents.Add(newEvent);
+            _selectedActiveEvent = newEvent;
+
+            // Close modal and update UI BEFORE any async IndexedDB/network work so there is zero intermediate render!
+            _newBanquetTemplateId = 0;
+            _newBanquetAmount = 0;
+            _newEventDirectCheckout = false;
+            _selectedBanquetToAddFunds = null;
+            showBanquetsModal = false;
+            _isStartingBanquet = false;
+            Toast.ShowSuccess($"Event started: {newEvent.Name}");
+            StateHasChanged();
+
+            if (_cachedMenu != null)
             {
-                newEvent.Id = new Random().Next(-999999, -1000);
-                if (_cachedMenu != null)
-                {
-                    if (_cachedMenu.ActiveEvents == null) _cachedMenu.ActiveEvents = new();
-                    if (!_cachedMenu.ActiveEvents.Any(e => e.Name == newEvent.Name))
-                    {
-                        _cachedMenu.ActiveEvents.Add(newEvent);
-                    }
-                    await PosService.SaveMenuToVaultAsync(_cachedMenu);
-                }
-
-                var eventKey = $"gfc_pos_vault_event_start_{newEvent.Id}";
-                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", eventKey, newEvent);
-                await PosService.GetTotalPendingAsync();
-
-                if (_newBanquetAmount > 0)
-                {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
-                }
-
-                _selectedActiveEvent = newEvent;
-                try { await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", newEvent.Id.ToString()); } catch {}
-
-                Toast.ShowSuccess($"Event started: {newEvent.Name}");
-                _newBanquetTemplateId = 0;
-                _newBanquetAmount = 0;
-                _newEventDirectCheckout = false;
-                showBanquetsModal = false; // Close the modal cleanly!
-                _ = RefreshData();
-                StateHasChanged();
-                return;
+                if (_cachedMenu.ActiveEvents == null) _cachedMenu.ActiveEvents = new();
+                _cachedMenu.ActiveEvents.RemoveAll(e => e.Id == newEvent.Id || e.Name == newEvent.Name);
+                _cachedMenu.ActiveEvents.Add(newEvent);
+                _ = PosService.SaveMenuToVaultAsync(_cachedMenu);
             }
-            
-            HttpResponseMessage? response = null;
+
+            try { _ = JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", newEvent.Id.ToString()); } catch {}
+
+            var eventKey = $"gfc_pos_vault_event_start_{newEvent.Id}";
             try
             {
-                response = await Http.PostAsJsonAsync("api/pos/events/start", newEvent);
+                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", eventKey, newEvent);
             }
-            catch (Exception ex)
+            catch {}
+
+            if (initialAmt > 0)
             {
-                Console.WriteLine($"[POS] Failed to start event online: {ex.Message}. Falling back to offline start.");
-            }
-
-            if (response != null && response.IsSuccessStatusCode)
-            {
-                var created = await response.Content.ReadFromJsonAsync<ActiveEvent>();
-                var activeToSelect = created ?? newEvent;
-
-                if (DbActiveEvents == null) DbActiveEvents = new();
-                if (!DbActiveEvents.Any(e => e.Id == activeToSelect.Id))
-                {
-                    DbActiveEvents.Add(activeToSelect);
-                }
-
-                _selectedActiveEvent = activeToSelect;
-                try { await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", activeToSelect.Id.ToString()); } catch {}
-
-                if (_newBanquetAmount > 0)
-                {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, activeToSelect.Id, isInitial: true);
-                }
-
-                Toast.ShowSuccess($"Event started: {activeToSelect.Name}");
-                _newBanquetTemplateId = 0;
-                _newBanquetAmount = 0;
-                _newEventDirectCheckout = false;
-                _selectedBanquetToAddFunds = null;
-                showBanquetsModal = false; // Close the modal cleanly!
-                _ = RefreshData();
-                StateHasChanged();
+                await LogTabDeposit(template.Name, initialAmt, newEvent.Id, isInitial: true);
             }
             else
             {
-                newEvent.Id = new Random().Next(-999999, -1000);
-                if (_cachedMenu != null)
-                {
-                    if (_cachedMenu.ActiveEvents == null) _cachedMenu.ActiveEvents = new();
-                    if (!_cachedMenu.ActiveEvents.Any(e => e.Name == newEvent.Name))
-                    {
-                        _cachedMenu.ActiveEvents.Add(newEvent);
-                    }
-                    await PosService.SaveMenuToVaultAsync(_cachedMenu);
-                }
-
-                var eventKey = $"gfc_pos_vault_event_start_{newEvent.Id}";
-                await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", eventKey, newEvent);
-                await PosService.GetTotalPendingAsync();
-
-                if (_newBanquetAmount > 0)
-                {
-                    await LogTabDeposit(template.Name, _newBanquetAmount, newEvent.Id, isInitial: true);
-                }
-
-                if (DbActiveEvents == null) DbActiveEvents = new();
-                if (!DbActiveEvents.Any(e => e.Id == newEvent.Id || e.Name == newEvent.Name))
-                {
-                    DbActiveEvents.Add(newEvent);
-                }
-
-                _selectedActiveEvent = newEvent;
-                try { await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_selected_event_id", newEvent.Id.ToString()); } catch {}
-
-                Toast.ShowSuccess($"Event started: {newEvent.Name}");
-                _newBanquetTemplateId = 0;
-                _newBanquetAmount = 0;
-                _newEventDirectCheckout = false;
-                _selectedBanquetToAddFunds = null;
-                showBanquetsModal = false; // Close the modal cleanly!
-                await RefreshData();
-                StateHasChanged();
+                _ = PosService.FlushAllPendingAsync();
             }
+            return;
         }
         catch (Exception ex)
         {
@@ -13655,24 +13632,27 @@
         }
 
         var actualAmount = _isDeductFundsMode ? -_addFundsAmount : _addFundsAmount;
-
-        // 1. INSTANT LOCAL UPDATE
-        _selectedBanquetToAddFunds.CurrentBalance += actualAmount;
-        await LogTabDeposit(_selectedBanquetToAddFunds.Name, actualAmount, _selectedBanquetToAddFunds.Id, isInitial: false, isCorrection: _isDeductFundsMode);
-        
-        if (_cachedMenu != null && !forceTrainingMode)
-        {
-             await PosService.SaveMenuToVaultAsync(_cachedMenu);
-        }
-        
         var name = _selectedBanquetToAddFunds.Name;
         var amt = actualAmount;
         var id = _selectedBanquetToAddFunds.Id;
-        
+        var isDeduct = _isDeductFundsMode;
+
+        // 1. INSTANT IN-MEMORY UPDATE & MODAL CLOSE (Zero UI Delay)
+        _selectedBanquetToAddFunds.CurrentBalance += actualAmount;
+        if (_selectedActiveEvent != null && _selectedActiveEvent.Id == id)
+        {
+            _selectedActiveEvent.CurrentBalance = _selectedBanquetToAddFunds.CurrentBalance;
+        }
+        var matchInList = DbActiveEvents?.FirstOrDefault(e => e.Id == id);
+        if (matchInList != null)
+        {
+            matchInList.CurrentBalance = _selectedBanquetToAddFunds.CurrentBalance;
+        }
+
         _selectedBanquetToAddFunds = null;
         _addFundsAmount = 0;
         _isDeductFundsMode = false;
-        showBanquetsModal = false; // Close the entire modal after funds are added
+        showBanquetsModal = false; // Close the entire modal immediately!
         StateHasChanged();
 
         if (forceTrainingMode)
@@ -13681,35 +13661,21 @@
             return;
         }
 
+        if (_cachedMenu != null)
+        {
+            _ = PosService.SaveMenuToVaultAsync(_cachedMenu);
+        }
+
+        // Write add-funds outbox BEFORE LogTabDeposit so the single locked outbox sweep picks up both in order
         var addFundsKey = $"gfc_pos_vault_event_add_funds_{Guid.NewGuid()}";
         var request = new AddFundsRequest { Id = id, Amount = amt };
         try
         {
             await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", addFundsKey, request);
-            await PosService.GetTotalPendingAsync();
         }
         catch {}
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                // 2. BACKGROUND SERVER SYNC
-                var response = await Http.PostAsJsonAsync("api/pos/events/add-funds", request);
-                if (response.IsSuccessStatusCode)
-                {
-                    try
-                    {
-                        await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", addFundsKey);
-                    }
-                    catch {}
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] ConfirmAddFunds Server Sync failed: {ex.Message}");
-            }
-        });
+        await LogTabDeposit(name, amt, id, isInitial: false, isCorrection: isDeduct);
     }
 
     public class ReceivedDonationInfo
@@ -14611,38 +14577,40 @@
         
         // Log the negative deposit correction to reduce the event balance to 0 and reduce shift expected cash
         var refundAmount = -remainingFunds;
+        var banquetId = _closingBanquet.Id;
+        var banquetName = _closingBanquet.Name;
+
         _closingBanquet.CurrentBalance = 0; // Bring balance to 0
-        
-        await LogTabDeposit(_closingBanquet.Name, refundAmount, _closingBanquet.Id, isInitial: false, isCorrection: false, isRefund: true);
+        if (_selectedActiveEvent != null && _selectedActiveEvent.Id == banquetId)
+        {
+            _selectedActiveEvent.CurrentBalance = 0;
+        }
+        var matchInList = DbActiveEvents?.FirstOrDefault(e => e.Id == banquetId);
+        if (matchInList != null)
+        {
+            matchInList.CurrentBalance = 0;
+        }
+
+        _showBanquetRefundPrompt = false;
+        _showBanquetRefundSuccessConfirm = true;
+        StateHasChanged();
 
         if (forceTrainingMode)
         {
-            _showBanquetRefundPrompt = false;
-            _showBanquetRefundSuccessConfirm = true;
-            StateHasChanged();
             Toast.ShowSuccess("Refund logged in memory (Training Mode)");
             return;
         }
 
-        // Queue the add-funds (refund) request in IndexedDB outbox so server syncs the negative correction
+        // Queue the add-funds (refund) request in IndexedDB outbox BEFORE LogTabDeposit so the single locked sweep picks up both
         var addFundsKey = $"gfc_pos_vault_event_add_funds_{Guid.NewGuid()}";
-        var request = new AddFundsRequest { Id = _closingBanquet.Id, Amount = refundAmount };
+        var request = new AddFundsRequest { Id = banquetId, Amount = refundAmount };
         try
         {
             await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", addFundsKey, request);
         }
         catch {}
 
-        try
-        {
-            // Sync to server in background
-            _ = Http.PostAsJsonAsync("api/pos/events/add-funds", request);
-        }
-        catch {}
-
-        _showBanquetRefundPrompt = false;
-        _showBanquetRefundSuccessConfirm = true;
-        StateHasChanged();
+        await LogTabDeposit(banquetName, refundAmount, banquetId, isInitial: false, isCorrection: false, isRefund: true);
     }
 
     private async Task ExecuteCloseBanquet(bool print)
@@ -14657,31 +14625,34 @@
         {
             KickDrawerBackground();
             ev.CurrentBalance = 0;
-            await LogTabDeposit(ev.Name, amountOwed, ev.Id, isInitial: false);
         }
 
-        // 1. Instant Local Update (Bypass delay)
+        // 1. Instant Local Update & Modal Close (Zero UI Delay)
         DbActiveEvents.RemoveAll(e => e.Id == ev.Id);
+        if (_selectedActiveEvent?.Id == ev.Id)
+        {
+            var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
+            _selectedActiveEvent = directEvent;
+        }
+        if (_lastSale?.ActiveEventId == ev.Id)
+        {
+            _lastSale = null;
+        }
+        _selectedBanquetToAddFunds = null;
+        showBanquetsModal = false; // Close the event manager modal immediately!
+        StateHasChanged();
+
         if (_cachedMenu != null)
         {
             _cachedMenu.ActiveEvents = DbActiveEvents;
             if (!forceTrainingMode)
             {
-                await PosService.SaveMenuToVaultAsync(_cachedMenu);
+                _ = PosService.SaveMenuToVaultAsync(_cachedMenu);
             }
         }
 
         if (forceTrainingMode)
         {
-            // Auto reset selected active event if it was the one closed
-            if (_selectedActiveEvent?.Id == ev.Id)
-            {
-                var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
-                _selectedActiveEvent = directEvent;
-            }
-            showBanquetsModal = false; // Close the event manager modal
-            StateHasChanged();
-
             if (print)
             {
                 try
@@ -14697,24 +14668,18 @@
             return;
         }
 
-        // Queue the event closure request in IndexedDB outbox
+        if (amountOwed > 0)
+        {
+            await LogTabDeposit(ev.Name, amountOwed, ev.Id, isInitial: false);
+        }
+
+        // Queue the event closure request in IndexedDB outbox and let the single locked sync engine flush it
         var closeKey = $"gfc_pos_vault_event_close_{ev.Id}";
         try
         {
             await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", closeKey, ev.Id);
-            await PosService.GetTotalPendingAsync();
         }
         catch {}
-
-        // Auto reset selected active event if it was the one closed
-        if (_selectedActiveEvent?.Id == ev.Id)
-        {
-            var directEvent = DbActiveEvents.FirstOrDefault(e => e.Name.EndsWith(" [Direct]") || e.Name.EndsWith("[Direct]"));
-            _selectedActiveEvent = directEvent;
-        }
-        _selectedBanquetToAddFunds = null;
-        showBanquetsModal = false; // Close the event manager modal
-        StateHasChanged();
 
         if (print)
         {
@@ -14728,27 +14693,10 @@
                 Console.WriteLine($"[POS] Failed to start background print: {ex.Message}");
             }
         }
-
-        _ = Task.Run(async () =>
+        else
         {
-            try
-            {
-                // 2. Background Server Update
-                var response = await Http.PostAsync($"api/pos/events/close/{ev.Id}", null);
-                if (response.IsSuccessStatusCode)
-                {
-                    try
-                    {
-                        await JSRuntime.InvokeVoidAsync("window.gfcRemoveAsync", closeKey);
-                    }
-                    catch {}
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[POS] CloseBanquet Server Sync failed (will retry on next refresh): {ex.Message}");
-            }
-        });
+            _ = PosService.FlushAllPendingAsync();
+        }
     }
 
     private async Task PrintBanquetMasterSummary(ActiveEvent ev, bool isReprint = false)
@@ -15100,7 +15048,7 @@
         {
             await PosService.AddSaleToShiftAsync(depositSale);
             await PosService.SaveSaleAsync(depositSale);
-            await UpdateAuditAsync();
+            _ = UpdateAuditAsync();
         }
     }
 

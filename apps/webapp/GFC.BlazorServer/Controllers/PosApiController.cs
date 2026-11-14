@@ -1370,9 +1370,25 @@ public class PosApiController : ControllerBase
                     ActiveEventId = sale.ActiveEventId
                 };
 
-                if (audit.LatestSale == null || sale.Timestamp > audit.LatestSale.Timestamp)
+                bool isBookkeepingEntry = sale.PaymentType == "PAYOUT" ||
+                                          sale.PaymentType == "NO SALE" ||
+                                          (sale.PaymentType != null && sale.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase)) ||
+                                          (!string.IsNullOrEmpty(sale.ItemsJson) && (
+                                              sale.ItemsJson.Contains("TAB DEPOSIT:") ||
+                                              sale.ItemsJson.Contains("INITIAL DEPOSIT:") ||
+                                              sale.ItemsJson.Contains("DEPOSIT CORRECTION:") ||
+                                              sale.ItemsJson.Contains("RETURNED FUNDS:") ||
+                                              sale.ItemsJson.Contains("NO SALE")));
+
+                bool isClosedEventSale = sale.ActiveEventId.HasValue &&
+                                         !activeEvents.Any(e => e.Id == sale.ActiveEventId.Value && e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted);
+
+                if (!isBookkeepingEntry && !isClosedEventSale)
                 {
-                    audit.LatestSale = saleDto;
+                    if (audit.LatestSale == null || sale.Timestamp > audit.LatestSale.Timestamp)
+                    {
+                        audit.LatestSale = saleDto;
+                    }
                 }
 
                 List<PosSaleItemInternalDto>? salesItems = null;
@@ -2000,6 +2016,14 @@ public class PosApiController : ControllerBase
     private static async Task<(string? Json, bool Enable100)> ResolveDonatedPoolAsync(GfcDbContext db, int? eventId, string? eventName, int? templateId, string? currentJson)
     {
         var cleanName = (eventName ?? "").Replace(" [Direct]", "").Replace("[Direct]", "").Trim();
+        // Donated beer pools ONLY apply to events configured for donated beer / horsehoes / prize pools.
+        // Pure cash prepaid tabs (such as generic "Prepaid Event") must NEVER inherit donated beer pools!
+        if (cleanName.Equals("Prepaid Event", StringComparison.OrdinalIgnoreCase) ||
+            cleanName.Equals("Running Tab", StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, false);
+        }
+
         var poolMap = new Dictionary<int, int>();
         if (!string.IsNullOrEmpty(currentJson))
         {

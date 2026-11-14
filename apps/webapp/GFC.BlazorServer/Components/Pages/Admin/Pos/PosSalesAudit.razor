@@ -5544,8 +5544,8 @@
                                                                     </td>
                                                                     <td class="py-2.5 fw-bold text-dark">@sale.BartenderName</td>
                                                                     <td class="py-2.5 text-muted">@sale.TerminalName</td>
-                                                                    <td class="py-2.5 text-end fw-black @(isDepositSale ? "text-success" : "text-primary") fs-6">
-                                                                        @(isDepositSale ? "+" : "")@sale.TotalAmount.ToString("C")
+                                                                    <td class="py-2.5 text-end fw-black @(isDepositSale ? (sale.TotalAmount < 0 ? "text-danger" : "text-success") : "text-primary") fs-6">
+                                                                        @(sale.TotalAmount < 0 ? $"-{Math.Abs(sale.TotalAmount):C}" : (isDepositSale ? $"+{sale.TotalAmount:C}" : sale.TotalAmount.ToString("C")))
                                                                     </td>
                                                                     <td class="pe-4 py-2.5 text-center">
                                                                         <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.72rem;" @onclick="() => SelectedSale = sale">
@@ -6218,13 +6218,13 @@
                                                                     <td class="py-3 fw-bold text-dark">@sale.BartenderName</td>
                                                                     <td class="py-3 text-muted">@sale.TerminalName</td>
                                                                     <td class="py-3 text-end fw-bold text-dark" style="font-size: 0.85rem;">
-                                                                        @(isDepositSale ? "+" : "")@clubPart.ToString("C")
+                                                                        @(clubPart < 0 ? $"-{Math.Abs(clubPart):C}" : (isDepositSale ? $"+{clubPart:C}" : clubPart.ToString("C")))
                                                                     </td>
                                                                     <td class="py-3 text-end fw-bold text-success" style="font-size: 0.85rem;">
-                                                                        @(eventPart > 0 ? $"+{eventPart:C}" : "$0.00")
+                                                                        @(eventPart > 0 ? $"+{eventPart:C}" : (eventPart < 0 ? $"-{Math.Abs(eventPart):C}" : "$0.00"))
                                                                     </td>
-                                                                    <td class="py-3 text-end fw-black @(isDepositSale ? "text-success" : "text-primary") fs-6">
-                                                                        @(isDepositSale ? "+" : "")@totalRow.ToString("C")
+                                                                    <td class="py-3 text-end fw-black @(isDepositSale ? (totalRow < 0 ? "text-danger" : "text-success") : "text-primary") fs-6">
+                                                                        @(totalRow < 0 ? $"-{Math.Abs(totalRow):C}" : (isDepositSale ? $"+{totalRow:C}" : totalRow.ToString("C")))
                                                                     </td>
                                                                     <td class="pe-4 py-3 text-center">
                                                                         <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.72rem;" @onclick="() => SelectedSale = sale">
@@ -6806,11 +6806,11 @@
                                                                 <td class="py-2.5 text-end fw-bold text-success">
                                                                     @saleEvent.ToString("C")
                                                                 </td>
-                                                                <td class="py-2.5 text-end fw-black @(isDepositSale ? "text-success" : "text-dark") fs-6">
+                                                                <td class="py-2.5 text-end fw-black @(isDepositSale ? (sale.TotalAmount < 0 ? "text-danger" : "text-success") : "text-dark") fs-6">
                                                                     @{
                                                                         var displayTotal = isDepositSale ? sale.TotalAmount : (saleClub + saleEvent);
                                                                     }
-                                                                    @(isDepositSale ? "+" : "")@displayTotal.ToString("C")
+                                                                    @(displayTotal < 0 ? $"-{Math.Abs(displayTotal):C}" : (isDepositSale ? $"+{displayTotal:C}" : displayTotal.ToString("C")))
                                                                 </td>
                                                                 <td class="pe-4 py-2.5 text-center">
                                                                     <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" style="font-size: 0.72rem;" @onclick="() => SelectedSale = sale">
@@ -8368,7 +8368,7 @@
                         </div>
                     </div>
                 }
-                else
+                else if (ActiveTab != "TOKENS" || (_tokenSubTab != "SHIFT_CLOSEOUT" && _tokenSubTab != "BATCHES_VINTAGE"))
                 {
                     <div class="sidebar-section mb-4">
                         <label class="sidebar-label">DATE & STATION FILTERS</label>
@@ -11592,7 +11592,8 @@
         public int TotalDonatedRemaining => DonatedStock.Sum(s => s.Remaining);
         public int TotalRegularConsumed { get; set; }
         public int TotalAllConsumed => TotalDonatedConsumed + TotalRegularConsumed;
-        public bool IsRecipientEvent => DonatedStock.Any() || ReceivedDonations.Any() || TotalDonatedAvailable > 0 || (LatestEvent != null && LatestEvent.Enable100PercentDonatedProceeds);
+        public bool IsRecipientEvent => (DonatedStock.Any() || ReceivedDonations.Any() || TotalDonatedAvailable > 0 || (LatestEvent != null && LatestEvent.Enable100PercentDonatedProceeds))
+            && (LatestEvent != null && (LatestEvent.EnableBeerTally || (LatestEvent.Name != null && LatestEvent.Name.Contains("horseshoe", StringComparison.OrdinalIgnoreCase)) || !string.IsNullOrEmpty(LatestEvent.DonatedItemTalliesJson)));
         public bool IsDonorEvent => !IsRecipientEvent && Distributions.Any();
     }
 
@@ -11752,10 +11753,13 @@
 
             decimal initialPrepaid = eventList.Sum(e => e.InitialAmount);
             decimal addedFunds = depSales.Where(s => !string.IsNullOrEmpty(s.ItemsJson) && (s.ItemsJson.Contains("TAB DEPOSIT") || s.ItemsJson.Contains("ADDED FUNDS"))).Sum(s => s.TotalAmount);
+            decimal refundedFunds = Math.Abs(depSales.Where(s => !string.IsNullOrEmpty(s.ItemsJson) && s.ItemsJson.Contains("RETURNED FUNDS")).Sum(s => s.TotalAmount));
             decimal totalFunding = initialPrepaid + addedFunds;
             decimal netSpend = drinkSales.Sum(s => GetCorrectedEventSettlementAmount(s, latest));
             decimal totalSpent = drinkSales.Sum(s => s.TotalAmount);
-            decimal calculatedBalance = latest.Type == GFC.Core.Enums.EventTabType.PrePaid ? (totalFunding - netSpend) : latest.CurrentBalance;
+            decimal calculatedBalance = latest.Type == GFC.Core.Enums.EventTabType.PrePaid 
+                ? (latest.Status == GFC.Core.Enums.EventTabStatus.Closed ? (totalFunding - netSpend - refundedFunds) : (totalFunding - netSpend)) 
+                : latest.CurrentBalance;
 
             // Distributions made BY this event (donor actions)
             var myDistributions = eventList.SelectMany(GetEventDistributions)
@@ -11789,17 +11793,22 @@
 
             // Donations received FOR this event (recipient actions)
             var cleanGrpName = eventName.Trim();
-            var received = allDistributions.Where(d => d.ActionType == "redonate" &&
-                                                      !string.IsNullOrEmpty(d.RecipientEventName) &&
-                                                      (d.RecipientEventName.Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase) ||
-                                                       GetEventDisplayName(d.RecipientEventName).Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase)))
-                                          .DistinctBy(d => d.RecordId)
-                                          .ToList();
+            var received = (latest.EnableBeerTally || (latest.Name != null && latest.Name.Contains("horseshoe", StringComparison.OrdinalIgnoreCase)))
+                ? allDistributions.Where(d => d.ActionType == "redonate" &&
+                                              !string.IsNullOrEmpty(d.RecipientEventName) &&
+                                              (d.RecipientEventName.Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase) ||
+                                               GetEventDisplayName(d.RecipientEventName).Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase)))
+                                  .DistinctBy(d => d.RecordId)
+                                  .ToList()
+                : new List<DonatedDistributionRecord>();
 
-            // If this event is a recipient, also inherit from any donor active event whose base pool points here or global donor events
-            if (!isDefinedAsDonor)
+            // If this event is a recipient, also inherit from any donor active event whose recipient event name explicitly matches this event
+            if (!isDefinedAsDonor && (latest.EnableBeerTally || (latest.Name != null && latest.Name.Contains("horseshoe", StringComparison.OrdinalIgnoreCase))))
             {
                 var donorEvents = DbActiveEvents.Where(e => !e.IsDeleted && !string.IsNullOrEmpty(e.DonatedItemIdsJson) &&
+                                                           !string.IsNullOrEmpty(e.RecipientEventName) &&
+                                                           (e.RecipientEventName.Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase) ||
+                                                            GetEventDisplayName(e.RecipientEventName).Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase)) &&
                                                            !GetEventDisplayName(e.Name).Equals(cleanGrpName, StringComparison.OrdinalIgnoreCase)).ToList();
                 foreach (var donorEv in donorEvents)
                 {

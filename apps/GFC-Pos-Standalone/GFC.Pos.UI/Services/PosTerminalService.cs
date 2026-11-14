@@ -31,6 +31,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public event Action? OutboxChanged;
     public event Action<PosMenuDto>? MenuRefreshed;
+    public event Action<int, int>? EventIdRemapped;
 
     public int PendingSalesCount  { get; private set; }
     public int PendingZCount      { get; private set; }
@@ -141,9 +142,25 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                 continue; 
                             }
 
-                            if (audit.LatestSale == null || data.Timestamp > audit.LatestSale.Timestamp)
+                            bool isBookkeepingEntry = data.PaymentType == "PAYOUT" ||
+                                                      data.PaymentType == "NO SALE" ||
+                                                      (data.PaymentType != null && data.PaymentType.StartsWith("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase)) ||
+                                                      (!string.IsNullOrEmpty(data.ItemsJson) && (
+                                                          data.ItemsJson.Contains("TAB DEPOSIT:") ||
+                                                          data.ItemsJson.Contains("INITIAL DEPOSIT:") ||
+                                                          data.ItemsJson.Contains("DEPOSIT CORRECTION:") ||
+                                                          data.ItemsJson.Contains("RETURNED FUNDS:") ||
+                                                          data.ItemsJson.Contains("NO SALE")));
+
+                            bool isClosedEventSale = data.ActiveEventId.HasValue &&
+                                                     (menu?.ActiveEvents == null || !menu.ActiveEvents.Any(e => e.Id == data.ActiveEventId.Value && e.Status == GFC.Core.Enums.EventTabStatus.Open && !e.IsDeleted));
+
+                            if (!isBookkeepingEntry && !isClosedEventSale)
                             {
-                                audit.LatestSale = data;
+                                if (audit.LatestSale == null || data.Timestamp > audit.LatestSale.Timestamp)
+                                {
+                                    audit.LatestSale = data;
+                                }
                             }
 
                             List<GFC.Pos.UI.Pages.PosTerminal.ProductItem>? salesItems = null;
@@ -479,7 +496,7 @@ public class PosTerminalService : IPosTerminalService, IDisposable
         if (!await _syncLock.WaitAsync(0)) return;
         try 
         { 
-            try { await FlushAllPendingAsync(); } catch (Exception ex) { Console.WriteLine($"[SYNC] Flush exception: {ex.Message}"); }
+            try { await FlushAllPendingCoreAsync(); } catch (Exception ex) { Console.WriteLine($"[SYNC] Flush exception: {ex.Message}"); }
             try { await SendTelemetryHeartbeatAsync(); } catch (Exception ex) { Console.WriteLine($"[SYNC] Telemetry exception: {ex.Message}"); }
         }
         finally { _syncLock.Release(); }
@@ -742,7 +759,25 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                 Console.WriteLine("[PosTerminalService] RefreshMenuCacheAsync: Server is reachable, fetching...");
                 var terminalName = await _stationSettings.GetTerminalNameAsync();
                 var url = $"api/pos/menu?terminalName={Uri.EscapeDataString(terminalName ?? string.Empty)}";
-                var menu = await _http.GetFromJsonAsync<PosMenuDto>(url);
+
+                // [BALANCE-INTEGRITY] Fetch the server menu AND read the pending outbox under the same sync lock,
+                // so an outbox item can never be counted twice (already applied on server + still pending)
+                // or lost (synced between the fetch and the outbox read).
+                var lockTaken = await _syncLock.WaitAsync(TimeSpan.FromSeconds(20));
+                PosMenuDto? menu;
+                try
+                {
+                    menu = await _http.GetFromJsonAsync<PosMenuDto>(url);
+                    if (menu != null)
+                    {
+                        menu.ActiveEvents ??= new List<ActiveEvent>();
+                        await ApplyPendingOutboxToEventBalancesAsync(menu.ActiveEvents);
+                    }
+                }
+                finally
+                {
+                    if (lockTaken) _syncLock.Release();
+                }
                 
                 if (menu != null)
                 {
@@ -774,6 +809,100 @@ public class PosTerminalService : IPosTerminalService, IDisposable
             Console.WriteLine($"[PosTerminalService] RefreshMenuCacheAsync: Fetch failed: {ex.Message}");
         }
         return new PosMenuDto();
+    }
+
+    /// <summary>
+    /// The server only knows about synced data. Re-apply everything still waiting in the outbox
+    /// (unsynced TAB sales and add-funds / refunds) so the terminal's event balances stay correct.
+    /// MUST be called while holding _syncLock.
+    /// </summary>
+    private async Task ApplyPendingOutboxToEventBalancesAsync(List<ActiveEvent> events)
+    {
+        try
+        {
+            var vaultItems = await _js.InvokeAsync<JsonElement>("window.gfcGetAllAsync");
+            if (vaultItems.ValueKind != JsonValueKind.Array) return;
+
+            var adjustments = new Dictionary<int, decimal>();
+            var pendingStarts = new List<ActiveEvent>();
+            var pendingCloses = new HashSet<int>();
+
+            foreach (var item in vaultItems.EnumerateArray())
+            {
+                var key = item.GetProperty("key").GetString();
+                if (key == null) continue;
+
+                var isSale = key.StartsWith(VaultPrefixSales);
+                var isAddFunds = key.StartsWith("gfc_pos_vault_event_add_funds_");
+                var isStart = key.StartsWith("gfc_pos_vault_event_start_");
+                var isClose = key.StartsWith("gfc_pos_vault_event_close_");
+                if (!isSale && !isAddFunds && !isStart && !isClose) continue;
+
+                try
+                {
+                    var data = item.GetProperty("data");
+                    if (isClose)
+                    {
+                        int closeId = 0;
+                        if (data.ValueKind == JsonValueKind.Number) closeId = data.GetInt32();
+                        else if (data.ValueKind == JsonValueKind.String) int.TryParse(data.GetString(), out closeId);
+                        if (closeId != 0) pendingCloses.Add(closeId);
+                        continue;
+                    }
+
+                    var raw = data.ValueKind == JsonValueKind.String ? data.GetString()! : data.GetRawText();
+
+                    if (isStart)
+                    {
+                        var startEv = JsonSerializer.Deserialize<ActiveEvent>(raw, _jsonOptions);
+                        if (startEv != null) pendingStarts.Add(startEv);
+                    }
+                    else if (isSale)
+                    {
+                        var sale = JsonSerializer.Deserialize<PosSaleDto>(raw, _jsonOptions);
+                        if (sale != null && sale.PaymentType == "TAB" && sale.ActiveEventId.HasValue && !sale.IsVoided)
+                        {
+                            adjustments[sale.ActiveEventId.Value] = adjustments.GetValueOrDefault(sale.ActiveEventId.Value) - sale.TotalAmount;
+                        }
+                    }
+                    else if (isAddFunds)
+                    {
+                        var req = JsonSerializer.Deserialize<AddFundsRequest>(raw, _jsonOptions);
+                        if (req != null && req.Id != 0)
+                        {
+                            adjustments[req.Id] = adjustments.GetValueOrDefault(req.Id) + req.Amount;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            foreach (var startEv in pendingStarts)
+            {
+                if (!events.Any(e => e.Id == startEv.Id || string.Equals(e.Name, startEv.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    events.Add(startEv);
+                }
+            }
+
+            if (pendingCloses.Any())
+            {
+                events.RemoveAll(e => pendingCloses.Contains(e.Id));
+            }
+
+            foreach (var ev in events)
+            {
+                if (adjustments.TryGetValue(ev.Id, out var delta) && delta != 0)
+                {
+                    ev.CurrentBalance += delta;
+                    Console.WriteLine($"[POS] Applied pending outbox to event '{ev.Name}': {delta:C} (Balance: {ev.CurrentBalance:C})");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[POS] ApplyPendingOutboxToEventBalancesAsync error: {ex.Message}");
+        }
     }
 
 
@@ -1009,6 +1138,19 @@ public class PosTerminalService : IPosTerminalService, IDisposable
 
     public async Task FlushAllPendingAsync()
     {
+        // [DUPLICATE-GUARD] Every outbox sweep MUST go through _syncLock. Two concurrent sweeps would both
+        // read the same outbox item and POST it twice (e.g. add-funds applied twice on the server).
+        if (!await _syncLock.WaitAsync(TimeSpan.FromSeconds(30)))
+        {
+            Console.WriteLine("[SYNC] FlushAllPendingAsync: another sweep is still running. Skipping.");
+            return;
+        }
+        try { await FlushAllPendingCoreAsync(); }
+        finally { _syncLock.Release(); }
+    }
+
+    private async Task FlushAllPendingCoreAsync()
+    {
         Console.WriteLine("[SYNC] FlushAllPendingAsync: Starting sweep...");
         if (!await _connectivity.GateAsync("OutboxSweep")) 
         {
@@ -1118,6 +1260,9 @@ public class PosTerminalService : IPosTerminalService, IDisposable
                                      remappedIds[tempId] = createdEvent.Id;
                                      try {
                                          await _js.InvokeVoidAsync("localStorage.setItem", "gfc_pos_remapped_ids", JsonSerializer.Serialize(remappedIds));
+                                     } catch {}
+                                     try {
+                                         EventIdRemapped?.Invoke(tempId, createdEvent.Id);
                                      } catch {}
                                     
                                     await _js.InvokeVoidAsync("window.gfcRemoveAsync", key);
