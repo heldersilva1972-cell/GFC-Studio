@@ -1611,7 +1611,10 @@ public class PosApiController : ControllerBase
             
             // [HARDENED SYNC] Fetch users and cards separately to avoid EF join complexity with nullable MemberIds
             var allActiveUsers = await db.AppUsers.Where(u => u.IsActive).ToListAsync();
-            var allActiveCards = await db.KeyCards.Where(k => k.IsActive).ToListAsync();
+            var allActiveCards = await db.KeyCards
+                .Where(k => k.IsActive)
+                .OrderByDescending(k => k.KeyCardId)
+                .ToListAsync();
 
             var users = allActiveUsers
                 .Where(u => userIds.Contains(u.UserId) || u.IsAdmin)

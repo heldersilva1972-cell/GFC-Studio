@@ -121,36 +121,48 @@ public class KeyCardRepository : IKeyCardRepository
         using var connection = Db.GetConnection();
         connection.Open();
 
-        // Get the member's existing card
-        const string checkSql = @"
-            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
-            FROM dbo.KeyCards
-            WHERE MemberID = @MemberID
-            ORDER BY KeyCardId DESC";
+        using var transaction = connection.BeginTransaction();
 
-        using var checkCommand = new SqlCommand(checkSql, connection);
-        checkCommand.Parameters.AddWithValue("@MemberID", memberId);
-
-        using var reader = checkCommand.ExecuteReader();
-        if (!reader.Read())
+        try
         {
-            // No existing card found
-            reader.Close();
-            return null;
+            // 1. Deactivate all existing cards for this member
+            const string deactivateSql = @"
+                UPDATE dbo.KeyCards
+                SET IsActive = 0,
+                    IsControllerSynced = 0
+                WHERE MemberID = @MemberID AND IsActive = 1";
+
+            using (var deactCmd = new SqlCommand(deactivateSql, connection, transaction))
+            {
+                deactCmd.Parameters.AddWithValue("@MemberID", memberId);
+                deactCmd.ExecuteNonQuery();
+            }
+
+            // 2. Insert new card as active
+            const string insertSql = @"
+                INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, CreatedDate)
+                VALUES (@MemberID, @CardNumber, @Notes, 1, @CardType, 0, @CreatedDate);
+                SELECT CAST(SCOPE_IDENTITY() AS INT);";
+
+            int newId;
+            using (var insertCmd = new SqlCommand(insertSql, connection, transaction))
+            {
+                insertCmd.Parameters.AddWithValue("@MemberID", memberId);
+                insertCmd.Parameters.AddWithValue("@CardNumber", newCardNumber);
+                insertCmd.Parameters.AddWithValue("@Notes", (object?)notes ?? DBNull.Value);
+                insertCmd.Parameters.AddWithValue("@CardType", cardType);
+                insertCmd.Parameters.AddWithValue("@CreatedDate", DateTime.Now);
+                newId = (int)insertCmd.ExecuteScalar();
+            }
+
+            transaction.Commit();
+            return GetById(newId);
         }
-
-        var existingCard = MapReader(reader, nameof(ReplaceCard));
-        reader.Close();
-
-        // Update the existing card with new card number
-        existingCard.CardNumber = newCardNumber;
-        existingCard.CardType = cardType;
-        existingCard.Notes = notes;
-        existingCard.IsActive = true;
-        existingCard.IsControllerSynced = false; // Needs re-sync with new number
-
-        Update(existingCard);
-        return existingCard;
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     public void Update(KeyCard card)
