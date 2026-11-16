@@ -1,4 +1,4 @@
-@page "/admin/pos-audit"
+﻿@page "/admin/pos-audit"
 @implements IDisposable
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
@@ -37,11 +37,25 @@
             </div>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold bg-white" @onclick="LoadSales">
-                <i class="bi bi-arrow-clockwise me-1"></i> REFRESH
+            <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold bg-white" @onclick="LoadSales" disabled="@_isLoadingSales">
+                @if (_isLoadingSales)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>LOADING...</span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise me-1"></i><span>REFRESH</span>
+                }
             </button>
         </div>
     </div>
+    @if (_isLoadingSales)
+    {
+        <div class="pos-audit-progress-bar-container">
+            <div class="pos-audit-progress-bar"></div>
+        </div>
+    }
 
     <div class="audit-main-content">
         <!-- THREE COLUMN GRID -->
@@ -6526,7 +6540,7 @@
                                                 else
                                                 {
                                                     <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1 rounded-pill fw-bold" style="font-size: 0.72rem;">
-                                                        ⚪ LEAGUE ACTIVE (@DateTime.Now.Year SEASON)
+                                                        ⚪ LEAGUE ACTIVE (@(SelectedYear > 0 ? SelectedYear : DateTime.Now.Year) SEASON)
                                                     </span>
                                                 }
                                                 <span class="badge bg-info-subtle text-info border border-info-subtle px-2.5 py-1 rounded-pill fw-bold" style="font-size: 0.72rem;">
@@ -6557,17 +6571,10 @@
                                                 <i class="bi bi-plus-circle-fill"></i>
                                                 <span>ADD BEER CASES</span>
                                             </button>
-                                            <button type="button" class="btn btn-sm btn-info text-white rounded-pill px-3 py-1.5 fw-bold shadow-xs d-flex align-items-center gap-1.5" style="background-color: #0284c7; border-color: #0284c7;" @onclick="() => showDailyUsageModal = true">
-                                                <i class="bi bi-bar-chart-line-fill"></i>
-                                                <span>DAILY USAGE</span>
+                                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1.5 fw-bold shadow-xs d-flex align-items-center gap-1.5 bg-white" @onclick="OpenEditDonatedStockModal">
+                                                <i class="bi bi-pencil-square"></i>
+                                                <span>EDIT DONATED STOCK</span>
                                             </button>
-                                            @if (horseshoeGrp.Distributions.Any())
-                                            {
-                                                <button type="button" class="btn btn-sm btn-success rounded-pill px-3 py-1.5 fw-bold shadow-xs d-flex align-items-center gap-1.5" @onclick="() => showDistributionsModal = true">
-                                                    <i class="bi bi-gift-fill"></i>
-                                                    <span>DISTRIBUTION LOG</span>
-                                                </button>
-                                            }
                                         </div>
                                     </div>
 
@@ -6636,10 +6643,15 @@
                                         <div class="d-flex align-items-center justify-content-between mb-2 pb-1 border-bottom">
                                             <div class="d-flex align-items-center gap-2">
                                                 <i class="bi bi-box-seam text-primary fs-6"></i>
-                                                <span class="fw-black text-dark small text-uppercase" style="letter-spacing: 0.5px;">DONATED BEER STOCK ALLOCATION (@DateTime.Now.Year)</span>
+                                                <span class="fw-black text-dark small text-uppercase" style="letter-spacing: 0.5px;">DONATED BEER STOCK ALLOCATION (@(SelectedYear > 0 ? SelectedYear : DateTime.Now.Year))</span>
                                             </div>
-                                            <div class="small text-muted fw-bold">
-                                                Total Donated: <strong class="text-primary">@horseshoeGrp.TotalDonatedAvailable btls</strong> | Remaining to Serve: <strong class="text-success">@horseshoeGrp.TotalDonatedRemaining btls</strong>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <div class="small text-muted fw-bold">
+                                                    Total Donated: <strong class="text-primary">@horseshoeGrp.TotalDonatedAvailable btls</strong> | Remaining to Serve: <strong class="text-success">@horseshoeGrp.TotalDonatedRemaining btls</strong>
+                                                </div>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary rounded-pill px-2.5 py-0.5 fw-bold text-uppercase" style="font-size: 0.68rem;" @onclick="OpenEditDonatedStockModal">
+                                                    <i class="bi bi-pencil me-1"></i>Edit Quantities
+                                                </button>
                                             </div>
                                         </div>
                                         @if (!horseshoeGrp.DonatedStock.Any())
@@ -7002,6 +7014,118 @@
                                                     {
                                                         <i class="bi bi-plus-lg"></i>
                                                         <span>Add @horseshoeCaseSlots.Count Case@(horseshoeCaseSlots.Count == 1 ? "" : "s") (@totalBottles Bottles)</span>
+                                                    }
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (showEditDonatedStockModal && horseshoeGrp != null)
+                            {
+                                <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(2px); z-index: 1065;">
+                                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                                        <div class="modal-content shadow-lg border-0 rounded-4 overflow-hidden">
+                                            <div class="modal-header bg-primary text-white border-0 py-3 px-4">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <i class="bi bi-pencil-square fs-5"></i>
+                                                    <h6 class="modal-title fw-black text-uppercase mb-0" style="letter-spacing: 0.5px;">Edit Donated Beer Stock (@selectedHorseshoeYear)</h6>
+                                                </div>
+                                                <button type="button" class="btn-close btn-close-white" @onclick="() => showEditDonatedStockModal = false"></button>
+                                            </div>
+                                            <div class="modal-body p-4 bg-light">
+                                                <div class="alert alert-info py-2 px-3 small mb-3 rounded-3 border-0 shadow-xs">
+                                                    <i class="bi bi-info-circle-fill me-1"></i>
+                                                    Adjust the allocated bottle quantities for each donated beer brand. Bottles consumed count stays recorded from sales; remaining bottles will update automatically. Setting quantity to 0 removes the donation pool for that brand, causing future sales to come from standard inventory.
+                                                </div>
+
+                                                @if (!string.IsNullOrEmpty(editDonatedStockErrorMessage))
+                                                {
+                                                    <div class="alert alert-danger py-2 px-3 small mb-3 rounded-3 border-0 shadow-xs">
+                                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                                        @editDonatedStockErrorMessage
+                                                    </div>
+                                                }
+
+                                                <div class="table-responsive bg-white rounded-3 border shadow-xs">
+                                                    <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                                                        <thead class="bg-light text-muted fw-bold" style="font-size: 0.75rem;">
+                                                            <tr>
+                                                                <th class="ps-3 py-2">BEER BRAND</th>
+                                                                <th class="text-center py-2" style="width: 140px;">ALLOCATED BOTTLES</th>
+                                                                <th class="text-center py-2" style="width: 100px;">CONSUMED</th>
+                                                                <th class="text-center py-2" style="width: 100px;">PROJECTED LEFT</th>
+                                                                <th class="pe-3 text-end py-2" style="width: 60px;"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var row in editDonatedStockRows)
+                                                            {
+                                                                var projLeft = Math.Max(0, row.AllocatedBottles - row.ConsumedBottles);
+                                                                <tr>
+                                                                    <td class="ps-3 py-2 fw-bold text-dark">
+                                                                        <i class="bi bi-cup-straw text-warning me-2"></i>@row.BrandName
+                                                                    </td>
+                                                                    <td class="text-center py-2">
+                                                                        <div class="input-group input-group-sm justify-content-center" style="max-width: 130px; margin: 0 auto;">
+                                                                            <button class="btn btn-outline-secondary btn-sm px-2" type="button" @onclick="() => row.AllocatedBottles = Math.Max(0, row.AllocatedBottles - 1)">-</button>
+                                                                            <input type="number" class="form-control form-control-sm text-center fw-bold" min="0" @bind="row.AllocatedBottles" />
+                                                                            <button class="btn btn-outline-secondary btn-sm px-2" type="button" @onclick="() => row.AllocatedBottles += 1">+</button>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td class="text-center py-2 text-muted fw-bold">
+                                                                        @row.ConsumedBottles
+                                                                    </td>
+                                                                    <td class="text-center py-2">
+                                                                        <span class="badge @(projLeft > 0 ? "bg-success-subtle text-success" : "bg-secondary-subtle text-muted") border px-2 py-1 rounded-pill fw-bold">
+                                                                            @projLeft btls
+                                                                        </span>
+                                                                    </td>
+                                                                    <td class="pe-3 text-end py-2">
+                                                                        <button type="button" class="btn btn-xs btn-outline-danger rounded-circle p-1" title="Set to 0" @onclick="() => row.AllocatedBottles = 0">
+                                                                            <i class="bi bi-trash" style="font-size: 0.75rem;"></i>
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="mt-3 p-3 bg-white rounded-3 border">
+                                                    <div class="fw-bold small text-muted text-uppercase mb-2" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-plus-circle me-1 text-primary"></i>Add Another Donated Brand
+                                                    </div>
+                                                    <div class="d-flex gap-2">
+                                                        <select class="form-select form-select-sm" @bind="editNewBrandItemId">
+                                                            <option value="0">-- Select Brand to Add --</option>
+                                                            @foreach (var b in GetSplitEligibleBeersForHorseshoes().Where(b => !editDonatedStockRows.Any(r => r.ItemId == b.ItemId)))
+                                                            {
+                                                                <option value="@b.ItemId">@b.Name ($@b.BanquetPrice.ToString("F2"))</option>
+                                                            }
+                                                        </select>
+                                                        <input type="number" class="form-control form-control-sm text-center" style="width: 90px;" placeholder="Bottles" @bind="editNewBrandBottles" min="1" />
+                                                        <button type="button" class="btn btn-sm btn-outline-primary fw-bold text-nowrap" @onclick="AddBrandToEditStockList">
+                                                            <i class="bi bi-plus-lg me-1"></i>Add Brand
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer bg-white border-0 py-3 px-4 d-flex justify-content-between">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-4 fw-bold" @onclick="() => showEditDonatedStockModal = false" disabled="@isSavingEditDonatedStock">
+                                                    CANCEL
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="SaveEditDonatedStockAsync" disabled="@isSavingEditDonatedStock">
+                                                    @if (isSavingEditDonatedStock)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                                        <span>SAVING...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-check-circle-fill me-1"></i>
+                                                        <span>SAVE STOCK CHANGES</span>
                                                     }
                                                 </button>
                                             </div>
@@ -8527,6 +8651,10 @@
     }
     
     .compact-top-bar { flex: 0 0 auto; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.02); background: white; }
+    
+    .pos-audit-progress-bar-container { position: sticky; top: 0; left: 0; width: 100%; height: 3px; background-color: #e2e8f0; overflow: hidden; z-index: 1005; }
+    .pos-audit-progress-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4, #3b82f6); background-size: 200% 100%; animation: posProgressBarAnim 1.2s infinite linear; }
+    @@keyframes posProgressBarAnim { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     
     .audit-main-content { flex: 1; overflow: hidden; display: flex; }
     
@@ -10988,7 +11116,9 @@
     private AuditEventGroup? GetHorseshoesGroup()
     {
         var targetEvents = DbActiveEvents.Where(IsValidAuditEvent).ToList();
-        var horseshoeEvents = targetEvents.Where(e => (e.Name ?? "").Contains("horseshoe", StringComparison.OrdinalIgnoreCase)).ToList();
+        var horseshoeEvents = targetEvents.Where(e => (e.Name ?? "").Contains("horseshoe", StringComparison.OrdinalIgnoreCase))
+                                          .Where(e => SelectedYear > 0 ? (e.CreatedAt != default ? e.CreatedAt.Year : DateTime.Now.Year) == SelectedYear : true)
+                                          .ToList();
         if (!horseshoeEvents.Any()) return null;
 
         var masterHorseshoeLatest = horseshoeEvents.OrderBy(e => e.Status == GFC.Core.Enums.EventTabStatus.Open ? 0 : 1)
@@ -11217,7 +11347,7 @@
 
     private void OpenAddBeerCasesModal()
     {
-        selectedHorseshoeYear = DateTime.Now.Year;
+        selectedHorseshoeYear = SelectedYear > 0 ? SelectedYear : DateTime.Now.Year;
         addBeerCasesErrorMessage = null;
 
         int existingCases = GetHorseshoeCasesDonatedForYear(selectedHorseshoeYear);
@@ -11401,6 +11531,163 @@
         finally
         {
             isSavingBeerCases = false;
+        }
+    }
+
+    private bool _isLoadingSales = false;
+    private bool showEditDonatedStockModal = false;
+    private bool isSavingEditDonatedStock = false;
+    private string? editDonatedStockErrorMessage = null;
+    private int editNewBrandItemId = 0;
+    private int editNewBrandBottles = 24;
+
+    public class HorseshoeEditDonatedStockRow
+    {
+        public int ItemId { get; set; }
+        public string BrandName { get; set; } = "";
+        public int AllocatedBottles { get; set; }
+        public int ConsumedBottles { get; set; }
+    }
+
+    private List<HorseshoeEditDonatedStockRow> editDonatedStockRows = new();
+
+    private void OpenEditDonatedStockModal()
+    {
+        selectedHorseshoeYear = SelectedYear > 0 ? SelectedYear : DateTime.Now.Year;
+        editDonatedStockErrorMessage = null;
+        editNewBrandItemId = 0;
+        editNewBrandBottles = 24;
+
+        var hsGrp = GetHorseshoesGroup();
+        editDonatedStockRows = new List<HorseshoeEditDonatedStockRow>();
+
+        if (hsGrp != null)
+        {
+            foreach (var stock in hsGrp.DonatedStock)
+            {
+                editDonatedStockRows.Add(new HorseshoeEditDonatedStockRow
+                {
+                    ItemId = stock.ItemId,
+                    BrandName = stock.BrandName,
+                    AllocatedBottles = stock.InitialAvailable,
+                    ConsumedBottles = stock.Consumed
+                });
+            }
+        }
+
+        showEditDonatedStockModal = true;
+    }
+
+    private void AddBrandToEditStockList()
+    {
+        if (editNewBrandItemId <= 0 || editNewBrandBottles <= 0) return;
+
+        var eligible = GetSplitEligibleBeersForHorseshoes().FirstOrDefault(b => b.ItemId == editNewBrandItemId);
+        if (eligible == null) return;
+
+        var existing = editDonatedStockRows.FirstOrDefault(r => r.ItemId == editNewBrandItemId);
+        if (existing != null)
+        {
+            existing.AllocatedBottles += editNewBrandBottles;
+        }
+        else
+        {
+            editDonatedStockRows.Add(new HorseshoeEditDonatedStockRow
+            {
+                ItemId = eligible.ItemId,
+                BrandName = eligible.Name,
+                AllocatedBottles = editNewBrandBottles,
+                ConsumedBottles = 0
+            });
+        }
+
+        editNewBrandItemId = 0;
+        editNewBrandBottles = 24;
+    }
+
+    private async Task SaveEditDonatedStockAsync()
+    {
+        isSavingEditDonatedStock = true;
+        editDonatedStockErrorMessage = null;
+
+        try
+        {
+            using var db = DbFactory.CreateDbContext();
+            var allDbActiveEvents = await db.ActiveEvents.Where(e => !e.IsDeleted).ToListAsync();
+
+            var horseshoeEvents = allDbActiveEvents
+                .Where(e => (e.Name ?? "").Contains("horseshoe", StringComparison.OrdinalIgnoreCase))
+                .Where(e => (e.CreatedAt != default ? e.CreatedAt.Year : DateTime.Now.Year) == selectedHorseshoeYear)
+                .OrderBy(e => e.Status == GFC.Core.Enums.EventTabStatus.Open ? 0 : 1)
+                .ThenByDescending(e => e.Id)
+                .ToList();
+
+            if (!horseshoeEvents.Any())
+            {
+                editDonatedStockErrorMessage = "No Horseshoes event found for the selected season.";
+                return;
+            }
+
+            var targetEvent = horseshoeEvents.First();
+
+            var poolMap = new Dictionary<int, int>();
+            foreach (var row in editDonatedStockRows.Where(r => r.AllocatedBottles > 0))
+            {
+                poolMap[row.ItemId] = row.AllocatedBottles;
+            }
+
+            var tallies = new List<BeerTallyItem>();
+            if (!string.IsNullOrEmpty(targetEvent.BeerTalliesJson))
+            {
+                try { tallies = JsonSerializer.Deserialize<List<BeerTallyItem>>(targetEvent.BeerTalliesJson) ?? new(); } catch {}
+            }
+
+            var eligibleBeers = GetSplitEligibleBeersForHorseshoes();
+            foreach (var row in editDonatedStockRows)
+            {
+                var tally = tallies.FirstOrDefault(t => t.ItemId == row.ItemId);
+                if (tally != null)
+                {
+                    tally.QuantityTaken = row.AllocatedBottles;
+                }
+                else if (row.AllocatedBottles > 0)
+                {
+                    var bInfo = eligibleBeers.FirstOrDefault(b => b.ItemId == row.ItemId);
+                    tallies.Add(new BeerTallyItem
+                    {
+                        ItemId = row.ItemId,
+                        Name = row.BrandName,
+                        Price = bInfo?.BanquetPrice ?? 4.00m,
+                        QuantityTaken = row.AllocatedBottles,
+                        QuantityReturned = 0,
+                        EnableClubSplit = true,
+                        ClubSplitAmount = bInfo?.ClubSplitAmount ?? 2.50m
+                    });
+                }
+            }
+
+            targetEvent.DonatedItemIdsJson = JsonSerializer.Serialize(poolMap);
+            targetEvent.BeerTalliesJson = JsonSerializer.Serialize(tallies);
+            targetEvent.Enable100PercentDonatedProceeds = true;
+
+            var openHs = allDbActiveEvents.FirstOrDefault(e => e.Id != targetEvent.Id && e.Status == GFC.Core.Enums.EventTabStatus.Open && (e.Name ?? "").Contains("horseshoe", StringComparison.OrdinalIgnoreCase));
+            if (openHs != null)
+            {
+                openHs.DonatedItemIdsJson = targetEvent.DonatedItemIdsJson;
+                openHs.Enable100PercentDonatedProceeds = true;
+            }
+
+            await db.SaveChangesAsync();
+            await LoadSales();
+            showEditDonatedStockModal = false;
+        }
+        catch (Exception ex)
+        {
+            editDonatedStockErrorMessage = $"Error updating stock: {ex.Message}";
+        }
+        finally
+        {
+            isSavingEditDonatedStock = false;
         }
     }
 
@@ -14747,6 +15034,9 @@
 
     private async Task LoadSales()
     {
+        _isLoadingSales = true;
+        StateHasChanged();
+        await Task.Yield();
         try {
             using var db = DbFactory.CreateDbContext();
             
@@ -15070,6 +15360,9 @@
         } catch (global::System.Exception ex) {
             try { global::System.IO.File.WriteAllText(@"apps\webapp\PosAuditError.log", ex.ToString()); } catch {}
             throw;
+        } finally {
+            _isLoadingSales = false;
+            StateHasChanged();
         }
     }
 
