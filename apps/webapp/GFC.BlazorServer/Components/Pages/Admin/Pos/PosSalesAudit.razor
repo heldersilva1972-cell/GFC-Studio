@@ -1,4 +1,4 @@
-﻿@page "/admin/pos-audit"
+@page "/admin/pos-audit"
 @implements IDisposable
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
@@ -153,6 +153,18 @@
                                             <span class="text-muted fw-bold" style="font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px;">@sale.Timestamp.ToString("ddd, MMM dd")</span>
                                             
                                             <div class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
+                                                @if (sale.IsVoided)
+                                                {
+                                                    <span class="badge bg-danger text-white fw-bold px-1.5 py-0.5 rounded-pill" style="font-size: 0.62rem;">
+                                                        <i class="bi bi-x-octagon-fill me-1"></i>VOIDED
+                                                    </span>
+                                                }
+                                                else if (sale.IsCorrection)
+                                                {
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fw-bold px-1.5 py-0.5 rounded-pill" style="font-size: 0.62rem;" title="@sale.AdjustmentReason">
+                                                        <i class="bi bi-pencil-square me-1"></i>CORRECTED @(sale.OriginalTotal > 0 && sale.OriginalTotal != sale.TotalAmount ? $"(WAS {sale.OriginalTotal:C})" : "")
+                                                    </span>
+                                                }
                                                 @if (upstairsQty > 0)
                                                 {
                                                     <span class="badge rounded-pill fw-bold px-1.5 py-0.5" style="font-size: 0.62rem; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">
@@ -2574,6 +2586,18 @@
                                             bool hasSelUpstairs = selItems.Any(i => i.IsUpstairsPrice);
                                             bool hasSelBday = selItems.Any(i => (i.IsComped && string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
                                             bool hasSelComp = selItems.Any(i => ((i.IsComped && !string.Equals(i.CompType, "BIRTHDAY", StringComparison.OrdinalIgnoreCase)) || (i.Name ?? "").Contains("(COMP DRINK", StringComparison.OrdinalIgnoreCase) || (i.Price == 0 && !i.IsTokenApplied && !(i.Name ?? "").ToUpper().Contains("TOKEN") && string.Equals(SelectedSale.PaymentType, "TOKEN/COMP", StringComparison.OrdinalIgnoreCase))) && !(i.Name ?? "").Contains("(BIRTHDAY COMP", StringComparison.OrdinalIgnoreCase));
+                                        }
+                                        @if (SelectedSale.IsVoided)
+                                        {
+                                            <div class="badge bg-danger text-white fw-bold px-3 py-1 mt-2 rounded-pill shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px;">
+                                                <i class="bi bi-x-octagon-fill me-1"></i>VOIDED TRANSACTION @(!string.IsNullOrEmpty(SelectedSale.AdjustmentReason) ? $"— {SelectedSale.AdjustmentReason}" : "")
+                                            </div>
+                                        }
+                                        else if (SelectedSale.IsCorrection)
+                                        {
+                                            <div class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fw-bold px-3 py-1 mt-2 rounded-pill shadow-xs d-inline-block" style="font-size: 0.78rem; letter-spacing: 0.5px;">
+                                                <i class="bi bi-pencil-square me-1"></i>CORRECTED TRANSACTION @(SelectedSale.OriginalTotal > 0 ? $"(WAS {SelectedSale.OriginalTotal:C})" : "")
+                                            </div>
                                         }
                                         @if (hasSelUpstairs)
                                         {
@@ -15103,7 +15127,7 @@
                 var activeEventIds = DbActiveEvents.Select(e => e.Id).ToList();
                 var allEventSales = activeEventIds.Any()
                     ? await db.PosSales.AsNoTracking()
-                        .Where(s => s.ActiveEventId.HasValue && activeEventIds.Contains(s.ActiveEventId.Value))
+                        .Where(s => !s.IsVoided && s.ActiveEventId.HasValue && activeEventIds.Contains(s.ActiveEventId.Value))
                         .ToListAsync()
                     : new List<PosSale>();
                 EventSalesMap = allEventSales.GroupBy(s => s.ActiveEventId!.Value)
@@ -15180,8 +15204,9 @@
                     }
                 }
 
-                _allSalesForStats = await salesQuery.OrderByDescending(s => s.Timestamp).ToListAsync();
-                Sales = _allSalesForStats;
+                var allWindowSales = await salesQuery.OrderByDescending(s => s.Timestamp).ToListAsync();
+                Sales = allWindowSales;
+                _allSalesForStats = allWindowSales.Where(s => !s.IsVoided).ToList();
                 TodayTotal = _allSalesForStats.Where(s => s.PaymentType != "PAYOUT" && !s.PaymentType.Contains("PAYOUT")).Sum(s => s.TotalAmount);
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
@@ -15826,7 +15851,7 @@
         
         List<PosSale> allSales;
         try {
-            allSales = await db.PosSales.AsNoTracking().Where(s => s.Timestamp >= TokenTrackingStartDate).ToListAsync();
+            allSales = await db.PosSales.AsNoTracking().Where(s => !s.IsVoided && s.Timestamp >= TokenTrackingStartDate).ToListAsync();
         } catch (global::System.Exception ex) {
             throw new global::System.Exception("Error in PosSales query in CalculateLifetimeTokens: " + ex.Message, ex);
         }
@@ -16733,11 +16758,11 @@
         List<PosSale> allSales;
         if (TokenFilterMode == "SINCE_AUG_1")
         {
-            allSales = await db.PosSales.AsNoTracking().Where(s => s.Timestamp >= TokenTrackingStartDate).ToListAsync();
+            allSales = await db.PosSales.AsNoTracking().Where(s => !s.IsVoided && s.Timestamp >= TokenTrackingStartDate).ToListAsync();
         }
         else if (TokenFilterMode == "LIFETIME")
         {
-            allSales = await db.PosSales.AsNoTracking().ToListAsync();
+            allSales = await db.PosSales.AsNoTracking().Where(s => !s.IsVoided).ToListAsync();
         }
         else
         {
@@ -16751,7 +16776,7 @@
                 var st = effectiveStart.AddHours(3);
                 var en = EndDate.Date.AddDays(1).AddHours(3);
                 var salesQuery = db.PosSales.AsNoTracking()
-                    .Where(s => s.Timestamp >= st && s.Timestamp < en)
+                    .Where(s => !s.IsVoided && s.Timestamp >= st && s.Timestamp < en)
                     .Where(s => 
                                 !s.PaymentType.Contains("EVENT SETTLEMENT") &&
                                 s.PaymentType != "DEPOSIT");

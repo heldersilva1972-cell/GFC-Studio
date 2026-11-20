@@ -531,10 +531,16 @@
                     @onclick='() => NavManager.NavigateTo("/dues")'>
                 <i class="bi bi-cash-stack"></i> Dues & Payments
             </button>
-            <button class="btn btn-warning d-none d-xl-flex align-items-center gap-1" 
+            <button class="btn btn-warning d-flex align-items-center gap-1" 
                     style="white-space: nowrap; border-radius: 10px; font-size: 0.75rem; font-weight: 700; height: 34px; padding: 0 1rem; color: #1e293b;"
                     @onclick="ToggleTopUsers">
                 <i class="bi bi-trophy-fill"></i> Ranking
+            </button>
+            <button class="btn btn-outline-danger d-flex align-items-center gap-1" 
+                    style="white-space: nowrap; border-radius: 10px; font-size: 0.75rem; font-weight: 700; height: 34px; padding: 0 1rem;"
+                    @onclick="ToggleReplacementsModal"
+                    title="Track members who have had cards or fobs replaced">
+                <i class="bi bi-arrow-repeat"></i> Replacements
             </button>
         </div>
 
@@ -717,6 +723,169 @@
     </div>
 }
 
+@* CARD REPLACEMENTS TRACKER MODAL *@
+@if (_showReplacementsModal)
+{
+    <div class="modal-backdrop-modern fade-in" @onclick="ToggleReplacementsModal"></div>
+    <div class="modal-modern-container fade-in scale-in" style="max-width: 720px;">
+        <div class="modal-modern shadow-lg border-0" style="border-radius: 24px; overflow: hidden; width: 100%;">
+            <div class="modal-header-modern d-flex align-items-center justify-content-between py-3 px-4" 
+                 style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); border: none;">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-arrow-repeat text-white fs-5"></i>
+                    <div>
+                        <h6 class="mb-0 fw-black text-white">Card &amp; Fob Replacement Tracker</h6>
+                        <small class="text-white" style="opacity: 0.9;">
+                            @(_replacementRows.Count) member(s) • @(_replacementRows.Sum(r => r.ReplacementCount)) total replacement(s)
+                        </small>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-light rounded-pill" @onclick="LoadReplacementsAsync" disabled="@_replacementsLoading" title="Refresh">
+                        <i class="bi bi-arrow-clockwise @(_replacementsLoading ? "spin-slow" : "")"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light rounded-pill" @onclick="ToggleReplacementsModal">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            @if (!_replacementsLoading && _replacementRows.Any())
+            {
+                <div class="px-4 py-2 bg-light border-bottom d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    <div class="input-group input-group-sm" style="max-width: 280px;">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" class="form-control border-start-0" placeholder="Search member or card #..." @bind="_replacementSearchTerm" @bind:event="oninput" />
+                    </div>
+                    <small class="text-muted"><i class="bi bi-hand-index-thumb me-1"></i>Click a member to expand full card timeline</small>
+                </div>
+            }
+
+            <div class="modal-body-modern p-0" style="max-height: 68vh; overflow-y: auto;">
+                @if (_replacementsLoading)
+                {
+                    <div class="text-center py-5 text-muted">
+                        <div class="spinner-border text-danger" role="status"></div>
+                        <p class="mt-2 mb-0">Loading replacement history...</p>
+                    </div>
+                }
+                else if (!_replacementRows.Any())
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-check-circle fs-2 d-block mb-2 text-success"></i>
+                        No card or fob replacements recorded yet.
+                    </div>
+                }
+                else
+                {
+                    var filteredRows = string.IsNullOrWhiteSpace(_replacementSearchTerm)
+                        ? _replacementRows
+                        : _replacementRows.Where(r =>
+                            r.MemberName.Contains(_replacementSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                            r.MemberId.ToString().Contains(_replacementSearchTerm) ||
+                            r.CurrentCardNumber.Contains(_replacementSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                            r.Timeline.Any(t => t.CardNumber.Contains(_replacementSearchTerm, StringComparison.OrdinalIgnoreCase))).ToList();
+
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Member</th>
+                                <th>Current Card / Fob</th>
+                                <th>Last Replaced</th>
+                                <th class="text-end pe-4">Replacements</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in filteredRows)
+                            {
+                                bool isExpanded = _expandedReplacementMemberId == row.MemberId;
+                                <tr style="cursor: pointer;" @onclick="() => _expandedReplacementMemberId = isExpanded ? null : row.MemberId">
+                                    <td class="ps-4">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="avatar-circle" style="width:36px;height:36px;font-size:0.85rem;background:linear-gradient(135deg,#ef4444,#b91c1c);color:white;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;flex-shrink:0;">
+                                                @(row.MemberName.Length >= 2 ? row.MemberName.Substring(0, 2).ToUpper() : row.MemberName.ToUpper())
+                                            </div>
+                                            <div>
+                                                <div class="fw-semibold d-flex align-items-center gap-1">
+                                                    @row.MemberName
+                                                    <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down") text-muted small ms-1"></i>
+                                                </div>
+                                                <small class="text-muted">ID: @row.MemberId • @row.TotalCardsIssued total cards issued</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border fw-semibold">
+                                            <i class="bi bi-credit-card-2-front me-1 text-primary"></i>#@row.CurrentCardNumber
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(row.CurrentKeyType))
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary ms-1">@row.CurrentKeyType</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="small fw-semibold">@row.LastReplacedDate.ToString("MMM dd, yyyy")</div>
+                                        @if (!string.IsNullOrEmpty(row.LastPerformedBy))
+                                        {
+                                            <small class="text-muted">by @row.LastPerformedBy</small>
+                                        }
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <span class="badge rounded-pill @(row.ReplacementCount >= 3 ? "bg-danger" : row.ReplacementCount == 2 ? "bg-warning text-dark" : "bg-secondary")" style="font-size: 0.9rem; padding: 6px 12px;">
+                                            @row.ReplacementCount @(row.ReplacementCount == 1 ? "time" : "times")
+                                        </span>
+                                    </td>
+                                </tr>
+                                @if (isExpanded)
+                                {
+                                    <tr class="bg-light">
+                                        <td colspan="4" class="px-4 py-3">
+                                            <div class="small fw-bold text-uppercase text-muted mb-2">
+                                                <i class="bi bi-clock-history me-1"></i>Card &amp; Fob Timeline for @row.MemberName
+                                            </div>
+                                            <div class="d-flex flex-column gap-2">
+                                                @foreach (var item in row.Timeline)
+                                                {
+                                                    <div class="bg-white border rounded-3 px-3 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="badge @(item.IsCurrent ? "bg-success" : "bg-secondary")">
+                                                                @(item.IsCurrent ? "CURRENT" : item.BadgeLabel)
+                                                            </span>
+                                                            <span class="fw-bold">#@item.CardNumber</span>
+                                                            @if (!string.IsNullOrEmpty(item.KeyType))
+                                                            {
+                                                                <span class="badge bg-light text-dark border">@item.KeyType</span>
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(item.Notes))
+                                                            {
+                                                                <span class="text-muted small">— @item.Notes</span>
+                                                            }
+                                                        </div>
+                                                        <div class="text-muted small">
+                                                            @item.Date.ToString("MMM dd, yyyy h:mm tt")
+                                                            @if (!string.IsNullOrEmpty(item.PerformedBy))
+                                                            {
+                                                                <span> • by <strong>@item.PerformedBy</strong></span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="p-3 bg-light d-flex justify-content-end gap-2 border-top">
+                <button class="btn btn-secondary rounded-pill px-4 fw-bold" @onclick="ToggleReplacementsModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* Offline Alert removed from here and moved to consolidated status row above *@
 
 <!-- Tab Content with Fade Transition -->
@@ -775,7 +944,7 @@
     MemberId="_selectedMemberIdForModal"
     IsReplacementMode="_isReplacementMode"
     ReplacingCardId="_replacingCardId"
-    OldCardNumber="_oldCardNumberString"
+    OldCardNumber="@_oldCardNumberString"
     OnClose="CloseAssignCardModal"
     OnCompleted="HandleAssignmentCompleted" />
 
@@ -1024,6 +1193,151 @@
     private DateTime? _topUsersLastUpdated;
     private record TopUserRow(string MemberName, int MemberId, int BadgeCount, int? Trend, int Streak);
 
+    // Card Replacements Tracker Modal
+    private bool _showReplacementsModal = false;
+    private bool _replacementsLoading = false;
+    private string _replacementSearchTerm = string.Empty;
+    private int? _expandedReplacementMemberId = null;
+    private List<MemberReplacementRow> _replacementRows = new();
+
+    private record ReplacementTimelineItem(string CardNumber, string? KeyType, string BadgeLabel, DateTime Date, string? Notes, string? PerformedBy, bool IsCurrent);
+    private record MemberReplacementRow(int MemberId, string MemberName, int ReplacementCount, int TotalCardsIssued, string CurrentCardNumber, string? CurrentKeyType, DateTime LastReplacedDate, string? LastPerformedBy, List<ReplacementTimelineItem> Timeline);
+
+    private async Task ToggleReplacementsModal()
+    {
+        _showReplacementsModal = !_showReplacementsModal;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.body.style.overflow = '{(_showReplacementsModal ? "hidden" : "")}'");
+        }
+        catch { }
+
+        if (_showReplacementsModal)
+        {
+            _expandedReplacementMemberId = null;
+            await LoadReplacementsAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadReplacementsAsync()
+    {
+        _replacementsLoading = true;
+        StateHasChanged();
+        try
+        {
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var membersById = allMembers.ToDictionary(m => m.MemberID);
+            var activeCardByMember = allCards
+                .GroupBy(c => c.MemberId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.IsActive).ThenByDescending(c => c.KeyCardId).First());
+
+            var keyHistories = await ctx.KeyHistories.AsNoTracking()
+                .OrderBy(h => h.Date)
+                .ToListAsync();
+
+            var deactivationLogs = await ctx.Database
+                .SqlQueryRaw<CardDeactivationLog>("SELECT LogId, KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes, PerformedBy FROM dbo.CardDeactivationLog WHERE Reason = 'Card Replaced' ORDER BY DeactivatedDate")
+                .ToListAsync();
+
+            var memberIds = keyHistories
+                .Where(h => h.Action == "Replaced" || (h.Reason != null && h.Reason.Contains("Replacement", StringComparison.OrdinalIgnoreCase)))
+                .Select(h => h.MemberId)
+                .Concat(deactivationLogs.Where(l => l.MemberId.HasValue).Select(l => l.MemberId!.Value))
+                .Concat(keyHistories.GroupBy(h => h.MemberId).Where(g => g.Select(x => x.CardNumber).Distinct().Count() > 1).Select(g => g.Key))
+                .Distinct()
+                .ToList();
+
+            var rows = new List<MemberReplacementRow>();
+
+            foreach (var memberId in memberIds)
+            {
+                var mHist = keyHistories.Where(h => h.MemberId == memberId).OrderBy(h => h.Date).ToList();
+                var mDeact = deactivationLogs.Where(l => l.MemberId == memberId).OrderBy(l => l.DeactivatedDate).ToList();
+
+                int histReplacements = mHist.Count(h => h.Action == "Replaced" || (h.Reason != null && h.Reason.Contains("Replacement", StringComparison.OrdinalIgnoreCase)));
+                int distinctCards = mHist.Select(h => h.CardNumber).Distinct().Count();
+                int replacementCount = Math.Max(mDeact.Count, Math.Max(histReplacements, Math.Max(0, distinctCards - 1)));
+                if (replacementCount <= 0) continue;
+
+                activeCardByMember.TryGetValue(memberId, out var currentCard);
+                string currentCardNum = currentCard?.CardNumber ?? (mHist.LastOrDefault()?.CardNumber.ToString() ?? "N/A");
+                string? currentKeyType = currentCard?.CardType ?? mHist.LastOrDefault()?.KeyType;
+
+                var timeline = new List<ReplacementTimelineItem>();
+                long.TryParse(currentCardNum.TrimStart('0'), out var currentCardLong);
+
+                foreach (var h in mHist)
+                {
+                    bool isReplacementEntry = h.Action == "Replaced" || (h.Reason != null && h.Reason.Contains("Replacement", StringComparison.OrdinalIgnoreCase));
+                    bool isLatestRow = h == mHist.Last() && h.CardNumber == currentCardLong;
+                    string label = h.Action == "Revoked" ? "REVOKED" : (isReplacementEntry ? "REPLACEMENT" : "INITIAL ISSUE");
+                    timeline.Add(new ReplacementTimelineItem(
+                        h.CardNumber.ToString("D10"),
+                        h.KeyType,
+                        label,
+                        h.Date.ToLocalTime(),
+                        h.Reason,
+                        h.PerformedBy,
+                        isLatestRow));
+                }
+
+                if (!timeline.Any() && mDeact.Any())
+                {
+                    foreach (var d in mDeact)
+                    {
+                        timeline.Add(new ReplacementTimelineItem(
+                            currentCardNum,
+                            currentKeyType,
+                            "REPLACED",
+                            d.DeactivatedDate,
+                            d.Notes,
+                            d.PerformedBy,
+                            false));
+                    }
+                }
+
+                timeline = timeline.OrderByDescending(t => t.Date).ToList();
+
+                var lastDate = mDeact.Any()
+                    ? mDeact.Max(d => d.DeactivatedDate)
+                    : (mHist.Any() ? mHist.Max(h => h.Date.ToLocalTime()) : DateTime.Now);
+
+                var lastBy = mDeact.LastOrDefault()?.PerformedBy ?? mHist.LastOrDefault()?.PerformedBy;
+                var memberName = membersById.TryGetValue(memberId, out var m) ? FormatMemberName(m) : $"Member #{memberId}";
+                int totalIssued = Math.Max(distinctCards, replacementCount + 1);
+
+                rows.Add(new MemberReplacementRow(
+                    memberId,
+                    memberName,
+                    replacementCount,
+                    totalIssued,
+                    currentCardNum,
+                    currentKeyType,
+                    lastDate,
+                    lastBy,
+                    timeline));
+            }
+
+            _replacementRows = rows
+                .OrderByDescending(r => r.ReplacementCount)
+                .ThenByDescending(r => r.LastReplacedDate)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load card replacement history");
+        }
+        finally
+        {
+            _replacementsLoading = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task ToggleTopUsers()
     {
         _showTopUsers = !_showTopUsers;
@@ -1073,12 +1387,55 @@
                 .Select(e => new { e.CardNumber, e.TimestampUtc })
                 .ToListAsync();
 
+            // 2. NAME RESOLUTION & REPOSITORIES
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+
+            var cardsByNumber = allCards
+                .Where(c => !string.IsNullOrEmpty(c.CardNumber) && long.TryParse(c.CardNumber, out _))
+                .GroupBy(c => long.Parse(c.CardNumber))
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.IsActive).First());
+            var membersById = allMembers.ToDictionary(m => m.MemberID);
+
+            // Card assignment history (replaced cards are overwritten in KeyCards, so history is the source of truth for old numbers)
+            var historyByCard = (await ctx.KeyHistories.AsNoTracking()
+                    .Where(h => h.Action == "Assigned")
+                    .Select(h => new { h.CardNumber, h.MemberId, h.Date })
+                    .ToListAsync())
+                .GroupBy(h => h.CardNumber)
+                .ToDictionary(g => g.Key, g => g.OrderBy(h => h.Date).Select(h => (h.MemberId, h.Date)).ToList());
+
+            // Who held this card at the time of the swipe?
+            int? ResolveMemberId(long cardNumber, DateTime swipeUtc)
+            {
+                if (historyByCard.TryGetValue(cardNumber, out var assignments) && assignments.Count > 0)
+                {
+                    var holder = assignments.LastOrDefault(a => a.Date <= swipeUtc);
+                    return holder.MemberId != 0 ? holder.MemberId : assignments[0].MemberId;
+                }
+                if (cardsByNumber.TryGetValue(cardNumber, out var card)) return card.MemberId;
+                return null;
+            }
+
+            // Key each swipe by member (or by card if the card can't be matched to anyone)
+            var keyedEvents = allYearEvents
+                .Select(e =>
+                {
+                    var card = (long)e.CardNumber!;
+                    var memberId = ResolveMemberId(card, e.TimestampUtc);
+                    var key = memberId.HasValue && membersById.ContainsKey(memberId.Value) ? $"m:{memberId.Value}" : $"c:{card}";
+                    return new { Key = key, e.TimestampUtc };
+                })
+                .OrderBy(e => e.Key)
+                .ThenBy(e => e.TimestampUtc)
+                .ToList();
+
             // Helper to debounce and rank
-            List<(long CardNumber, int Count)> GetRankings(IEnumerable<dynamic> events, DateTime start, DateTime end)
+            List<(string Key, int Count)> GetRankings(IEnumerable<dynamic> events, DateTime start, DateTime end)
             {
                 var windowEvents = events.Where(e => e.TimestampUtc >= start && e.TimestampUtc < end);
-                var counts = new Dictionary<long, int>();
-                foreach (var group in windowEvents.GroupBy(e => (long)e.CardNumber))
+                var counts = new Dictionary<string, int>();
+                foreach (var group in windowEvents.GroupBy(e => (string)e.Key))
                 {
                     int validEntries = 0;
                     DateTime? lastSwipe = null;
@@ -1095,42 +1452,31 @@
                 return counts.OrderByDescending(kv => kv.Value).Select(kv => (kv.Key, kv.Value)).ToList();
             }
 
-            var currentRanks = GetRankings(allYearEvents, currentStart, now);
-            var prevRanks = GetRankings(allYearEvents, currentStart, trendEnd);
+            var currentRanks = GetRankings(keyedEvents, currentStart, now);
+            var prevRanks = GetRankings(keyedEvents, currentStart, trendEnd);
 
             var topN = currentRanks.Take(_topCount).ToList();
-
-            // 2. NAME RESOLUTION & REPOSITORIES
-            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
-            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
-
-            var cardsByNumber = allCards
-                .Where(c => !string.IsNullOrEmpty(c.CardNumber))
-                .GroupBy(c => c.CardNumber.TrimStart('0'))
-                .ToDictionary(g => g.Key, g => g.First());
-            var membersById = allMembers.ToDictionary(m => m.MemberID);
 
             // 3. ASSEMBLE TOP USERS WITH TRENDS & STREAKS
             var result = new List<TopUserRow>();
             for (int i = 0; i < topN.Count; i++)
             {
                 var item = topN[i];
-                var cardNumber = item.CardNumber;
+                var key = item.Key;
                 var currentRankPos = i + 1;
 
                 // Trend Calculation
                 int? trend = null; // null = stable or new
-                var prevIndex = prevRanks.FindIndex(r => r.CardNumber == cardNumber);
+                var prevIndex = prevRanks.FindIndex(r => r.Key == key);
                 if (prevIndex >= 0)
                 {
                     var prevRankPos = prevIndex + 1;
                     trend = prevRankPos - currentRankPos; // Positive = climbed up
                 }
 
-                // Streak Calculation (Consecutive Days)
-                // Filter all successful swipes for this card EVER in the year collection
-                var userSwipes = allYearEvents
-                    .Where(e => e.CardNumber == cardNumber)
+                // Streak Calculation (Consecutive Days) across all of this member's cards
+                var userSwipes = keyedEvents
+                    .Where(e => e.Key == key)
                     .Select(e => e.TimestampUtc.Date)
                     .Distinct()
                     .OrderByDescending(d => d)
@@ -1155,15 +1501,13 @@
                 }
 
                 // Resolution
-                var normalized = cardNumber.ToString().TrimStart('0');
-                if (!string.IsNullOrEmpty(normalized) && cardsByNumber.TryGetValue(normalized, out var card)
-                    && membersById.TryGetValue(card.MemberId, out var member))
+                if (key.StartsWith("m:") && membersById.TryGetValue(int.Parse(key[2..]), out var member))
                 {
                     result.Add(new TopUserRow(FormatMemberName(member), member.MemberID, item.Count, trend, streak));
                 }
                 else
                 {
-                    result.Add(new TopUserRow($"Card #{cardNumber}", 0, item.Count, trend, streak));
+                    result.Add(new TopUserRow($"Card #{key[2..]}", 0, item.Count, trend, streak));
                 }
             }
             _topUsers = result;

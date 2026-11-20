@@ -630,6 +630,19 @@
                 .ToDictionary(g => g.Key, g => g.First());
             
             var membersById = allMembers.ToDictionary(m => m.MemberID);
+
+            // Card assignment history: replaced cards are overwritten in KeyCards, so resolve old numbers by who held them at swipe time
+            var eventCardNumbers = events.Where(e => e.CardNumber.HasValue).Select(e => e.CardNumber!.Value).Distinct().ToList();
+            Dictionary<long, List<(int MemberId, DateTime Date)>> historyByCard;
+            await using (var histDb = await DbContextFactory.CreateDbContextAsync())
+            {
+                historyByCard = (await histDb.KeyHistories.AsNoTracking()
+                        .Where(h => h.Action == "Assigned" && eventCardNumbers.Contains(h.CardNumber))
+                        .Select(h => new { h.CardNumber, h.MemberId, h.Date })
+                        .ToListAsync())
+                    .GroupBy(h => h.CardNumber)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(h => h.Date).Select(h => (h.MemberId, h.Date)).ToList());
+            }
             
             var processedActivities = events.Select(e => {
                 string? memberName = null;
@@ -639,15 +652,24 @@
                 }
                 else if (e.CardNumber.HasValue && e.CardNumber.Value > 0)
                 {
-                    // Normalize the scanned card number (remove leading zeros)
-                    var normalizedScanned = e.CardNumber.Value.ToString().TrimStart('0');
-                    
-                    if (!string.IsNullOrEmpty(normalizedScanned) && cardsByNumber.TryGetValue(normalizedScanned, out var card))
+                    // Who held this card at the time of the swipe? (KeyHistory first, then current card list)
+                    int? holderId = null;
+                    if (historyByCard.TryGetValue(e.CardNumber.Value, out var assignments) && assignments.Count > 0)
                     {
-                        if (membersById.TryGetValue(card.MemberId, out var member))
-                        {
-                            memberName = $"{member.LastName.Trim()}, {member.FirstName.Trim()}{(string.IsNullOrWhiteSpace(member.MiddleName) ? "" : " " + member.MiddleName.Trim()[0] + ".")}{(string.IsNullOrWhiteSpace(member.Suffix) ? "" : " " + member.Suffix.Trim())}".Trim().Replace("  ", " ");
-                        }
+                        var holder = assignments.LastOrDefault(a => a.Date <= e.TimestampUtc);
+                        holderId = holder.MemberId != 0 ? holder.MemberId : assignments[0].MemberId;
+                    }
+                    else
+                    {
+                        // Normalize the scanned card number (remove leading zeros)
+                        var normalizedScanned = e.CardNumber.Value.ToString().TrimStart('0');
+                        if (!string.IsNullOrEmpty(normalizedScanned) && cardsByNumber.TryGetValue(normalizedScanned, out var card))
+                            holderId = card.MemberId;
+                    }
+
+                    if (holderId.HasValue && membersById.TryGetValue(holderId.Value, out var member))
+                    {
+                        memberName = $"{member.LastName.Trim()}, {member.FirstName.Trim()}{(string.IsNullOrWhiteSpace(member.MiddleName) ? "" : " " + member.MiddleName.Trim()[0] + ".")}{(string.IsNullOrWhiteSpace(member.Suffix) ? "" : " " + member.Suffix.Trim())}".Trim().Replace("  ", " ");
                     }
                 }
                 

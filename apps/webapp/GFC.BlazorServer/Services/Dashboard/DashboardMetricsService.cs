@@ -224,12 +224,31 @@ public class DashboardMetricsService : IDashboardMetricsService
             
             if (cardNumbers.Any())
             {
-                // SURGICAL FETCH: Only get members associated with these card numbers
+                var cardNumsLong = recentEvents
+                    .Where(e => e.CardNumber.HasValue && e.CardNumber.Value > 0)
+                    .Select(e => e.CardNumber!.Value)
+                    .Distinct()
+                    .ToList();
+
+                // SURGICAL FETCH: Get members from current KeyCards and fallback to KeyHistories for replaced cards
                 var keyCards = await db.KeyCards
-                    .Where(kc => cardNumbers.Contains(kc.CardNumber))
+                    .AsNoTracking()
+                    .ToListAsync(ct);
+                var matchedKeyCards = keyCards
+                    .Where(kc => !string.IsNullOrEmpty(kc.CardNumber) && cardNumbers.Contains(kc.CardNumber.TrimStart('0')))
+                    .ToList();
+
+                var historyCards = await db.KeyHistories
+                    .AsNoTracking()
+                    .Where(h => h.Action == "Assigned" && cardNumsLong.Contains(h.CardNumber))
+                    .Select(h => new { h.CardNumber, h.MemberId, h.Date })
                     .ToListAsync(ct);
 
-                var memberIds = keyCards.Select(kc => kc.MemberId).Distinct().ToList();
+                var memberIds = matchedKeyCards.Select(kc => kc.MemberId)
+                    .Concat(historyCards.Select(h => h.MemberId))
+                    .Distinct()
+                    .ToList();
+
                 if (memberIds.Any())
                 {
                     var memberNames = await db.Members
@@ -239,11 +258,19 @@ public class DashboardMetricsService : IDashboardMetricsService
                     
                     var memberNameLookup = memberNames.ToDictionary(m => m.MemberID, m => $"{m.LastName}, {m.FirstName}");
 
-                    foreach (var card in keyCards)
+                    foreach (var h in historyCards.OrderBy(h => h.Date))
+                    {
+                        if (memberNameLookup.TryGetValue(h.MemberId, out var name))
+                        {
+                            cardToMemberLookup[h.CardNumber.ToString()] = name;
+                        }
+                    }
+
+                    foreach (var card in matchedKeyCards)
                     {
                         if (memberNameLookup.TryGetValue(card.MemberId, out var name))
                         {
-                            cardToMemberLookup[card.CardNumber] = name;
+                            cardToMemberLookup[card.CardNumber.TrimStart('0')] = name;
                         }
                     }
                 }

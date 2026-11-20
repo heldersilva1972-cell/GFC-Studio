@@ -848,6 +848,12 @@
                                     <small class="text-muted d-block" style="font-size: 0.75rem;">@access.ControllerName</small>
                                 </div>
                                 <div class="access-time">@access.EventTime.ToString("MMM dd, yyyy h:mm:ss tt")</div>
+                                @if (access.IsPreviousCard)
+                                {
+                                    <small class="badge bg-secondary-subtle text-secondary" title="Swipe made with a previous (replaced) card">
+                                        <i class="bi bi-arrow-repeat me-1"></i>Old card #@access.CardNumber
+                                    </small>
+                                }
                             </div>
                             <div class="access-status">
                                 <span class="badge @(access.AccessGranted ? "bg-success" : "bg-danger")">
@@ -1395,12 +1401,45 @@
 
             if (long.TryParse(currentCard.CardNumber, out long cardNumberLong))
             {
-                 var query = db.ControllerEvents.Where(e => e.CardNumber == cardNumberLong);
-                 _totalScans = await query.CountAsync();
+                 // Include swipes from this member's previous (replaced) cards, using KeyHistory ownership windows
+                 var memberId = currentCard.MemberId;
+                 var memberCardNumbers = await db.KeyHistories.AsNoTracking()
+                     .Where(h => h.MemberId == memberId && h.Action == "Assigned")
+                     .Select(h => h.CardNumber)
+                     .Distinct()
+                     .ToListAsync();
+                 if (!memberCardNumbers.Contains(cardNumberLong)) memberCardNumbers.Add(cardNumberLong);
 
-                 var events = await query
+                 var assignmentsByCard = (await db.KeyHistories.AsNoTracking()
+                         .Where(h => memberCardNumbers.Contains(h.CardNumber) && h.Action == "Assigned")
+                         .Select(h => new { h.CardNumber, h.MemberId, h.Date })
+                         .ToListAsync())
+                     .GroupBy(h => h.CardNumber)
+                     .ToDictionary(g => g.Key, g => g.OrderBy(h => h.Date).Select(h => (h.MemberId, h.Date)).ToList());
+
+                 // Did this member hold the card at the time of the swipe?
+                 bool HeldByMember(long card, DateTime swipeUtc)
+                 {
+                     if (!assignmentsByCard.TryGetValue(card, out var list) || list.Count == 0)
+                         return card == cardNumberLong; // no history: current card belongs to this member
+                     var holder = list.LastOrDefault(a => a.Date <= swipeUtc);
+                     var holderId = holder.MemberId != 0 ? holder.MemberId : list[0].MemberId;
+                     return holderId == memberId;
+                 }
+
+                 var allEvents = await db.ControllerEvents.AsNoTracking()
+                     .Where(e => e.CardNumber != null && memberCardNumbers.Contains(e.CardNumber.Value))
+                     .Select(e => new { e.Id, CardNumber = e.CardNumber!.Value, e.TimestampUtc })
+                     .ToListAsync();
+
+                 var memberEvents = allEvents.Where(e => HeldByMember(e.CardNumber, e.TimestampUtc)).ToList();
+                 _totalScans = memberEvents.Count;
+
+                 var recentIds = memberEvents.OrderByDescending(e => e.TimestampUtc).Take(20).Select(e => e.Id).ToList();
+
+                 var events = await db.ControllerEvents
+                    .Where(e => recentIds.Contains(e.Id))
                     .OrderByDescending(e => e.TimestampUtc) // Use raw UTC for sorting
-                    .Take(20)
                     .Include(e => e.Controller)
                     .Include(e => e.Door)
                     .AsNoTracking()
@@ -1412,19 +1451,21 @@
                       EventTime = e.ControllerEventTime, 
                       ControllerName = e.Controller?.Name ?? "Unknown Controller",
                       DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown Door"),
-                      AccessGranted = e.EventType == 1 && (e.ReasonCode == null || e.ReasonCode == 1)
+                      AccessGranted = e.EventType == 1 && (e.ReasonCode == null || e.ReasonCode == 1),
+                      CardNumber = e.CardNumber ?? 0,
+                      IsPreviousCard = e.CardNumber != cardNumberLong
                   })
                  .GroupBy(a => new { a.EventTime, a.ControllerName, a.DoorName, a.AccessGranted })
                  .Select(g => g.First())
                  .ToList();
 
-                 // Update Last Used on the UI object if we found new events
-                 if (events.Count > 0)
+                 // Update Last Used on the UI object if we found new events (current card only)
+                 var latestCurrent = events.Where(e => e.CardNumber == cardNumberLong).Select(e => (DateTime?)e.ControllerEventTime).FirstOrDefault();
+                 if (latestCurrent.HasValue)
                  {
-                     var latest = events.First().ControllerEventTime;
-                     if (!currentCard.LastUsed.HasValue || latest > currentCard.LastUsed.Value)
+                     if (!currentCard.LastUsed.HasValue || latestCurrent.Value > currentCard.LastUsed.Value)
                      {
-                         currentCard.LastUsed = latest;
+                         currentCard.LastUsed = latestCurrent.Value;
                      }
                  }
             }
@@ -1940,6 +1981,8 @@
         public string ControllerName { get; set; } = string.Empty;
         public string DoorName { get; set; } = string.Empty; // Added
         public bool AccessGranted { get; set; }
+        public long CardNumber { get; set; }
+        public bool IsPreviousCard { get; set; }
     }
     
     // DTO for optimized raw SQL query

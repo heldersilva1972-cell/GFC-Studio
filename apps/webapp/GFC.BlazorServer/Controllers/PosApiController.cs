@@ -824,10 +824,227 @@ public class PosApiController : ControllerBase
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             
-            // [IDEMPOTENCY] Check if this sale already arrived
-            if (await db.PosSales.AnyAsync(s => s.Id == saleDto.Id))
+            int resolvedEventId = (saleDto.ActiveEventId.HasValue && saleDto.ActiveEventId.Value > 0 && 
+                                   await db.ActiveEvents.AnyAsync(e => e.Id == saleDto.ActiveEventId.Value)) 
+                                   ? saleDto.ActiveEventId.Value 
+                                   : 0;
+            int? validActiveEventId = resolvedEventId > 0 ? resolvedEventId : null;
+
+            bool isTraining = (saleDto.TerminalName ?? "").Contains("(TRAINING)");
+
+            // Resolve user ID dynamically using BartenderName, falling back to 1
+            int userId = 1;
+            if (!isTraining && !string.IsNullOrEmpty(saleDto.BartenderName))
             {
-                _logger.LogInformation("POS Sale {Id} already exists, skipping duplicate save.", saleDto.Id);
+                var userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == saleDto.BartenderName)
+                           ?? await db.AppUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == saleDto.BartenderName.ToLower());
+                if (userObj != null)
+                {
+                    userId = userObj.UserId;
+                }
+            }
+
+            async Task ApplyInventoryChangeAsync(string? itemsJson, int direction, string reasonPrefix)
+            {
+                if (isTraining || string.IsNullOrEmpty(itemsJson)) return;
+
+                var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(itemsJson);
+                if (items == null) return;
+
+                foreach (var parent in items)
+                {
+                    if (parent.Id > 0)
+                    {
+                        try
+                        {
+                            var liquorItem = await db.LiquorItems.FindAsync(parent.Id);
+                            if (liquorItem != null)
+                            {
+                                if (liquorItem.ParentItemId.HasValue)
+                                {
+                                    var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
+                                    if (parentItem != null)
+                                    {
+                                        decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
+                                        decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
+
+                                        parentItem.OuncesAccumulator += (direction * parent.Quantity * pourSize);
+
+                                        int bottlesToDeduct = 0;
+                                        if (bottleVolume > 0)
+                                        {
+                                            if (parentItem.OuncesAccumulator >= bottleVolume)
+                                            {
+                                                bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
+                                                parentItem.OuncesAccumulator %= bottleVolume;
+                                            }
+                                            else if (parentItem.OuncesAccumulator < 0)
+                                            {
+                                                while (parentItem.OuncesAccumulator < 0)
+                                                {
+                                                    parentItem.OuncesAccumulator += bottleVolume;
+                                                    bottlesToDeduct--;
+                                                }
+                                            }
+                                        }
+
+                                        await db.SaveChangesAsync();
+
+                                        if (bottlesToDeduct != 0)
+                                        {
+                                            await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"{reasonPrefix}: {parent.Quantity}x {parent.Name} (Accumulated depletion)");
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    await _liquorService.AdjustStockAsync(parent.Id, userId, -direction * parent.Quantity, $"{reasonPrefix}: {parent.Name}");
+                                }
+                            }
+                        }
+                        catch (Exception invEx)
+                        {
+                            _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
+                        }
+                    }
+
+                    if (parent.Modifiers != null)
+                    {
+                        foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
+                        {
+                            try
+                            {
+                                int totalModQty = parent.Quantity * mod.Quantity;
+                                var liquorItem = await db.LiquorItems.FindAsync(mod.Id);
+                                if (liquorItem != null)
+                                {
+                                    if (liquorItem.ParentItemId.HasValue)
+                                    {
+                                        var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
+                                        if (parentItem != null)
+                                        {
+                                            decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
+                                            decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
+
+                                            parentItem.OuncesAccumulator += (direction * totalModQty * pourSize);
+
+                                            int bottlesToDeduct = 0;
+                                            if (bottleVolume > 0)
+                                            {
+                                                if (parentItem.OuncesAccumulator >= bottleVolume)
+                                                {
+                                                    bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
+                                                    parentItem.OuncesAccumulator %= bottleVolume;
+                                                }
+                                                else if (parentItem.OuncesAccumulator < 0)
+                                                {
+                                                    while (parentItem.OuncesAccumulator < 0)
+                                                    {
+                                                        parentItem.OuncesAccumulator += bottleVolume;
+                                                        bottlesToDeduct--;
+                                                    }
+                                                }
+                                            }
+
+                                            await db.SaveChangesAsync();
+
+                                            if (bottlesToDeduct != 0)
+                                            {
+                                                await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"{reasonPrefix} (Add-on): {totalModQty}x {mod.Name} (for {parent.Name}) (Accumulated depletion)");
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        await _liquorService.AdjustStockAsync(mod.Id, userId, -direction * totalModQty, $"{reasonPrefix} (Add-on): {mod.Name} (for {parent.Name})");
+                                    }
+                                }
+                            }
+                            catch (Exception invEx)
+                            {
+                                _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // [IDEMPOTENCY & CORRECTION/VOID UPDATE] Check if this sale already arrived
+            var existingSale = await db.PosSales.FirstOrDefaultAsync(s => s.Id == saleDto.Id);
+            if (existingSale != null)
+            {
+                bool isUnchangedDuplicate =
+                    existingSale.IsVoided == saleDto.IsVoided &&
+                    existingSale.IsCorrection == saleDto.IsCorrection &&
+                    existingSale.TotalAmount == saleDto.TotalAmount &&
+                    existingSale.ItemsJson == saleDto.ItemsJson &&
+                    existingSale.PaymentType == saleDto.PaymentType;
+
+                if (isUnchangedDuplicate)
+                {
+                    _logger.LogInformation("POS Sale {Id} already exists and is unchanged, skipping duplicate save.", saleDto.Id);
+                    return Ok();
+                }
+
+                _logger.LogInformation("POS Sale {Id} arrived with correction/void update (IsVoided={IsVoided}, IsCorrection={IsCorrection}, OldTotal={OldTotal}, NewTotal={NewTotal}). Updating record.",
+                    saleDto.Id, saleDto.IsVoided, saleDto.IsCorrection, existingSale.TotalAmount, saleDto.TotalAmount);
+
+                // 1. Reverse previous inventory & event tab impact if the old record was active
+                if (!existingSale.IsVoided)
+                {
+                    await ApplyInventoryChangeAsync(existingSale.ItemsJson, -1, "POS Sale Reversal (Correction/Void)");
+
+                    if (existingSale.PaymentType == "TAB" && existingSale.ActiveEventId.HasValue)
+                    {
+                        var oldEvent = await db.ActiveEvents.FindAsync(existingSale.ActiveEventId.Value);
+                        if (oldEvent != null)
+                        {
+                            oldEvent.CurrentBalance += existingSale.TotalAmount;
+                        }
+                    }
+                }
+
+                // 2. Update the existing PosSale row in-place
+                if (saleDto.IsCorrection && saleDto.OriginalTotal == 0 && existingSale.TotalAmount > 0)
+                {
+                    existingSale.OriginalTotal = existingSale.TotalAmount;
+                }
+                else
+                {
+                    existingSale.OriginalTotal = saleDto.OriginalTotal;
+                }
+
+                existingSale.Timestamp = saleDto.Timestamp;
+                existingSale.TerminalName = saleDto.TerminalName;
+                existingSale.BartenderName = saleDto.BartenderName;
+                existingSale.TotalAmount = saleDto.TotalAmount;
+                existingSale.PaymentType = saleDto.PaymentType;
+                existingSale.ItemsJson = saleDto.ItemsJson;
+                existingSale.IsSynced = true;
+                existingSale.AmountReceived = saleDto.AmountReceived;
+                existingSale.ChangeDue = saleDto.ChangeDue;
+                existingSale.IsVoided = saleDto.IsVoided;
+                existingSale.IsCorrection = saleDto.IsCorrection;
+                existingSale.OriginalSaleId = saleDto.OriginalSaleId ?? existingSale.Id;
+                existingSale.AdjustmentReason = saleDto.AdjustmentReason;
+                existingSale.ActiveEventId = validActiveEventId;
+
+                // 3. Apply new inventory & event tab impact if the updated sale is not voided
+                if (!saleDto.IsVoided)
+                {
+                    await ApplyInventoryChangeAsync(saleDto.ItemsJson, +1, "POS Sale (Corrected)");
+
+                    if (saleDto.PaymentType == "TAB" && validActiveEventId.HasValue)
+                    {
+                        var newEvent = await db.ActiveEvents.FindAsync(validActiveEventId.Value);
+                        if (newEvent != null)
+                        {
+                            newEvent.CurrentBalance -= saleDto.TotalAmount;
+                        }
+                    }
+                }
+
+                await db.SaveChangesAsync();
                 return Ok();
             }
 
@@ -848,138 +1065,20 @@ public class PosApiController : ControllerBase
                 IsCorrection = saleDto.IsCorrection,
                 OriginalSaleId = saleDto.OriginalSaleId,
                 AdjustmentReason = saleDto.AdjustmentReason,
-                ActiveEventId = (saleDto.ActiveEventId.HasValue && saleDto.ActiveEventId.Value > 0 && 
-                                 await db.ActiveEvents.AnyAsync(e => e.Id == saleDto.ActiveEventId.Value)) 
-                                 ? saleDto.ActiveEventId.Value 
-                                 : null
+                ActiveEventId = validActiveEventId
             };
 
             db.PosSales.Add(sale);
 
-            // Handle inventory if not in training mode
-            if (!saleDto.TerminalName.Contains("(TRAINING)"))
+            if (!saleDto.IsVoided)
             {
-                // Resolve user ID dynamically using BartenderName, falling back to 1
-                int userId = 1;
-                if (!string.IsNullOrEmpty(saleDto.BartenderName))
-                {
-                    var userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == saleDto.BartenderName);
-                    if (userObj != null)
-                    {
-                        userId = userObj.UserId;
-                    }
-                    else
-                    {
-                        // Case-insensitive fallback
-                        userObj = await db.AppUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == saleDto.BartenderName.ToLower());
-                        if (userObj != null)
-                        {
-                            userId = userObj.UserId;
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(saleDto.ItemsJson))
-                {
-                    var items = JsonSerializer.Deserialize<List<PosSaleItemDto>>(saleDto.ItemsJson);
-                    if (items != null)
-                    {
-                        foreach (var parent in items)
-                        {
-                            if (parent.Id > 0)
-                            {
-                                try {
-                                    var liquorItem = await db.LiquorItems.FindAsync(parent.Id);
-                                    if (liquorItem != null)
-                                    {
-                                        if (liquorItem.ParentItemId.HasValue)
-                                        {
-                                            var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
-                                            if (parentItem != null)
-                                            {
-                                                decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
-                                                decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
-                                                
-                                                parentItem.OuncesAccumulator += (parent.Quantity * pourSize);
-                                                
-                                                int bottlesToDeduct = 0;
-                                                if (bottleVolume > 0)
-                                                {
-                                                    bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
-                                                    parentItem.OuncesAccumulator %= bottleVolume;
-                                                }
-                                                
-                                                await db.SaveChangesAsync();
-                                                
-                                                if (bottlesToDeduct > 0)
-                                                {
-                                                    await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale: {parent.Quantity}x {parent.Name} (Accumulated depletion)");
-                                                }
-                                            }
-                                        }
-                                        else
-                                        {
-                                            await _liquorService.AdjustStockAsync(parent.Id, userId, -parent.Quantity, $"POS Sale: {parent.Name}");
-                                        }
-                                    }
-                                } catch (Exception invEx) {
-                                    _logger.LogWarning("Could not adjust stock for item {Id} ({Name}): {Msg}", parent.Id, parent.Name, invEx.Message);
-                                }
-                            }
-
-                            if (parent.Modifiers != null)
-                            {
-                                foreach (var mod in parent.Modifiers.Where(m => m.Id > 0))
-                                {
-                                    try {
-                                        int totalModQty = parent.Quantity * mod.Quantity;
-                                        var liquorItem = await db.LiquorItems.FindAsync(mod.Id);
-                                        if (liquorItem != null)
-                                        {
-                                            if (liquorItem.ParentItemId.HasValue)
-                                            {
-                                                var parentItem = await db.LiquorItems.FindAsync(liquorItem.ParentItemId.Value);
-                                                if (parentItem != null)
-                                                {
-                                                    decimal pourSize = liquorItem.PourVolumeOunces ?? 5.0m;
-                                                    decimal bottleVolume = parentItem.BottleVolumeOunces ?? 25.0m;
-                                                    
-                                                    parentItem.OuncesAccumulator += (totalModQty * pourSize);
-                                                    
-                                                    int bottlesToDeduct = 0;
-                                                    if (bottleVolume > 0)
-                                                    {
-                                                        bottlesToDeduct = (int)(parentItem.OuncesAccumulator / bottleVolume);
-                                                        parentItem.OuncesAccumulator %= bottleVolume;
-                                                    }
-                                                    
-                                                    await db.SaveChangesAsync();
-                                                    
-                                                    if (bottlesToDeduct > 0)
-                                                    {
-                                                        await _liquorService.AdjustStockAsync(parentItem.Id, userId, -bottlesToDeduct, $"POS Sale (Add-on): {totalModQty}x {mod.Name} (for {parent.Name}) (Accumulated depletion)");
-                                                    }
-                                                }
-                                            }
-                                            else
-                                            {
-                                                await _liquorService.AdjustStockAsync(mod.Id, userId, -totalModQty, $"POS Sale (Add-on): {mod.Name} (for {parent.Name})");
-                                            }
-                                        }
-                                    } catch (Exception invEx) {
-                                        _logger.LogWarning("Could not adjust stock for modifier item {Id} ({Name}): {Msg}", mod.Id, mod.Name, invEx.Message);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                await ApplyInventoryChangeAsync(saleDto.ItemsJson, +1, "POS Sale");
             }
 
             // Handle Event Tab Deduction
-            if (saleDto.PaymentType == "TAB" && saleDto.ActiveEventId.HasValue)
+            if (saleDto.PaymentType == "TAB" && validActiveEventId.HasValue)
             {
-                var activeEvent = await db.ActiveEvents.FindAsync(saleDto.ActiveEventId.Value);
+                var activeEvent = await db.ActiveEvents.FindAsync(validActiveEventId.Value);
                 if (activeEvent != null)
                 {
                     if (saleDto.IsVoided)

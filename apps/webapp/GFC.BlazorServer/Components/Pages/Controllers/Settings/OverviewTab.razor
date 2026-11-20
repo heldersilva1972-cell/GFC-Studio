@@ -397,20 +397,31 @@
                 .GroupBy(c => c.CardNumber.TrimStart('0')) 
                 .ToDictionary(g => g.Key, g => g.First());
 
-            // Look up each required card number
+            // Look up each required card number (current KeyCards first, then KeyHistory fallback for replaced cards)
+            await using var histDb = await DbFactory.CreateDbContextAsync();
+            var historyAssignments = await histDb.KeyHistories.AsNoTracking()
+                .Where(h => h.Action == "Assigned" && cardNumbers.Contains(h.CardNumber))
+                .Select(h => new { h.CardNumber, h.MemberId, h.Date })
+                .ToListAsync();
+            var historyMemberByCard = historyAssignments
+                .GroupBy(h => h.CardNumber)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(h => h.Date).First().MemberId);
+
             foreach (var cNum in cardNumbers)
             {
                 var searchNum = cNum.ToString().TrimStart('0');
+                int? memberId = null;
                 if (cardMap.TryGetValue(searchNum, out var keyCard))
+                    memberId = keyCard.MemberId;
+                else if (historyMemberByCard.TryGetValue(cNum, out var histMemberId))
+                    memberId = histMemberId;
+
+                if (memberId.HasValue && !_cardMemberNames.ContainsKey(cNum))
                 {
-                    // Found the card, now get the member
-                    if (!_cardMemberNames.ContainsKey(cNum))
+                    var member = await Task.Run(() => MemberRepository.GetMemberById(memberId.Value));
+                    if (member != null)
                     {
-                        var member = await Task.Run(() => MemberRepository.GetMemberById(keyCard.MemberId));
-                        if (member != null)
-                        {
-                            _cardMemberNames[cNum] = $"{member.LastName.Trim()}, {member.FirstName.Trim()}{(string.IsNullOrWhiteSpace(member.MiddleName) ? "" : " " + member.MiddleName.Trim()[0] + ".")}{(string.IsNullOrWhiteSpace(member.Suffix) ? "" : " " + member.Suffix.Trim())}".Trim().Replace("  ", " ");
-                        }
+                        _cardMemberNames[cNum] = $"{member.LastName.Trim()}, {member.FirstName.Trim()}{(string.IsNullOrWhiteSpace(member.MiddleName) ? "" : " " + member.MiddleName.Trim()[0] + ".")}{(string.IsNullOrWhiteSpace(member.Suffix) ? "" : " " + member.Suffix.Trim())}".Trim().Replace("  ", " ");
                     }
                 }
             }
