@@ -84,4 +84,16 @@ public class MauiStationSettingsService : IStationSettingsService
         Preferences.Default.Set(CartCompGestureKey, enabled);
         return Task.CompletedTask;
     }
+
+    public Task<bool> GetOptionVisibleAsync(string optionKey)
+    {
+        var visible = Preferences.Default.Get($"gfc_pos_opt_{optionKey}", true);
+        return Task.FromResult(visible);
+    }
+
+    public Task SaveOptionVisibleAsync(string optionKey, bool visible)
+    {
+        Preferences.Default.Set($"gfc_pos_opt_{optionKey}", visible);
+        return Task.CompletedTask;
+    }
 }

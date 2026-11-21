@@ -81,4 +81,15 @@ public class WebStationSettingsService : IStationSettingsService
     {
         await _js.InvokeVoidAsync("localStorage.setItem", CartCompGestureKey, enabled.ToString().ToLower());
     }
+
+    public async Task<bool> GetOptionVisibleAsync(string optionKey)
+    {
+        var val = await _js.InvokeAsync<string>("localStorage.getItem", $"gfc_pos_opt_{optionKey}");
+        return bool.TryParse(val, out var visible) ? visible : true; // Default enabled
+    }
+
+    public async Task SaveOptionVisibleAsync(string optionKey, bool visible)
+    {
+        await _js.InvokeVoidAsync("localStorage.setItem", $"gfc_pos_opt_{optionKey}", visible.ToString().ToLower());
+    }
 }

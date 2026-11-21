@@ -18,4 +18,8 @@ public interface IStationSettingsService
     // Cart Comp Gestures
     Task<bool> GetCartCompGestureEnabledAsync();
     Task SaveCartCompGestureEnabledAsync(bool enabled);
+
+    // POS Options Menu Visibility (All default to true)
+    Task<bool> GetOptionVisibleAsync(string optionKey);
+    Task SaveOptionVisibleAsync(string optionKey, bool visible);
 }
