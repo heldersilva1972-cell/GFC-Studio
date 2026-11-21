@@ -183,12 +183,15 @@ namespace GFC.Core.Services
                 shift.NetSales = sales - payouts - cancels;
             }
 
-            // [BUSINESS RULE]: Drops and refills only happen at NIGHT. 
-            // Force to zero for Day shifts to prevent accidental data contamination.
+            // [BUSINESS RULE]: Drops and refills primarily happen at NIGHT.
+            // If Day shift has no manually entered drop or refill, default them to zero.
             if (string.Equals(shift.ShiftType, "Day", StringComparison.OrdinalIgnoreCase))
             {
-                shift.EnvelopeAmount = 0;
-                shift.BagRefillAmount = 0;
+                if (shift.ShiftId == 0)
+                {
+                    shift.EnvelopeAmount = 0;
+                    shift.BagRefillAmount = 0;
+                }
             }
             
             // [FIX]: Expected Cash for the NEXT shift should subtract distributions.

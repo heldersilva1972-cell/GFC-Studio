@@ -195,13 +195,13 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task OnMonthYearChanged()
         {
-            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "month")
+            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics" || _viewMode == "backup-bag") && _breakdownRangeType == "month")
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "year")
+            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics" || _viewMode == "backup-bag") && _breakdownRangeType == "year")
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
@@ -320,13 +320,17 @@ namespace GFC.BlazorServer.Components.Pages
                 _commissionRates = await Task.Run(() => LotteryService.GetAllRates());
                 await LoadAvailableYears();
                 
-                if (_viewMode == "shifts" || _viewMode == "daily")
+                if (_viewMode == "shifts" || _viewMode == "daily" || _viewMode == "backup-bag")
                 {
                     await LoadShifts();
                 }
                 if (_viewMode == "daily")
                 {
                     await LoadDailySummaries();
+                }
+                else if (_viewMode == "backup-bag")
+                {
+                    await LoadBackupBagData();
                 }
                 else if (_viewMode == "commissions")
                 {
@@ -632,6 +636,13 @@ namespace GFC.BlazorServer.Components.Pages
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
+            else if (_viewMode == "backup-bag")
+            {
+                _breakdownRangeType = "month";
+                var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
+                _filterStartDate = range.Start;
+                _filterEndDate = range.End;
+            }
             else if (_viewMode == "daily")
             {
                 _filterStartDate = GetWeekStart(DateTime.Today);
@@ -655,13 +666,13 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeYear(int year)
         {
             _selectedYear = year;
-            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "year")
+            if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics" || _viewMode == "backup-bag") && _breakdownRangeType == "year")
             {
                 var range = GetSnappedYearRange(_selectedYear);
                 _filterStartDate = range.Start;
                 _filterEndDate = range.End;
             }
-            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics") && _breakdownRangeType == "month")
+            else if ((_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics" || _viewMode == "backup-bag") && _breakdownRangeType == "month")
             {
                 var range = GetSnappedMonthRange(_selectedYear, _selectedMonth);
                 _filterStartDate = range.Start;
@@ -725,6 +736,7 @@ namespace GFC.BlazorServer.Components.Pages
                 NetDue = shiftEntity.NetDue,
                 BagRefillAmount = shiftEntity.BagRefillAmount,
                 BackupBagAmount = shiftEntity.BackupBagAmount,
+                EnvelopeAmount = shiftEntity.EnvelopeAmount,
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted",
                 CreatedBy = shiftEntity.CreatedBy ?? string.Empty,
@@ -809,10 +821,10 @@ namespace GFC.BlazorServer.Components.Pages
 
         private void OnEmployeeChanged(ChangeEventArgs e)
         {
-            var username = e.Value?.ToString() ?? string.Empty;
-            if (username == _shiftForm.CreatedBy) return;
+            var selectedName = e.Value?.ToString() ?? string.Empty;
+            if (selectedName == _shiftForm.EmployeeName) return;
 
-            if (string.IsNullOrEmpty(username))
+            if (string.IsNullOrEmpty(selectedName))
             {
                 _pendingUsername = string.Empty;
                 _pendingFullName = "Unassigned";
@@ -820,9 +832,9 @@ namespace GFC.BlazorServer.Components.Pages
             }
             else
             {
-                var metadata = _employeeMetadata.FirstOrDefault(m => m.Username == username);
-                _pendingUsername = username;
-                _pendingFullName = metadata.FullName ?? username;
+                var metadata = _employeeMetadata.FirstOrDefault(m => m.FullName == selectedName || m.Username == selectedName);
+                _pendingUsername = !string.IsNullOrEmpty(metadata.Username) ? metadata.Username : selectedName;
+                _pendingFullName = !string.IsNullOrEmpty(metadata.FullName) ? metadata.FullName : selectedName;
                 _showReassignConfirmation = true;
             }
         }
@@ -873,6 +885,7 @@ namespace GFC.BlazorServer.Components.Pages
 
                 // MERGE FORM DATA INTO ENTITY
                 shift.ShiftDate = _shiftForm.ShiftDate;
+                shift.ShiftType = _shiftForm.ShiftType;
                 shift.EmployeeName = _shiftForm.EmployeeName;
                 shift.StartingCash = _shiftForm.StartingCash ?? 0;
                 shift.EndingCash = _shiftForm.EndingCash ?? 0;
@@ -890,9 +903,9 @@ namespace GFC.BlazorServer.Components.Pages
                 shift.ShiftPayoutsActivity = _shiftForm.ShiftPayoutsActivity;
                 shift.ShiftCancelsActivity = _shiftForm.ShiftCancelsActivity;
                 
-                shift.EnvelopeAmount = _shiftForm.EnvelopeAmount;
+                shift.EnvelopeAmount = _shiftForm.EnvelopeAmount ?? 0;
                 shift.BagRefillAmount = _shiftForm.BagRefillAmount ?? 0;
-                shift.BackupBagAmount = _shiftForm.BackupBagAmount;
+                shift.BackupBagAmount = _shiftForm.BackupBagAmount ?? 0;
                 shift.Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes;
                 shift.Status = _shiftForm.Status;
                 shift.CreatedBy = _shiftForm.CreatedBy;
@@ -1260,7 +1273,8 @@ namespace GFC.BlazorServer.Components.Pages
             [Range(0, double.MaxValue, ErrorMessage = "Backup Bag must be 0 or greater")]
             public decimal? BagRefillAmount { get; set; }
 
-            public decimal BackupBagAmount { get; set; }
+            [Range(0, double.MaxValue, ErrorMessage = "Money Taken from Bag must be 0 or greater")]
+            public decimal? BackupBagAmount { get; set; }
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";
@@ -1290,11 +1304,11 @@ namespace GFC.BlazorServer.Components.Pages
             }
 
             // [FIX]: ExpectedCash for display should be the target baseline ($1,200) after distributions.
-            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount - (BagRefillAmount ?? 0) - EnvelopeAmount;
+            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + (BackupBagAmount ?? 0) - (BagRefillAmount ?? 0) - (EnvelopeAmount ?? 0);
             
             // [CRITICAL FIX]: Variance calculation must ignore drops/refills to avoid "Ghost Discrepancies".
             // Variance = EndingCash - (Expected Cash BEFORE Drops)
-            public decimal Variance => (EndingCash ?? 0) - ((StartingCash ?? 0) + NetSales + BackupBagAmount);
+            public decimal Variance => (EndingCash ?? 0) - ((StartingCash ?? 0) + NetSales + (BackupBagAmount ?? 0));
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY
             public decimal ShiftSalesActivity => (TotalSales ?? 0) - (IsFullDayShift ? 0 : BaselineSales);
@@ -1302,7 +1316,12 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal ShiftCancelsActivity => (TotalCancels ?? 0) - (IsFullDayShift ? 0 : BaselineTickets);
 
             // AUTOMATIC ENVELOPE CALCULATION ($1,200 Bag Target)
-            public decimal EnvelopeAmount => (ShiftType != "Day" && (EndingCash ?? 0) > 1200) ? (EndingCash ?? 0) - 1200 : 0;
+            private decimal? _envelopeAmount;
+            public decimal? EnvelopeAmount
+            {
+                get => _envelopeAmount ?? ((ShiftType != "Day" && (EndingCash ?? 0) > 1200) ? (EndingCash ?? 0) - 1200 : 0);
+                set => _envelopeAmount = value;
+            }
 
             public object Clone() => this.MemberwiseClone();
 
@@ -1320,6 +1339,7 @@ namespace GFC.BlazorServer.Components.Pages
                        TotalPayouts != other.TotalPayouts ||
                        TotalCancels != other.TotalCancels ||
                        NetDue != other.NetDue ||
+                       EnvelopeAmount != other.EnvelopeAmount ||
                        BagRefillAmount != other.BagRefillAmount ||
                        BackupBagAmount != other.BackupBagAmount ||
                        CreatedBy != other.CreatedBy;
@@ -2271,6 +2291,33 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 Logger.LogError(ex, "Error deleting vending collection");
                 _error = "Failed to delete collection: " + ex.Message;
+            }
+        }
+
+        // Backup Bag State & Methods
+        private string _backupBagTypeFilter = "all"; // all, out, refill
+
+        private async Task LoadBackupBagData()
+        {
+            await Task.CompletedTask;
+        }
+
+        private IEnumerable<LotteryShiftDto> FilteredBackupBagShifts
+        {
+            get
+            {
+                var query = _shifts.Where(s => s.BackupBagAmount > 0 || s.BagRefillAmount > 0);
+
+                if (_backupBagTypeFilter == "out")
+                {
+                    query = query.Where(s => s.BackupBagAmount > 0);
+                }
+                else if (_backupBagTypeFilter == "refill")
+                {
+                    query = query.Where(s => s.BagRefillAmount > 0);
+                }
+
+                return query.OrderByDescending(s => s.ShiftDate.Date).ThenBy(s => s.ShiftType == "Day" ? 0 : 1);
             }
         }
     }

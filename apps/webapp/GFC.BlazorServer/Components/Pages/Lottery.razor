@@ -501,7 +501,7 @@
         @if (_viewMode != "imported" && _viewMode != "summaries" && _viewMode != "compliance")
         {
             <div class="col-auto">
-                @if (_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics")
+                @if (_viewMode == "breakdown" || _viewMode == "commissions" || _viewMode == "vending" || _viewMode == "analytics" || _viewMode == "backup-bag")
                 {
                     <div class="d-inline-flex align-items-center gap-2">
                         <div class="pill-group">
@@ -582,7 +582,7 @@
                     </div>
                 }
 
-                @if (_viewMode == "daily" || _viewMode == "breakdown")
+                @if (_viewMode == "daily" || _viewMode == "breakdown" || _viewMode == "backup-bag")
                 {
                     <select class="form-select border-0 shadow-sm fw-bold px-4 py-2 ms-3" style="max-width: 200px; border: 1px solid #e2e8f0 !important;" @bind="_filterEmployee" @bind:after="LoadData">
                         <option value="">All Employees</option>
@@ -603,6 +603,9 @@
                     </button>
                     <button class="pill-btn @(_viewMode == "vending" ? "active" : "")" @onclick='() => ChangeViewMode("vending")'>
                         <i class="bi bi-ticket-perforated me-1"></i> Ticket Vending
+                    </button>
+                    <button class="pill-btn @(_viewMode == "backup-bag" ? "active" : "")" @onclick='() => ChangeViewMode("backup-bag")'>
+                        <i class="bi bi-wallet2 me-1"></i> Backup Bag
                     </button>
                     <button class="pill-btn @(_viewMode == "commissions" ? "active" : "")" @onclick='() => ChangeViewMode("commissions")'>Commissions</button>
                     <button class="pill-btn @(_viewMode == "summaries" ? "active" : "")" @onclick='() => ChangeViewMode("summaries")'>
@@ -960,7 +963,7 @@
         </div>
     </div>
 }
-else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "analytics" && _viewMode != "summaries" && _viewMode != "compliance" && _shifts.Any())
+else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "analytics" && _viewMode != "summaries" && _viewMode != "compliance" && _viewMode != "backup-bag" && _shifts.Any())
 {
     // [SMART-AUDIT]: Commission for the summary cards is calculated from the cumulative machine readings
     // of the final shift of each day (Night shift) to ensure it matches the official reports.
@@ -1430,6 +1433,200 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "
 }
 
 
+@if (ShowContent && _viewMode == "backup-bag")
+{
+    var bagShifts = FilteredBackupBagShifts.ToList();
+    decimal totalOut = bagShifts.Where(s => s.Status != "Draft").Sum(s => s.BackupBagAmount);
+    decimal totalRefill = bagShifts.Where(s => s.Status != "Draft").Sum(s => s.BagRefillAmount);
+    decimal netBagImpact = totalRefill - totalOut; // positive means replenished more than taken out, negative means net out
+
+    @* Backup Bag KPI Ribbon *@
+    <div class="row g-3 mb-3 px-1">
+        <div class="col-md-3">
+            <div class="gfc-widget kpi-card-compact border-start border-primary border-4 shadow-sm bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-uppercase fw-bold text-muted x-small">Money Taken From Bag</span>
+                    <i class="bi bi-box-arrow-right text-primary"></i>
+                </div>
+                <div class="h4 mb-0 fw-black text-primary">@totalOut.ToString("C0")</div>
+                <div class="extra-small text-muted mt-1">Cash borrowed into drawer</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="gfc-widget kpi-card-compact border-start border-success border-4 shadow-sm bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-uppercase fw-bold text-muted x-small">Money Refilled To Bag</span>
+                    <i class="bi bi-box-arrow-in-left text-success"></i>
+                </div>
+                <div class="h4 mb-0 fw-black text-success">@totalRefill.ToString("C0")</div>
+                <div class="extra-small text-muted mt-1">Cash returned to backup bag</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="gfc-widget kpi-card-compact border-start @(netBagImpact < 0 ? "border-danger" : netBagImpact > 0 ? "border-success" : "border-secondary") border-4 shadow-sm bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-uppercase fw-bold text-muted x-small">Net Bag Activity</span>
+                    <i class="bi bi-wallet2 text-muted"></i>
+                </div>
+                <div class="h4 mb-0 fw-black @(netBagImpact < 0 ? "text-danger" : netBagImpact > 0 ? "text-success" : "text-dark")">
+                    @(netBagImpact >= 0 ? "+" : "")@netBagImpact.ToString("C0")
+                </div>
+                <div class="extra-small text-muted mt-1">@(netBagImpact < 0 ? "Outstanding from bag" : netBagImpact > 0 ? "Net bag replenished" : "Even / Balanced")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="gfc-widget kpi-card-compact border-start border-info border-4 shadow-sm bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-uppercase fw-bold text-muted x-small">Bag Transactions</span>
+                    <i class="bi bi-list-check text-info"></i>
+                </div>
+                <div class="h4 mb-0 fw-black text-dark">@bagShifts.Count</div>
+                <div class="extra-small text-muted mt-1">Recorded shift occurrences</div>
+            </div>
+        </div>
+    </div>
+
+    @* Filter and Action Toolbar for Backup Bag *@
+    <div class="d-flex justify-content-between align-items-center mb-3 px-1">
+        <div class="d-flex align-items-center gap-2">
+            <span class="fw-bold text-muted small">Filter Type:</span>
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn @(_backupBagTypeFilter == "all" ? "btn-dark fw-bold" : "btn-outline-secondary")" @onclick='() => _backupBagTypeFilter = "all"'>
+                    All (@bagShifts.Count)
+                </button>
+                <button type="button" class="btn @(_backupBagTypeFilter == "out" ? "btn-primary fw-bold" : "btn-outline-secondary")" @onclick='() => _backupBagTypeFilter = "out"'>
+                    <i class="bi bi-box-arrow-right me-1"></i> Taken Out (@_shifts.Count(s => s.BackupBagAmount > 0))
+                </button>
+                <button type="button" class="btn @(_backupBagTypeFilter == "refill" ? "btn-success fw-bold" : "btn-outline-secondary")" @onclick='() => _backupBagTypeFilter = "refill"'>
+                    <i class="bi bi-box-arrow-in-left me-1"></i> Refilled (@_shifts.Count(s => s.BagRefillAmount > 0))
+                </button>
+            </div>
+        </div>
+        <div class="text-muted extra-small">
+            Showing records from <span class="fw-bold">@_filterStartDate.ToString("MMM d, yyyy")</span> to <span class="fw-bold">@_filterEndDate.ToString("MMM d, yyyy")</span>
+        </div>
+    </div>
+
+    @* Transactions Table *@
+    <div class="data-card table-wrapper shadow-sm border-0 mb-4">
+        <div class="table-container-fixed">
+            <table class="data-table table-compact">
+                <thead>
+                    <tr>
+                        <th class="ps-4">Date</th>
+                        <th>Shift</th>
+                        <th>Bartender</th>
+                        <th class="text-end text-primary">Taken Out (From Bag)</th>
+                        <th class="text-end text-success">Refilled (Back to Bag)</th>
+                        <th class="text-end">Net Shift Impact</th>
+                        <th class="text-end">Drawer Starting</th>
+                        <th class="text-end">Drawer Ending</th>
+                        <th>Envelope Drop</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th class="text-center pe-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!bagShifts.Any())
+                    {
+                        <tr>
+                            <td colspan="12" class="text-center py-5 text-muted">
+                                <i class="bi bi-wallet2 fs-2 d-block mb-2 text-secondary opacity-50"></i>
+                                <span class="fw-bold">No Backup Bag transactions recorded for this period.</span>
+                                <div class="extra-small text-muted mt-1">Try selecting a different date range or period filter above.</div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var shift in bagShifts)
+                        {
+                            var netRowImpact = shift.BagRefillAmount - shift.BackupBagAmount;
+                            <tr>
+                                <td class="ps-4 fw-bold">
+                                    @shift.ShiftDate.ToString("ddd, MMM d, yyyy")
+                                </td>
+                                <td>
+                                    <span class="badge @(shift.ShiftType == "Day" ? "bg-warning bg-opacity-25 text-dark border border-warning" : "bg-dark text-white") rounded-pill px-2 py-0.5 extra-small">
+                                        @shift.ShiftType
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="fw-bold text-dark">@shift.EmployeeName</span>
+                                </td>
+                                <td class="text-end">
+                                    @if (shift.BackupBagAmount > 0)
+                                    {
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle fw-black px-2 py-1" style="font-size: 0.75rem;">
+                                            +@shift.BackupBagAmount.ToString("C0")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted opacity-50">—</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    @if (shift.BagRefillAmount > 0)
+                                    {
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle fw-black px-2 py-1" style="font-size: 0.75rem;">
+                                            -@shift.BagRefillAmount.ToString("C0")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted opacity-50">—</span>
+                                    }
+                                </td>
+                                <td class="text-end fw-black @(netRowImpact < 0 ? "text-primary" : netRowImpact > 0 ? "text-success" : "text-muted")">
+                                    @(netRowImpact > 0 ? "+" : "")@netRowImpact.ToString("C0")
+                                </td>
+                                <td class="text-end small text-muted">
+                                    @shift.StartingCash.ToString("C0")
+                                </td>
+                                <td class="text-end small text-muted">
+                                    @shift.EndingCash.ToString("C0")
+                                </td>
+                                <td>
+                                    @if (shift.EnvelopeAmount > 0)
+                                    {
+                                        <span class="text-warning fw-bold">@shift.EnvelopeAmount.ToString("C2")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted opacity-50">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (shift.Status == "Draft")
+                                    {
+                                        <span class="badge bg-warning text-dark extra-small">Draft</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge @(shift.IsReconciled ? "bg-success" : "bg-info") extra-small">
+                                            @(shift.IsReconciled ? "Reconciled" : "Submitted")
+                                        </span>
+                                    }
+                                </td>
+                                <td class="small text-muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@shift.Notes">
+                                    @(string.IsNullOrWhiteSpace(shift.Notes) ? "—" : shift.Notes)
+                                </td>
+                                <td class="text-center pe-4">
+                                    <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" @onclick="() => EditShift(shift.ShiftId)" title="Edit Shift">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
 @if (ShowContent && _viewMode == "summaries")
 {
     <LotterySummaries />
@@ -1453,6 +1650,7 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "
 
         <EditForm Model="_shiftForm" OnValidSubmit="SaveShift">
             <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger small fw-bold mb-2" />
             <div class="modal-card__body p-3 pt-3 bg-white" style="overflow-y: hidden;">
                 @if (!string.IsNullOrEmpty(_modalError))
                 {
@@ -1471,11 +1669,11 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "
                         </div>
                         <div class="col-4">
                             <label class="fw-bold text-dark x-small mb-1 d-block text-uppercase">Employee Allocation</label>
-                            <select class="form-select border-secondary-subtle fw-bold py-1 fs-7 shadow-sm" @onchange="OnEmployeeChanged" value="@_shiftForm.CreatedBy">
+                            <select class="form-select border-secondary-subtle fw-bold py-1 fs-7 shadow-sm" @onchange="OnEmployeeChanged" value="@_shiftForm.EmployeeName">
                                 <option value="">-- UNASSIGNED --</option>
                                 @foreach (var emp in _employeeMetadata)
                                 {
-                                    <option value="@emp.Username">@emp.FullName</option>
+                                    <option value="@emp.FullName">@emp.FullName</option>
                                 }
                             </select>
                         </div>
@@ -1541,18 +1739,18 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "
                             </div>
                         </div>
 
-                        <!-- ⑤ Money Taken from Bag (Start) -->
+                        <!-- ⑤ Money Taken from Bag -->
                         <div>
-                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑤ Money Taken from Bag (Start)</label>
+                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑤ Money Taken from Bag</label>
                             <div class="input-group border rounded-2 overflow-hidden shadow-sm">
                                 <span class="input-group-text bg-light border-0 text-muted fw-bold px-2 fs-7">+</span>
                                 <InputNumber @bind-Value="_shiftForm.BackupBagAmount" class="form-control border-0 fw-bold py-1.5 fs-7" placeholder="0" />
                             </div>
                         </div>
 
-                        <!-- ⑥ Bag Refilled (End) -->
+                        <!-- ⑥ Bag Refilled -->
                         <div>
-                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑥ Bag Refilled (End)</label>
+                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑥ Bag Refilled</label>
                             <div class="input-group border rounded-2 overflow-hidden shadow-sm">
                                 <span class="input-group-text bg-light border-0 text-muted fw-bold px-2 fs-7">↓</span>
                                 <InputNumber @bind-Value="_shiftForm.BagRefillAmount" class="form-control border-0 fw-bold py-1.5 fs-7" placeholder="0" />
@@ -1568,12 +1766,12 @@ else if (_viewMode != "imported" && _viewMode != "commissions" && _viewMode != "
                             </div>
                         </div>
 
-                        <!-- Envelope Drop (Calculated) -->
+                        <!-- Envelope Drop -->
                         <div>
                             <label class="fw-bold text-primary x-small mb-1 px-1 text-uppercase">Envelope Drop</label>
-                            <div class="input-group border rounded-2 overflow-hidden shadow-sm border-primary border-opacity-25 bg-light">
+                            <div class="input-group border rounded-2 overflow-hidden shadow-sm border-primary border-opacity-25 bg-white">
                                 <span class="input-group-text bg-light border-0 text-primary fw-bold px-2 fs-7">$</span>
-                                <input type="text" value="@_shiftForm.EnvelopeAmount.ToString("N2")" class="form-control border-0 fw-bold py-1.5 fs-7 text-primary bg-light" readonly />
+                                <InputNumber @bind-Value="_shiftForm.EnvelopeAmount" class="form-control border-0 fw-bold py-1.5 fs-7 text-primary" placeholder="0.00" />
                             </div>
                         </div>
                     </div>
