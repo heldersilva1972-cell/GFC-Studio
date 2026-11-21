@@ -392,6 +392,25 @@ public class CustomerDisplayPresentation : Presentation
   .cfd-theme-teal { background: radial-gradient(circle at 50% 35%, #2dd4bf 0%, #0f766e 45%, #134e4a 100%) !important; }
   .cfd-theme-rose { background: radial-gradient(circle at 50% 35%, #fb7185 0%, #e11d48 45%, #881337 100%) !important; }
   .cfd-theme-slate { background: radial-gradient(circle at 50% 35%, #94a3b8 0%, #475569 45%, #1e293b 100%) !important; }
+  .cfd-theme-classicnavy { background: radial-gradient(circle at 50% 35%, #1e3a8a 0%, #172554 60%, #0f172a 100%) !important; color: #ffffff !important; }
+  .cfd-theme-crispwhite { background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f1f5f9 60%, #cbd5e1 100%) !important; color: #0f172a !important; }
+  .cfd-theme-crispwhite .cfd-announcement-title, .cfd-theme-crispwhite .cfd-announcement-desc, .cfd-theme-crispwhite .cfd-announcement-line { color: #0f172a !important; }
+  .cfd-theme-forestgreen { background: radial-gradient(circle at 50% 35%, #15803d 0%, #14532d 60%, #052e16 100%) !important; color: #ffffff !important; }
+  .cfd-theme-warmsand { background: radial-gradient(circle at 50% 35%, #fef3c7 0%, #fde68a 50%, #d97706 100%) !important; color: #451a03 !important; }
+  .cfd-theme-warmsand .cfd-announcement-title, .cfd-theme-warmsand .cfd-announcement-desc, .cfd-theme-warmsand .cfd-announcement-line { color: #451a03 !important; }
+  .cfd-theme-graphite { background: radial-gradient(circle at 50% 35%, #334155 0%, #1e293b 65%, #0f172a 100%) !important; color: #f8fafc !important; }
+  .cfd-theme-burgundywine { background: radial-gradient(circle at 50% 35%, #881337 0%, #4c0519 65%, #1c0209 100%) !important; color: #ffffff !important; }
+  .cfd-theme-electricviolet { background: radial-gradient(circle at 50% 35%, #c084fc 0%, #7e22ce 50%, #3b0764 100%) !important; }
+  .cfd-theme-copperbronze { background: radial-gradient(circle at 50% 35%, #d97706 0%, #92400e 50%, #451a03 100%) !important; }
+  .cfd-theme-christmas { background: radial-gradient(circle at 50% 35%, #dc2626 0%, #15803d 55%, #052e16 100%) !important; }
+  .cfd-theme-newyear { background: radial-gradient(circle at 50% 35%, #fde047 0%, #ca8a04 40%, #09090b 100%) !important; }
+  .cfd-theme-thanksgiving { background: radial-gradient(circle at 50% 35%, #f97316 0%, #b45309 50%, #431407 100%) !important; }
+  .cfd-theme-halloween { background: radial-gradient(circle at 50% 35%, #ea580c 0%, #7c2d12 45%, #3b0764 100%) !important; }
+  .cfd-theme-fourthofjuly { background: radial-gradient(circle at 50% 35%, #ef4444 0%, #1d4ed8 55%, #0f172a 100%) !important; }
+  .cfd-theme-stpatricks { background: radial-gradient(circle at 50% 35%, #4ade80 0%, #16a34a 45%, #052e16 100%) !important; }
+  .cfd-theme-valentines { background: radial-gradient(circle at 50% 35%, #fb7185 0%, #e11d48 45%, #4c0519 100%) !important; }
+  .cfd-theme-easter { background: radial-gradient(circle at 50% 35%, #fbcfe8 0%, #a7f3d0 45%, #065f46 100%) !important; color: #1e293b !important; }
+  .cfd-theme-portugalday { background: radial-gradient(circle at 50% 35%, #eab308 0%, #15803d 45%, #991b1b 100%) !important; }
 </style>
 </head>
 <body>
@@ -474,6 +493,23 @@ public class CustomerDisplayPresentation : Presentation
       case 'Teal': return 'cfd-theme-teal';
       case 'Rose': return 'cfd-theme-rose';
       case 'Slate': return 'cfd-theme-slate';
+      case 'ClassicNavy': return 'cfd-theme-classicnavy';
+      case 'CrispWhite': return 'cfd-theme-crispwhite';
+      case 'ForestGreen': return 'cfd-theme-forestgreen';
+      case 'WarmSand': return 'cfd-theme-warmsand';
+      case 'Graphite': return 'cfd-theme-graphite';
+      case 'BurgundyWine': return 'cfd-theme-burgundywine';
+      case 'ElectricViolet': return 'cfd-theme-electricviolet';
+      case 'CopperBronze': return 'cfd-theme-copperbronze';
+      case 'Christmas': return 'cfd-theme-christmas';
+      case 'NewYear': return 'cfd-theme-newyear';
+      case 'Thanksgiving': return 'cfd-theme-thanksgiving';
+      case 'Halloween': return 'cfd-theme-halloween';
+      case 'FourthOfJuly': return 'cfd-theme-fourthofjuly';
+      case 'StPatricks': return 'cfd-theme-stpatricks';
+      case 'Valentines': return 'cfd-theme-valentines';
+      case 'Easter': return 'cfd-theme-easter';
+      case 'PortugalDay': return 'cfd-theme-portugalday';
       default: return 'cfd-theme-clubinfo';
     }
   }
@@ -503,6 +539,24 @@ public class CustomerDisplayPresentation : Presentation
       case 'dollar': return '💰';
       case 'flag': return '🇵🇹';
       case 'heart': return '❤️';
+      case 'xmas_tree': return '🎄';
+      case 'santa': return '🎅';
+      case 'snowflake': return '❄️';
+      case 'gift': return '🎁';
+      case 'champagne': return '🍾';
+      case 'fireworks': return '🎆';
+      case 'sparkler': return '✨';
+      case 'turkey': return '🦃';
+      case 'pumpkin': return '🎃';
+      case 'ghost': return '👻';
+      case 'shamrock': return '☘️';
+      case 'clover': return '🍀';
+      case 'cupid': return '💘';
+      case 'egg': return '🥚';
+      case 'rooster': return '🐓';
+      case 'bbq': return '🍖';
+      case 'sun': return '☀️';
+      case 'patriotic_flag': return '🇺🇸';
       default: return '';
     }
   }
