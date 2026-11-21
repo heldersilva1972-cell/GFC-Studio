@@ -5951,6 +5951,28 @@
     
     private decimal TotalNetProceeds => TotalGross - TotalPrizes - TotalLotteryTake;
 
+    private decimal CalculateLiveFinalUnexpended()
+    {
+        var unmappedFloorGross = Sheets
+            .Where(s => (s.ManualSold > 0 || (s.IsIncludedInAdmission && !s.IsAdmissionOnly)) && s.ColorName != _wtaColor && s.ColorName != _progColor)
+            .Sum(s => s.Sold * s.Price);
+        var wtaObjForTotal = Sheets.FirstOrDefault(s => s.ColorName == _wtaColor);
+        var progObjForTotal = Sheets.FirstOrDefault(s => s.ColorName == _progColor);
+        decimal wGross = wtaObjForTotal != null ? (wtaObjForTotal.Sold * wtaObjForTotal.Price) : 0;
+        decimal pGross = progObjForTotal != null ? (progObjForTotal.Sold * progObjForTotal.Price) : 0;
+        decimal combinedFloorAndSpecialTotal = unmappedFloorGross + wGross + pGross;
+
+        decimal grossBeanoReceipts = StandardProgramRevenue + combinedFloorAndSpecialTotal + _beanoSuppliesSales + _beanoOtherReceipts;
+        decimal taxPaid = grossBeanoReceipts * 0.05m;
+        decimal totalPrizesPaid = TotalPrizes;
+        decimal totalExpenditures = taxPaid + totalPrizesPaid + _beanoOtherExpenses.Sum(e => e.Amount);
+        decimal netProfit = grossBeanoReceipts - totalExpenditures;
+        decimal pullTabNetProceeds = TotalPullTabSales - TotalPullTabPrizes;
+        decimal totalFundsAvailable = _beanoUnexpendedNetProfit + netProfit + pullTabNetProceeds + _beanoInterest + _beanoGameBank + _beanoOthers;
+        decimal totalDisbursements = _beanoDisbursements.Sum(d => d.Amount);
+        return totalFundsAvailable - totalDisbursements;
+    }
+
     private decimal GetAllocatedAdmissionGross(BingoSheet sheet)
     {
         if (!sheet.IsIncludedInAdmission || TotalPacksSold <= 0) return 0;
@@ -6244,7 +6266,8 @@
             FiftyFifty1Color = _fiftyFifty1Color,
             FiftyFifty2Color = _fiftyFifty2Color,
             FiftyFifty3Color = _fiftyFifty3Color,
-            BeanoProgBeginningBalance = _beanoProgBeginningBalance
+            BeanoProgBeginningBalance = _beanoProgBeginningBalance,
+            BeanoEndingUnexpendedNetProfit = CalculateLiveFinalUnexpended()
         };
         await JSRuntime.InvokeVoidAsync("window.gfcSetAsync", key, data);
         _lastSavedTime = DateTime.Now;
@@ -6687,6 +6710,8 @@
             FiftyFifty1Color = _fiftyFifty1Color,
             FiftyFifty2Color = _fiftyFifty2Color,
             FiftyFifty3Color = _fiftyFifty3Color,
+            BeanoProgBeginningBalance = _beanoProgBeginningBalance,
+            BeanoEndingUnexpendedNetProfit = CalculateLiveFinalUnexpended(),
             BeanoDisbursementsJson = System.Text.Json.JsonSerializer.Serialize(_beanoDisbursements),
             BeanoOtherExpensesJson = System.Text.Json.JsonSerializer.Serialize(_beanoOtherExpenses),
             AdmissionEntries = AdmissionPacks.Where(p => p.Sold > 0).Select(p => new BingoAdmissionEntry
@@ -6778,11 +6803,22 @@
 
     private void AutoMapSpecialSheets()
     {
-        // WTA sheets: find sheet that is WTA
-        var wtaSheets = Sheets.Where(s => s.ColorName.Contains("W.T.A.", StringComparison.OrdinalIgnoreCase) || s.ColorName.Contains("WTA", StringComparison.OrdinalIgnoreCase) || s.Games.Any(g => g.Name.Contains("W.T.A.", StringComparison.OrdinalIgnoreCase) || g.Name.Contains("WTA", StringComparison.OrdinalIgnoreCase))).ToList();
-        if (wtaSheets.Count > 0 && string.IsNullOrEmpty(_wtaColor))
+        // WTA sheets: find sheet named "Red" first, then any sheet mentioning WTA
+        if (string.IsNullOrEmpty(_wtaColor))
         {
-            _wtaColor = wtaSheets[0].ColorName;
+            var redSheet = Sheets.FirstOrDefault(s => !s.IsAdmissionOnly && string.Equals(s.ColorName, "Red", StringComparison.OrdinalIgnoreCase));
+            if (redSheet != null)
+            {
+                _wtaColor = redSheet.ColorName;
+            }
+            else
+            {
+                var wtaSheets = Sheets.Where(s => s.ColorName.Contains("W.T.A.", StringComparison.OrdinalIgnoreCase) || s.ColorName.Contains("WTA", StringComparison.OrdinalIgnoreCase) || s.Games.Any(g => g.Name.Contains("W.T.A.", StringComparison.OrdinalIgnoreCase) || g.Name.Contains("WTA", StringComparison.OrdinalIgnoreCase))).ToList();
+                if (wtaSheets.Count > 0)
+                {
+                    _wtaColor = wtaSheets[0].ColorName;
+                }
+            }
         }
 
         // Progressive sheets: find sheets where games have IsProgressive = true
@@ -6904,6 +6940,7 @@
         public string? FiftyFifty2Color { get; set; }
         public string? FiftyFifty3Color { get; set; }
         public decimal BeanoProgBeginningBalance { get; set; }
+        public decimal BeanoEndingUnexpendedNetProfit { get; set; }
     }
 
     private async Task LoadProgressiveHistoryAsync(string gameName, string sheetColor)
@@ -7025,6 +7062,12 @@
     {
         if (draft == null) return 0m;
         
+        // If the draft explicitly stored the calculated Line 7, use it directly to prevent rounding discrepancies
+        if (draft.BeanoEndingUnexpendedNetProfit != 0m)
+        {
+            return draft.BeanoEndingUnexpendedNetProfit;
+        }
+
         // If the user filled in the bank balances (7a, 7b, 7c), use their sum directly as it represents the true ending unexpended net profit
         var bankBalanceSum = draft.BeanoCheckbookBalance + draft.BeanoSavingsBalance + draft.BeanoCdBalance;
         if (bankBalanceSum > 0m)
@@ -7170,57 +7213,65 @@
                     {
                         prevDate = mostRecentServer.SessionDate.Date;
                         
-                        var serverBankSum = mostRecentServer.BeanoCheckbookBalance + mostRecentServer.BeanoSavingsBalance + mostRecentServer.BeanoCdBalance;
-                        if (serverBankSum > 0m)
+                        // 1. If ending unexpended net profit was explicitly saved on submission, use it directly (guarantees penny-exact carryover)
+                        if (mostRecentServer.BeanoEndingUnexpendedNetProfit != 0m)
                         {
-                            prevUnexpended = serverBankSum;
+                            prevUnexpended = mostRecentServer.BeanoEndingUnexpendedNetProfit;
                         }
                         else
                         {
-                            // Compute values accurately from server session
-                            decimal sOtherExpenses = 0m;
-                            if (!string.IsNullOrEmpty(mostRecentServer.BeanoOtherExpensesJson))
+                            var serverBankSum = mostRecentServer.BeanoCheckbookBalance + mostRecentServer.BeanoSavingsBalance + mostRecentServer.BeanoCdBalance;
+                            if (serverBankSum > 0m)
                             {
-                                try
-                                {
-                                    var exps = System.Text.Json.JsonSerializer.Deserialize<List<BeanoExpense>>(mostRecentServer.BeanoOtherExpensesJson);
-                                    sOtherExpenses = exps?.Sum(e => e.Amount) ?? 0m;
-                                }
-                                catch {}
+                                prevUnexpended = serverBankSum;
                             }
-
-                            decimal sGrossBeanoReceipts = mostRecentServer.TotalGrossReceipts + mostRecentServer.BeanoSuppliesSales + mostRecentServer.BeanoOtherReceipts;
-                            decimal sTaxPaid = sGrossBeanoReceipts * 0.05m;
-                            decimal sTotalExpenditures = sTaxPaid + mostRecentServer.TotalPrizesPaid + sOtherExpenses;
-                            decimal prevNetProfit = sGrossBeanoReceipts - sTotalExpenditures;
-                            
-                            decimal prevTotalDisbursements = 0m;
-                            if (!string.IsNullOrEmpty(mostRecentServer.BeanoDisbursementsJson))
+                            else
                             {
-                                try
+                                // Compute values accurately from server session
+                                decimal sOtherExpenses = 0m;
+                                if (!string.IsNullOrEmpty(mostRecentServer.BeanoOtherExpensesJson))
                                 {
-                                    var disbs = System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(mostRecentServer.BeanoDisbursementsJson);
-                                    prevTotalDisbursements = disbs?.Sum(d => d.Amount) ?? 0m;
+                                    try
+                                    {
+                                        var exps = System.Text.Json.JsonSerializer.Deserialize<List<BeanoExpense>>(mostRecentServer.BeanoOtherExpensesJson);
+                                        sOtherExpenses = exps?.Sum(e => e.Amount) ?? 0m;
+                                    }
+                                    catch {}
                                 }
-                                catch {}
+
+                                decimal sGrossBeanoReceipts = mostRecentServer.TotalGrossReceipts + mostRecentServer.BeanoSuppliesSales + mostRecentServer.BeanoOtherReceipts;
+                                decimal sTaxPaid = sGrossBeanoReceipts * 0.05m;
+                                decimal sTotalExpenditures = sTaxPaid + mostRecentServer.TotalPrizesPaid + sOtherExpenses;
+                                decimal prevNetProfit = sGrossBeanoReceipts - sTotalExpenditures;
+                                
+                                decimal prevTotalDisbursements = 0m;
+                                if (!string.IsNullOrEmpty(mostRecentServer.BeanoDisbursementsJson))
+                                {
+                                    try
+                                    {
+                                        var disbs = System.Text.Json.JsonSerializer.Deserialize<List<BeanoDisbursement>>(mostRecentServer.BeanoDisbursementsJson);
+                                        prevTotalDisbursements = disbs?.Sum(d => d.Amount) ?? 0m;
+                                    }
+                                    catch {}
+                                }
+                                
+                                decimal prevPullTabSales = mostRecentServer.PullTabEntries?.Sum(p => {
+                                    var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == p.GameDefinitionId);
+                                    var price = def?.TicketPrice ?? 0m;
+                                    return (p.TicketsIssued - p.TicketsReturned) * price;
+                                }) ?? 0m;
+                                decimal prevPullTabPrizes = mostRecentServer.PullTabEntries?.Sum(p => p.PrizesPaid) ?? 0m;
+                                decimal prevPullTabNetProceeds = prevPullTabSales - prevPullTabPrizes;
+
+                                decimal prevTotalFundsAvailable = mostRecentServer.BeanoUnexpendedNetProfit 
+                                    + prevNetProfit 
+                                    + prevPullTabNetProceeds 
+                                    + mostRecentServer.BeanoInterest 
+                                    + mostRecentServer.BeanoGameBank 
+                                    + mostRecentServer.BeanoOthers;
+
+                                prevUnexpended = prevTotalFundsAvailable - prevTotalDisbursements;
                             }
-                            
-                            decimal prevPullTabSales = mostRecentServer.PullTabEntries?.Sum(p => {
-                                var def = _pullTabDefinitions.FirstOrDefault(d => d.Id == p.GameDefinitionId);
-                                var price = def?.TicketPrice ?? 0m;
-                                return (p.TicketsIssued - p.TicketsReturned) * price;
-                            }) ?? 0m;
-                            decimal prevPullTabPrizes = mostRecentServer.PullTabEntries?.Sum(p => p.PrizesPaid) ?? 0m;
-                            decimal prevPullTabNetProceeds = prevPullTabSales - prevPullTabPrizes;
-
-                            decimal prevTotalFundsAvailable = mostRecentServer.BeanoUnexpendedNetProfit 
-                                + prevNetProfit 
-                                + prevPullTabNetProceeds 
-                                + mostRecentServer.BeanoInterest 
-                                + mostRecentServer.BeanoGameBank 
-                                + mostRecentServer.BeanoOthers;
-
-                            prevUnexpended = prevTotalFundsAvailable - prevTotalDisbursements;
                         }
 
                         // Calculate server session progressive carryover

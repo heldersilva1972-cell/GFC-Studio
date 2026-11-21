@@ -82,6 +82,9 @@ namespace GFC.Core.Models
         [Column(TypeName = "decimal(18, 2)")]
         public decimal BeanoProgBeginningBalance { get; set; }
 
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal BeanoEndingUnexpendedNetProfit { get; set; }
+
         // Navigation properties
         public virtual ICollection<BingoGameEntry> GameEntries { get; set; } = new List<BingoGameEntry>();
         public virtual ICollection<BingoAdmissionEntry> AdmissionEntries { get; set; } = new List<BingoAdmissionEntry>();
