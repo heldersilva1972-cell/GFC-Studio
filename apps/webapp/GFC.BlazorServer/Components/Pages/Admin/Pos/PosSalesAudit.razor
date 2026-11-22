@@ -8256,15 +8256,41 @@
                                     <div class="footer text-primary fw-bold m-0">Combined Feed</div>
                                 </div>
                             </div>
+                            @if (EventSettlementTotal > 0)
+                            {
+                                <div class="pt-2 mt-2 border-top border-primary-subtle d-flex flex-column gap-1" style="font-size: 0.75rem;">
+                                    <div class="d-flex justify-content-between align-items-center text-primary fw-bold">
+                                        <span><i class="bi bi-trophy-fill me-1"></i>Event Settlements:</span>
+                                        <span>+@EventSettlementTotal.ToString("C")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center fw-black text-dark" style="font-size: 0.85rem;">
+                                        <span>Total with Events:</span>
+                                        <span class="text-success">@((TodayTotal + EventSettlementTotal).ToString("C"))</span>
+                                    </div>
+                                </div>
+                            }
                         </div>
                         
                         <div class="row g-2 mb-1">
-                            @foreach (var station in StationTotals)
+                            @{
+                                var allStationKeys = StationTotals.Keys.Union(StationEventTotals.Keys).Distinct().ToList();
+                            }
+                            @foreach (var stationKey in allStationKeys)
                             {
+                                var stationWalkUp = StationTotals.TryGetValue(stationKey, out var val) ? val : 0m;
+                                var stationEvent = StationEventTotals.TryGetValue(stationKey, out var evVal) ? evVal : 0m;
+                                var stationTotalWithEvents = stationWalkUp + stationEvent;
                                 <div class="col-6">
                                     <div class="stat-card station-stat h-100 p-2 ps-3">
-                                        <div class="label" style="font-size: 0.55rem;">@station.Key</div>
-                                        <div class="value" style="font-size: 0.95rem !important;">@station.Value.ToString("C")</div>
+                                        <div class="label text-truncate" style="font-size: 0.55rem;" title="@stationKey">@stationKey</div>
+                                        <div class="value" style="font-size: 0.95rem !important;">@stationWalkUp.ToString("C")</div>
+                                        @if (stationEvent > 0)
+                                        {
+                                            <div class="border-top pt-1 mt-1" style="font-size: 0.65rem; line-height: 1.2;">
+                                                <div class="text-primary fw-bold">+@stationEvent.ToString("C") <span class="text-muted" style="font-size: 0.58rem;">Events</span></div>
+                                                <div class="fw-black text-success">Total: @stationTotalWithEvents.ToString("C")</div>
+                                            </div>
+                                        }
                                     </div>
                                 </div>
                             }
@@ -12374,7 +12400,9 @@
     private List<string> TerminalList = new();
     private List<GFC.Core.Models.PosTerminal> TerminalsWithStatus = new();
     private decimal TodayTotal = 0;
+    private decimal EventSettlementTotal = 0;
     private Dictionary<string, decimal> StationTotals = new();
+    private Dictionary<string, decimal> StationEventTotals = new();
     private PosSale? SelectedSale = null;
     private PosZReport? SelectedZReport = null;
     private bool _zreportShowThermal = true;
@@ -15264,6 +15292,42 @@
                 Sales = allWindowSales;
                 _allSalesForStats = allWindowSales.Where(s => !s.IsVoided).ToList();
                 TodayTotal = _allSalesForStats.Where(s => s.PaymentType != "PAYOUT" && !s.PaymentType.Contains("PAYOUT")).Sum(s => s.TotalAmount);
+
+                // Calculate Event Settlement portion for this shift/window
+                try {
+                    var eventSalesQuery = db.PosSales.AsNoTracking()
+                        .Where(s => !s.IsVoided && s.PaymentType.Contains("EVENT SETTLEMENT"));
+                    if (FilterShiftId.HasValue && SelectedZReport != null)
+                    {
+                        var prevZ = await db.PosZReports.AsNoTracking()
+                            .Where(r => r.TerminalName == SelectedZReport.TerminalName && r.Timestamp < SelectedZReport.Timestamp)
+                            .OrderByDescending(r => r.Timestamp)
+                            .FirstOrDefaultAsync();
+                        eventSalesQuery = eventSalesQuery.Where(s => s.TerminalName == SelectedZReport.TerminalName &&
+                                                                     s.Timestamp <= SelectedZReport.Timestamp &&
+                                                                     (prevZ == null || s.Timestamp > prevZ.Timestamp));
+                    }
+                    else if (FilterShiftValue == "CURRENT")
+                    {
+                        var latestZ = await db.PosZReports.AsNoTracking()
+                            .Where(r => string.IsNullOrEmpty(FilterTerminal) || r.TerminalName == FilterTerminal)
+                            .OrderByDescending(r => r.Timestamp)
+                            .FirstOrDefaultAsync();
+                        if (latestZ != null) eventSalesQuery = eventSalesQuery.Where(s => s.Timestamp > latestZ.Timestamp);
+                    }
+                    else
+                    {
+                        eventSalesQuery = eventSalesQuery.Where(s => s.Timestamp >= st && s.Timestamp < en);
+                        if (!string.IsNullOrEmpty(FilterTerminal)) eventSalesQuery = eventSalesQuery.Where(s => s.TerminalName == FilterTerminal);
+                    }
+                    var eventSalesList = await eventSalesQuery.ToListAsync();
+                    EventSettlementTotal = eventSalesList.Sum(s => s.TotalAmount);
+                    StationEventTotals = eventSalesList.GroupBy(s => s.TerminalName ?? "UNKNOWN STATION")
+                                                       .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+                } catch { 
+                    EventSettlementTotal = 0m; 
+                    StationEventTotals = new();
+                }
             } catch (global::System.Exception ex) {
                 throw new global::System.Exception("Error in loading Sales query: " + ex.Message, ex);
             }
@@ -15690,6 +15754,22 @@
                         }
                     }
                 }
+            }
+
+            // When a sale is an EVENT SETTLEMENT (or contains recorded tally prices from POS settlement):
+            // The POS has already accurately computed the exact Club unit cost into item.Price
+            // (e.g. $0.00 for donated bottles, $1.50 for standard split, or fractional $0.625 for partial donated).
+            bool isSettlementSale = sale.PaymentType.Contains("EVENT SETTLEMENT", StringComparison.OrdinalIgnoreCase) || isTally;
+            if (isSettlementSale)
+            {
+                // In POS settlement: item.Price represents the Club cost per unit collected at drawer.
+                // banquetUnitPrice represents the full beer price ($2.00).
+                decimal clubPortionUnit = Math.Min(banquetUnitPrice, item.Price);
+                decimal eventPortionUnit = Math.Max(0m, banquetUnitPrice - clubPortionUnit);
+
+                totalClub += clubPortionUnit * item.Quantity;
+                totalEvent += eventPortionUnit * item.Quantity;
+                continue;
             }
 
             // A bottle is Donated if explicitly marked DONATED: or if POS settlement charged $0 for it (covered by donated pool) or in donated pool
