@@ -4,6 +4,7 @@ using GFC.Core.Enums;
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -36,9 +37,20 @@ public class DuesInsightService : IDuesInsightService
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
     }
 
-    private static (List<DuesListItemDto> Records, DateTime Timestamp) _cache = (new(), DateTime.MinValue);
-    private static readonly SemaphoreSlim _cacheLock = new(1, 1);
+    private static readonly ConcurrentDictionary<int, (List<DuesListItemDto> Records, DateTime Timestamp)> _yearCache = new();
     private const int CacheDurationSeconds = 30;
+
+    public void InvalidateCache(int? year = null)
+    {
+        if (year.HasValue)
+        {
+            _yearCache.TryRemove(year.Value, out _);
+        }
+        else
+        {
+            _yearCache.Clear();
+        }
+    }
 
     public async Task<IReadOnlyList<DuesListItemDto>> GetDuesAsync(int year, bool paidTab, CancellationToken cancellationToken = default)
     {
@@ -63,16 +75,11 @@ public class DuesInsightService : IDuesInsightService
 
     private async Task<List<DuesListItemDto>> GetAllDuesInternalAsync(int year, CancellationToken cancellationToken)
     {
-        // [CACHE CHECK] Rapid-fire mobile syncs shouldn't hit the DB every time
-        await _cacheLock.WaitAsync(cancellationToken);
-        try
+        // [CACHE CHECK] Check if we have recent data cached specifically for this requested year
+        if (_yearCache.TryGetValue(year, out var entry) && (DateTime.Now - entry.Timestamp).TotalSeconds < CacheDurationSeconds)
         {
-            if (_cache.Records.Any() && (DateTime.Now - _cache.Timestamp).TotalSeconds < CacheDurationSeconds)
-            {
-                return _cache.Records;
-            }
+            return entry.Records;
         }
-        finally { _cacheLock.Release(); }
 
         // [PERFORMANCE] Fetch all required data in parallel to minimize latency
         var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
@@ -194,12 +201,7 @@ public class DuesInsightService : IDuesInsightService
         var result = list.OrderBy(i => i.FullName).ToList();
 
         // [CACHE UPDATE]
-        await _cacheLock.WaitAsync(cancellationToken);
-        try
-        {
-            _cache = (result, DateTime.Now);
-        }
-        finally { _cacheLock.Release(); }
+        _yearCache[year] = (result, DateTime.Now);
 
         return result;
     }

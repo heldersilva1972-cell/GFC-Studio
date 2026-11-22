@@ -154,6 +154,13 @@ public class KeyCardLifecycleService
                 return;
             }
 
+            var member = _memberRepository.GetMemberById(card.MemberId);
+            if (member != null && string.Equals(member.Status, "DECEASED", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Attempted to reactivate card {CardId} for deceased member {MemberId}. Action blocked.", keyCardId, card.MemberId);
+                return;
+            }
+
             // Update card status in database
             card.IsActive = true;
             card.IsControllerSynced = false;

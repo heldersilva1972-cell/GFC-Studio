@@ -520,6 +520,10 @@
                     @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "inactive"; }' style="font-size: 0.8rem; height: 34px;">
                 <i class="bi bi-pause-circle-fill text-warning" style="font-size: 0.75rem;"></i> Inactive <span class="filter-badge">@_countInactive</span>
             </button>
+            <button class="filter-pill py-1 px-3 @(_activeTab == "assignments" && _cardStatusFilter == "deceased" ? "active" : "")" 
+                    @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "deceased"; }' style="font-size: 0.8rem; height: 34px;">
+                <i class="bi bi-heart-break-fill text-secondary" style="font-size: 0.75rem;"></i> Deceased <span class="filter-badge">@_countDeceased</span>
+            </button>
             
             <button class="filter-pill py-1 px-3 pill-highlight @(_activeTab == "pending" ? "active" : "")" 
                     @onclick='() => SetActiveTab("pending")' style="font-size: 0.8rem; height: 34px;">
@@ -1550,6 +1554,7 @@
     private int _countAll = 0;
     private int _countActive = 0;
     private int _countInactive = 0;
+    private int _countDeceased = 0;
     private int _countNeeding = 0;
     private int _countPendingApproval = 0;
     
@@ -1640,10 +1645,14 @@
 
             var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
 
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var deceasedMemberIds = allMembers.Where(m => string.Equals(m.Status, "DECEASED", StringComparison.OrdinalIgnoreCase)).Select(m => m.MemberID).ToHashSet();
+
             // Calculate Counts
-            _countAll = cards.Count;
-            _countActive = cards.Count(c => c.IsActive);
-            _countInactive = cards.Count(c => !c.IsActive);
+            _countDeceased = cards.Count(c => deceasedMemberIds.Contains(c.MemberId));
+            _countAll = cards.Count(c => !deceasedMemberIds.Contains(c.MemberId));
+            _countActive = cards.Count(c => c.IsActive && !deceasedMemberIds.Contains(c.MemberId));
+            _countInactive = cards.Count(c => !c.IsActive && !deceasedMemberIds.Contains(c.MemberId));
 
             // Needing Cards Count - use dashboard rows for accurate waiver detection
             _countNeeding = 0;
@@ -1661,7 +1670,6 @@
 
             // Also count members pending approval specifically
             // Note: LoadMembersAsync is lazy but we need the Repository here directly for counts
-            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
             _countPendingApproval = allMembers.Count(m => MemberStatusHelper.IsPending(m) && MemberFilters.IsActiveForOperationalViews(m));
             
             await InvokeAsync(StateHasChanged);
